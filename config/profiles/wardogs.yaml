@@ -87,6 +87,10 @@ detectors:
           file: templates/wardogs/hud_heart.png
           region: { x: 0.951744, y: 0.9375, width: 0.016860, height: 0.027778 }
           threshold: 0.7
+          # Écran noir (chargement, fondu, mort) : sans forme à reconnaître, la corrélation ne mesure que le
+          # dégradé du fond et monte jusqu'à 0,74, au-dessus du seuil. Mesuré sur 401 images de deux captures
+          # (3440x1440 et 3840x1606) : HUD visible → contraste 23 à 63 ; écran noir → 4,6 à 5,8.
+          minContrast: 15
 
   # Prises de parole sur la piste micro : un moment n'est jamais coupé au milieu d'une phrase ou d'un rire.
   - id: voice

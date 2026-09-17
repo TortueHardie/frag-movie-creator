@@ -62,6 +62,19 @@ class PreparedTemplate(image: GrayImage, val name: String) {
 
 data class Match(val score: Double, val x: Int, val y: Int)
 
+/** Écart-type des niveaux de gris : mesure du contraste d'une zone (0 = uniforme). */
+fun GrayImage.contrast(): Double {
+    val n = width * height
+    var sum = 0.0
+    var sq = 0.0
+    for (i in 0 until n) {
+        val v = (pixels[i].toInt() and 0xFF).toDouble()
+        sum += v
+        sq += v * v
+    }
+    return sqrt((sq / n - (sum / n) * (sum / n)).coerceAtLeast(0.0))
+}
+
 /** Redimensionnement bilinéaire (préparation des modèles à une autre échelle). */
 fun GrayImage.resized(factor: Double): GrayImage {
     if (factor == 1.0) return this

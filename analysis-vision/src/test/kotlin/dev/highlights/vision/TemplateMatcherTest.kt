@@ -7,6 +7,9 @@ import io.kotest.matchers.doubles.shouldBeLessThan
 import io.kotest.matchers.shouldBe
 import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
+import kotlin.math.exp
+import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.random.Random
 
 class TemplateMatcherTest : FunSpec({
@@ -55,6 +58,28 @@ class TemplateMatcherTest : FunSpec({
         ImageIO.write(image, "png", file.toFile())
         val loaded = GrayImage.load(file)
         (0 until 4).map { loaded[it, 0] } shouldBe listOf(0, 100, 128, 255)
+    }
+
+    test("NCC : un dégradé sombre imite la forme et passe le seuil — seul le contraste le distingue") {
+        // Écran noir de chargement : pas de HUD, mais un léger dégradé en croix suffit à corréler avec le modèle.
+        val px = ByteArray(40 * 30) { i ->
+            val x = i % 40
+            val y = i / 40
+            val v = 10 * exp(-(x - 20.0).pow(2) / 8) + 10 * exp(-(y - 15.0).pow(2) / 8)
+            v.roundToInt().coerceIn(0, 255).toByte()
+        }
+        val dark = GrayImage(40, 30, px)
+        val tpl = PreparedTemplate(GrayImage(9, 9, ByteArray(81) { i -> cross()[12 + i % 9, 8 + i / 9].toByte() }), "croix")
+
+        // Le score seul ne protège pas : il dépasse le seuil habituel de 0,7.
+        TemplateMatcher.match(dark, tpl).score shouldBeGreaterThan 0.7
+        // Le contraste, lui, sépare nettement l'écran noir d'une zone où le HUD est visible.
+        dark.contrast() shouldBeLessThan 10.0
+        cross().contrast() shouldBeGreaterThan 30.0
+    }
+
+    test("contraste d'une zone uniforme") {
+        GrayImage(8, 8, ByteArray(64) { 77 }).contrast() shouldBe 0.0
     }
 
     test("redimensionnement") {

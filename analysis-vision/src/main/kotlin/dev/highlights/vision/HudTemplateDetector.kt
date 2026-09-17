@@ -111,6 +111,12 @@ data class TemplateSpec(
     val tolerance: Int = 0,
     /** Remplace le matchScale global pour ce modèle (ex. 1.0 pour un texte fin). */
     val matchScale: Double? = null,
+    /**
+     * Contraste minimal (écart-type des niveaux de gris) de la zone : en dessous, elle est tenue pour uniforme
+     * (écran noir, chargement, fondu) et le score est nul. Utile avec la méthode ncc, qui n'a plus de forme à
+     * reconnaître sur un écran vide et se met à corréler le dégradé du fond. 0 = pas de garde.
+     */
+    val minContrast: Double = 0.0,
     /** Nombre d'échantillons consécutifs requis pour valider un événement (filtre les faux positifs isolés). */
     val minConsecutive: Int = 2,
     /** Absence minimale pour considérer qu'une nouvelle occurrence commence. */
@@ -159,6 +165,8 @@ class HudTemplateDetector(override val id: String, private val params: HudTempla
                     scorer
                 }
             }
+            val guarded: (GrayImage) -> Double =
+                if (spec.minContrast <= 0.0) scorer else { roi -> if (roi.contrast() < spec.minContrast) 0.0 else scorer(roi) }
             val cx = (spec.region.x * video.width).roundToInt().coerceIn(0, video.width - 1)
             val cy = (spec.region.y * video.height).roundToInt().coerceIn(0, video.height - 1)
             val cw = (spec.region.width * video.width).roundToInt().coerceIn(1, video.width - cx)
@@ -170,7 +178,7 @@ class HudTemplateDetector(override val id: String, private val params: HudTempla
                     "$id : la zone de '${spec.name}' (${sw}x$sh à l'échelle) est plus petite que le modèle (${largest.width}x${largest.height})",
                 )
             }
-            Zone(spec, scorer, intArrayOf(cw, ch, cx, cy), sw, sh, offsetY).also { offsetY += sh }
+            Zone(spec, guarded, intArrayOf(cw, ch, cx, cy), sw, sh, offsetY).also { offsetY += sh }
         }
         val frameWidth = zones.maxOf { it.scaledW }
         val frameHeight = offsetY
