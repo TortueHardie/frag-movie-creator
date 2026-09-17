@@ -7,19 +7,15 @@ import dev.highlights.core.analysis.SignalDetector
 import dev.highlights.core.analysis.SignalDetectorFactory
 import dev.highlights.core.analysis.SignalEvent
 import dev.highlights.core.analysis.SignalTrack
-import dev.highlights.core.ffmpeg.FfmpegCommand
-import dev.highlights.core.ffmpeg.FfmpegException
-import dev.highlights.core.ffmpeg.StdoutHandler
 import dev.highlights.core.model.CropRegion
-import dev.highlights.core.model.MediaInfo
-import dev.highlights.core.serialization.Durations
+import dev.highlights.core.model.VideoStream
 import dev.highlights.core.serialization.SerialDuration
+import dev.highlights.core.video.FrameSampler
+import dev.highlights.core.video.FrameSpec
+import dev.highlights.core.video.FrameZone
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import java.io.DataInputStream
-import java.io.EOFException
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -50,7 +46,11 @@ data class HudTemplateParams(
     /** Hauteur de la capture sur laquelle les modèles ont été découpés : les zones sont mises à cette échelle. */
     val referenceHeight: Int = 1440,
     val sampling: Sampling = Sampling.AUTO,
-    /** Décodage matériel (d3d11va sous Windows). null = logiciel. Repli automatique sur le logiciel en cas d'échec. */
+    /**
+     * Décodage matériel (d3d11va sous Windows) de l'échantillonnage à [fps], où toutes les images sont décodées.
+     * null = logiciel. Repli automatique sur le logiciel en cas d'échec. Sans effet sur les images clés : elles sont
+     * trop peu nombreuses pour amortir le transfert depuis le GPU, le décodage logiciel y est deux fois plus rapide.
+     */
     val hwaccel: String? = "d3d11va",
     val fps: Double = 2.0,
     /** En mode auto, au-delà de cet intervalle entre images clés on bascule sur l'échantillonnage à fps. */
@@ -132,41 +132,111 @@ class HudTemplateDetector(override val id: String, private val params: HudTempla
 
     private class Zone(
         val spec: TemplateSpec,
-        val score: (GrayImage) -> Double,
-        val crop: IntArray,
-        val scaledW: Int,
-        val scaledH: Int,
-        val offsetY: Int,
+        val score: (ZoneImage) -> Double,
+        val area: FrameZone,
+        /** Indice de l'image partagée : deux modèles cherchés au même endroit la préparent une seule fois. */
+        val slot: Int,
     )
 
-    override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
-        val media = ctx.media
-        val video = media.video ?: return SignalTrack.missing(id, ctx.grid.count, "pas de flux vidéo")
-        val baseScale = params.referenceHeight.toDouble() / video.height
+    /**
+     * Zone d'une image, préparée au premier besoin : contraste et binarisation servent à tous les modèles
+     * qui visent le même endroit.
+     */
+    internal class ZoneImage(val gray: GrayImage) {
+        private var measuredContrast = Double.NaN
+        private val binarized = HashMap<Int, BrightRoi>()
 
-        var offsetY = 0
-        val zones = params.templates.map { spec ->
+        fun contrast(): Double {
+            if (measuredContrast.isNaN()) measuredContrast = gray.contrast()
+            return measuredContrast
+        }
+
+        fun bright(brightness: Int): BrightRoi = binarized.getOrPut(brightness) { BrightRoi(gray, brightness) }
+    }
+
+    /** Zones, abonnement au décodage partagé et scores accumulés, préparés avant le démarrage des détecteurs. */
+    private class Prepared(
+        val zones: List<Zone>,
+        val scores: List<MutableList<Double>>,
+        val subscription: FrameSampler.Subscription,
+    )
+
+    @Volatile
+    private var prepared: Prepared? = null
+
+    override suspend fun prepare(ctx: AnalysisContext) {
+        val video = ctx.media.video ?: return
+        val zones = buildZones(ctx, video)
+        val slots = zones.map { it.area }.distinct().size
+        val spec = chooseSampling(ctx)
+        log.info { "$id : ${zones.size} modèle(s), ${if (spec.keyframes) "images clés (~${spec.interval})" else "${params.fps} img/s"}" }
+        val scores = List(zones.size) { mutableListOf<Double>() }
+        val subscription = ctx.frames.subscribe(
+            spec = spec,
+            zones = zones.map { it.area },
+            label = id,
+            progress = ctx.progress,
+            onReset = { scores.forEach { it.clear() } },
+            onFrame = { _, rois ->
+                val images = arrayOfNulls<ZoneImage>(slots)
+                zones.forEachIndexed { k, zone ->
+                    val roi = rois[k]
+                    val image = images[zone.slot]
+                        ?: ZoneImage(GrayImage(roi.width, roi.height, roi.pixels)).also { images[zone.slot] = it }
+                    scores[k] += zone.score(image)
+                }
+            },
+        )
+        prepared = Prepared(zones, scores, subscription)
+    }
+
+    override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
+        if (ctx.media.video == null) return SignalTrack.missing(id, ctx.grid.count, "pas de flux vidéo")
+        // Hors pipeline (tests, usage direct), personne n'a préparé le détecteur : il décode alors pour lui seul.
+        if (prepared == null) prepare(ctx)
+        val state = prepared ?: return SignalTrack.missing(id, ctx.grid.count, "pas de flux vidéo")
+
+        val sampleTimes = state.subscription.await()
+        val scores = state.scores
+        val count = minOf(sampleTimes.size, scores.firstOrNull()?.size ?: 0)
+        if (count == 0) return SignalTrack.missing(id, ctx.grid.count, "aucune image analysée")
+
+        return when (params.mode) {
+            HudMode.EVENTS -> eventsTrack(ctx, state.zones, scores, sampleTimes.subList(0, count))
+            HudMode.PRESENCE -> presenceTrack(ctx, state.zones, scores, sampleTimes.subList(0, count))
+        }
+    }
+
+    /** Une zone par modèle : rectangle source, taille après réduction et fonction de score. */
+    private fun buildZones(ctx: AnalysisContext, video: VideoStream): List<Zone> {
+        val baseScale = params.referenceHeight.toDouble() / video.height
+        val slotOf = LinkedHashMap<FrameZone, Int>()
+        return params.templates.map { spec ->
             val source = GrayImage.load(ctx.configDir.resolve(spec.file))
             val matchScale = spec.matchScale ?: params.matchScale
             val scale = baseScale * matchScale
             val variants = spec.scales.map { source.resized(it * matchScale) }
             val largest = variants.maxBy { it.width * it.height }
-            val scorer: (GrayImage) -> Double = when (spec.method) {
+            val scorer: (ZoneImage) -> Double = when (spec.method) {
                 MatchMethod.NCC -> {
                     val prepared = variants.map { PreparedTemplate(it, spec.name) }
-                    val scorer: (GrayImage) -> Double = { roi ->
-                        prepared.filter { it.width <= roi.width && it.height <= roi.height }.maxOfOrNull { TemplateMatcher.match(roi, it).score } ?: 0.0
+                    val scorer: (ZoneImage) -> Double = { image ->
+                        prepared.filter { it.width <= image.gray.width && it.height <= image.gray.height }
+                            .maxOfOrNull { TemplateMatcher.match(image.gray, it).score } ?: 0.0
                     }
                     scorer
                 }
                 MatchMethod.BRIGHT -> {
                     val prepared = variants.map { BrightTemplate(it, spec.brightness, spec.name, spec.tolerance) }
-                    val scorer: (GrayImage) -> Double = { roi -> prepared.maxOf { BrightMatcher.match(roi, it).score } }
+                    val scorer: (ZoneImage) -> Double = { image ->
+                        val roi = image.bright(spec.brightness)
+                        prepared.maxOf { BrightMatcher.match(roi, it).score }
+                    }
                     scorer
                 }
             }
-            val guarded: (GrayImage) -> Double =
-                if (spec.minContrast <= 0.0) scorer else { roi -> if (roi.contrast() < spec.minContrast) 0.0 else scorer(roi) }
+            val guarded: (ZoneImage) -> Double =
+                if (spec.minContrast <= 0.0) scorer else { image -> if (image.contrast() < spec.minContrast) 0.0 else scorer(image) }
             val cx = (spec.region.x * video.width).roundToInt().coerceIn(0, video.width - 1)
             val cy = (spec.region.y * video.height).roundToInt().coerceIn(0, video.height - 1)
             val cw = (spec.region.width * video.width).roundToInt().coerceIn(1, video.width - cx)
@@ -178,134 +248,22 @@ class HudTemplateDetector(override val id: String, private val params: HudTempla
                     "$id : la zone de '${spec.name}' (${sw}x$sh à l'échelle) est plus petite que le modèle (${largest.width}x${largest.height})",
                 )
             }
-            Zone(spec, guarded, intArrayOf(cw, ch, cx, cy), sw, sh, offsetY).also { offsetY += sh }
-        }
-        val frameWidth = zones.maxOf { it.scaledW }
-        val frameHeight = offsetY
-        val frameBytes = frameWidth * frameHeight
-
-        val (useKeyframes, interval) = chooseSampling(ctx)
-        log.info { "$id : ${zones.size} modèle(s), ${if (useKeyframes) "images clés (~$interval)" else "${params.fps} img/s"}" }
-
-        val times = ConcurrentHashMap<Int, Duration>()
-        val scores = List(zones.size) { mutableListOf<Double>() }
-        val showinfo = Regex("""\bn:\s*(\d+)\b.*\bpts_time:\s*(-?[\d.]+)""")
-        val expectedFrames = (media.duration / interval).coerceAtLeast(1.0)
-
-        suspend fun extract(hwaccel: String?) = ctx.ffmpeg.run(
-            FfmpegCommand(
-                buildList {
-                    hwaccel?.let { addAll(listOf("-hwaccel", it)) }
-                    if (useKeyframes) addAll(listOf("-skip_frame", "nokey"))
-                    addAll(listOf("-i", media.path.toString(), "-an", "-sn", "-dn"))
-                    addAll(listOf("-filter_complex", filterGraph(zones, frameWidth, useKeyframes)))
-                    addAll(listOf("-map", "[out]", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"))
-                },
-                "$id : modèles HUD",
-            ),
-            StdoutHandler.Binary { input ->
-                val data = DataInputStream(input.buffered(frameBytes * 4))
-                val frame = ByteArray(frameBytes)
-                var index = 0
-                while (true) {
-                    try {
-                        data.readFully(frame)
-                    } catch (_: EOFException) {
-                        break
-                    }
-                    zones.forEachIndexed { k, zone ->
-                        val roi = ByteArray(zone.scaledW * zone.scaledH)
-                        for (row in 0 until zone.scaledH) {
-                            System.arraycopy(frame, (zone.offsetY + row) * frameWidth, roi, row * zone.scaledW, zone.scaledW)
-                        }
-                        scores[k] += zone.score(GrayImage(zone.scaledW, zone.scaledH, roi))
-                    }
-                    index++
-                    if (index % 20 == 0) ctx.progress.update((index / expectedFrames).coerceAtMost(0.99), "$index images")
-                }
-            },
-            onStderrLine = { line ->
-                if (line.contains("showinfo")) {
-                    showinfo.find(line)?.let { m -> times[m.groupValues[1].toInt()] = m.groupValues[2].toDouble().seconds }
-                }
-            },
-        )
-        try {
-            extract(params.hwaccel)
-        } catch (e: FfmpegException) {
-            if (params.hwaccel == null) throw e
-            log.warn { "$id : échec avec -hwaccel ${params.hwaccel} (${e.message}), nouvel essai en décodage logiciel" }
-            times.clear()
-            scores.forEach { it.clear() }
-            extract(null)
-        }
-        ctx.progress.complete()
-
-        val count = scores.firstOrNull()?.size ?: 0
-        if (count == 0) return SignalTrack.missing(id, ctx.grid.count, "aucune image analysée")
-        if (times.size < count) log.warn { "$id : ${count - times.size} horodatage(s) manquant(s), estimation par l'intervalle" }
-        val sampleTimes = List(count) { i -> times[i] ?: (interval * i) }
-
-        return when (params.mode) {
-            HudMode.EVENTS -> eventsTrack(ctx, zones, scores, sampleTimes)
-            HudMode.PRESENCE -> presenceTrack(ctx, zones, scores, sampleTimes)
-        }
-    }
-
-    private fun filterGraph(zones: List<Zone>, frameWidth: Int, keyframes: Boolean): String {
-        val head = "[0:v:0]" + (if (keyframes) "" else "fps=${params.fps},") + "setsar=1"
-        fun chain(z: Zone, first: Boolean) = buildString {
-            append("crop=${z.crop[0]}:${z.crop[1]}:${z.crop[2]}:${z.crop[3]},scale=${z.scaledW}:${z.scaledH}:flags=area,format=gray")
-            if (first) append(",showinfo")
-            if (z.scaledW < frameWidth) append(",pad=$frameWidth:${z.scaledH}:0:0")
-        }
-        if (zones.size == 1) return "$head,${chain(zones[0], true)}[out]"
-        return buildString {
-            append("$head,split=${zones.size}")
-            zones.indices.forEach { append("[s$it]") }
-            zones.forEachIndexed { k, z -> append(";[s$k]${chain(z, k == 0)}[r$k]") }
-            append(";")
-            zones.indices.forEach { append("[r$it]") }
-            append("vstack=inputs=${zones.size}[out]")
+            val area = FrameZone(cx, cy, cw, ch, sw, sh)
+            Zone(spec, guarded, area, slotOf.getOrPut(area) { slotOf.size })
         }
     }
 
     /** Images clés si leur intervalle (mesuré sur 30 s au milieu de la vidéo) est assez court. */
-    private suspend fun chooseSampling(ctx: AnalysisContext): Pair<Boolean, Duration> {
-        val fpsInterval = (1.0 / params.fps).seconds
-        if (params.sampling == Sampling.FPS) return false to fpsInterval
-        val measured = keyframeInterval(ctx, ctx.media)
-        if (params.sampling == Sampling.KEYFRAMES) return true to (measured ?: 1.seconds)
+    private suspend fun chooseSampling(ctx: AnalysisContext): FrameSpec {
+        if (params.sampling == Sampling.FPS) return FrameSpec.fps(params.fps, params.hwaccel)
+        val measured = ctx.frames.keyframeInterval(id)
+        if (params.sampling == Sampling.KEYFRAMES) return FrameSpec.keyframes(measured ?: 1.seconds)
         return if (measured != null && measured <= params.maxKeyframeInterval) {
-            true to measured
+            FrameSpec.keyframes(measured)
         } else {
             log.warn { "$id : images clés espacées de ${measured ?: "?"}, échantillonnage à ${params.fps} img/s (plus lent)" }
-            false to fpsInterval
+            FrameSpec.fps(params.fps, params.hwaccel)
         }
-    }
-
-    private suspend fun keyframeInterval(ctx: AnalysisContext, media: MediaInfo): Duration? {
-        val start = (media.duration / 2 - 15.seconds).coerceAtLeast(Duration.ZERO)
-        val keyTimes = mutableListOf<Double>()
-        runCatching {
-            ctx.ffmpeg.runProbe(
-                FfmpegCommand(
-                    listOf(
-                        "-v", "error", "-select_streams", "v:0",
-                        "-read_intervals", "${Durations.ffmpegSeconds(start)}%+30",
-                        "-show_entries", "packet=pts_time,flags", "-of", "csv=p=0", media.path.toString(),
-                    ),
-                    "$id : intervalle des images clés",
-                ),
-                StdoutHandler.Lines { line ->
-                    val parts = line.split(',')
-                    if (parts.size >= 2 && parts[1].startsWith("K")) parts[0].toDoubleOrNull()?.let { keyTimes += it }
-                },
-            )
-        }.onFailure { log.warn { "$id : mesure des images clés impossible : ${it.message}" } }
-        if (keyTimes.size < 3) return null
-        val gaps = keyTimes.sorted().zipWithNext { a, b -> b - a }.filter { it > 0 }.sorted()
-        return gaps.getOrNull(gaps.size / 2)?.seconds
     }
 
     private fun eventsTrack(ctx: AnalysisContext, zones: List<Zone>, scores: List<List<Double>>, times: List<Duration>): SignalTrack {

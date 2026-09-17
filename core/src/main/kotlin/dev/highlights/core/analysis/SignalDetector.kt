@@ -9,6 +9,7 @@ import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.WindowGrid
 import dev.highlights.core.progress.ProgressReporter
+import dev.highlights.core.video.FrameSampler
 import kotlinx.serialization.DeserializationStrategy
 import java.nio.file.Path
 import kotlin.time.Duration
@@ -20,6 +21,12 @@ import kotlin.time.Duration
 interface SignalDetector {
     /** Identifiant de l'instance dans le profil (ex. "game-audio"). */
     val id: String
+
+    /**
+     * Déclare à l'avance ce dont le détecteur a besoin, avant que le moindre détecteur ne démarre : c'est là qu'un
+     * détecteur d'images s'abonne à [AnalysisContext.frames] pour que la vidéo ne soit décodée qu'une fois.
+     */
+    suspend fun prepare(ctx: AnalysisContext) = Unit
 
     suspend fun analyze(ctx: AnalysisContext): SignalTrack
 }
@@ -41,6 +48,8 @@ class AnalysisContext(
     val progress: ProgressReporter,
     /** Dossier de configuration (app.yaml) : base des chemins relatifs des paramètres (modèles d'images…). */
     val configDir: Path = workDir,
+    /** Décodage vidéo partagé entre détecteurs : une seule lecture de la capture pour toutes leurs zones. */
+    val frames: FrameSampler = FrameSampler(ffmpeg, media),
 )
 
 /**

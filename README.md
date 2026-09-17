@@ -111,7 +111,7 @@ Pistes audio : `game-audio` lit la piste 0, `mic-audio` la piste 1 si elle exist
 
 | Module | Rôle |
 |---|---|
-| `core` | Modèle, interfaces (`SignalDetector`, `FfmpegService`, `EncoderSelector`…), config YAML, progression + ETA, session |
+| `core` | Modèle, interfaces (`SignalDetector`, `FfmpegService`, `EncoderSelector`…), config YAML, progression + ETA, session, décodage vidéo partagé (`FrameSampler`), FFT |
 | `ffmpeg` | Exécution FFmpeg/ffprobe via ProcessBuilder, détection des encodeurs |
 | `analysis` | Détecteurs (`audio-loudness`), enregistrés par `ServiceLoader` |
 | `scoring` | Normalisation par percentiles, fusion pondérée, sélection des moments |
@@ -122,3 +122,5 @@ Pistes audio : `game-audio` lit la piste 0, `mic-audio` la piste 1 si elle exist
 | `app-cli` | Commandes Clikt |
 
 Ajouter un détecteur : implémenter `SignalDetectorFactory`, déclarer la classe dans `META-INF/services/dev.highlights.core.analysis.SignalDetectorFactory`, puis la référencer par son `type` dans un profil.
+
+Un détecteur qui lit des images déclare ses zones dans `prepare()` auprès de `ctx.frames` (`FrameSampler`) plutôt que de lancer son propre FFmpeg : tous ceux qui demandent la même cadence se partagent alors un seul décodage de la capture, et deux zones identiques ne sont découpées qu'une fois.

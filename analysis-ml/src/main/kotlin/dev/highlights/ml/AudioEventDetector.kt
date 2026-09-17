@@ -94,16 +94,23 @@ class AudioEventDetector(override val id: String, private val params: AudioEvent
                     analyzed += pending.size
                     pending.clear()
                 }
-                val stream16k = LogMelStream { index, patch, maxDb ->
-                    if (maxDb < params.silenceDb) {
-                        skipped++
-                    } else {
-                        pending += index to patch
-                        if (pending.size >= params.batchSize) flush()
-                    }
+                fun report(index: Int) {
                     if (index % 200 == 0 && total.isPositive()) {
                         ctx.progress.update((LogMelStream.patchStartSeconds(index).seconds / total).coerceAtMost(0.99))
                     }
+                }
+                // Le seuil de silence descend dans le spectrogramme : un patch sous ce niveau ne coûte
+                // même pas sa FFT (micro coupé la plupart du temps).
+                val stream16k = LogMelStream(
+                    silenceDb = params.silenceDb,
+                    onSkipped = { index ->
+                        skipped++
+                        report(index)
+                    },
+                ) { index, patch, _ ->
+                    pending += index to patch
+                    if (pending.size >= params.batchSize) flush()
+                    report(index)
                 }
                 ctx.ffmpeg.run(
                     FfmpegCommand(

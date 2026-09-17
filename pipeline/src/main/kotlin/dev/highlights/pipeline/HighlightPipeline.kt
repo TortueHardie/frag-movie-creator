@@ -21,6 +21,7 @@ import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.session.Session
 import dev.highlights.core.session.SessionStore
 import dev.highlights.core.serialization.toTimecode
+import dev.highlights.core.video.FrameSampler
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
@@ -35,6 +36,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.nio.file.Path
@@ -286,13 +288,26 @@ class HighlightPipeline(
         val instances = enabled.map { it to detectors.create(it.type, it.id, it.detectorParams()) }
         val semaphore = Semaphore(config.app.analysis.parallelism)
 
+        // Chaque détecteur déclare d'abord ses besoins (zones vidéo, cadence) : la capture n'est ensuite décodée
+        // qu'une fois pour tous ceux qui lisent des images. Une préparation en échec est relancée dans son détecteur,
+        // pour être traitée comme n'importe quelle autre panne (continueOnDetectorError).
+        val frames = FrameSampler(ffmpeg, media)
+        val contexts = instances.map { (cfg, _) ->
+            AnalysisContext(media, grid, ffmpeg, workDir, progress.child(cfg.id, 1.0 / instances.size), config.baseDir, frames)
+        }
+        val preparations = instances.mapIndexed { i, (_, detector) -> runCatching { detector.prepare(contexts[i]) } }
+
         return coroutineScope {
-            instances.map { (cfg, detector) ->
-                val step = progress.child(cfg.id, 1.0 / instances.size)
+            // Les passes vidéo partagées démarrent tout de suite, hors du sémaphore : le décodage recouvre
+            // l'analyse audio au lieu d'attendre son tour.
+            launch { frames.runAll() }
+            instances.mapIndexed { i, (cfg, detector) ->
+                val step = contexts[i].progress
                 async {
                     semaphore.withPermit {
                         val track = try {
-                            detector.analyze(AnalysisContext(media, grid, ffmpeg, workDir, step, config.baseDir))
+                            preparations[i].getOrThrow()
+                            detector.analyze(contexts[i])
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {

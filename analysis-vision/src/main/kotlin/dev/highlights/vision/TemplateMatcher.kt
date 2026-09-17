@@ -47,6 +47,9 @@ class PreparedTemplate(image: GrayImage, val name: String) {
     val zeroMean = FloatArray(width * height)
     val norm: Double
 
+    /** Énergie du modèle des lignes [ty] à la fin : borne le reste d'une corrélation entamée. */
+    internal val tailEnergy = DoubleArray(height + 1)
+
     init {
         val mean = image.pixels.take(width * height).sumOf { it.toInt() and 0xFF }.toDouble() / (width * height)
         var sq = 0.0
@@ -57,6 +60,14 @@ class PreparedTemplate(image: GrayImage, val name: String) {
         }
         norm = sqrt(sq)
         if (norm < 1e-6) throw ConfigException("Modèle '$name' uniforme : impossible à reconnaître")
+        for (ty in height - 1 downTo 0) {
+            var row = 0.0
+            for (tx in 0 until width) {
+                val v = zeroMean[ty * width + tx].toDouble()
+                row += v * v
+            }
+            tailEnergy[ty] = tailEnergy[ty + 1] + row
+        }
     }
 }
 
@@ -116,41 +127,34 @@ class BrightTemplate(image: GrayImage, val brightness: Int, val name: String, va
     }
 }
 
-object BrightMatcher {
-    /** Score de Dice entre pixels clairs du modèle et de la zone : 1 = formes identiques, pénalise le décor clair. */
-    fun match(roi: GrayImage, tpl: BrightTemplate): Match {
-        val w = tpl.width
-        val h = tpl.height
-        if (roi.width < w || roi.height < h) return Match(0.0, 0, 0)
-        val bin = BooleanArray(roi.width * roi.height) { (roi.pixels[it].toInt() and 0xFF) >= tpl.brightness }
-        // Tolérance : un pixel du modèle compte s'il y a un pixel clair à moins de `tolerance` pixels (traits fins, décalage d'arrondi).
-        val near = if (tpl.tolerance <= 0) bin else dilate(bin, roi.width, roi.height, tpl.tolerance)
-        val iw = roi.width + 1
-        val integral = IntArray(iw * (roi.height + 1))
-        for (y in 0 until roi.height) {
+/**
+ * Zone binarisée une fois pour toutes les comparaisons d'une même image : plusieurs modèles (et plusieurs échelles
+ * d'un même modèle) cherchent au même endroit, inutile de reseuiller et de réintégrer la zone pour chacun.
+ */
+class BrightRoi(val image: GrayImage, val brightness: Int) {
+    private val width = image.width
+    private val height = image.height
+
+    /** Pixels clairs de la zone. */
+    internal val lit = BooleanArray(width * height) { (image.pixels[it].toInt() and 0xFF) >= brightness }
+
+    /** Image intégrale des pixels clairs : nombre d'allumés dans n'importe quel rectangle en 4 lectures. */
+    internal val integral = IntArray((width + 1) * (height + 1)).also { integral ->
+        val iw = width + 1
+        for (y in 0 until height) {
             var row = 0
-            for (x in 0 until roi.width) {
-                if (bin[y * roi.width + x]) row++
+            for (x in 0 until width) {
+                if (lit[y * width + x]) row++
                 integral[(y + 1) * iw + x + 1] = integral[y * iw + x + 1] + row
             }
         }
-        val fg = tpl.on.size
-        var best = Match(0.0, 0, 0)
-        for (oy in 0..roi.height - h) {
-            for (ox in 0..roi.width - w) {
-                val lit = integral[(oy + h) * iw + ox + w] - integral[oy * iw + ox + w] - integral[(oy + h) * iw + ox] + integral[oy * iw + ox]
-                // Borne supérieure du Dice : inutile de compter l'intersection si elle ne peut pas battre le meilleur.
-                if (2.0 * minOf(lit, fg) / (fg + lit) <= best.score) continue
-                var inter = 0
-                for (p in tpl.on) {
-                    if (near[(oy + (p shr 16)) * roi.width + ox + (p and 0xFFFF)]) inter++
-                }
-                val dice = (2.0 * inter / (fg + lit)).coerceAtMost(1.0)
-                if (dice > best.score) best = Match(dice, ox, oy)
-            }
-        }
-        return best
     }
+
+    private val dilated = HashMap<Int, BooleanArray>()
+
+    /** Pixels clairs élargis de [tolerance] pixels (traits fins, décalage d'arrondi). */
+    internal fun near(tolerance: Int): BooleanArray =
+        if (tolerance <= 0) lit else dilated.getOrPut(tolerance) { dilate(lit, width, height, tolerance) }
 
     private fun dilate(bin: BooleanArray, w: Int, h: Int, r: Int): BooleanArray {
         val horizontal = BooleanArray(bin.size)
@@ -171,6 +175,49 @@ object BrightMatcher {
     }
 }
 
+object BrightMatcher {
+    /** Score de Dice entre pixels clairs du modèle et de la zone : 1 = formes identiques, pénalise le décor clair. */
+    fun match(roi: GrayImage, tpl: BrightTemplate): Match = match(BrightRoi(roi, tpl.brightness), tpl)
+
+    fun match(roi: BrightRoi, tpl: BrightTemplate): Match {
+        val w = tpl.width
+        val h = tpl.height
+        val image = roi.image
+        if (image.width < w || image.height < h) return Match(0.0, 0, 0)
+        require(roi.brightness == tpl.brightness) { "zone binarisée à ${roi.brightness}, modèle '${tpl.name}' à ${tpl.brightness}" }
+        val near = roi.near(tpl.tolerance)
+        val integral = roi.integral
+        val rowWidth = image.width
+        val iw = rowWidth + 1
+        val on = tpl.on
+        val fg = on.size
+        var bestScore = 0.0
+        var bestX = 0
+        var bestY = 0
+        for (oy in 0..image.height - h) {
+            val top = oy * iw
+            val bottom = (oy + h) * iw
+            for (ox in 0..image.width - w) {
+                val lit = integral[bottom + ox + w] - integral[top + ox + w] - integral[bottom + ox] + integral[top + ox]
+                // Borne supérieure du Dice, 2·min(lit, fg)/(fg + lit), comparée sans division : inutile de compter
+                // l'intersection à un décalage qui ne peut pas battre le meilleur score.
+                if (2 * minOf(lit, fg) <= bestScore * (fg + lit)) continue
+                var inter = 0
+                for (p in on) {
+                    if (near[(oy + (p shr 16)) * rowWidth + ox + (p and 0xFFFF)]) inter++
+                }
+                val dice = (2.0 * inter / (fg + lit)).coerceAtMost(1.0)
+                if (dice > bestScore) {
+                    bestScore = dice
+                    bestX = ox
+                    bestY = oy
+                }
+            }
+        }
+        return Match(bestScore, bestX, bestY)
+    }
+}
+
 /**
  * Corrélation croisée normalisée (équivalent de TM_CCOEFF_NORMED d'OpenCV) sur une petite zone de recherche.
  * Les éléments de HUD ont une position fixe : la zone dépasse le modèle de quelques pixels seulement, ce qui garde
@@ -184,11 +231,14 @@ object TemplateMatcher {
         val iw = roi.width + 1
         val sum = DoubleArray(iw * (roi.height + 1))
         val sq = DoubleArray(iw * (roi.height + 1))
+        // Valeurs de la zone en flottants : la corrélation les relit des milliers de fois, une par décalage et par pixel.
+        val values = DoubleArray(roi.width * roi.height)
         for (y in 0 until roi.height) {
             var rowSum = 0.0
             var rowSq = 0.0
             for (x in 0 until roi.width) {
-                val v = roi[x, y].toDouble()
+                val v = (roi.pixels[y * roi.width + x].toInt() and 0xFF).toDouble()
+                values[y * roi.width + x] = v
                 rowSum += v
                 rowSq += v * v
                 sum[(y + 1) * iw + x + 1] = sum[y * iw + x + 1] + rowSum
@@ -196,7 +246,6 @@ object TemplateMatcher {
             }
         }
         val n = (w * h).toDouble()
-        val pixels = roi.pixels
         val zm = tpl.zeroMean
         var best = Match(-1.0, 0, 0)
         for (oy in 0..roi.height - h) {
@@ -209,36 +258,32 @@ object TemplateMatcher {
                 val s2 = sq[d] - sq[b] - sq[c] + sq[a]
                 val variance = s2 - s * s / n
                 if (variance <= 1e-6) continue
+                // Score à battre, exprimé en corrélation non normalisée.
+                val target = best.score * sqrt(variance) * tpl.norm
                 var cross = 0.0
-                for (ty in 0 until h) {
+                var hopeless = false
+                var ty = 0
+                while (ty < h) {
                     val rowStart = (oy + ty) * roi.width + ox
                     val tRow = ty * w
-                    for (tx in 0 until w) {
-                        cross += (pixels[rowStart + tx].toInt() and 0xFF) * zm[tRow + tx]
+                    for (tx in 0 until w) cross += values[rowStart + tx] * zm[tRow + tx]
+                    ty++
+                    // Cauchy-Schwarz sur les lignes restantes : si même leur meilleur apport ne suffit pas, on arrête.
+                    val missing = target - cross
+                    if (missing > 0) {
+                        val e = sq[(oy + h) * iw + ox + w] - sq[(oy + ty) * iw + ox + w] -
+                            sq[(oy + h) * iw + ox] + sq[(oy + ty) * iw + ox]
+                        if (e * tpl.tailEnergy[ty] <= missing * missing) {
+                            hopeless = true
+                            break
+                        }
                     }
                 }
+                if (hopeless) continue
                 val score = cross / (sqrt(variance) * tpl.norm)
                 if (score > best.score) best = Match(score, ox, oy)
             }
         }
         return best
-    }
-
-    private fun dilate(bin: BooleanArray, w: Int, h: Int, r: Int): BooleanArray {
-        val horizontal = BooleanArray(bin.size)
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                if (!bin[y * w + x]) continue
-                for (dx in maxOf(0, x - r)..minOf(w - 1, x + r)) horizontal[y * w + dx] = true
-            }
-        }
-        val out = BooleanArray(bin.size)
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                if (!horizontal[y * w + x]) continue
-                for (dy in maxOf(0, y - r)..minOf(h - 1, y + r)) out[dy * w + x] = true
-            }
-        }
-        return out
     }
 }

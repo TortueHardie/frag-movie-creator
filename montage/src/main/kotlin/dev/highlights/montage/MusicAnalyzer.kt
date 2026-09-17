@@ -2,7 +2,7 @@ package dev.highlights.montage
 
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.InputException
-import dev.highlights.core.dsp.Fft
+import dev.highlights.core.dsp.RealFft
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.StdoutHandler
@@ -235,20 +235,16 @@ object MusicAnalyzer {
     private fun melSpectrogram(samples: FloatArray): Spectrogram {
         val frames = (samples.size - FRAME) / HOP + 1
         val window = DoubleArray(FRAME) { 0.5 - 0.5 * cos(2 * PI * it / FRAME) }
-        val re = DoubleArray(FRAME)
-        val im = DoubleArray(FRAME)
-        val power = DoubleArray(BINS)
+        val fft = RealFft(FRAME)
+        val windowed = DoubleArray(FRAME)
+        val power = DoubleArray(fft.bins)
         val lowBins = (200.0 * FRAME / SAMPLE_RATE).roundToInt().coerceAtLeast(2)
         val mel = Array(frames) { DoubleArray(MEL_BANDS) }
         val lowEnergy = DoubleArray(frames)
         for (f in 0 until frames) {
             val start = f * HOP
-            for (i in 0 until FRAME) {
-                re[i] = samples[start + i] * window[i]
-                im[i] = 0.0
-            }
-            Fft.transform(re, im)
-            for (k in 0 until BINS) power[k] = re[k] * re[k] + im[k] * im[k]
+            for (i in 0 until FRAME) windowed[i] = samples[start + i] * window[i]
+            fft.power(windowed, power)
             for (k in 1 until lowBins) lowEnergy[f] += power[k]
             val row = mel[f]
             filters.forEachIndexed { b, filter ->
