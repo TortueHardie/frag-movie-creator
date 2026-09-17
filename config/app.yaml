@@ -1,0 +1,25 @@
+# Configuration générale. Les chemins relatifs sont résolus depuis le dossier de ce fichier.
+
+ffmpeg:
+  # Laisser commenté pour une détection automatique (PATH puis installation winget Gyan.FFmpeg).
+  # ffmpegPath: C:/ffmpeg/bin/ffmpeg.exe
+  # ffprobePath: C:/ffmpeg/bin/ffprobe.exe
+  # Décodage matériel des sources pendant le rendu (d3d11va = GPU sous Windows). Commenter la ligne et mettre null pour du logiciel.
+  hwaccelDecode: d3d11va
+
+# Où écrire les montages, rapports JSON et sessions (jamais dans les sources).
+outputDir: ../output
+profilesDir: profiles
+# workDir: D:/tmp/highlights
+
+analysis:
+  parallelism: 2
+  continueOnDetectorError: true
+
+encoder:
+  # Le premier encodeur qui réussit un encodage de test est utilisé.
+  preference: [h264_amf, libx264]
+  audioBitrate: 192k
+  # Surcharge des arguments d'un encodeur, par exemple :
+  # videoArgs:
+  #   h264_amf: ["-c:v", "h264_amf", "-quality", "quality", "-rc", "qvbr", "-qvbr_quality_level", "20"]

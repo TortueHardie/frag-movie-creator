@@ -1,0 +1,11 @@
+.gradle/
+build/
+.kotlin/
+.idea/
+*.iml
+output/
+logs/
+local/
+
+# Musiques de test (fichiers personnels, non redistribuables)
+music sample/

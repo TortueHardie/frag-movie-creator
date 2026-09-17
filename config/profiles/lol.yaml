@@ -1,0 +1,61 @@
+id: lol
+displayName: League of Legends
+
+match:
+  pathContains: ["League of Legends", "LeagueOfLegends"]
+  priority: 10
+
+# Les combats d'équipe durent 10 à 30 s : fenêtres plus larges.
+window: { size: 2s, hop: 1s }
+
+# Pistes Outplayed (mesuré sur Wardogs, même réglage supposé) : a:0 = mix jeu + voix, a:1 = jeu seul, a:2 = micro seul.
+# Une capture à piste unique retombe sur a:0 pour le jeu.
+detectors:
+  - id: game-audio
+    type: audio-loudness
+    weight: 0.7
+    normalization: { lowPercentile: 0.5, highPercentile: 0.98, minSpread: 10 }
+    params: { stream: 1, fallbackStream: 0, localBaseline: 45s }
+
+  - id: mic-audio
+    type: audio-loudness
+    weight: 0.3
+    normalization: { lowPercentile: 0.8, highPercentile: 0.99, minSpread: 12 }
+    params: { stream: 2, optional: true }
+
+  # Prises de parole sur la piste micro : un moment n'est jamais coupé au milieu d'une phrase ou d'un rire.
+  - id: voice
+    type: voice-activity
+    weight: 0
+    params: { stream: 2, optional: true, silenceDb: -50 }
+
+  # Rires et exclamations sur le micro (IA locale YAMNet) : deviennent des moments à garder, et ne sont jamais coupés.
+  - id: reactions
+    type: audio-events
+    weight: 0
+    eventBoosts: { laughter: 0.7, shout: 0.35 }
+    params: { stream: 2, optional: true }
+
+selection:
+  # Types de segments jamais coupés : le moment s'étend (jusqu'à maxExtension) pour finir la phrase ou le rire.
+  keepWhole: [speech, laughter]
+  maxExtension: 8s
+  threshold: 0.55
+  mergeGap: 6s
+  preRoll: 4s
+  postRoll: 2s
+  minClip: 6s
+  maxClip: 25s
+  target: { totalDuration: 60s }
+
+edit:
+  order: chronological
+  transition: { type: fade, duration: 300ms }
+  loudnessLufs: -14
+  # Montage : piste mix uniquement (les autres la composent déjà).
+  audioStreams: [0]
+  # source = ratio de la capture (21:9 sur écran ultrawide).
+  formats: ["source"]
+  # Pour le 9:16, recadrage autour du centre de l'écran (le champion est centré caméra verrouillée).
+  vertical:
+    size: { width: 1080, height: 1920 }

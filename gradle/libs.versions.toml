@@ -1,0 +1,35 @@
+[versions]
+kotlin = "2.4.20"
+coroutines = "1.11.0"
+serialization = "1.11.0"
+kaml = "0.104.0"
+kotlinLogging = "8.0.4"
+logback = "1.6.3"
+slf4j = "2.0.19"
+clikt = "5.1.0"
+compose = "1.12.0"
+composeMaterial3 = "1.9.0"
+onnxruntime = "1.30.0"
+kotest = "6.2.5"
+# Kotest 6.2.x est compilé contre JUnit Platform 1.13 / Jupiter 5.13 : on reste aligné.
+junit = "5.13.4"
+
+[libraries]
+kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+kotlin-serialization-plugin = { module = "org.jetbrains.kotlin:kotlin-serialization", version.ref = "kotlin" }
+compose-gradle-plugin = { module = "org.jetbrains.compose:compose-gradle-plugin", version.ref = "compose" }
+kotlin-compose-plugin = { module = "org.jetbrains.kotlin:compose-compiler-gradle-plugin", version.ref = "kotlin" }
+coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "composeMaterial3" }
+serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+kaml = { module = "com.charleskorn.kaml:kaml", version.ref = "kaml" }
+kotlin-logging = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = "kotlinLogging" }
+logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+onnxruntime = { module = "com.microsoft.onnxruntime:onnxruntime", version.ref = "onnxruntime" }
+clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+kotest-runner = { module = "io.kotest:kotest-runner-junit5", version.ref = "kotest" }
+kotest-assertions = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
