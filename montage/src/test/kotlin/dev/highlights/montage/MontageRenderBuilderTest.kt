@@ -8,7 +8,11 @@ import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.VideoStream
+import dev.highlights.editing.CutInput
+import dev.highlights.editing.SourceCuts
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldContainInOrder
+import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
@@ -37,9 +41,23 @@ class MontageRenderBuilderTest : FunSpec({
         return MontagePlanner.plan(groups, music, s)
     }
 
-    fun build(p: MontagePlan, format: OutputFormat = OutputFormat.VERTICAL) = MontageRenderBuilder.build(
-        MontageRenderRequest(p, format, EditSettings(audioStreams = listOf(0)), EncoderProfile("h264_amf", listOf("-c:v", "h264_amf"), true), Path("out.mp4"), Path("f.txt")),
+    val edit = EditSettings(audioStreams = listOf(0))
+
+    fun build(p: MontagePlan, format: OutputFormat = OutputFormat.VERTICAL, cuts: SourceCuts = SourceCuts.NONE) = MontageRenderBuilder.build(
+        MontageRenderRequest(p, format, edit, EncoderProfile("h264_amf", listOf("-c:v", "h264_amf"), true), Path("out.mp4"), Path("f.txt"), cuts = cuts),
     )
+
+    test("pré-découpes lues à la place des sources : les intervalles annoncés sont ceux du graphe") {
+        val p = plan()
+        val cuts = MontageRenderBuilder.sourceCuts(p, edit.fps)
+        val inputs = cuts.withIndex().associate { (i, cut) -> cut to CutInput(Path("cuts/cut_$i.mp4"), 1.seconds) }
+        val args = build(p, cuts = SourceCuts.of(inputs)).command.args
+
+        // Un fichier de découpe par clip, départ recalé sur son début, et plus aucune lecture de la capture d'origine.
+        cuts.size shouldBe p.clips.size
+        inputs.values.forEach { args shouldContainInOrder listOf("-ss", "1.000000", "-i", it.path.toString()) }
+        args shouldNotContain media.path.toString()
+    }
 
     test("effets, ralenti, textes et mixage présents") {
         val cmd = build(plan())

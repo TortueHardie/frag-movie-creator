@@ -17,6 +17,7 @@ import dev.highlights.core.session.Session
 import dev.highlights.editing.EditPlanner
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.RenderRequest
+import dev.highlights.editing.SourceCutter
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Path
 import java.time.Instant
@@ -62,12 +63,20 @@ class Exporter(
         val sources = plan.clips.map { it.media.path }.toSet()
         paths.all.forEach { ensureNotSource(it, sources) }
 
+        // Découpe des extraits avant le rendu : une seule fois pour tous les formats. Voir SourceCuts.
+        val cuts = SourceCutter.prepare(
+            ffmpeg,
+            RenderCommandBuilder.sourceCuts(plan),
+            request.workDir.resolve("cuts"),
+            progress.child("Préparation des extraits", CUT_WEIGHT),
+        )
+
         val done = mutableListOf<Path>()
         for (format in settings.formats) {
             val target = paths.videos.getValue(format)
             val temp = OutputNamer.tempFor(target)
             ensureNotSource(temp, sources)
-            val step = progress.child(format.label, 1.0 / settings.formats.size)
+            val step = progress.child(format.label, (1.0 - CUT_WEIGHT) / settings.formats.size)
 
             val render = RenderCommandBuilder.build(
                 RenderRequest(
@@ -78,6 +87,7 @@ class Exporter(
                     filterScript = request.workDir.resolve("filters_${format.name.lowercase()}.txt"),
                     audioBitrate = request.audioBitrate,
                     hwaccel = request.hwaccel,
+                    cuts = cuts,
                 ),
             )
             request.workDir.resolve("filters_${format.name.lowercase()}.txt").writeText(render.filterGraph)
@@ -196,5 +206,10 @@ class Exporter(
         if (sources.any { it.toAbsolutePath().normalize().toString().equals(normalized, ignoreCase = true) }) {
             throw HighlightsException("Refus d'écrire sur un fichier source : $path")
         }
+    }
+
+    private companion object {
+        /** Part de la progression rendue par la pré-découpe : rapide (copie de flux) face au rendu lui-même. */
+        const val CUT_WEIGHT = 0.08
     }
 }

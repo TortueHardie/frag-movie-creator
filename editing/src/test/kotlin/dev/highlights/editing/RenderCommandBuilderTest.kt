@@ -24,6 +24,7 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainInOrder
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.string.shouldNotContain
 import java.time.Instant
 import kotlin.io.path.Path
@@ -52,6 +53,10 @@ class RenderCommandBuilderTest : FunSpec({
     fun request(plan: EditPlan, format: OutputFormat = OutputFormat.LANDSCAPE) =
         RenderRequest(plan, format, encoder, Path("out/x.part.mp4"), Path("work/filters.txt"), hwaccel = "d3d11va")
 
+    /** Découpes commençant 1 s avant l'extrait (image clé précédente), comme le fait `-c copy`. */
+    fun fakeCuts(cuts: List<SourceCut>) =
+        cuts.withIndex().associate { (i, cut) -> cut to CutInput(Path("work/cuts/cut_$i.mp4"), 1.seconds) }
+
     val clipA = TimeRange(60.seconds, 70.seconds) to 0.7
     val clipB = TimeRange(300.seconds, 312.seconds) to 0.9
 
@@ -59,8 +64,8 @@ class RenderCommandBuilderTest : FunSpec({
         val plan = DefaultEditPlanner.plan(session(clipA, clipB), EditSettings(transition = TransitionSettings(TransitionType.CUT)))
         val cmd = RenderCommandBuilder.build(request(plan))
         cmd.command.args.shouldContainInOrder(
-            "-hwaccel", "d3d11va", "-ss", "60.000", "-t", "10.000", "-i", media.path.toString(),
-            "-hwaccel", "d3d11va", "-ss", "300.000", "-t", "12.000", "-i", media.path.toString(),
+            "-hwaccel", "d3d11va", "-ss", "60.000000", "-t", "10.000", "-i", media.path.toString(),
+            "-hwaccel", "d3d11va", "-ss", "300.000000", "-t", "12.000", "-i", media.path.toString(),
             "-/filter_complex", Path("work/filters.txt").toString(),
             "-c:v", "h264_amf",
         )
@@ -69,6 +74,18 @@ class RenderCommandBuilderTest : FunSpec({
         cmd.filterGraph shouldContain "loudnorm=I=-14.0"
         cmd.filterGraph shouldNotContain "trim=start"
         cmd.expectedDuration shouldBe 22.seconds
+    }
+
+    test("pré-découpes lues à la place de la source, départ recalé") {
+        val plan = DefaultEditPlanner.plan(session(clipA, clipB), EditSettings(transition = TransitionSettings(TransitionType.CUT)))
+        val inputs = fakeCuts(RenderCommandBuilder.sourceCuts(plan))
+        val cmd = RenderCommandBuilder.build(request(plan).copy(cuts = SourceCuts.of(inputs)))
+        // -ss recalé sur le début de la découpe, longueurs inchangées.
+        cmd.command.args.shouldContainInOrder(
+            "-ss", "1.000000", "-t", "10.000", "-i", inputs.values.first().path.toString(),
+            "-ss", "1.000000", "-t", "12.000", "-i", inputs.values.last().path.toString(),
+        )
+        cmd.command.args shouldNotContain media.path.toString()
     }
 
     test("fondus : offsets xfade cumulés") {

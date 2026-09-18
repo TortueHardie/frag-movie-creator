@@ -8,6 +8,8 @@ import dev.highlights.core.model.TimeRange
 import dev.highlights.core.serialization.Durations
 import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
+import dev.highlights.editing.SourceCut
+import dev.highlights.editing.SourceCuts
 import java.nio.file.Path
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -25,6 +27,8 @@ data class MontageRenderRequest(
     val filterScript: Path,
     val audioBitrate: String = "192k",
     val hwaccel: String? = null,
+    /** Pré-découpes des extraits, lues à la place des sources. Voir [SourceCuts]. */
+    val cuts: SourceCuts = SourceCuts.NONE,
 )
 
 /**
@@ -45,26 +49,18 @@ object MontageRenderBuilder {
         val settings = plan.settings
         val edit = request.edit.copy(fps = request.edit.fps)
         val clips = plan.clips
-        // Frontières arrondies à l'image sur la position cumulée : vidéo et audio de même longueur, sans dérive vis-à-vis du beat.
         val fps = request.edit.fps
-        val boundaries = (plan.clipOffsets() + plan.duration).map { (it.inWholeMicroseconds * fps / 1_000_000.0).roundToLong() }
+        val boundaries = boundaries(plan, fps)
         val offsets = boundaries.dropLast(1).map { (it * 1_000_000 / fps).microseconds }
         val total = (boundaries.last() * 1_000_000 / fps).microseconds
         val audio = settings.audio
-
-        // Débordement sonore d'un clip sur le suivant : jusqu'à audio.bleed pour finir un kill ou une phrase.
-        val bleeds = clips.mapIndexed { i, clip ->
-            if (i == clips.lastIndex) return@mapIndexed Duration.ZERO
-            val length = ((boundaries[i + 1] - boundaries[i]) * 1_000_000 / fps).microseconds
-            val killTail = clip.outputKills().maxOfOrNull { it + KILL_AUDIO_AFTER - length } ?: Duration.ZERO
-            val voiceTail = clip.group.voiceSegments.filter { it.start < clip.end && it.end > clip.end }.maxOfOrNull { it.end - clip.end } ?: Duration.ZERO
-            maxOf(killTail, voiceTail, Duration.ZERO).coerceAtMost(audio.bleed).coerceAtMost(clip.group.media.duration - clip.end)
-        }
+        val bleeds = bleeds(plan, fps)
 
         val args = mutableListOf<String>()
         clips.forEachIndexed { i, clip ->
             request.hwaccel?.let { args += listOf("-hwaccel", it) }
-            args += listOf("-ss", sec(clip.start), "-t", sec(clip.sourceLength + bleeds[i]), "-i", clip.group.media.path.toString())
+            val input = request.cuts.input(clip.group.media, sourceRange(clip, bleeds[i]))
+            args += listOf("-ss", Durations.ffmpegSecondsPrecise(input.start), "-t", sec(clip.sourceLength + bleeds[i]), "-i", input.path.toString())
         }
         val musicInput = clips.size
         args += listOf("-ss", sec(plan.musicStart), "-t", sec(total + plan.period), "-i", plan.music.file.toString())
@@ -186,6 +182,30 @@ object MontageRenderBuilder {
             graph.joinToString(";\n") + "\n",
             total,
         )
+    }
+
+    /** Extraits lus par le rendu de [plan] : ce que [SourceCutter] doit pré-découper. */
+    fun sourceCuts(plan: MontagePlan, fps: Int): List<SourceCut> =
+        bleeds(plan, fps).mapIndexed { i, bleed -> SourceCut(plan.clips[i].group.media, sourceRange(plan.clips[i], bleed)) }
+
+    /** Intervalle lu dans la source pour un clip, débordement sonore compris. */
+    private fun sourceRange(clip: MontageClip, bleed: Duration) = TimeRange(clip.start, clip.start + clip.sourceLength + bleed)
+
+    /** Frontières des clips en images, sur la position cumulée : vidéo et audio de même longueur, sans dérive vis-à-vis du beat. */
+    private fun boundaries(plan: MontagePlan, fps: Int): List<Long> =
+        (plan.clipOffsets() + plan.duration).map { (it.inWholeMicroseconds * fps / 1_000_000.0).roundToLong() }
+
+    /** Débordement sonore de chaque clip sur le suivant : jusqu'à audio.bleed pour finir un kill ou une phrase. */
+    private fun bleeds(plan: MontagePlan, fps: Int): List<Duration> {
+        val boundaries = boundaries(plan, fps)
+        val bleed = plan.settings.audio.bleed
+        return plan.clips.mapIndexed { i, clip ->
+            if (i == plan.clips.lastIndex) return@mapIndexed Duration.ZERO
+            val length = ((boundaries[i + 1] - boundaries[i]) * 1_000_000 / fps).microseconds
+            val killTail = clip.outputKills().maxOfOrNull { it + KILL_AUDIO_AFTER - length } ?: Duration.ZERO
+            val voiceTail = clip.group.voiceSegments.filter { it.start < clip.end && it.end > clip.end }.maxOfOrNull { it.end - clip.end } ?: Duration.ZERO
+            maxOf(killTail, voiceTail, Duration.ZERO).coerceAtMost(bleed).coerceAtMost(clip.group.media.duration - clip.end)
+        }
     }
 
     /** Portion de l'extrait (relative à son début) jouée à une vitesse donnée. */

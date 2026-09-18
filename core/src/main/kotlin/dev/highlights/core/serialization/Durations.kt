@@ -41,6 +41,15 @@ object Durations {
 
     /** Secondes décimales pour les arguments FFmpeg ("12.345"), indépendamment de la locale. */
     fun ffmpegSeconds(d: Duration): String = String.format(Locale.ROOT, "%.3f", d.inWholeMicroseconds / 1_000_000.0)
+
+    /**
+     * Comme [ffmpegSeconds], mais à la microseconde, pour un instant qui ne tombe pas sur une milliseconde ronde.
+     *
+     * C'est le cas du `-ss` d'une entrée : FFmpeg le compte depuis le début déclaré du fichier, lequel suit la base de
+     * temps du conteneur (1/48000 par exemple). Arrondir coûte jusqu'à 0,5 ms, assez pour que la recherche précise
+     * retienne d'autres images que la lecture directe de la source.
+     */
+    fun ffmpegSecondsPrecise(d: Duration): String = String.format(Locale.ROOT, "%.6f", d.inWholeNanoseconds / 1_000_000_000.0)
 }
 
 /** "01:23.450" ou "1:02:03.450". */

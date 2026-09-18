@@ -10,6 +10,7 @@ import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.serialization.roundTo
 import dev.highlights.core.serialization.toTimecode
+import dev.highlights.editing.SourceCutter
 import dev.highlights.export.ExportResult
 import dev.highlights.export.OutputNamer
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -95,13 +96,21 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             if (it.toAbsolutePath().normalize().toString().lowercase() in sources) throw HighlightsException("Refus d'écrire sur un fichier source : $it")
         }
 
+        // Découpe des extraits avant le rendu : une seule fois pour tous les formats. Voir SourceCuts.
+        val cuts = SourceCutter.prepare(
+            ffmpeg,
+            MontageRenderBuilder.sourceCuts(plan, request.edit.fps),
+            request.workDir.resolve("cuts"),
+            progress.child("Préparation des extraits", CUT_WEIGHT),
+        )
+
         for (format in request.formats) {
             val target = paths.videos.getValue(format)
             val temp = OutputNamer.tempFor(target)
-            val step = progress.child(format.label, 1.0 / request.formats.size)
+            val step = progress.child(format.label, (1.0 - CUT_WEIGHT) / request.formats.size)
             val script = request.workDir.resolve("montage_${format.name.lowercase()}.txt")
             val render = MontageRenderBuilder.build(
-                MontageRenderRequest(plan, format, request.edit, encoder, temp, script, request.audioBitrate, request.hwaccel),
+                MontageRenderRequest(plan, format, request.edit, encoder, temp, script, request.audioBitrate, request.hwaccel, cuts),
             )
             script.writeText(render.filterGraph)
             log.info { "Montage ${format.label} → $target (${plan.clips.size} clips, ${plan.duration})" }
@@ -144,6 +153,9 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
     }
 
     companion object {
+        /** Part de la progression rendue par la pré-découpe : rapide (copie de flux) face au rendu lui-même. */
+        private const val CUT_WEIGHT = 0.08
+
         fun recordingDate(instant: Instant?): LocalDate = (instant ?: Instant.now()).atZone(ZoneId.systemDefault()).toLocalDate()
     }
 }

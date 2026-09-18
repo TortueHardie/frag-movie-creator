@@ -31,6 +31,8 @@ data class RenderRequest(
     val audioBitrate: String = "192k",
     /** Décodage matériel des sources, ex. "d3d11va". null = logiciel. */
     val hwaccel: String? = null,
+    /** Pré-découpes des extraits, lues à la place des sources. Voir [SourceCuts]. */
+    val cuts: SourceCuts = SourceCuts.NONE,
 )
 
 /**
@@ -47,7 +49,8 @@ object RenderCommandBuilder {
 
         val args = mutableListOf<String>()
         clips.forEach { clip ->
-            args += inputArgs(request.hwaccel, clip.range.start, clip.range.length, clip.media.path)
+            val input = request.cuts.input(clip.media, clip.range)
+            args += inputArgs(request.hwaccel, input.start, clip.range.length, input.path)
         }
 
         val graph = mutableListOf<String>()
@@ -96,6 +99,9 @@ object RenderCommandBuilder {
         )
     }
 
+    /** Extraits lus par le rendu de [plan] : ce que [SourceCutter] doit pré-découper. */
+    fun sourceCuts(plan: EditPlan): List<SourceCut> = plan.clips.map { SourceCut(it.media, it.range) }
+
     /** Une image PNG du format demandé à l'instant [at] : sert à régler recadrage et HUD sans rendu complet. */
     fun buildPreview(media: MediaInfo, at: Duration, format: OutputFormat, settings: EditSettings, filterScript: Path, output: Path): RenderCommand {
         val args = inputArgs(null, at, 1.seconds, media.path).toMutableList()
@@ -106,7 +112,7 @@ object RenderCommandBuilder {
 
     private fun inputArgs(hwaccel: String?, start: Duration, length: Duration, source: Path): List<String> =
         (hwaccel?.let { listOf("-hwaccel", it) } ?: emptyList()) + listOf(
-            "-ss", Durations.ffmpegSeconds(start),
+            "-ss", Durations.ffmpegSecondsPrecise(start),
             "-t", Durations.ffmpegSeconds(length),
             "-i", source.toString(),
         )
