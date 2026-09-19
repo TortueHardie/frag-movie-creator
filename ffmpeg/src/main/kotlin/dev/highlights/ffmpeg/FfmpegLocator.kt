@@ -8,15 +8,26 @@ import kotlin.io.path.Path
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
 
-/** Trouve ffmpeg/ffprobe : chemin configuré, puis PATH, puis installation winget (Gyan.FFmpeg). */
+/**
+ * Trouve ffmpeg/ffprobe : chemin configuré, puis copie livrée avec l'installeur (propriété [BUNDLED_DIR]), puis PATH,
+ * puis installation winget (Gyan.FFmpeg).
+ */
 object FfmpegLocator {
-    fun locate(tool: String, configured: String?, env: Map<String, String> = System.getenv()): Path {
+    const val BUNDLED_DIR = "highlights.ffmpeg.dir"
+
+    fun locate(
+        tool: String,
+        configured: String?,
+        env: Map<String, String> = System.getenv(),
+        bundledDir: String? = System.getProperty(BUNDLED_DIR),
+    ): Path {
         if (!configured.isNullOrBlank()) {
             val p = Path(configured)
             if (p.isRegularFile()) return p.toRealPath()
             findOnPath(configured, env)?.let { return it }
             throw ConfigException("$tool introuvable au chemin configuré : $configured")
         }
+        bundledDir?.let { Path(it, "$tool.exe") }?.takeIf { it.isRegularFile() }?.let { return it.toRealPath() }
         return findOnPath(tool, env)
             ?: wingetCandidates(tool, env).firstOrNull { it.isRegularFile() }?.toRealPath()
             ?: throw ConfigException(

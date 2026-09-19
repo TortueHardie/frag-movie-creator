@@ -55,7 +55,13 @@ data class EncoderSettings(
 
 /** Configuration chargée et dossier de référence pour résoudre les chemins relatifs. */
 data class LoadedConfig(val app: AppConfig, val baseDir: Path, val source: Path?) {
-    fun resolve(path: String): Path = baseDir.resolve(path).normalize()
+    /** Chemin relatif au dossier de config ; « ~/ » désigne le dossier de l'utilisateur. */
+    fun resolve(path: String): Path =
+        if (path == "~" || path.startsWith("~/") || path.startsWith("~\\")) {
+            Path(System.getProperty("user.home"), path.drop(1).trimStart('/', '\\')).normalize()
+        } else {
+            baseDir.resolve(path).normalize()
+        }
 
     val outputDir: Path get() = resolve(app.outputDir)
     val profilesDir: Path get() = resolve(app.profilesDir)

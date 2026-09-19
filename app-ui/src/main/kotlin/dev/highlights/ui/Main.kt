@@ -20,6 +20,7 @@ private val log = KotlinLogging.logger {}
 
 fun main() {
     Thread.setDefaultUncaughtExceptionHandler { t, e -> log.error(e) { "Exception non gérée dans ${t.name}" } }
+    Installation.setup()
     application {
         val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
         var windowRef: java.awt.Frame? = null

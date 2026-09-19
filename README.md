@@ -10,7 +10,9 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
 - **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
 - **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Wardogs, et un profil par défaut.
 
-## Prérequis
+## Prérequis (développement)
+
+Pour utiliser l'application sans rien installer d'autre, voir [Installer l'application](#installer-lapplication-autre-ordinateur).
 
 - JDK 21
 - FFmpeg avec AMF : `winget install Gyan.FFmpeg`. Il est détecté automatiquement (PATH puis installation winget) ; sinon renseigner `ffmpeg.ffmpegPath` dans `config/app.yaml`.
@@ -22,15 +24,34 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
 .\gradlew.bat :app-cli:installDist    # → app-cli\build\install\app\bin\app.bat
 ```
 
-## Interface graphique
+## Installer l'application (autre ordinateur)
 
 ```powershell
-.\gradlew.bat :app-ui:createDistributable   # → app-ui\build\compose\binaries\main\app\Highlights\Highlights.exe
-.\gradlew.bat :app-ui:run                   # lancement direct pendant le développement
+.\gradlew.bat :app-ui:packageMsi   # → app-ui\build\compose\binaries\main\msi\Highlights-<version>.msi
 ```
 
-L'exécutable lit `config/` dans le projet : une modification de profil s'applique sans reconstruire, via « Recharger » ou « Régénérer » dans l'aperçu 9:16.
-`.\gradlew.bat :app-ui:packageMsi` produit un installeur MSI.
+Le MSI (≈ 340 Mo) contient tout : Java, FFmpeg (avec AMF, repli libx264), le modèle YAMNet, les profils et les
+modèles d'images. Sur l'autre PC, un double-clic suffit : l'installation se fait dans le profil de l'utilisateur, sans
+droits administrateur, et crée un raccourci sur le bureau et dans le menu Démarrer. Windows 10 ou 11 64 bits.
+
+- **Configuration** : au premier lancement, la config livrée est copiée dans `%APPDATA%\Highlights\config`, où les
+  profils se modifient (puis « Recharger » dans l'application). Une mise à jour de l'application apporte les nouveaux
+  fichiers et remplace ceux qui n'ont pas été retouchés ; les profils modifiés sont conservés.
+- **Montages** : écrits dans `Vidéos\Highlights` (`outputDir` dans `app.yaml` ; `~/` désigne le dossier de l'utilisateur).
+- **FFmpeg** : celui de l'installeur est utilisé en priorité (sauf `ffmpeg.ffmpegPath` dans `app.yaml`). À la
+  construction, il est repris de l'installation winget `Gyan.FFmpeg`, ou de `-PffmpegDir=<dossier contenant bin\ffmpeg.exe>` ;
+  sans lui, `packageMsi` échoue. Sa licence (GPL) est livrée à côté, dans `resources\ffmpeg`.
+- **Version** : `highlights.version` dans `gradle.properties`. À augmenter à chaque nouvel installeur, sinon Windows
+  refuse la mise à jour ; l'ancienne version est remplacée automatiquement.
+- Pour qu'une application installée lise la config du projet : variable d'environnement `HIGHLIGHTS_CONFIG=D:\...\config\app.yaml`.
+
+## Interface graphique (développement)
+
+```powershell
+.\gradlew.bat :app-ui:run   # lit config/ du projet : une modification de profil s'applique sans reconstruire
+```
+
+Via « Recharger », ou « Régénérer » dans l'aperçu 9:16.
 
 Dans l'application :
 1. choisir ou glisser une capture ;
