@@ -11,7 +11,6 @@ import dev.highlights.core.model.CropRegion
 import dev.highlights.core.model.VideoStream
 import dev.highlights.core.serialization.SerialDuration
 import dev.highlights.core.video.FrameSampler
-import dev.highlights.core.video.FrameSpec
 import dev.highlights.core.video.FrameZone
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.SerialName
@@ -168,7 +167,7 @@ class HudTemplateDetector(override val id: String, private val params: HudTempla
         val video = ctx.media.video ?: return
         val zones = buildZones(ctx, video)
         val slots = zones.map { it.area }.distinct().size
-        val spec = chooseSampling(ctx)
+        val spec = chooseSampling(ctx, id, params.sampling, params.fps, params.hwaccel, params.maxKeyframeInterval)
         log.info { "$id : ${zones.size} modèle(s), ${if (spec.keyframes) "images clés (~${spec.interval})" else "${params.fps} img/s"}" }
         val scores = List(zones.size) { mutableListOf<Double>() }
         val subscription = ctx.frames.subscribe(
@@ -250,19 +249,6 @@ class HudTemplateDetector(override val id: String, private val params: HudTempla
             }
             val area = FrameZone(cx, cy, cw, ch, sw, sh)
             Zone(spec, guarded, area, slotOf.getOrPut(area) { slotOf.size })
-        }
-    }
-
-    /** Images clés si leur intervalle (mesuré sur 30 s au milieu de la vidéo) est assez court. */
-    private suspend fun chooseSampling(ctx: AnalysisContext): FrameSpec {
-        if (params.sampling == Sampling.FPS) return FrameSpec.fps(params.fps, params.hwaccel)
-        val measured = ctx.frames.keyframeInterval(id)
-        if (params.sampling == Sampling.KEYFRAMES) return FrameSpec.keyframes(measured ?: 1.seconds)
-        return if (measured != null && measured <= params.maxKeyframeInterval) {
-            FrameSpec.keyframes(measured)
-        } else {
-            log.warn { "$id : images clés espacées de ${measured ?: "?"}, échantillonnage à ${params.fps} img/s (plus lent)" }
-            FrameSpec.fps(params.fps, params.hwaccel)
         }
     }
 

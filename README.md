@@ -2,7 +2,13 @@
 
 Transforme des captures de gameplay brutes (Outplayed, OBS) en montages courts des meilleurs moments, sans intervention manuelle.
 
-État actuel : **MVP en CLI**, avec un détecteur audio (loudness EBU R128) et un export 16:9 / 9:16 encodé par AMF.
+Deux interfaces sur le même moteur : une **application de bureau** (Compose) et une **ligne de commande**.
+
+- **Détection des moments** : volume du jeu (EBU R128), prises de parole et rires (YAMNet), événements enregistrés par
+  Outplayed (kills, morts, assistances), icônes du HUD et journal des gains lu par OCR (Wardogs).
+- **Highlights** : les meilleurs moments fusionnés et exportés en 16:9 et/ou 9:16, encodés par AMF (repli libx264).
+- **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
+- **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Wardogs, et un profil par défaut.
 
 ## Prérequis
 
@@ -76,6 +82,21 @@ pas d'Outplayed (OBS…), le signal est simplement absent.
   mesuré sur une partie complète : l'instant tombe alors sur l'image où le kill apparaît dans le killfeed).
 - Sur une partie VALORANT de 50 min : 22 kills, 22 morts, 8 assistances, exactement le tableau de fin.
 
+## Journal des gains (Wardogs)
+
+`ocr-log` lit un journal textuel affiché à l'écran : dans Wardogs, la liste des actions récompensées en haut à droite
+(« ÉLIMINATION +$1500 », « AIDE : ÉLIMINATION », « COÉQUIPIER RÉANIMÉ 250XP »…). La lecture passe par l'OCR intégré à
+Windows (rien à installer), par lots et en parallèle pendant le décodage de la vidéo.
+
+- `rules` associe des libellés à un type d'événement, dans l'ordre, avec quelques erreurs de lecture tolérées ; une
+  règle sans `kind` fait ignorer la ligne (pénalités, bonus d'XP…).
+- Chaque ligne est suivie d'une image à l'autre et n'est comptée qu'une fois, après deux lectures.
+- `icons` (paramètres d'un `hud-template`) fusionne le journal avec les icônes de notification : le journal donne le
+  type (une « Aide : Élimination » affiche la même tête de mort qu'un kill) et sépare les kills enchaînés, l'icône date
+  l'événement et couvre le texte illisible sur ciel clair.
+- Sur une partie de 1 h 25 : 14 kills sur 14, 3 aides sur 3, 8 réanimations sur 10, aucun faux positif (les icônes
+  seules : 12 kills et un faux, aucune aide, 4 réanimations). Environ 1 min d'analyse pour 1 h 53 de vidéo.
+
 ## Voix et rires
 
 - `voice-activity` : prises de parole sur la piste micro. Avec `selection.keepWhole: [speech, laughter]`, un moment
@@ -125,13 +146,16 @@ Pistes audio : `game-audio` lit la piste 0, `mic-audio` la piste 1 si elle exist
 |---|---|
 | `core` | Modèle, interfaces (`SignalDetector`, `FfmpegService`, `EncoderSelector`…), config YAML, progression + ETA, session, décodage vidéo partagé (`FrameSampler`), FFT |
 | `ffmpeg` | Exécution FFmpeg/ffprobe via ProcessBuilder, détection des encodeurs |
-| `analysis` | Détecteurs (`audio-loudness`), enregistrés par `ServiceLoader` |
+| `analysis` | Détecteurs audio et Outplayed (`audio-loudness`, `voice-activity`, `outplayed-events`), enregistrés par `ServiceLoader` |
+| `analysis-vision` | Détecteurs d'image (`hud-template`, `ocr-log` via l'OCR de Windows) |
+| `analysis-ml` | Rires et exclamations (`audio-events`, YAMNet via ONNX Runtime) |
 | `scoring` | Normalisation par percentiles, fusion pondérée, sélection des moments |
 | `editing` | Plan de montage et graphe de filtres FFmpeg (une entrée par clip, xfade, loudnorm, recadrage) |
 | `montage` | Montage kills : analyse musicale (tempo, temps, sections, drop), grille de coupes, planification et rendu |
 | `export` | Nommage, rendu, rapport JSON |
 | `pipeline` | Orchestration par coroutines, indépendante de toute interface |
 | `app-cli` | Commandes Clikt |
+| `app-ui` | Application de bureau Compose, installeur MSI |
 
 Ajouter un détecteur : implémenter `SignalDetectorFactory`, déclarer la classe dans `META-INF/services/dev.highlights.core.analysis.SignalDetectorFactory`, puis la référencer par son `type` dans un profil.
 

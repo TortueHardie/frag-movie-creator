@@ -23,57 +23,75 @@ detectors:
     normalization: { lowPercentile: 0.8, highPercentile: 0.995, minSpread: 12 }
     params: { stream: 2, optional: true }
 
-  # Notifications du jeu au centre de l'écran (~4 s) : kill (tête de mort), assistance (poignée de main),
-  # réanimation (battement de cœur). Seuls les pixels clairs de l'icône sont comparés (le décor derrière change).
-  # Le jeu affiche la notification en taille normale ou agrandie (×1,35) : les deux sont cherchées.
-  # Calibré sur 38 images réelles étiquetées : kills 0,91-1,00 (autres ≤ 0,72) ; assistances 0,75-1,00 (autres ≤ 0,68) ;
-  # réanimations 0,80-1,00 (autres ≤ 0,45).
-  - id: notifications
-    type: hud-template
+  # Kills, aides et réanimations lus dans le journal des gains (en haut à droite : « ÉLIMINATION +$1500 »,
+  # « AIDE : ÉLIMINATION », « COÉQUIPIER RÉANIMÉ 250XP »…) par l'OCR de Windows, fusionnés avec les icônes de
+  # notification au centre de l'écran. Le journal donne le type (une « Aide : Élimination » affiche la même tête de mort
+  # qu'un kill) et sépare les kills enchaînés ; l'icône date l'événement et couvre le texte illisible sur ciel clair.
+  # Mesuré sur une partie de 1 h 25 (tableau de fin : 14 éliminations, 3 aides, 10 réanimations) : 14 kills, 3 aides,
+  # 9 réanimations, aucun faux positif. Les icônes seules donnaient 12 kills (+1 faux), 0 aide, 4 réanimations.
+  - id: game-events
+    type: ocr-log
     weight: 0
     eventBoosts: { kill: 0.8, assist: 0.3, revive: 0.3 }
     params:
-      mode: events
-      referenceHeight: 1440
-      # Les trois icônes apparaissent au même endroit : seule la plus ressemblante compte sur chaque image.
-      exclusive: true
-      templates:
-        - name: kill-icon
-          kind: kill
-          file: templates/wardogs/kill_skull.png
-          method: bright
-          brightness: 200
-          scales: [1.0, 1.35]
-          region: { x: 0.482558, y: 0.621528, width: 0.034884, height: 0.076389 }
-          threshold: 0.8
-          minConsecutive: 1
-        - name: assist-icon
-          kind: assist
-          file: templates/wardogs/assist_hand.png
-          method: bright
-          brightness: 200
-          scales: [1.0, 1.35]
-          region: { x: 0.482558, y: 0.621528, width: 0.034884, height: 0.076389 }
-          threshold: 0.72
-          minConsecutive: 1
-        - name: revive-icon-large
-          kind: revive
-          file: templates/wardogs/revive_heart.png
-          method: bright
-          brightness: 200
-          scales: [1.0]
-          region: { x: 0.482558, y: 0.621528, width: 0.034884, height: 0.076389 }
-          threshold: 0.7
-          minConsecutive: 1
-        - name: revive-icon
-          kind: revive
-          file: templates/wardogs/revive_heart_small.png
-          method: bright
-          brightness: 200
-          scales: [1.0]
-          region: { x: 0.482558, y: 0.621528, width: 0.034884, height: 0.076389 }
-          threshold: 0.7
-          minConsecutive: 1
+      # Journal mesuré sur 3840x1606 (même format que 3440x1440), sous le compteur d'argent : jusqu'à 8 lignes.
+      region: { x: 0.786458, y: 0.037360, width: 0.208333, height: 0.186800 }
+      referenceHeight: 1606
+      rules:
+        # Lignes à ignorer d'abord : elles contiennent des mots des règles suivantes. « AIDE : VÉHICULE DE SECTION
+        # DÉTRUIT » est une pénalité (montant négatif), pas une aide ; « CIBLE REPÉRÉE DÉTRUITE » un bonus d'XP.
+        - match: [REPEREE, SOIGNE, JOUEURREANIME, ATTENTEDEREANIMATION, VEHICULEDESECTION, PRESENCE, POTDEVIN]
+        - kind: assist
+          match: [AIDEELIMINATION, AIDEVEHICULEDETRUIT]
+        - kind: kill
+          match: [ELIMINATION, SHUTDOWNKILL, TIRALATETE]
+        - kind: revive
+          match: [COEQUIPIERREANIME, EQUIPIERREANIM]
+      # Icônes au centre de l'écran (~4 s) : kill (tête de mort, aussi affichée pour une aide à l'élimination), aide
+      # (poignée de main : « aide à l'élimination repérée », absente du journal), réanimation (battement de cœur).
+      # Seuls les pixels clairs de l'icône sont comparés ; taille normale ou agrandie (×1,35).
+      icons:
+        mode: events
+        referenceHeight: 1440
+        # Les trois icônes apparaissent au même endroit : seule la plus ressemblante compte sur chaque image.
+        exclusive: true
+        templates:
+          - name: kill-icon
+            kind: kill
+            file: templates/wardogs/kill_skull.png
+            method: bright
+            brightness: 200
+            scales: [1.0, 1.35]
+            region: { x: 0.482558, y: 0.621528, width: 0.034884, height: 0.076389 }
+            threshold: 0.8
+            minConsecutive: 1
+          - name: assist-icon
+            kind: assist
+            file: templates/wardogs/assist_hand.png
+            method: bright
+            brightness: 200
+            scales: [1.0, 1.35]
+            region: { x: 0.482558, y: 0.621528, width: 0.034884, height: 0.076389 }
+            threshold: 0.72
+            minConsecutive: 1
+          - name: revive-icon-large
+            kind: revive
+            file: templates/wardogs/revive_heart.png
+            method: bright
+            brightness: 200
+            scales: [1.0]
+            region: { x: 0.482558, y: 0.621528, width: 0.034884, height: 0.076389 }
+            threshold: 0.7
+            minConsecutive: 1
+          - name: revive-icon
+            kind: revive
+            file: templates/wardogs/revive_heart_small.png
+            method: bright
+            brightness: 200
+            scales: [1.0]
+            region: { x: 0.482558, y: 0.621528, width: 0.034884, height: 0.076389 }
+            threshold: 0.7
+            minConsecutive: 1
 
   # En jeu ou non : le cœur de la barre de vie est absent des menus et écrans de chargement → score annulé.
   - id: in-game

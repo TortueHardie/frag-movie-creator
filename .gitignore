@@ -9,3 +9,6 @@ local/
 
 # Musiques de test (fichiers personnels, non redistribuables)
 music sample/
+
+# Rapports de plantage de la JVM
+hs_err_pid*.log
