@@ -25,6 +25,8 @@ class DurationsTest : FunSpec({
             "01:23.5" to 83.5.seconds,
             "1:02:03" to (1.hours + 2.minutes + 3.seconds),
             "PT2S" to 2.seconds,
+            "-390ms" to (-390).milliseconds,
+            "-1.5s" to (-1500).milliseconds,
         ) { (text, expected) -> Durations.parseOrNull(text) shouldBe expected }
     }
 
@@ -32,10 +34,12 @@ class DurationsTest : FunSpec({
         Durations.parseOrNull("").shouldBeNull()
         Durations.parseOrNull("abc").shouldBeNull()
         Durations.parseOrNull("2x").shouldBeNull()
+        Durations.parseOrNull("-").shouldBeNull()
+        Durations.parseOrNull("--2s").shouldBeNull()
     }
 
     test("format puis parse est stable") {
-        listOf(Duration.ZERO, 2.seconds, 12_345.milliseconds, 90.seconds).forEach {
+        listOf(Duration.ZERO, 2.seconds, 12_345.milliseconds, 90.seconds, (-400).milliseconds).forEach {
             Durations.parseOrNull(Durations.format(it)) shouldBe it
         }
         Durations.format(12_500.milliseconds) shouldBe "12.5s"

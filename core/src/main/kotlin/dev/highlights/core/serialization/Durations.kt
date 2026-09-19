@@ -18,6 +18,8 @@ object Durations {
         val t = text.trim().replace(" ", "")
         if (t.isEmpty()) return null
         if (t.startsWith("P") || t.startsWith("-P")) return Duration.parseIsoStringOrNull(t)
+        // Durée négative (décalage : « -390ms »), comme l'écrit format().
+        if (t.startsWith("-")) return parseOrNull(t.substring(1))?.takeIf { t.length > 1 && t[1] != '-' }?.unaryMinus()
         if (plainNumber.matches(t)) return t.toDouble().seconds
         timecode.matchEntire(t)?.let { m ->
             val (h, min, s) = m.destructured
