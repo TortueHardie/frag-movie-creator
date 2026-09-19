@@ -23,6 +23,19 @@ detectors:
     normalization: { lowPercentile: 0.8, highPercentile: 0.99, minSpread: 12 }
     params: { stream: 2, optional: true }
 
+  # Événements du jeu enregistrés par Outplayed (transmis par VALORANT via Overwolf, sans analyse d'image) : kills,
+  # morts, assistances, headshots. Absent si la capture ne vient pas d'Outplayed.
+  # Vérifié sur une partie complète : 22 kills, 22 morts, 8 assistances, comme le tableau de fin.
+  - id: game-events
+    type: outplayed-events
+    weight: 0
+    eventBoosts: { kill: 0.8, assist: 0.3 }
+    params:
+      kinds: { kill: kill, death: death, assist: assist, headshot: headshot }
+      # Outplayed reçoit chaque événement après son apparition dans le killfeed : 0,39 s pour les kills (22 mesurés,
+      # ±10 ms), 0,39 s en médiane pour les morts ; même retard supposé pour les assistances.
+      offsets: { kill: -390ms, death: -390ms, assist: -390ms, headshot: -390ms }
+
   # Prises de parole sur la piste micro : un moment n'est jamais coupé au milieu d'une phrase ou d'un rire.
   - id: voice
     type: voice-activity
@@ -56,3 +69,7 @@ edit:
   audioStreams: [0]
   # source = ratio de la capture (21:9 sur écran ultrawide).
   formats: ["source"]
+
+montage:
+  # Les instants des kills sont déjà corrigés du retard d'Outplayed (offsets de game-events) : rien à compenser.
+  killOffset: 0ms

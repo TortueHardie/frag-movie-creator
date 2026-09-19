@@ -24,6 +24,7 @@ class UiStateTest : FunSpec({
 
     test("libellé des événements") {
         eventsLabel(mapOf("assist" to 1, "kill" to 3, "revive" to 2)) shouldBe "3 kills · 1 assistance · 2 réanimations"
+        eventsLabel(mapOf("death" to 1, "kill" to 2)) shouldBe "2 kills · 1 mort"
     }
 
     test("fichiers déposés : URI ou chemin brut") {

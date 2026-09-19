@@ -129,12 +129,13 @@ fun formatBytes(bytes: Long): String = when {
 
 /** "2 kills · 1 assistance" (types connus traduits). */
 fun eventsLabel(events: Map<String, Int>): String = events.entries
-    .sortedBy { listOf("kill", "assist", "revive", "laughter", "shout").indexOf(it.key).let { i -> if (i < 0) 99 else i } }
+    .sortedBy { listOf("kill", "assist", "revive", "death", "laughter", "shout").indexOf(it.key).let { i -> if (i < 0) 99 else i } }
     .joinToString(" · ") { (kind, n) ->
         val (one, many) = when (kind) {
             "kill" -> "kill" to "kills"
             "assist" -> "assistance" to "assistances"
             "revive" -> "réanimation" to "réanimations"
+            "death" -> "mort" to "morts"
             "laughter" -> "rire" to "rires"
             "shout" -> "exclamation" to "exclamations"
             else -> kind to kind

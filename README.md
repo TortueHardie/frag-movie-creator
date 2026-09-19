@@ -64,6 +64,18 @@ détecte les kills). En ligne de commande :
 - Réglages détaillés : section `montage:` d'un profil (voir `core/.../model/Montage.kt`), notamment `cuts:` (durées
   visées par intensité `low`/`mid`/`high`, `maxBeats`, `minLead`/`minTail`, `dropPosition`).
 
+## Événements de jeu (Outplayed)
+
+`outplayed-events` reprend les événements qu'Outplayed a enregistrés avec la capture : kills, morts, assistances,
+headshots… transmis par le jeu lui-même via Overwolf, sans aucune analyse d'image. Ils sont lus en lecture seule dans
+la base de l'application (`%LOCALAPPDATA%\Overwolf\CefBrowserCache\…\IndexedDB`), même pendant qu'Outplayed tourne.
+La capture est retrouvée par son chemin, ou par son nom de fichier si elle a été déplacée. Pour une capture qui ne vient
+pas d'Outplayed (OBS…), le signal est simplement absent.
+
+- `kinds` choisit les types retenus (ex. `kill: kill`) ; `offsets` corrige le retard de l'événement (VALORANT : −390 ms,
+  mesuré sur une partie complète : l'instant tombe alors sur l'image où le kill apparaît dans le killfeed).
+- Sur une partie VALORANT de 50 min : 22 kills, 22 morts, 8 assistances, exactement le tableau de fin.
+
 ## Voix et rires
 
 - `voice-activity` : prises de parole sur la piste micro. Avec `selection.keepWhole: [speech, laughter]`, un moment
