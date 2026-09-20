@@ -133,11 +133,13 @@ class MontageCommand : PipelineCommand("montage") {
     }
     private val formats by formatsOption()
     private val chronological by option("--chronological", help = "Ordre chronologique au lieu de la montée en puissance").flag()
+    private val noHook by option("--no-hook", help = "Sans accroche : le meilleur groupe restant n'ouvre pas le montage").flag()
     private val noZoom by option("--no-zoom", help = "Sans zoom sur les kills").flag()
     private val noFlash by option("--no-flash", help = "Sans flash aux coupes").flag()
+    private val flashEveryCut by option("--flash-every-cut", help = "Flash à chaque coupe, pas seulement aux coupes fortes").flag()
     private val noSlowmo by option("--no-slowmo", help = "Sans ralenti").flag()
     private val noRamp by option("--no-ramp", help = "Sans rampe de vitesse entre les kills d'un multi-kill").flag()
-    private val noText by option("--no-text", help = "Sans textes (DOUBLÉ, compteur)").flag()
+    private val noText by option("--no-text", help = "Sans textes (DOUBLÉ, TRIPLÉ…)").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
 
     override fun help(context: Context) =
@@ -156,8 +158,10 @@ class MontageCommand : PipelineCommand("montage") {
                         outputDir = out,
                         maxDuration = max,
                         order = if (chronological) MontageOrder.CHRONOLOGICAL else null,
+                        hook = if (noHook) false else null,
                         zoom = if (noZoom) false else null,
                         flash = if (noFlash) false else null,
+                        flashEveryCut = if (flashEveryCut) true else null,
                         slowMotion = if (noSlowmo) false else null,
                         speedRamp = if (noRamp) false else null,
                         text = if (noText) false else null,

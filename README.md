@@ -75,7 +75,11 @@ détecte les kills). En ligne de commande :
   leur intensité, et la **drop** (plus gros saut d'intensité).
 - **Coupes dictées par la musique** : la longueur des plans dépend de la section (courts dans les parties intenses, longs
   dans les calmes, toujours des mesures entières), les frontières de sections sont des coupes, et le montage est placé
-  sur la fenêtre de la musique la plus intéressante (montée puis drop vers 40 %).
+  sur la fenêtre de la musique la plus intéressante (montée puis drop vers 40 %). Chaque coupe tombe une image avant son
+  temps (`cuts.preBeatFrames`) — l'œil met quelques images à enregistrer un nouveau plan — sans déplacer le kill.
+- **Choix et ordre des clips** : deux plans voisins ne viennent pas du même moment de la même partie (`varietyGap`), et
+  `minScore` permet d'écarter les groupes de kills trop faibles quitte à raccourcir le montage (0 = tout garder ; les
+  trois meilleurs sont gardés quoi qu'il arrive). Les meilleurs groupes restants terminent naturellement le montage.
 - **Clips taillés pour la musique** : chaque clip est étendu ou coupé pour remplir exactement son plan ; le dernier kill
   tombe sur le temps le plus accentué du plan, le meilleur groupe (multi-kill) exactement sur la drop ; les multi-kills
   et les réactions (voix, rires) fusionnent des plans voisins ; l'image est gelée si la vidéo manque. Quand il y a peu de
@@ -83,11 +87,16 @@ détecte les kills). En ligne de commande :
 - **Chaque kill sur un temps** : dans un multi-kill, la lecture entre deux kills est accélérée ou ralentie de ±15 % au
   plus (speed ramp, `--no-ramp` pour désactiver) pour que chaque kill tombe sur un temps ; dans une suite de plans de
   même longueur, le kill tombe toujours au même endroit du plan (élan).
-- **Effets** (désactivables : `--no-zoom`, `--no-flash`, `--no-slowmo`, `--no-text`) : zoom punch, flash blanc aux
-  coupes, ralenti ×0,5 sur le kill (seulement s'il tient dans le plan), textes « DOUBLÉ / TRIPLÉ » et compteur de kills,
-  fondu au noir final.
+- **Accroche** : le meilleur groupe après celui de la drop ouvre le montage (`--no-hook`) : c'est dans les premières
+  secondes que le spectateur décide de rester.
+- **Effets** (désactivables : `--no-zoom`, `--no-flash`, `--no-slowmo`, `--no-text`) : zoom punch, ralenti ×0,5 sur le
+  kill (seulement s'il tient dans le plan), textes « DOUBLÉ / TRIPLÉ », fondu au noir final. Le ralenti s'installe par
+  paliers avant le kill et le plein régime revient exactement sur un temps, au lieu d'un changement de vitesse net.
+  Le flash blanc ne tombe qu'aux coupes fortes — nouvelle section, drop, multi-kill (`--flash-every-cut` pour toutes).
 - **Son** : musique au premier plan ; le jeu remonte sur les kills ; voix et rires restent audibles, et la musique baisse
-  pendant qu'on les entend ; le son d'un kill ou d'une phrase déborde un peu sur le plan suivant (`audio.bleed`).
+  pendant qu'on les entend ; tous ces changements de volume montent et descendent en fondu (`audio.duckAttack`,
+  `audio.duckRelease`), sinon la marche s'entend plus que ce qu'elle met en avant ; le son d'un kill ou d'une phrase
+  déborde un peu sur le plan suivant (`audio.bleed`).
 - Réglages détaillés : section `montage:` d'un profil (voir `core/.../model/Montage.kt`), notamment `cuts:` (durées
   visées par intensité `low`/`mid`/`high`, `maxBeats`, `minLead`/`minTail`, `dropPosition`).
 

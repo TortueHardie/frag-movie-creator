@@ -182,7 +182,7 @@ class MontagePlannerTest : FunSpec({
     }
 
     test("rampe de vitesse : chaque kill d'un multi-kill tombe sur un temps, vitesse dans la limite") {
-        val kills = listOf(60, 300, 420, 540, 660, 780, 900) + listOf(180.0, 183.2, 186.0).map { it }
+        val kills = listOf(60, 300, 420, 540, 660, 780, 900) + listOf(180.0, 183.4, 186.0).map { it }
         val session = session(emptyList()).let { s ->
             s.copy(timeline = s.timeline.copy(events = kills.map { TimelineEvent((it.toDouble() * 1000).toLong().let { ms -> Duration.parse("${ms}ms") }, "kill", 1.0, "n") }))
         }
@@ -198,16 +198,93 @@ class MontagePlannerTest : FunSpec({
         val plain = q.clips.single { it.group.kills.size == 3 }
         plain.ramps shouldHaveSize 0
         offBeat(q, plain, plain.toOutput(plain.anchor)) shouldBe (0.0 plusOrMinus 1e-3)
-        (offBeat(q, plain, plain.toOutput(183.2.seconds)) > 0.05) shouldBe true
+        (offBeat(q, plain, plain.toOutput(183.4.seconds)) > 0.05) shouldBe true
     }
 
     test("rampe impossible dans la limite : vitesse inchangée") {
         val session = session(emptyList()).let { s ->
             s.copy(timeline = s.timeline.copy(events = listOf(100.seconds, 100.9.seconds, 500.seconds).map { TimelineEvent(it, "kill", 1.0, "n") }))
         }
-        val p = MontagePlanner.plan(MontagePlanner.groups(listOf(session), settings), music(), settings)
+        // Ramener le premier kill sur un temps demanderait bien plus de 1 % de vitesse : on le laisse où il est.
+        val tight = settings.copy(speedRamp = SpeedRampEffect(maxChange = 0.01))
+        val p = MontagePlanner.plan(MontagePlanner.groups(listOf(session), tight), music(), tight)
         check(p)
         p.clips.single { it.group.kills.size == 2 }.ramps shouldHaveSize 0
+    }
+
+    test("accroche : le meilleur groupe hors drop ouvre le montage") {
+        // Scores croissants : les derniers kills sont les mieux notés, donc placés en fin de montage sans accroche.
+        val s = session(manyKills, scores = { it / 2000.0 })
+        val on = MontagePlanner.plan(MontagePlanner.groups(listOf(s), settings), music(), settings)
+        check(on)
+        on.clips.first().rank shouldBe on.clips.filter { it.slot.dropBeat == null }.maxOf { it.rank }
+
+        val without = settings.copy(hook = false)
+        val off = MontagePlanner.plan(MontagePlanner.groups(listOf(s), without), music(), without)
+        check(off)
+        (off.clips.first().rank < on.clips.first().rank) shouldBe true
+    }
+
+    test("le montage finit sur le meilleur groupe restant, sans règle dédiée") {
+        // L'importance d'un slot croît avec sa position dans la section : les meilleurs atterrissent déjà à la fin.
+        val p = MontagePlanner.plan(MontagePlanner.groups(listOf(session(manyKills, scores = { it / 2000.0 })), settings), music(), settings)
+        check(p)
+        val ordinary = p.clips.drop(1).filter { it.slot.dropBeat == null }
+        ordinary.last().rank shouldBe ordinary.maxOf { it.rank }
+    }
+
+    test("plancher de qualité : les groupes faibles sont écartés, jamais tous") {
+        // Scores croissants : les kills du début de partie sont les plus faibles.
+        val weakFirst = session(manyKills, scores = { it / 2000.0 })
+        val floor = settings.copy(minScore = 0.3)
+        val p = MontagePlanner.plan(MontagePlanner.groups(listOf(weakFirst), floor), music(), floor)
+        check(p)
+        p.clips.forEach { (it.group.score >= 0.3) shouldBe true }
+        (p.clips.size < manyKills.size) shouldBe true
+
+        // Plancher inatteignable : le montage n'est pas vide pour autant.
+        val impossible = settings.copy(minScore = 1.0)
+        val q = MontagePlanner.plan(MontagePlanner.groups(listOf(weakFirst), impossible), music(), impossible)
+        check(q)
+        q.clips.isNotEmpty() shouldBe true
+    }
+
+    test("variété : deux clips voisins ne viennent pas du même moment de la partie") {
+        val kills = listOf(60, 90, 120, 150, 600, 900, 1200, 1500)
+        fun neighbours(gap: Duration): List<Long> {
+            val s = settings.copy(varietyGap = gap, mergeGap = 5.seconds)
+            val p = MontagePlanner.plan(MontagePlanner.groups(listOf(session(kills)), s), music(), s)
+            check(p)
+            return p.clips.map { it.group.kills.first().inWholeSeconds }
+        }
+        fun tooClose(order: List<Long>, gap: Long) = order.zipWithNext().count { (a, b) -> kotlin.math.abs(a - b) < gap }
+
+        // Sans la règle, deux kills séparés de 30 s finissent côte à côte ; avec, plus aucun voisin semblable.
+        (tooClose(neighbours(Duration.ZERO), 45) > 0) shouldBe true
+        tooClose(neighbours(45.seconds), 45) shouldBe 0
+    }
+
+    test("ralenti : décélération par paliers et plein régime retrouvé sur un temps") {
+        val p = plan(listOf(100, 300, 500))
+        check(p)
+        val clip = p.clips.first { it.slow != null }
+        val steps = clip.slowSteps
+        // Vitesse décroissante jusqu'au ralenti plein, au lieu d'un seul changement net.
+        steps.size shouldBeGreaterThanOrEqual 2
+        steps.map { it.factor } shouldBe steps.map { it.factor }.sortedDescending()
+        steps.last().factor shouldBe p.settings.slowMotion.factor
+        // La relance tombe sur un temps de la musique.
+        offBeat(p, clip, clip.toOutput(steps.last().range.end)) shouldBe (0.0 plusOrMinus 1e-3)
+    }
+
+    test("ralenti : un seul palier et sans calage redonnent le changement de vitesse net") {
+        val blunt = settings.copy(slowMotion = settings.slowMotion.copy(rampSteps = 1, snapToBeat = false))
+        val p = MontagePlanner.plan(MontagePlanner.groups(listOf(session(listOf(100, 300, 500))), blunt), music(), blunt)
+        check(p)
+        val clip = p.clips.first { it.slow != null }
+        clip.slowSteps shouldHaveSize 1
+        // Budget complet consommé après le kill, sans recherche de temps.
+        seconds(clip.slow!!.range.end - clip.anchor) shouldBe (seconds(blunt.slowMotion.after) plusOrMinus 1e-6)
     }
 
     test("suite de plans de même longueur : kill toujours au même endroit du plan") {
@@ -226,4 +303,5 @@ class MontagePlannerTest : FunSpec({
         (multi.kills.size < 3) shouldBe true
         multi.kills.last() shouldBe 108.seconds
     }
+
 })

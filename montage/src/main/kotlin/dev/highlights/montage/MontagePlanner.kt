@@ -29,8 +29,11 @@ data class KillGroup(
     val span: Duration get() = kills.last() - kills.first()
 }
 
+/** Origine d'un changement de vitesse : ralenti du kill d'ancrage, ou rampe qui ramène un kill sur un temps. */
+enum class SpeedKind { SLOW, RAMP }
+
 /** Portion de la source jouée à une vitesse différente de 1 : 0,5 = ralenti ×2, 1,1 = légèrement accéléré (speed ramp). */
-data class SpeedSegment(val range: TimeRange, val factor: Double) {
+data class SpeedSegment(val range: TimeRange, val factor: Double, val kind: SpeedKind = SpeedKind.RAMP) {
     /** Durée de sortie de la portion. */
     val outputLength: Duration get() = range.length / factor
 }
@@ -60,9 +63,11 @@ data class MontageClip(
     /** Kills visibles dans l'extrait (les premiers d'un multi-kill peuvent être coupés quand le slot est court). */
     val kills: List<Duration> get() = group.kills.filter { it >= start && it <= end }
     val rank: Double get() = group.rank
-    /** Ralenti autour du kill d'ancrage, s'il a été gardé. */
-    val slow: SpeedSegment? get() = speeds.firstOrNull { it.factor < 1.0 && anchor in it.range }
-    val ramps: List<SpeedSegment> get() = speeds.filter { it !== slow }
+    /** Paliers du ralenti du kill d'ancrage : décélération avant le kill, puis vitesse pleine du ralenti. */
+    val slowSteps: List<SpeedSegment> get() = speeds.filter { it.kind == SpeedKind.SLOW }
+    /** Palier le plus lent du ralenti (celui qui porte le kill), s'il a été gardé. */
+    val slow: SpeedSegment? get() = slowSteps.lastOrNull()
+    val ramps: List<SpeedSegment> get() = speeds.filter { it.kind == SpeedKind.RAMP }
 
     /** Instant de sortie (relatif au début du clip) d'un instant de la source. */
     fun toOutput(t: Duration): Duration {
@@ -112,6 +117,12 @@ object MontagePlanner {
     /** Écart minimal entre deux kills pour tenter une rampe de vitesse. */
     private val MIN_RAMP_GAP = 200.milliseconds
 
+    /** Groupes gardés malgré le plancher de qualité, pour ne jamais rendre un montage vide. */
+    private const val MIN_KEPT = 3
+
+    /** Recul d'importance d'un slot dont un voisin porte déjà un clip qui se ressemble. */
+    private const val MONOTONY_PENALTY = 0.5
+
     /** Regroupe les kills de chaque session (multi-kills) avec leurs segments de réaction. */
     fun groups(sessions: List<Session>, settings: MontageSettings): List<KillGroup> = sessions.flatMap { session ->
         val timeline = session.timeline
@@ -137,8 +148,16 @@ object MontagePlanner {
         }
     }
 
-    fun plan(groups: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings): MontagePlan {
-        if (groups.isEmpty()) throw HighlightsException("Aucun kill à monter : lance l'analyse avec un profil qui détecte les kills")
+    fun plan(all: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings): MontagePlan {
+        if (all.isEmpty()) throw HighlightsException("Aucun kill à monter : lance l'analyse avec un profil qui détecte les kills")
+        // Plancher de qualité : mieux vaut un montage plus court qu'un plan sans intérêt. Les meilleurs passent toujours.
+        val groups = if (settings.minScore > 0.0) {
+            all.filter { it.score >= settings.minScore }
+                .ifEmpty { all.sortedByDescending { it.rank }.take(MIN_KEPT) }
+                .also { if (it.size < all.size) log.info { "Plancher de qualité : ${all.size - it.size} groupe(s) écarté(s) sur ${all.size}" } }
+        } else {
+            all
+        }
         val cuts = settings.cuts
         val period = music.beatPeriod
         val minLeadBeats = beatsCeil(cuts.minLead, period).coerceAtLeast(1)
@@ -189,6 +208,23 @@ object MontagePlanner {
         fun importance(c: Cell) = (if (c.dropBeat != null) 10.0 else 0.0) + music.sections[c.section].intensity + 1e-4 * c.startBeat
 
         /**
+         * Recul d'un slot pour ce groupe : ses voisins déjà pourvus viennent-ils de la même capture, au même moment de
+         * la partie ? Deux plans consécutifs du même endroit se ressemblent et cassent l'impression de variété.
+         */
+        fun monotony(index: Int, g: KillGroup): Double {
+            if (!settings.varietyGap.isPositive()) return 0.0
+            val similar = listOf(index - 1, index + 1).count { i ->
+                val neighbour = cells.getOrNull(i)?.group ?: return@count false
+                neighbour.media.path == g.media.path && (neighbour.kills.first() - g.kills.first()).absoluteValue < settings.varietyGap
+            }
+            return MONOTONY_PENALTY * similar
+        }
+
+        /** Meilleur slot libre pour un groupe : le plus important, à variété égale. */
+        fun bestFree(g: KillGroup): Int? =
+            cells.indices.filter { cells[it].group == null }.maxByOrNull { importance(cells[it]) - monotony(it, g) }
+
+        /**
          * Fusionne des cellules libres voisines jusqu'à [needed] temps, sans dépasser maxBeats : les suivantes (le clip
          * s'allonge après le kill), ou d'abord les précédentes pour la drop (les kills d'un multi-kill la précèdent).
          */
@@ -235,17 +271,22 @@ object MontagePlanner {
                 val remaining = groups.sortedWith(compareByDescending<KillGroup> { it.rank }.thenBy { it.kills.first() }).toMutableList()
                 val dropIndex = cells.indexOfFirst { it.dropBeat != null }
                 if (dropIndex >= 0) place(dropIndex, remaining.removeAt(0))
+                // Accroche : le meilleur groupe restant ouvre le montage, là où le spectateur décide de rester.
+                if (settings.hook && cells.size >= 3 && remaining.size >= 2 && cells[0].group == null) {
+                    place(0, remaining.removeAt(0))
+                }
+                // Pas de traitement particulier pour le dernier plan : l'importance croît avec la position dans la
+                // section, si bien que les meilleurs groupes restants finissent déjà le montage.
                 // Multi-kills : le slot le plus important qui peut les contenir entièrement.
                 for (g in remaining.filter { it.kills.size > 1 }) {
-                    val free = cells.indices.filter { cells[it].group == null }.sortedByDescending { importance(cells[it]) }
+                    val free = cells.indices.filter { cells[it].group == null }.sortedByDescending { importance(cells[it]) - monotony(it, g) }
                     val index = free.firstOrNull { canGrow(it, need(g)) } ?: free.firstOrNull() ?: break
                     place(index, g)
                     remaining -= g
                 }
                 remaining.removeAll { it.kills.size > 1 }
                 for (g in remaining) {
-                    val index = cells.indices.filter { cells[it].group == null }.maxByOrNull { importance(cells[it]) } ?: break
-                    place(index, g)
+                    place(bestFree(g) ?: break, g)
                 }
             }
             MontageOrder.CHRONOLOGICAL -> {
@@ -339,25 +380,43 @@ object MontagePlanner {
         val preOut = anchorTime - slotStart
         val postOut = slotEnd - anchorTime
 
-        // Ralenti autour du kill d'ancrage, seulement s'il tient dans le slot.
+        // Ralenti autour du kill d'ancrage, seulement s'il tient dans le slot : la vitesse descend par paliers avant le
+        // kill, et le plein régime revient sur un temps (la relance tombe avec la musique).
         val slowSettings = settings.slowMotion
-        var f = 1.0
+        val speeds = mutableListOf<SpeedSegment>()
         var sb = Duration.ZERO
         var sa = Duration.ZERO
+        var outBefore = Duration.ZERO
+        var outAfter = Duration.ZERO
         if (slowSettings.enabled) {
-            val before = minOf(slowSettings.before, anchor - media.bounds.start)
-            val after = minOf(slowSettings.after, media.duration - anchor)
-            if (preOut >= before / slowSettings.factor + cuts.minLead && postOut >= after / slowSettings.factor + cuts.minTail) {
-                f = slowSettings.factor
+            val f = slowSettings.factor
+            val before = minOf(slowSettings.before, anchor - media.bounds.start).coerceAtLeast(Duration.ZERO)
+            val maxAfter = minOf(slowSettings.after, media.duration - anchor).coerceAtLeast(Duration.ZERO)
+            // Le plus long ralenti dont la sortie finit sur un temps, sans dépasser le budget ni déborder du slot.
+            val snapped = if (slowSettings.snapToBeat) {
+                (1..(slot.endBeat - anchorBeat)).lastOrNull { k ->
+                    val out = music.beatTime(anchorBeat + k) - anchorTime
+                    out * f <= maxAfter && postOut - out >= cuts.minTail
+                }?.let { (music.beatTime(anchorBeat + it) - anchorTime) * f }
+            } else {
+                null
+            }
+            val after = snapped ?: maxAfter
+            val steps = slowCurve(anchor, before, after, f, slowSettings.rampSteps)
+            val pre = steps.fold(Duration.ZERO) { acc, s ->
+                acc + (minOf(s.range.end, anchor) - s.range.start).coerceAtLeast(Duration.ZERO) / s.factor
+            }
+            if (steps.isNotEmpty() && preOut >= pre + cuts.minLead && postOut >= after / f + cuts.minTail) {
+                speeds += steps
                 sb = before
                 sa = after
+                outBefore = pre
+                outAfter = after / f
             }
         }
-        val speeds = mutableListOf<SpeedSegment>()
-        if (f < 1.0 && (sb + sa).isPositive()) speeds += SpeedSegment(TimeRange(anchor - sb, anchor + sa), f)
 
         // Sans rampe : début de la source, kills visibles.
-        val plainStart = anchor - sb - (preOut - sb / f)
+        val plainStart = anchor - sb - (preOut - outBefore)
         val visible = group.kills.filter { it >= plainStart }
 
         // Rampes de vitesse : chaque kill visible précédent est ramené sur le temps le plus proche (vitesse ±maxChange).
@@ -370,7 +429,7 @@ object MontagePlanner {
                 val k = visible[j]
                 val last = j == visible.size - 2
                 val segEnd = if (last) anchor - sb else nextKill
-                val segEndOut = if (last) nextOut - sb / f else nextOut
+                val segEndOut = if (last) nextOut - outBefore else nextOut
                 val gap = segEnd - k
                 val wanted = segEndOut - gap
                 var out = wanted
@@ -394,12 +453,40 @@ object MontagePlanner {
         speeds.sortBy { it.range.start }
 
         var start = (if (ramp.enabled && visible.size > 1) visible.first() - firstOut else plainStart)
-        var end = anchor + sa + (postOut - sa / f)
+        var end = anchor + sa + (postOut - outAfter)
         val padBefore = (media.bounds.start - start).coerceAtLeast(Duration.ZERO)
         val padAfter = (end - media.duration).coerceAtLeast(Duration.ZERO)
         start = start.coerceAtLeast(media.bounds.start)
         end = end.coerceAtMost(media.duration)
         return MontageClip(group, slot, anchorBeat, anchor, start, end, padBefore, padAfter, speeds, slotEnd - slotStart)
+    }
+
+    /**
+     * Paliers du ralenti : la vitesse descend de 1 vers [factor] sur [before] (durée source, juste avant le kill), puis
+     * reste au plus lent sur [after]. Un seul palier redonne l'ancien changement de vitesse net. Les paliers voisins de
+     * même vitesse sont fusionnés : le dernier de la descente est déjà au plus lent.
+     */
+    internal fun slowCurve(anchor: Duration, before: Duration, after: Duration, factor: Double, steps: Int): List<SpeedSegment> {
+        val raw = mutableListOf<SpeedSegment>()
+        val n = steps.coerceAtLeast(1)
+        if (before.isPositive()) {
+            val slice = before / n
+            for (i in 0 until n) {
+                val f = 1.0 - (1.0 - factor) * (i + 1) / n
+                raw += SpeedSegment(TimeRange(anchor - before + slice * i, anchor - before + slice * (i + 1)), f, SpeedKind.SLOW)
+            }
+        }
+        if (after.isPositive()) raw += SpeedSegment(TimeRange(anchor, anchor + after), factor, SpeedKind.SLOW)
+        val merged = mutableListOf<SpeedSegment>()
+        for (seg in raw) {
+            val last = merged.lastOrNull()
+            if (last != null && abs(last.factor - seg.factor) < 1e-9 && last.range.end == seg.range.start) {
+                merged[merged.lastIndex] = last.copy(range = TimeRange(last.range.start, seg.range.end))
+            } else {
+                merged += seg
+            }
+        }
+        return merged.filter { it.range.length.isPositive() && abs(it.factor - 1.0) > 1e-9 }
     }
 
     private fun beatsCeil(d: Duration, period: Duration): Int = ceil((d / period) - 1e-9).toInt().coerceAtLeast(0)
