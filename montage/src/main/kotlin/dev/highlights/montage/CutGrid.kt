@@ -56,12 +56,15 @@ object CutGrid {
         val slots = mutableListOf<CutSlot>()
         sections.forEachIndexed { si, s ->
             val l = lengths[si]
+            // Dans une montée, les plans raccourcissent au fur et à mesure : les coupes accélèrent avec la musique.
+            val accelerate = cuts.accelerateBuildUp && s.kind == SectionKind.BUILD_UP
             when {
-                dropSlot != null && si == dropSection - 1 -> tileBackward(slots, s.startBeat, dropSlot.startBeat, l, si, minBeats)
+                dropSlot != null && si == dropSection - 1 -> tileBackward(slots, s.startBeat, dropSlot.startBeat, l, si, minBeats, if (accelerate) cuts.maxBeats else null)
                 dropSlot != null && si == dropSection -> {
                     slots += dropSlot
                     tileForward(slots, dropSlot.endBeat, s.endBeat, l, si, minBeats)
                 }
+                accelerate -> tileAccelerating(slots, s.startBeat, s.endBeat, l, si, minBeats, cuts.maxBeats)
                 else -> tileForward(slots, s.startBeat, s.endBeat, l, si, minBeats)
             }
         }
@@ -84,7 +87,46 @@ object CutGrid {
         }
     }
 
-    private fun tileBackward(slots: MutableList<CutSlot>, from: Int, to: Int, length: Int, section: Int, minBeats: Int) {
+    /**
+     * Comme [tileForward], mais les plans raccourcissent : on part du double de la longueur nominale et on divise par
+     * deux à la moitié de la section, puis aux trois quarts. Les longueurs restent des puissances de deux, donc les
+     * coupes restent sur les mesures ; descendre en dessous de [minBeats] les rendrait trop courts pour un kill.
+     */
+    private fun tileAccelerating(slots: MutableList<CutSlot>, from: Int, to: Int, length: Int, section: Int, minBeats: Int, maxBeats: Int) {
+        val span = to - from
+        val start = minOf(length * 2, maxBeats)
+        if (span < 2 * start) return tileForward(slots, from, to, length, section, minBeats)
+        var k = from
+        var len = start
+        var halved = 0
+        while (k < to) {
+            var e = minOf(k + len, to)
+            if (to - e in 1 until minBeats) e = to
+            slots += CutSlot(k, e, section)
+            k = e
+            val wanted = when {
+                (k - from) * 4 >= span * 3 -> 2
+                (k - from) * 2 >= span -> 1
+                else -> 0
+            }
+            while (halved < wanted) {
+                if (len / 2 >= minBeats) len /= 2
+                halved++
+            }
+        }
+    }
+
+    private fun tileBackward(
+        slots: MutableList<CutSlot>,
+        from: Int,
+        to: Int,
+        length: Int,
+        section: Int,
+        minBeats: Int,
+        /** Non nul dans une montée : les plans accélèrent jusqu'au slot de la drop, donc on pose vers l'avant. */
+        accelerateTo: Int? = null,
+    ) {
+        if (accelerateTo != null) return tileAccelerating(slots, from, to, length, section, minBeats, accelerateTo)
         val tiles = mutableListOf<CutSlot>()
         var k = to
         while (k > from) {
@@ -157,6 +199,8 @@ object CutGrid {
                 score += 1.0 - 0.6 * abs(fraction - dropPosition)
             }
             if (slots[i].startBeat in sectionStarts) score += 0.15
+            // Ouvrir sur une intro ou une montée donne au montage la rampe qui mène à la drop.
+            if (music.sections[slots[i].section].kind in setOf(SectionKind.INTRO, SectionKind.BUILD_UP)) score += 0.12
             if (j == slots.size || slots[j].startBeat in sectionStarts) score += 0.1
             if (score > bestScore + 1e-9) {
                 bestScore = score

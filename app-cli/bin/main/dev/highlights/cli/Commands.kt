@@ -10,10 +10,12 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.split
+import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.double
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.clikt.parameters.types.restrictTo
+import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
@@ -27,11 +29,16 @@ import dev.highlights.core.session.SessionStore
 import dev.highlights.export.ExportResult
 import dev.highlights.ffmpeg.FfmpegEncoderSelector
 import dev.highlights.montage.CutGrid
+import dev.highlights.montage.MontageReport
+import dev.highlights.montage.MontageScore
 import dev.highlights.montage.MusicAnalyzer
 import dev.highlights.pipeline.AnalyzeOptions
 import dev.highlights.pipeline.ExportOptions
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
+import java.nio.file.Path
+import kotlin.io.path.readText
+import kotlinx.serialization.json.Json
 
 private fun PipelineCommand.formatsOption() = option("-f", "--format", help = "Formats de sortie séparés par des virgules : source (ratio de la capture, ex. 21:9), 16:9, 9:16")
     .convert { OutputFormat.parse(it) ?: throw BadParameterValue("format inconnu '$it' (source, 16:9 ou 9:16)") }
@@ -133,11 +140,15 @@ class MontageCommand : PipelineCommand("montage") {
     }
     private val formats by formatsOption()
     private val chronological by option("--chronological", help = "Ordre chronologique au lieu de la montée en puissance").flag()
+    private val effects by option("--effects", help = "Quantité d'effets : sober, balanced (défaut) ou heavy")
+        .choice("sober" to EffectDensity.SOBER, "balanced" to EffectDensity.BALANCED, "heavy" to EffectDensity.HEAVY)
+    private val noHook by option("--no-hook", help = "Sans accroche : le meilleur groupe restant n'ouvre pas le montage").flag()
     private val noZoom by option("--no-zoom", help = "Sans zoom sur les kills").flag()
     private val noFlash by option("--no-flash", help = "Sans flash aux coupes").flag()
+    private val flashEveryCut by option("--flash-every-cut", help = "Flash à chaque coupe, pas seulement aux coupes fortes").flag()
     private val noSlowmo by option("--no-slowmo", help = "Sans ralenti").flag()
     private val noRamp by option("--no-ramp", help = "Sans rampe de vitesse entre les kills d'un multi-kill").flag()
-    private val noText by option("--no-text", help = "Sans textes (DOUBLÉ, compteur)").flag()
+    private val noText by option("--no-text", help = "Sans textes (DOUBLÉ, TRIPLÉ…)").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
 
     override fun help(context: Context) =
@@ -156,8 +167,11 @@ class MontageCommand : PipelineCommand("montage") {
                         outputDir = out,
                         maxDuration = max,
                         order = if (chronological) MontageOrder.CHRONOLOGICAL else null,
+                        hook = if (noHook) false else null,
+                        effectDensity = effects,
                         zoom = if (noZoom) false else null,
                         flash = if (noFlash) false else null,
+                        flashEveryCut = if (flashEveryCut) true else null,
                         slowMotion = if (noSlowmo) false else null,
                         speedRamp = if (noRamp) false else null,
                         text = if (noText) false else null,
@@ -169,6 +183,10 @@ class MontageCommand : PipelineCommand("montage") {
             }
         }
         printExport(result)
+        // La note du montage : ce que le moteur prétend faire, mesuré. « app score » compare deux rapports.
+        runCatching { readReport(result.report).score }.getOrNull()?.let { s ->
+            echo("  note %.3f  (%s)".format(s.total, criteria(s).joinToString(", ") { "%s %.2f".format(it.first, it.second) }))
+        }
     }
 }
 
@@ -191,8 +209,9 @@ class MusicCommand : PipelineCommand("music") {
         a.sections.forEachIndexed { i, s ->
             val marker = if (s.startBeat == a.dropBeat) " <- drop" else ""
             echo(
-                "  %2d. %s -> %s  %3d temps  %6.1f dB  intensite %.2f  %-4s%s".format(
-                    i + 1, a.beatTime(s.startBeat).toTimecode(), a.beatTime(s.endBeat).toTimecode(), s.beats, s.loudnessDb, s.intensity, s.level, marker,
+                "  %2d. %s -> %s  %3d temps  %6.1f dB  intensite %.2f  pente %+5.1f dB  %-4s %-9s%s".format(
+                    i + 1, a.beatTime(s.startBeat).toTimecode(), a.beatTime(s.endBeat).toTimecode(), s.beats,
+                    s.loudnessDb, s.intensity, s.rise, s.level, s.kind.name.lowercase(), marker,
                 ),
             )
         }
@@ -280,4 +299,56 @@ private fun PipelineCommand.printExport(result: ExportResult) {
     echo("Montage (${result.duration.toShortText()}, encodeur ${result.encoder}) :")
     result.videos.forEach { (format, path) -> echo("  ${format.label}  $path") }
     echo("  rapport ${result.report}")
+}
+
+private val reportJson = Json { ignoreUnknownKeys = true }
+
+internal fun readReport(file: Path): MontageReport =
+    reportJson.decodeFromString(MontageReport.serializer(), file.readText())
+
+/** Critères d'une note, dans l'ordre d'affichage. */
+private fun criteria(s: MontageScore) = listOf(
+    "sync" to s.sync, "accent" to s.accent, "sobriete" to s.restraint, "variete" to s.variety,
+    "duree" to s.fill, "rythme" to s.pacing, "source" to s.coverage,
+)
+
+class ScoreCommand : PipelineCommand("score") {
+    private val reports by argument("RAPPORT", help = "Un ou plusieurs rapports de montage (.json)")
+        .path(mustExist = true, canBeDir = false).multiple(required = true)
+
+    override fun help(context: Context) =
+        "Note un ou plusieurs montages d'apres leur rapport, et les compare : juger une version du moteur sans la regarder."
+
+    override fun run() {
+        val loaded = reports.mapNotNull { file ->
+            val report = runCatching { readReport(file) }.getOrElse {
+                echo("Rapport illisible : $file (${it.message})", err = true)
+                return@mapNotNull null
+            }
+            val score = report.score ?: run {
+                echo("Rapport sans note (montage anterieur) : $file", err = true)
+                return@mapNotNull null
+            }
+            file to score
+        }
+        if (loaded.isEmpty()) return
+        val width = loaded.maxOf { it.first.fileName.toString().length }.coerceAtMost(40)
+        val names = criteria(loaded.first().second).map { it.first }
+        echo("%-${width}s  %5s  %s".format("rapport", "total", names.joinToString("  ") { "%8s".format(it) }))
+        loaded.forEach { (file, s) ->
+            val name = file.fileName.toString().take(width)
+            echo("%-${width}s  %5.3f  %s".format(name, s.total, criteria(s).joinToString("  ") { "%8.3f".format(it.second) }))
+        }
+        // Detail du dernier : c'est lui qu'on vient de produire.
+        val last = loaded.last().second
+        echo("")
+        echo("Mesures (${loaded.last().first.fileName}) : " + last.details.entries.joinToString(", ") { (k, v) -> "$k=$v" })
+        if (loaded.size > 1) {
+            val first = loaded.first().second
+            val delta = last.total - first.total
+            echo("Ecart avec ${loaded.first().first.fileName} : %+.3f".format(delta))
+            criteria(last).zip(criteria(first)).filter { (a, b) -> kotlin.math.abs(a.second - b.second) >= 0.01 }
+                .forEach { (a, b) -> echo("  ${a.first} %+.3f".format(a.second - b.second)) }
+        }
+    }
 }

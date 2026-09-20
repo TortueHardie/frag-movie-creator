@@ -266,6 +266,27 @@ class MontagePlannerTest : FunSpec({
         tooClose(neighbours(45.seconds), 45) shouldBe 0
     }
 
+    test("montée : les plans raccourcissent en approchant de la drop") {
+        // Même musique, mais la section avant la drop est reconnue comme une montée.
+        val m = music()
+        val rising = m.copy(sections = m.sections.mapIndexed { i, s -> if (i == 1) s.copy(kind = SectionKind.BUILD_UP) else s })
+        fun lengths(a: MusicAnalysis, s: MontageSettings = settings): List<Int> {
+            val period = a.beatPeriod
+            val minBeats = maxOf(2, Math.ceil(s.cuts.minLead / period).toInt() + Math.ceil(s.cuts.minTail / period).toInt())
+            return CutGrid.build(a, s.cuts, minBeats).filter { it.section == 1 && it.dropBeat == null }.map { it.beats }
+        }
+
+        val flat = lengths(m)
+        val ramp = lengths(rising)
+        flat.toSet() shouldHaveSize 1
+        // La montée part de plans plus longs que la normale et redescend jusqu'à elle.
+        (ramp.first() > flat.first()) shouldBe true
+        (ramp.last() < ramp.first()) shouldBe true
+        ramp.last() shouldBe flat.first()
+        // Réglage désactivé : la montée retrouve des plans réguliers.
+        lengths(rising, settings.copy(cuts = settings.cuts.copy(accelerateBuildUp = false))) shouldBe flat
+    }
+
     test("densité d'effets : le ralenti va aux plans forts, pas à tous") {
         val p = plan(manyKills)
         check(p)

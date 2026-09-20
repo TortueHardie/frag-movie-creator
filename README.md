@@ -74,8 +74,14 @@ détecte les kills). En ligne de commande :
 ```
 
 - **Musique** : analysée entièrement (`app music son.mp3` pour voir le résultat) : tempo et temps (suivi à ~12 ms, sans
-  dérive), mesures, **sections** (intro, montée, drop, breakdown… par timbre et volume, alignées sur les mesures) avec
-  leur intensité, et la **drop** (plus gros saut d'intensité).
+  dérive), mesures, **sections** (délimitées par timbre et volume, alignées sur les mesures) avec leur intensité, et la
+  **drop** (plus gros saut d'intensité). Chaque section reçoit aussi un **rôle** — intro, montée, drop, breakdown, corps
+  de morceau, outro — qui dit ce qu'elle *fait* et pas seulement à quel point elle joue fort. La section qui mène à la
+  drop en est la montée par construction : un riser perd souvent ses basses en gagnant ses aigus, si bien que son volume
+  peut même baisser. Ailleurs, il faut l'entendre monter (+2,5 dB entre son premier et son dernier tiers).
+- **Coupes qui accélèrent dans une montée** (`cuts.accelerateBuildUp`) : les plans partent du double de leur longueur
+  nominale et sont divisés par deux à mi-parcours, puis aux trois quarts — toujours en puissances de deux, donc toujours
+  sur les mesures. Le montage préfère aussi s'ouvrir sur une intro ou une montée, pour avoir la rampe qui mène à la drop.
 - **Coupes dictées par la musique** : la longueur des plans dépend de la section (courts dans les parties intenses, longs
   dans les calmes, toujours des mesures entières), les frontières de sections sont des coupes, et le montage est placé
   sur la fenêtre de la musique la plus intéressante (montée puis drop vers 40 %). Chaque coupe tombe une image avant son
@@ -107,6 +113,16 @@ détecte les kills). En ligne de commande :
   défaut, sinon `stretch` ou `mute`). Tous ces changements de volume montent et descendent en fondu (`audio.duckAttack`,
   `audio.duckRelease`), sinon la marche s'entend plus que ce qu'elle met en avant ; le son d'un kill ou d'une phrase
   déborde un peu sur le plan suivant (`audio.bleed`).
+- **Note du montage** : chaque rapport porte une note qui mesure ce que le moteur prétend faire — kills sur un temps,
+  temps accentués, sobriété des effets, variété des clips, durée occupée, plans plus courts dans les sections intenses,
+  absence d'image gelée. Elle ne dit pas si un montage est beau ; elle sert à comparer deux versions du moteur sans les
+  regarder l'une après l'autre. Un critère qu'on ne peut pas mesurer sur un montage donné (`-` à l'affichage) sort de la
+  moyenne au lieu d'y entrer à 1.
+
+  ```powershell
+  & $app score output\a\partie_killmontage.json output\b\partie_killmontage.json
+  ```
+
 - Réglages détaillés : section `montage:` d'un profil (voir `core/.../model/Montage.kt`), notamment `cuts:` (durées
   visées par intensité `low`/`mid`/`high`, `maxBeats`, `minLead`/`minTail`, `dropPosition`).
 

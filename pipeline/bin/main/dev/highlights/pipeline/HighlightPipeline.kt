@@ -8,6 +8,7 @@ import dev.highlights.core.analysis.SignalTrack
 import dev.highlights.core.config.LoadedConfig
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
@@ -75,8 +76,11 @@ data class MontageOptions(
     val outputDir: Path? = null,
     val maxDuration: Duration? = null,
     val order: MontageOrder? = null,
+    val hook: Boolean? = null,
+    val effectDensity: EffectDensity? = null,
     val zoom: Boolean? = null,
     val flash: Boolean? = null,
+    val flashEveryCut: Boolean? = null,
     val slowMotion: Boolean? = null,
     val speedRamp: Boolean? = null,
     val text: Boolean? = null,
@@ -115,6 +119,13 @@ class HighlightPipeline(
 
     /** Profil qui serait utilisé pour ce fichier. */
     fun resolveProfile(file: Path, forcedId: String? = null): GameProfile = profiles.resolve(file, forcedId)
+
+    /**
+     * Réglages d'édition du profil, table d'étalonnage résolue depuis le dossier de configuration (comme les modèles
+     * d'images du HUD) : le rendu ne connaît que des chemins absolus.
+     */
+    private fun GameProfile.gradedEdit(): EditSettings =
+        edit.grade.lut?.let { edit.copy(grade = edit.grade.copy(lut = config.resolve(it).toString())) } ?: edit
 
     suspend fun probe(file: Path): MediaInfo {
         validateInput(file)
@@ -169,7 +180,8 @@ class HighlightPipeline(
 
     suspend fun export(session: Session, options: ExportOptions, progress: ProgressReporter): ExportResult {
         val profile = profiles.byId(session.profileId)
-        val settings: EditSettings = options.formats?.let { profile.edit.copy(formats = it) } ?: profile.edit
+        val edit = profile.gradedEdit()
+        val settings: EditSettings = options.formats?.let { edit.copy(formats = it) } ?: edit
         return withJobDir { workDir ->
             exporter.export(
                 session,
@@ -195,7 +207,8 @@ class HighlightPipeline(
             throw InputException("Instant ${at.toTimecode()} hors de la vidéo (durée ${media.duration.toTimecode()})")
         }
         val profile = profiles.resolve(file, profileId)
-        val settings = formats?.let { profile.edit.copy(formats = it) } ?: profile.edit
+        val edit = profile.gradedEdit()
+        val settings = formats?.let { edit.copy(formats = it) } ?: edit
         return withJobDir { workDir ->
             exporter.preview(media, at, settings, (outputDir ?: config.outputDir).resolve("previews"), workDir)
         }
@@ -239,8 +252,13 @@ class HighlightPipeline(
             formats = options.formats ?: base.formats,
             maxDuration = options.maxDuration ?: base.maxDuration,
             order = options.order ?: base.order,
+            hook = options.hook ?: base.hook,
+            effectDensity = options.effectDensity ?: base.effectDensity,
             zoom = base.zoom.copy(enabled = options.zoom ?: base.zoom.enabled),
-            flash = base.flash.copy(enabled = options.flash ?: base.flash.enabled),
+            flash = base.flash.copy(
+                enabled = options.flash ?: base.flash.enabled,
+                onEveryCut = options.flashEveryCut ?: base.flash.onEveryCut,
+            ),
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),
             speedRamp = base.speedRamp.copy(enabled = options.speedRamp ?: base.speedRamp.enabled),
             text = base.text.copy(enabled = options.text ?: base.text.enabled),
@@ -255,7 +273,7 @@ class HighlightPipeline(
                 plan,
                 MontageExportRequest(
                     formats = settings.formats,
-                    edit = profile.edit,
+                    edit = profile.gradedEdit(),
                     outputDir = options.outputDir ?: config.outputDir,
                     workDir = workDir,
                     gameName = profile.id,

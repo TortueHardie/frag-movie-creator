@@ -29,11 +29,16 @@ import dev.highlights.core.session.SessionStore
 import dev.highlights.export.ExportResult
 import dev.highlights.ffmpeg.FfmpegEncoderSelector
 import dev.highlights.montage.CutGrid
+import dev.highlights.montage.MontageReport
+import dev.highlights.montage.MontageScore
 import dev.highlights.montage.MusicAnalyzer
 import dev.highlights.pipeline.AnalyzeOptions
 import dev.highlights.pipeline.ExportOptions
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
+import java.nio.file.Path
+import kotlin.io.path.readText
+import kotlinx.serialization.json.Json
 
 private fun PipelineCommand.formatsOption() = option("-f", "--format", help = "Formats de sortie séparés par des virgules : source (ratio de la capture, ex. 21:9), 16:9, 9:16")
     .convert { OutputFormat.parse(it) ?: throw BadParameterValue("format inconnu '$it' (source, 16:9 ou 9:16)") }
@@ -178,6 +183,11 @@ class MontageCommand : PipelineCommand("montage") {
             }
         }
         printExport(result)
+        // La note du montage : ce que le moteur prétend faire, mesuré. « app score » compare deux rapports.
+        runCatching { readReport(result.report).score }.getOrNull()?.let { s ->
+            val parts = criteria(s).joinToString(", ") { (n, v) -> if (v == null) "$n -" else "%s %.2f".format(n, v) }
+            echo("  note %.3f  ($parts)".format(s.total))
+        }
     }
 }
 
@@ -200,8 +210,9 @@ class MusicCommand : PipelineCommand("music") {
         a.sections.forEachIndexed { i, s ->
             val marker = if (s.startBeat == a.dropBeat) " <- drop" else ""
             echo(
-                "  %2d. %s -> %s  %3d temps  %6.1f dB  intensite %.2f  %-4s%s".format(
-                    i + 1, a.beatTime(s.startBeat).toTimecode(), a.beatTime(s.endBeat).toTimecode(), s.beats, s.loudnessDb, s.intensity, s.level, marker,
+                "  %2d. %s -> %s  %3d temps  %6.1f dB  intensite %.2f  pente %+5.1f dB  %-4s %-9s%s".format(
+                    i + 1, a.beatTime(s.startBeat).toTimecode(), a.beatTime(s.endBeat).toTimecode(), s.beats,
+                    s.loudnessDb, s.intensity, s.rise, s.level, s.kind.name.lowercase(), marker,
                 ),
             )
         }
@@ -289,4 +300,63 @@ private fun PipelineCommand.printExport(result: ExportResult) {
     echo("Montage (${result.duration.toShortText()}, encodeur ${result.encoder}) :")
     result.videos.forEach { (format, path) -> echo("  ${format.label}  $path") }
     echo("  rapport ${result.report}")
+}
+
+private val reportJson = Json { ignoreUnknownKeys = true }
+
+internal fun readReport(file: Path): MontageReport =
+    reportJson.decodeFromString(MontageReport.serializer(), file.readText())
+
+/** Criteres d'une note, dans l'ordre d'affichage. Null = non mesurable sur ce montage. */
+private fun criteria(s: MontageScore): List<Pair<String, Double?>> = listOf(
+    "sync" to s.sync, "accent" to s.accent, "sobriete" to s.restraint, "variete" to s.variety,
+    "duree" to s.fill, "rythme" to s.pacing, "source" to s.coverage,
+)
+
+private fun cell(v: Double?) = if (v == null) "%8s".format("-") else "%8.3f".format(v)
+
+class ScoreCommand : PipelineCommand("score") {
+    private val reports by argument("RAPPORT", help = "Un ou plusieurs rapports de montage (.json)")
+        .path(mustExist = true, canBeDir = false).multiple(required = true)
+
+    override fun help(context: Context) =
+        "Note un ou plusieurs montages d'apres leur rapport, et les compare : juger une version du moteur sans la regarder."
+
+    override fun run() {
+        val loaded = reports.mapNotNull { file ->
+            val report = runCatching { readReport(file) }.getOrElse {
+                echo("Rapport illisible : $file (${it.message})", err = true)
+                return@mapNotNull null
+            }
+            val score = report.score ?: run {
+                echo("Rapport sans note (montage anterieur) : $file", err = true)
+                return@mapNotNull null
+            }
+            file to score
+        }
+        if (loaded.isEmpty()) return
+        // Les rapports portent souvent le meme nom : on remonte d'un dossier quand il le faut pour les distinguer.
+        val labels = loaded.map { it.first.fileName.toString() }.let { names ->
+            if (names.distinct().size == names.size) names
+            else loaded.map { it.first.parent?.fileName?.let { p -> "$p/${it.first.fileName}" } ?: it.first.fileName.toString() }
+        }
+        val width = labels.maxOf { it.length }.coerceAtMost(60)
+        val names = criteria(loaded.first().second).map { it.first }
+        echo("%-${width}s  %5s  %s".format("rapport", "total", names.joinToString("  ") { "%8s".format(it) }))
+        loaded.forEachIndexed { i, (_, s) ->
+            echo("%-${width}s  %5.3f  %s".format(labels[i].take(width), s.total, criteria(s).joinToString("  ") { cell(it.second) }))
+        }
+        // Detail du dernier : c'est lui qu'on vient de produire.
+        val last = loaded.last().second
+        echo("")
+        echo("Mesures (${labels.last()}) : " + last.details.entries.joinToString(", ") { (k, v) -> "$k=$v" })
+        if (loaded.size > 1) {
+            val first = loaded.first().second
+            echo("Ecart avec ${labels.first()} : %+.3f".format(last.total - first.total))
+            criteria(last).zip(criteria(first))
+                .mapNotNull { (a, b) -> if (a.second != null && b.second != null) Triple(a.first, a.second!!, b.second!!) else null }
+                .filter { (_, x, y) -> kotlin.math.abs(x - y) >= 0.01 }
+                .forEach { (name, x, y) -> echo("  $name %+.3f".format(x - y)) }
+        }
+    }
 }

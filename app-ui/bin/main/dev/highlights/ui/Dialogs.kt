@@ -7,20 +7,27 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +39,8 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.rememberDialogState
+import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.OutputFormat
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 
@@ -101,49 +110,73 @@ fun VerticalPreviewWindow(preview: ImagePreview, busy: Boolean, actions: UiActio
 }
 
 /** Réglages du montage « tous les kills » : musique, durée, ordre, formats et effets. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
     AlertDialog(
         onDismissRequest = actions::closeMontage,
         title = { Text("Montage kills") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // La liste dépasse les petits écrans : elle défile plutôt que de rogner les boutons du bas.
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
                 Text(
                     "Coupes et kills calés sur les temps de la musique, meilleur moment sur la partie la plus intense, " +
                         "voix et rires jamais coupés.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Palette.textMuted,
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        montage.music?.fileName?.toString() ?: "Aucune musique choisie",
-                        modifier = Modifier.weight(1f),
-                        color = if (montage.music == null) Palette.textMuted else Palette.text,
-                    )
-                    OutlinedButton(onClick = actions::chooseMusic) { Text("Choisir…") }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Durée maximale", modifier = Modifier.weight(1f))
-                    androidx.compose.material3.OutlinedTextField(
-                        value = montage.maxDurationText,
-                        onValueChange = { v -> actions.updateMontage { it.copy(maxDurationText = v) } },
-                        singleLine = true,
-                        isError = montage.maxDuration == null,
-                        modifier = Modifier.width(110.dp),
-                    )
-                }
-                MontageToggle("Montée en puissance (meilleur kill sur la drop)", montage.buildUp) { v -> actions.updateMontage { it.copy(buildUp = v) } }
-                Text("Formats", style = MaterialTheme.typography.labelLarge)
-                dev.highlights.core.model.OutputFormat.entries.forEach { format ->
-                    MontageToggle(formatLabel(format, state.source?.media), format in montage.formats) { v ->
-                        actions.updateMontage { it.copy(formats = if (v) it.formats + format else it.formats - format) }
+
+                DialogGroup("Musique") {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            montage.music?.fileName?.toString() ?: "Aucune musique choisie",
+                            modifier = Modifier.weight(1f),
+                            color = if (montage.music == null) Palette.textMuted else Palette.text,
+                        )
+                        OutlinedButton(onClick = actions::chooseMusic) { Text("Choisir…") }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Durée maximale", modifier = Modifier.weight(1f))
+                        OutlinedTextField(
+                            value = montage.maxDurationText,
+                            onValueChange = { v -> actions.updateMontage { it.copy(maxDurationText = v) } },
+                            singleLine = true,
+                            isError = montage.maxDuration == null,
+                            modifier = Modifier.width(110.dp),
+                        )
+                    }
+                    MontageToggle("Montée en puissance (meilleur kill sur la drop)", montage.buildUp) { v ->
+                        actions.updateMontage { it.copy(buildUp = v) }
                     }
                 }
-                Text("Effets", style = MaterialTheme.typography.labelLarge)
-                MontageToggle("Zoom punch sur le kill", montage.zoom) { v -> actions.updateMontage { it.copy(zoom = v) } }
-                MontageToggle("Flash blanc aux coupes", montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
-                MontageToggle("Ralenti sur le kill", montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
-                MontageToggle("Textes DOUBLÉ / TRIPLÉ et compteur", montage.text) { v -> actions.updateMontage { it.copy(text = v) } }
+
+                DialogGroup("Formats") {
+                    OutputFormat.entries.forEach { format ->
+                        MontageToggle(formatLabel(format, state.source?.media), format in montage.formats) { v ->
+                            actions.updateMontage { it.copy(formats = if (v) it.formats + format else it.formats - format) }
+                        }
+                    }
+                }
+
+                DialogGroup("Effets") {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        EffectDensity.entries.forEachIndexed { i, density ->
+                            SegmentedButton(
+                                selected = montage.density == density,
+                                onClick = { actions.updateMontage { it.copy(density = density) } },
+                                shape = SegmentedButtonDefaults.itemShape(i, EffectDensity.entries.size),
+                            ) { Text(densityLabel(density)) }
+                        }
+                    }
+                    Text(densityHint(montage.density), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                    MontageToggle("Zoom punch sur le kill", montage.zoom) { v -> actions.updateMontage { it.copy(zoom = v) } }
+                    MontageToggle("Flash blanc aux coupes fortes", montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
+                    MontageToggle("Ralenti sur le kill", montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
+                    MontageToggle("Textes DOUBLÉ / TRIPLÉ", montage.text) { v -> actions.updateMontage { it.copy(text = v) } }
+                }
             }
         },
         confirmButton = { Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text("Créer le montage") } },
@@ -151,10 +184,31 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
     )
 }
 
+internal fun densityLabel(density: EffectDensity) = when (density) {
+    EffectDensity.SOBER -> "Sobre"
+    EffectDensity.BALANCED -> "Normal"
+    EffectDensity.HEAVY -> "Chargé"
+}
+
+internal fun densityHint(density: EffectDensity) = when (density) {
+    EffectDensity.SOBER -> "Ralenti sur la drop seulement, aucun zoom : l'action reste lisible."
+    EffectDensity.BALANCED -> "Une emphase par plan : ralenti sur les moments forts, zoom sur les autres."
+    EffectDensity.HEAVY -> "Tous les effets sur tous les plans : l'image finit par être surchargée."
+}
+
+/** Un bloc du dialogue : un intitulé discret et ses réglages, séparés du bloc suivant. */
+@Composable
+private fun DialogGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title.uppercase(), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
+        content()
+    }
+}
+
 @Composable
 private fun MontageToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().clickable { onChange(!checked) }, verticalAlignment = Alignment.CenterVertically) {
-        androidx.compose.material3.Checkbox(checked = checked, onCheckedChange = onChange)
+        Checkbox(checked = checked, onCheckedChange = onChange)
         Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }

@@ -98,6 +98,39 @@ class MusicAnalyzerTest : FunSpec({
         }
     }
 
+    test("rôles des sections : intro, montée vers la drop, creux, outro") {
+        val sections = listOf(
+            MusicSection(0, 32, -20.0, 0.10, rise = 1.0),
+            // Mène à la drop : c'est une montée, même si son volume baisse (un riser perd ses basses).
+            MusicSection(32, 64, -14.0, 0.50, rise = -3.0),
+            MusicSection(64, 128, -6.0, 0.90),
+            // Nettement en dessous de ses deux voisines : une respiration.
+            MusicSection(128, 160, -16.0, 0.30),
+            MusicSection(160, 192, -7.0, 0.85),
+            MusicSection(192, 224, -22.0, 0.05),
+        )
+        MusicAnalyzer.classify(sections, dropBeat = 64).map { it.kind } shouldBe listOf(
+            SectionKind.INTRO, SectionKind.BUILD_UP, SectionKind.DROP,
+            SectionKind.BREAKDOWN, SectionKind.BODY, SectionKind.OUTRO,
+        )
+    }
+
+    test("montée loin de la drop : il faut l'entendre monter") {
+        fun kinds(rise: Double) = MusicAnalyzer.classify(
+            listOf(
+                MusicSection(0, 32, -8.0, 0.60),
+                MusicSection(32, 64, -6.0, 0.90),
+                MusicSection(64, 96, -14.0, 0.30, rise = rise),
+                MusicSection(96, 128, -7.0, 0.85),
+            ),
+            dropBeat = 32,
+        ).map { it.kind }
+
+        // Une section calme qui grimpe de 4 dB vers plus intense est une montée ; sans pente, c'est un creux.
+        kinds(4.0)[2] shouldBe SectionKind.BUILD_UP
+        kinds(0.0)[2] shouldBe SectionKind.BREAKDOWN
+    }
+
     test("premier temps de mesure repéré par l'accent") {
         val analysis = MusicAnalyzer.analyzeSamples(beatLoop(120.0, 30))
         analysis.bpm shouldBe (120.0 plusOrMinus 1.0)

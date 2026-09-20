@@ -80,6 +80,8 @@ data class CutSettings(
      * qu'une coupe pile sur le temps paraît en retard. Le kill, lui, ne bouge pas : seule la coupe avance.
      */
     val preBeatFrames: Int = 1,
+    /** Dans une montée de la musique, les plans raccourcissent au fur et à mesure : les coupes accélèrent avec elle. */
+    val accelerateBuildUp: Boolean = true,
 ) {
     init {
         require(maxBeats in 4..64) { "montage.cuts.maxBeats doit être entre 4 et 64" }

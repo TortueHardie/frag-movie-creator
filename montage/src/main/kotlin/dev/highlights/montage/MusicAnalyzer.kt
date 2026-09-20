@@ -32,6 +32,30 @@ private val log = KotlinLogging.logger {}
 enum class Intensity { LOW, MID, HIGH }
 
 /**
+ * Rôle d'une section dans le morceau. L'intensité dit à quel point ça joue fort ; le rôle dit ce que la section
+ * *fait* : une montée et un couplet peuvent avoir la même intensité moyenne sans appeler le même montage.
+ */
+enum class SectionKind {
+    /** Début calme du morceau. */
+    INTRO,
+
+    /** Le volume grimpe d'un bout à l'autre et débouche sur plus intense : les coupes peuvent s'accélérer avec. */
+    BUILD_UP,
+
+    /** La section qui commence sur la drop. */
+    DROP,
+
+    /** Creux entre deux sections plus fortes : une respiration. */
+    BREAKDOWN,
+
+    /** Couplet, refrain : tout ce qui ne joue pas un rôle particulier. */
+    BODY,
+
+    /** Fin calme du morceau. */
+    OUTRO,
+}
+
+/**
  * Section de la musique (intro, couplet, montée, drop, breakdown…), délimitée par des changements de timbre ou de
  * volume et alignée sur les mesures. [endBeat] est exclusif.
  */
@@ -42,6 +66,9 @@ data class MusicSection(
     val loudnessDb: Double,
     /** 0 = partie la plus calme du morceau, 1 = la plus intense. */
     val intensity: Double,
+    /** Écart de volume (dB) entre le dernier tiers et le premier : positif sur une montée. */
+    val rise: Double = 0.0,
+    val kind: SectionKind = SectionKind.BODY,
 ) {
     val beats: Int get() = endBeat - startBeat
     val level: Intensity
@@ -100,6 +127,10 @@ object MusicAnalyzer {
     private const val KERNEL_BARS = 4
     /** Nouveauté minimale d’une frontière de section (timbre : écart de similarité cosinus ; volume : 6 dB = 1). */
     private const val NOVELTY_FLOOR = 0.25
+    /** Montée de volume (dB) entre le premier et le dernier tiers d'une section pour y voir une montée. */
+    private const val RISE_DB = 2.5
+    /** Écart d'intensité en dessous des deux voisins pour qu'une section soit un creux. */
+    private const val DIP = 0.15
 
     suspend fun analyze(ffmpeg: FfmpegService, file: Path): MusicAnalysis {
         if (!file.isRegularFile()) throw InputException("Musique introuvable : $file")
@@ -187,8 +218,12 @@ object MusicAnalyzer {
         for (i in 0 until n) phaseScores[i % BEATS_PER_BAR] += lowNorm[i] + 0.5 * accent[i] + 0.5 * novNorm[i]
         val phase = phaseScores.indices.maxBy { phaseScores[it] }
 
-        val sections = detectSections(beatMel, loudness, accent, phase, n)
-        val drop = findDrop(sections)
+        val raw = detectSections(beatMel, loudness, accent, phase, n)
+        val drop = findDrop(raw)
+        val sections = classify(raw, drop)
+        log.info {
+            "Structure : " + sections.joinToString(" ") { "${it.kind.name.lowercase()}(${it.beats}t, ${"%.2f".format(it.intensity)})" }
+        }
         return MusicAnalysis(file, duration, bpm, beats, phase, energy, accent, sections, drop)
     }
 
@@ -456,7 +491,45 @@ object MusicAnalyzer {
         return raw.mapIndexed { i, (a, b) ->
             val loud = ((sectionLoud[i] - p10) / range).coerceIn(0.0, 1.0)
             val acc = accRange?.let { ((sectionAccent[i] - accMin) / it).coerceIn(0.0, 1.0) } ?: 1.0
-            MusicSection(a, b, sectionLoud[i], (0.8 * loud + 0.2 * acc).coerceIn(0.0, 1.0))
+            MusicSection(a, b, sectionLoud[i], (0.8 * loud + 0.2 * acc).coerceIn(0.0, 1.0), rise = rise(loudness, a, b))
+        }
+    }
+
+    /** Écart de volume entre le dernier et le premier tiers d'une section : ce qui monte sur une montée. */
+    private fun rise(loudness: DoubleArray, from: Int, to: Int): Double {
+        val third = (to - from) / 3
+        if (third < 1) return 0.0
+        val first = (from until from + third).sumOf { loudness[it] } / third
+        val last = (to - third until to).sumOf { loudness[it] } / third
+        return last - first
+    }
+
+    /**
+     * Rôle de chaque section. Le drop est déjà repéré ; une montée grimpe nettement d'un bout à l'autre et débouche sur
+     * plus intense qu'elle ; un breakdown est un creux entre deux sections plus fortes ; l'intro et l'outro sont les
+     * extrémités, quand elles sont plus calmes que le reste du morceau. Le reste est du corps de morceau.
+     */
+    internal fun classify(sections: List<MusicSection>, dropBeat: Int): List<MusicSection> {
+        if (sections.isEmpty()) return sections
+        val median = sections.map { it.intensity }.sorted()[sections.size / 2]
+        val dropIndex = sections.indexOfLast { dropBeat >= it.startBeat }.coerceAtLeast(0)
+        return sections.mapIndexed { i, s ->
+            val next = sections.getOrNull(i + 1)
+            val previous = sections.getOrNull(i - 1)
+            // Une montée débouche toujours sur plus intense qu'elle.
+            val leadsUp = next != null && next.intensity > s.intensity + 0.1
+            val kind = when {
+                i == dropIndex && sections.size > 1 -> SectionKind.DROP
+                i == 0 && s.intensity < median -> SectionKind.INTRO
+                // La section qui mène à la drop en est la montée, par construction : un riser perd souvent ses basses
+                // en gagnant ses aigus, si bien que son volume peut même baisser. Ailleurs, il faut l'entendre monter.
+                leadsUp && (i == dropIndex - 1 || s.rise >= RISE_DB) -> SectionKind.BUILD_UP
+                i == sections.lastIndex && s.intensity < median -> SectionKind.OUTRO
+                previous != null && next != null &&
+                    s.intensity + DIP < minOf(previous.intensity, next.intensity) -> SectionKind.BREAKDOWN
+                else -> SectionKind.BODY
+            }
+            s.copy(kind = kind)
         }
     }
 
