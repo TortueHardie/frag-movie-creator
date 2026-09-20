@@ -47,6 +47,24 @@ class MontageRenderBuilderTest : FunSpec({
         MontageRenderRequest(p, format, edit, EncoderProfile("h264_amf", listOf("-c:v", "h264_amf"), true), Path("out.mp4"), Path("f.txt"), cuts = cuts),
     )
 
+    test("captures de tailles différentes : tout est ramené au format du premier clip") {
+        val small = media.copy(path = Path("autre.mp4"), video = VideoStream(0, "h264", 1920, 1080, 60.0))
+        val groups = listOf(
+            KillGroup(media, listOf(100.seconds, 102.seconds), 1.0, emptyList(), emptyList()),
+            KillGroup(small, listOf(500.seconds), 0.5, emptyList(), emptyList()),
+        )
+        val graph = MontageRenderBuilder.build(
+            MontageRenderRequest(
+                MontagePlanner.plan(groups, music, settings), OutputFormat.SOURCE, edit,
+                EncoderProfile("libx264", listOf("-c:v", "libx264"), false), Path("out.mp4"), Path("f.txt"),
+            ),
+        ).filterGraph
+
+        // Première capture 3440x1440 → 2580x1080 ; la seconde (16:9) est mise à cette taille avec des bandes noires.
+        graph shouldContain "scale=2580:1080:force_original_aspect_ratio=decrease"
+        graph shouldContain "pad=2580:1080:(ow-iw)/2:(oh-ih)/2"
+    }
+
     test("pré-découpes lues à la place des sources : les intervalles annoncés sont ceux du graphe") {
         val p = plan()
         val cuts = MontageRenderBuilder.sourceCuts(p, edit.fps)

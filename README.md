@@ -1,6 +1,6 @@
 # Highlights
 
-Transforme des captures de gameplay brutes (Outplayed, OBS) en montages courts des meilleurs moments, sans intervention manuelle.
+Transforme des captures de gameplay brutes (Outplayed, OBS, ShadowPlay…) en montages courts des meilleurs moments, sans intervention manuelle.
 
 Deux interfaces sur le même moteur : une **application de bureau** (Compose) et une **ligne de commande**.
 
@@ -63,6 +63,8 @@ Rien à régler avant d'analyser une première capture : l'application s'adapte 
   jeu ; il suffit de déclarer la capture de référence (`referenceWidth`/`referenceHeight`, ou `vertical.reference`).
 - **Carte graphique** : AMD, NVIDIA, Intel et Apple sont essayés dans l'ordre, chacun par un vrai encodage de test, avec
   repli sur l'encodeur logiciel. Le décodage matériel est en `auto` et retombe en logiciel si le rendu échoue.
+- **Résolution et cadence** : le montage ne dépasse jamais celles de la capture (un enregistrement 720p à 30 img/s n'est
+  ni agrandi ni dupliqué), et un montage kills mélangeant plusieurs captures les ramène toutes au format de la première.
 - **Micro absent, capture muette, OCR de Windows indisponible** : chaque signal manquant est signalé et ignoré, jamais
   bloquant.
 

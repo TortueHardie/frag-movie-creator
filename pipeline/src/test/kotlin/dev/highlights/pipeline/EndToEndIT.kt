@@ -72,8 +72,9 @@ class EndToEndIT : FunSpec({
 
         val ffmpeg = TestMedia.requireFfmpeg()
         val out = ffmpeg.probe(landscape)
-        out.video?.width shouldBe 1920
-        out.video?.height shouldBe 1080
+        // Format « source » : la taille de la capture, jamais agrandie (la vidéo de test fait 640x360).
+        out.video?.width shouldBe 640
+        out.video?.height shouldBe 360
         (out.duration.inWholeMilliseconds / 1000.0) shouldBe (export.duration.inWholeMilliseconds / 1000.0 plusOrMinus 0.5)
         val vertical = ffmpeg.probe(export.videos.getValue(OutputFormat.VERTICAL))
         vertical.video?.width shouldBe 1080
