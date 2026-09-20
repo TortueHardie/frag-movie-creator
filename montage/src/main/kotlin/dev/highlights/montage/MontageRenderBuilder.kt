@@ -86,7 +86,14 @@ object MontageRenderBuilder {
             val base = if (parts.size > 1) {
                 graph += "[g$i]split=${parts.size}" + parts.indices.joinToString("") { "[g${i}s$it]" }
                 parts.forEachIndexed { p, part ->
-                    val pts = if (part.factor == 1.0) "setpts=PTS-STARTPTS" else "setpts=(PTS-STARTPTS)/${num(part.factor)},fps=${edit.fps}"
+                    // Sans interpolation, ralentir répète les images de la source ; minterpolate en calcule de nouvelles,
+                    // au prix d'un rendu bien plus lent — réservé aux portions effectivement ralenties.
+                    val resample = if (settings.slowMotion.interpolate && part.factor < 1.0) {
+                        "minterpolate=fps=${edit.fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+                    } else {
+                        "fps=${edit.fps}"
+                    }
+                    val pts = if (part.factor == 1.0) "setpts=PTS-STARTPTS" else "setpts=(PTS-STARTPTS)/${num(part.factor)},$resample"
                     graph += "[g${i}s$p]trim=start=${sec(part.from)}:end=${sec(part.to)},$pts[g${i}p$p]"
                 }
                 graph += parts.indices.joinToString("") { "[g${i}p$it]" } + "concat=n=${parts.size}:v=1:a=0[s$i]"
@@ -98,13 +105,15 @@ object MontageRenderBuilder {
             val effects = mutableListOf<String>()
             // Source trop courte pour le slot : image gelée avant / après.
             if (clip.padBefore.isPositive()) effects += "tpad=start_mode=clone:start_duration=${sec(clip.padBefore)}"
-            if (settings.zoom.enabled && outKills.isNotEmpty()) {
+            // Le dernier kill du clip est celui calé sur le temps : c'est lui qui mérite le zoom en priorité.
+            val zoomKills = if (settings.zoom.onEveryKill) outKills else outKills.takeLast(1)
+            if (settings.zoom.enabled && zoomKills.isNotEmpty()) {
                 val decay = settings.zoom.decay.inWholeMicroseconds / 1e6
-                val z = "(1+${num(settings.zoom.amount)}*(" + outKills.joinToString("+") { k ->
+                val z = "(1+${num(settings.zoom.amount)}*(" + zoomKills.joinToString("+") { k ->
                     val tk = sec(k)
                     "if(gte(t\\,$tk)\\,exp(-(t-$tk)/${num(decay)})\\,0)"
                 } + "))"
-                effects += "scale=w='trunc($w*$z/2)*2':h='trunc($h*$z/2)*2':eval=frame:flags=bilinear"
+                effects += "scale=w='trunc($w*$z/2)*2':h='trunc($h*$z/2)*2':eval=frame:flags=${settings.zoom.scaleFlags}"
                 effects += "crop=$w:$h:(iw-$w)/2:(ih-$h)/2"
             }
             if (settings.flash.enabled && flashes[i]) {

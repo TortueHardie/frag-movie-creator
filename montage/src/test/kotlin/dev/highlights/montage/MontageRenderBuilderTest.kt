@@ -67,7 +67,7 @@ class MontageRenderBuilderTest : FunSpec({
         val g = cmd.filterGraph
         g shouldContain "setpts=(PTS-STARTPTS)/0.5000"
         g shouldContain "atempo=0.5000"
-        g shouldContain "eval=frame:flags=bilinear"
+        g shouldContain "eval=frame:flags=bicubic"
         // Décélération par paliers avant le kill, puis ralenti plein.
         g shouldContain "setpts=(PTS-STARTPTS)/0.8333"
         g shouldContain "setpts=(PTS-STARTPTS)/0.6667"
@@ -95,7 +95,7 @@ class MontageRenderBuilderTest : FunSpec({
             slowMotion = settings.slowMotion.copy(enabled = false), text = settings.text.copy(enabled = false),
         )
         val g = build(plan(off), OutputFormat.SOURCE).filterGraph
-        g shouldNotContain "eval=frame:flags=bilinear"
+        g shouldNotContain "eval=frame:flags=bicubic"
         g shouldNotContain "fade=t=in"
         g shouldNotContain "atempo"
         g shouldNotContain "drawtext"
@@ -172,6 +172,23 @@ class MontageRenderBuilderTest : FunSpec({
         tight shouldBe 1
         p.clips[tight].start shouldBe Duration.ZERO
         MontageRenderBuilder.leads(p, edit.fps)[tight] shouldBe Duration.ZERO
+    }
+
+    test("zoom : un par kill, ou seulement sur celui calé sur le temps") {
+        // L'expression du zoom est reprise pour la largeur et pour la hauteur : deux occurrences par kill.
+        fun punches(s: MontageSettings) = Regex("""if\(gte\(t\\,""").findAll(build(plan(s)).filterGraph).count() / 2
+        // Trois kills visibles en tout (un doublé et un simple) ; sinon un seul par plan.
+        punches(settings) shouldBe 3
+        punches(settings.copy(zoom = settings.zoom.copy(onEveryKill = false))) shouldBe 2
+    }
+
+    test("ralenti : images calculées seulement sur les portions ralenties, et sur demande") {
+        val g = build(plan(settings.copy(slowMotion = settings.slowMotion.copy(interpolate = true)))).filterGraph
+        g shouldContain "setpts=(PTS-STARTPTS)/0.5000,minterpolate=fps=60"
+        // Les portions à vitesse normale gardent une simple conversion de cadence.
+        g shouldNotContain "PTS-STARTPTS,minterpolate"
+        // Par défaut, aucune image n'est inventée.
+        build(plan()).filterGraph shouldNotContain "minterpolate"
     }
 
     test("compteur de kills : absent par défaut, présent sur demande") {

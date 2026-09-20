@@ -7,6 +7,9 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
 - **Détection des moments** : volume du jeu (EBU R128), prises de parole et rires (YAMNet), événements enregistrés par
   Outplayed (kills, morts, assistances), icônes du HUD et journal des gains lu par OCR (Wardogs).
 - **Highlights** : les meilleurs moments fusionnés et exportés en 16:9 et/ou 9:16, encodés par AMF (repli libx264).
+- **Étalonnage** (`edit.grade` d'un profil, pour les highlights comme pour le montage) : table de correspondance
+  `.cube` (chemin relatif au dossier de configuration), saturation, contraste et vignettage. Sert à unifier des
+  captures venues de sessions ou de jeux différents. Neutre tant qu'on n'y touche pas.
 - **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
 - **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Wardogs, et un profil par défaut.
 
@@ -91,8 +94,10 @@ détecte les kills). En ligne de commande :
   secondes que le spectateur décide de rester.
 - **Effets** (désactivables : `--no-zoom`, `--no-flash`, `--no-slowmo`, `--no-text`) : zoom punch, ralenti ×0,5 sur le
   kill (seulement s'il tient dans le plan), textes « DOUBLÉ / TRIPLÉ », fondu au noir final. Le ralenti s'installe par
-  paliers avant le kill et le plein régime revient exactement sur un temps, au lieu d'un changement de vitesse net.
-  Le flash blanc ne tombe qu'aux coupes fortes — nouvelle section, drop, multi-kill (`--flash-every-cut` pour toutes).
+  paliers avant le kill et le plein régime revient exactement sur un temps, au lieu d'un changement de vitesse net ;
+  `slowMotion.interpolate` calcule de vraies images intermédiaires au lieu de répéter celles de la source (mouvement
+  fluide, rendu bien plus lent). Le flash blanc ne tombe qu'aux coupes fortes — nouvelle section, drop, multi-kill
+  (`--flash-every-cut` pour toutes) ; `zoom.onEveryKill: false` réserve le zoom au kill calé sur le temps.
 - **Son** : musique au premier plan ; le jeu remonte sur les kills ; voix et rires restent audibles, et la musique baisse
   pendant qu'on les entend ; tous ces changements de volume montent et descendent en fondu (`audio.duckAttack`,
   `audio.duckRelease`), sinon la marche s'entend plus que ce qu'elle met en avant ; le son d'un kill ou d'une phrase

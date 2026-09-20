@@ -93,8 +93,20 @@ enum class MontageOrder {
     @SerialName("chronological") CHRONOLOGICAL,
 }
 
+/**
+ * Zoom « punch » : l'image bondit sur le kill puis revient. [onEveryKill] décide si les kills intermédiaires d'un
+ * multi-kill en reçoivent un aussi, ou si seul celui qui tombe sur le temps y a droit (les libellés DOUBLÉ / TRIPLÉ
+ * marquent déjà les autres).
+ */
 @Serializable
-data class ZoomEffect(val enabled: Boolean = true, val amount: Double = 0.18, val decay: SerialDuration = 350.milliseconds)
+data class ZoomEffect(
+    val enabled: Boolean = true,
+    val amount: Double = 0.18,
+    val decay: SerialDuration = 350.milliseconds,
+    val onEveryKill: Boolean = true,
+    /** Rééchantillonnage du zoom, appliqué à chaque image : bicubic tient le détail, bilinear coûte moins cher. */
+    val scaleFlags: String = "bicubic",
+)
 
 /**
  * Flash blanc à la coupe. Par défaut seulement aux coupes fortes (changement de section, drop, multi-kill) : à chaque
@@ -124,6 +136,11 @@ data class SlowMotionEffect(
     val rampSteps: Int = 3,
     /** Retour au plein régime sur un temps plutôt qu'au bout de [after]. */
     val snapToBeat: Boolean = true,
+    /**
+     * Images intermédiaires calculées par estimation de mouvement pendant le ralenti, au lieu de répéter les images
+     * de la source. Le mouvement devient fluide, mais le rendu de ces portions est bien plus lent (`minterpolate`).
+     */
+    val interpolate: Boolean = false,
 ) {
     init {
         require(factor in 0.5..1.0) { "slowMotion.factor doit être entre 0,5 et 1" }
