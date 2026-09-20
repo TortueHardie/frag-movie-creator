@@ -217,7 +217,8 @@ object MontageRenderBuilder {
             plan.settings.flash.onEveryCut -> true
             clip.slot.dropBeat != null -> true
             clip.slot.section != plan.clips[i - 1].slot.section -> true
-            else -> clip.group.kills.size > 1
+            // Les kills visibles, pas ceux du groupe : un multi-kill dont le début a été coupé n'en est plus un à l'écran.
+            else -> clip.kills.size > 1
         }
     }
 
