@@ -10,6 +10,7 @@ import dev.highlights.core.analysis.SignalSegment
 import dev.highlights.core.analysis.SignalTrack
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.StdoutHandler
+import dev.highlights.core.model.AudioRole
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.serialization.SerialDuration
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -34,8 +35,10 @@ data class AudioEventKind(
 
 @Serializable
 data class AudioEventParams(
-    /** Piste analysée (0:a:N), typiquement le micro. */
-    val stream: Int = 0,
+    /** Rôle de la piste analysée : le micro, quel que soit son index chez cet enregistreur. */
+    val role: AudioRole = AudioRole.MIC,
+    /** Index de piste imposé (0:a:N). null = le rôle décide. */
+    val stream: Int? = null,
     val optional: Boolean = true,
     val model: String = "models/yamnet.onnx",
     val classMap: String = "models/yamnet_class_map.csv",
@@ -60,9 +63,9 @@ data class AudioEventParams(
 class AudioEventDetector(override val id: String, private val params: AudioEventParams) : SignalDetector {
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
-        val stream = ctx.media.audio.getOrNull(params.stream)
+        val stream = if (params.stream != null) ctx.media.audio.getOrNull(params.stream) else ctx.audio[params.role]
         if (stream == null) {
-            val note = "piste a:${params.stream} absente"
+            val note = "piste ${params.stream?.let { "a:$it" } ?: "(rôle ${params.role.name.lowercase()})"} absente"
             if (params.optional) log.info { "$id ignoré : $note" } else log.warn { "$id : $note" }
             ctx.progress.complete()
             return SignalTrack.missing(id, ctx.grid.count, note)

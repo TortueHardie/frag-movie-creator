@@ -1,6 +1,7 @@
 package dev.highlights.analysis.outplayed
 
 import dev.highlights.core.analysis.AnalysisContext
+import dev.highlights.core.analysis.DetectorAvailability
 import dev.highlights.core.analysis.DetectorParams
 import dev.highlights.core.analysis.SignalDetector
 import dev.highlights.core.analysis.SignalDetectorFactory
@@ -74,6 +75,15 @@ class OutplayedEventsDetector(override val id: String, private val params: Outpl
 
 class OutplayedEventsDetectorFactory : SignalDetectorFactory {
     override val type = "outplayed-events"
+
+    override fun availability(): DetectorAvailability {
+        val database = OutplayedLibrary.defaultDatabase()
+        return when {
+            database == null -> DetectorAvailability(false, "profil Windows introuvable : événements Outplayed indisponibles")
+            !database.isDirectory() -> DetectorAvailability(false, "Outplayed non installé ou base absente ($database)")
+            else -> DetectorAvailability(true, "base Outplayed trouvée ($database)")
+        }
+    }
 
     override fun create(id: String, params: DetectorParams): SignalDetector =
         OutplayedEventsDetector(id, params.decode(OutplayedEventsParams.serializer()) { OutplayedEventsParams() })

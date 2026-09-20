@@ -7,7 +7,10 @@ import dev.highlights.core.analysis.SignalDetector
 import dev.highlights.core.analysis.SignalDetectorFactory
 import dev.highlights.core.analysis.SignalEvent
 import dev.highlights.core.analysis.SignalTrack
+import dev.highlights.core.ffmpeg.Hwaccel
 import dev.highlights.core.model.CropRegion
+import dev.highlights.core.model.RegionAnchor
+import dev.highlights.core.model.ScreenGeometry
 import dev.highlights.core.model.VideoStream
 import dev.highlights.core.serialization.SerialDuration
 import dev.highlights.core.video.FrameSampler
@@ -15,6 +18,7 @@ import dev.highlights.core.video.FrameZone
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -44,13 +48,18 @@ data class HudTemplateParams(
     val mode: HudMode = HudMode.EVENTS,
     /** Hauteur de la capture sur laquelle les modèles ont été découpés : les zones sont mises à cette échelle. */
     val referenceHeight: Int = 1440,
+    /**
+     * Largeur de cette même capture (ex. 3440 avec referenceHeight 1440). Renseignée, les zones sont converties au
+     * format de la capture analysée : des réglages faits en 21:9 valent alors aussi en 16:9 (voir [ScreenGeometry]).
+     */
+    val referenceWidth: Int? = null,
     val sampling: Sampling = Sampling.AUTO,
     /**
-     * Décodage matériel (d3d11va sous Windows) de l'échantillonnage à [fps], où toutes les images sont décodées.
-     * null = logiciel. Repli automatique sur le logiciel en cas d'échec. Sans effet sur les images clés : elles sont
+     * Décodage matériel de l'échantillonnage à [fps], où toutes les images sont décodées : « auto » laisse FFmpeg
+     * choisir, null = logiciel. Repli automatique sur le logiciel en cas d'échec. Sans effet sur les images clés : elles sont
      * trop peu nombreuses pour amortir le transfert depuis le GPU, le décodage logiciel y est deux fois plus rapide.
      */
-    val hwaccel: String? = "d3d11va",
+    val hwaccel: String? = Hwaccel.AUTO,
     val fps: Double = 2.0,
     /** En mode auto, au-delà de cet intervalle entre images clés on bascule sur l'échantillonnage à fps. */
     val maxKeyframeInterval: SerialDuration = 1500.milliseconds,
@@ -100,6 +109,8 @@ data class TemplateSpec(
     val file: String,
     /** Zone de recherche (normalisée), légèrement plus grande que le modèle. */
     val region: CropRegion,
+    /** Bord de l'écran auquel l'élément est accroché, pour la conversion vers un autre format d'écran. */
+    val anchor: RegionAnchor = RegionAnchor.AUTO,
     val threshold: Double = 0.7,
     val method: MatchMethod = MatchMethod.NCC,
     /** Méthode bright : luminosité minimale (0-255) d'un pixel « allumé ». */
@@ -209,8 +220,17 @@ class HudTemplateDetector(override val id: String, private val params: HudTempla
     /** Une zone par modèle : rectangle source, taille après réduction et fonction de score. */
     private fun buildZones(ctx: AnalysisContext, video: VideoStream): List<Zone> {
         val baseScale = params.referenceHeight.toDouble() / video.height
+        val referenceAspect = params.referenceWidth?.let { it.toDouble() / params.referenceHeight }
+        val targetAspect = video.width.toDouble() / video.height
+        if (referenceAspect != null && abs(referenceAspect - targetAspect) > 0.01) {
+            log.info {
+                "$id : zones mesurées en ${"%.2f".format(referenceAspect)}:1, converties pour cette capture " +
+                    "(${video.width}x${video.height}, ${"%.2f".format(targetAspect)}:1)"
+            }
+        }
         val slotOf = LinkedHashMap<FrameZone, Int>()
         return params.templates.map { spec ->
+            val region = referenceAspect?.let { ScreenGeometry.rescale(spec.region, it, targetAspect, spec.anchor) } ?: spec.region
             val source = GrayImage.load(ctx.configDir.resolve(spec.file))
             val matchScale = spec.matchScale ?: params.matchScale
             val scale = baseScale * matchScale
@@ -236,10 +256,10 @@ class HudTemplateDetector(override val id: String, private val params: HudTempla
             }
             val guarded: (ZoneImage) -> Double =
                 if (spec.minContrast <= 0.0) scorer else { image -> if (image.contrast() < spec.minContrast) 0.0 else scorer(image) }
-            val cx = (spec.region.x * video.width).roundToInt().coerceIn(0, video.width - 1)
-            val cy = (spec.region.y * video.height).roundToInt().coerceIn(0, video.height - 1)
-            val cw = (spec.region.width * video.width).roundToInt().coerceIn(1, video.width - cx)
-            val ch = (spec.region.height * video.height).roundToInt().coerceIn(1, video.height - cy)
+            val cx = (region.x * video.width).roundToInt().coerceIn(0, video.width - 1)
+            val cy = (region.y * video.height).roundToInt().coerceIn(0, video.height - 1)
+            val cw = (region.width * video.width).roundToInt().coerceIn(1, video.width - cx)
+            val ch = (region.height * video.height).roundToInt().coerceIn(1, video.height - cy)
             val sw = (cw * scale).roundToInt().coerceAtLeast(1)
             val sh = (ch * scale).roundToInt().coerceAtLeast(1)
             if (sw < largest.width || sh < largest.height) {

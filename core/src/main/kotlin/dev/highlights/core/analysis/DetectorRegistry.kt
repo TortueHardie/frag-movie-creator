@@ -8,6 +8,9 @@ class DetectorRegistry(factories: Iterable<SignalDetectorFactory>) {
 
     val types: Set<String> get() = byType.keys
 
+    /** Prérequis de ce type sur cette machine, ou null s'il n'en a pas (ou si le type est inconnu). */
+    fun availability(type: String): DetectorAvailability? = byType[type]?.availability()
+
     fun create(type: String, id: String, params: DetectorParams): SignalDetector {
         val factory = byType[type] ?: throw ConfigException(
             "Détecteur inconnu '$type' (instance '$id'). Disponibles : ${types.sorted().joinToString().ifEmpty { "aucun" }}",

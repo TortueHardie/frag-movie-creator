@@ -2,6 +2,9 @@ package dev.highlights.montage
 
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.FfmpegCommand
+import dev.highlights.core.ffmpeg.FfmpegService
+import dev.highlights.core.model.AudioLayout
+import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.TimeRange
@@ -29,6 +32,10 @@ data class MontageRenderRequest(
     val hwaccel: String? = null,
     /** Pré-découpes des extraits, lues à la place des sources. Voir [SourceCuts]. */
     val cuts: SourceCuts = SourceCuts.NONE,
+    /** Indices de pistes imposés par le profil ; vide = rôles déduits de la capture. */
+    val audioLayout: AudioLayout = AudioLayout(),
+    /** Option de lecture du graphe depuis un fichier, selon la version de FFmpeg (voir [FfmpegService.filterScriptOption]). */
+    val filterScriptOption: String = FfmpegService.FILTER_COMPLEX_FROM_FILE,
 )
 
 /**
@@ -128,8 +135,16 @@ object MontageRenderBuilder {
             graph += "[$base]${effects.joinToString(",")}[v$i]"
 
             // --- audio du jeu : même découpe, volume adaptatif, posé à son décalage (peut déborder sur le clip suivant)
-            val streams = media.audio.map { it.audioIndex }
-            val stream = edit.audioStreams?.firstOrNull { it in streams } ?: streams.firstOrNull()
+            // Les pistes sont choisies par leur rôle : une capture à pistes séparées (OBS) est mixée ici même.
+            val streams = edit.audioIndices(AudioTracks.of(media.audio, request.audioLayout))
+            val source = when {
+                streams.isEmpty() -> null
+                streams.size == 1 -> "[$i:a:${streams.first()}]"
+                else -> "[xa$i]".also {
+                    graph += streams.joinToString("") { s -> "[$i:a:$s]" } +
+                        "amix=inputs=${streams.size}:normalize=0:duration=longest$it"
+                }
+            }
             val voice = clip.group.voiceSegments.mapNotNull { seg ->
                 val s = maxOf(seg.start, clip.start)
                 val e = minOf(seg.end, clip.end + bleeds[i])
@@ -143,10 +158,10 @@ object MontageRenderBuilder {
             val tail = if (bleed.isPositive()) "afade=t=out:st=${sec(length)}:d=${sec(bleed)}," else ""
             val cut = "apad=whole_dur=${sec(length + bleed)},atrim=duration=${sec(length + bleed)}"
             val place = "adelay=${offsets[i].inWholeMilliseconds}|${offsets[i].inWholeMilliseconds}"
-            if (stream == null) {
+            if (source == null) {
                 graph += "anullsrc=r=48000:cl=stereo,atrim=duration=${sec(length)},$place[a$i]"
             } else if (parts.size > 1) {
-                graph += "[$i:a:$stream]asetpts=PTS-STARTPTS,$format,asplit=${parts.size}" + parts.indices.joinToString("") { "[x${i}s$it]" }
+                graph += "${source}asetpts=PTS-STARTPTS,$format,asplit=${parts.size}" + parts.indices.joinToString("") { "[x${i}s$it]" }
                 parts.forEachIndexed { p, part ->
                     val tempo = if (part.factor == 1.0) "" else ",atempo=${num(part.factor)}"
                     val to = if (p == parts.lastIndex) sec(part.to + bleed) else sec(part.to)
@@ -154,13 +169,15 @@ object MontageRenderBuilder {
                 }
                 graph += parts.indices.joinToString("") { "[x${i}p$it]" } + "concat=n=${parts.size}:v=0:a=1,${delay}volume='$volume':eval=frame,$tail$cut,$place[a$i]"
             } else {
-                graph += "[$i:a:$stream]asetpts=PTS-STARTPTS,$format,${delay}volume='$volume':eval=frame,$tail$cut,$place[a$i]"
+                graph += "${source}asetpts=PTS-STARTPTS,$format,${delay}volume='$volume':eval=frame,$tail$cut,$place[a$i]"
             }
         }
 
         val fadeOut = minOf(plan.period * 2, total / 4)
         graph += clips.indices.joinToString("") { "[v$it]" } + "concat=n=${clips.size}:v=1:a=0[vcat]"
-        graph += "[vcat]fade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)}[vout]"
+        // Format imposé juste avant l'encodeur : concat et xfade peuvent sinon négocier du 4:4:4 (selon la version
+        // de FFmpeg), que le profil « high » de x264 refuse.
+        graph += "[vcat]fade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)},format=yuv420p[vout]"
         graph += clips.indices.joinToString("") { "[a$it]" } +
             "amix=inputs=${clips.size}:normalize=0:duration=longest,apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[game]"
 
@@ -174,7 +191,7 @@ object MontageRenderBuilder {
             "volume='$duck':eval=frame,afade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
         graph += "[game][music]amix=inputs=2:normalize=0:duration=first,loudnorm=I=${num(audio.loudnessLufs)}:TP=-1.5:LRA=11,aresample=48000[aout]"
 
-        args += listOf("-/filter_complex", request.filterScript.toString(), "-map", "[vout]", "-map", "[aout]")
+        args += listOf(request.filterScriptOption, request.filterScript.toString(), "-map", "[vout]", "-map", "[aout]")
         args += request.encoder.videoArgs
         args += listOf("-c:a", "aac", "-b:a", request.audioBitrate, "-ar", "48000", "-movflags", "+faststart", "-progress", "pipe:1", "-y", request.output.toString())
         return RenderCommand(

@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.highlights.core.model.OutputFormat
+import dev.highlights.core.model.aspectLabel
 import dev.highlights.core.serialization.toTimecode
 import kotlin.io.path.name
 

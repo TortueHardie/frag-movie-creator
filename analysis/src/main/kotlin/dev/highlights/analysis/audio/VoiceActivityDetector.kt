@@ -7,6 +7,7 @@ import dev.highlights.core.analysis.SignalDetectorFactory
 import dev.highlights.core.analysis.SignalSegment
 import dev.highlights.core.analysis.SignalTrack
 import dev.highlights.core.ffmpeg.FfmpegCommand
+import dev.highlights.core.model.AudioRole
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.serialization.Durations
 import dev.highlights.core.serialization.SerialDuration
@@ -20,8 +21,10 @@ private val log = KotlinLogging.logger {}
 
 @Serializable
 data class VoiceActivityParams(
-    /** Piste micro (0:a:N). */
-    val stream: Int = 0,
+    /** Rôle de la piste écoutée : le micro, quel que soit son index chez cet enregistreur. */
+    val role: AudioRole = AudioRole.MIC,
+    /** Index de piste imposé (0:a:N). null = le rôle décide. */
+    val stream: Int? = null,
     val optional: Boolean = true,
     /** En dessous : silence. Les micros avec noise gate descendent vers -110 dB, la voix est au-dessus de -40 dB. */
     val silenceDb: Double = -50.0,
@@ -39,9 +42,9 @@ data class VoiceActivityParams(
 class VoiceActivityDetector(override val id: String, private val params: VoiceActivityParams) : SignalDetector {
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
-        val stream = ctx.media.audio.getOrNull(params.stream)
+        val stream = if (params.stream != null) ctx.media.audio.getOrNull(params.stream) else ctx.audio[params.role]
         if (stream == null) {
-            val note = "piste micro a:${params.stream} absente"
+            val note = "piste micro ${params.stream?.let { "a:$it" } ?: "(rôle ${params.role.name.lowercase()})"} absente"
             if (params.optional) log.info { "$id ignoré : $note" } else log.warn { "$id : $note" }
             ctx.progress.complete()
             return SignalTrack.missing(id, ctx.grid.count, note)

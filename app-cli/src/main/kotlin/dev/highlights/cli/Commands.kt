@@ -4,6 +4,7 @@ import com.github.ajalt.clikt.core.BadParameterValue
 import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.multiple
+import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.groups.mutuallyExclusiveOptions
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.flag
@@ -14,6 +15,8 @@ import com.github.ajalt.clikt.parameters.types.double
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.clikt.parameters.types.restrictTo
+import dev.highlights.core.model.AudioRole
+import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
@@ -28,10 +31,13 @@ import dev.highlights.export.ExportResult
 import dev.highlights.ffmpeg.FfmpegEncoderSelector
 import dev.highlights.montage.CutGrid
 import dev.highlights.montage.MusicAnalyzer
+import dev.highlights.core.profile.ProfileRepository
 import dev.highlights.pipeline.AnalyzeOptions
+import dev.highlights.pipeline.Diagnostics
 import dev.highlights.pipeline.ExportOptions
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
+import dev.highlights.pipeline.render
 
 private fun PipelineCommand.formatsOption() = option("-f", "--format", help = "Formats de sortie séparés par des virgules : source (ratio de la capture, ex. 21:9), 16:9, 9:16")
     .convert { OutputFormat.parse(it) ?: throw BadParameterValue("format inconnu '$it' (source, 16:9 ou 9:16)") }
@@ -234,7 +240,7 @@ class PreviewCommand : PipelineCommand("preview") {
 class ProbeCommand : PipelineCommand("probe") {
     private val file by argument().path(mustExist = true, canBeDir = false)
 
-    override fun help(context: Context) = "Affiche les flux d'une vidéo (utile pour configurer les pistes audio d'un profil)."
+    override fun help(context: Context) = "Affiche les flux d'une vidéo et le rôle déduit de chaque piste audio."
 
     override fun run() {
         val media = execute { Pipelines.ffmpeg(env.config).probe(file) }
@@ -247,7 +253,29 @@ class ProbeCommand : PipelineCommand("probe") {
         m.video?.let { echo("  vidéo     : ${it.codec} ${it.width}x${it.height} @ ${"%.2f".format(it.fps)} fps (${it.pixelFormat})") }
             ?: echo("  vidéo     : aucune")
         if (m.audio.isEmpty()) echo("  audio     : aucune piste")
-        m.audio.forEach { echo("  audio     : ${it.label} ${it.codec} ${it.channels} canaux ${it.sampleRate} Hz") }
+        val tracks = AudioTracks.of(m.audio)
+        m.audio.forEach { stream ->
+            val roles = AudioRole.entries.filter { tracks[it]?.audioIndex == stream.audioIndex }
+            val label = roles.joinToString("/") { it.name.lowercase() }.ifEmpty { "non utilisée" }
+            echo("  audio     : ${stream.label} ${stream.codec} ${stream.channels} canaux ${stream.sampleRate} Hz → $label")
+        }
+        if (m.audio.isNotEmpty()) echo("  rôles     : ${tracks.explanation}")
+    }
+}
+
+class DoctorCommand : PipelineCommand("doctor") {
+    private val file by argument(help = "Capture à examiner (facultatif) : pistes, format d'écran, profil retenu")
+        .path(mustExist = true, canBeDir = false).optional()
+
+    override fun help(context: Context) =
+        "Vérifie l'installation : FFmpeg, encodeurs utilisables, prérequis des détecteurs, et ce que donnerait une capture."
+
+    override fun run() {
+        val report = execute {
+            val ffmpeg = Pipelines.ffmpeg(env.config)
+            Diagnostics(env.config, ffmpeg, ProfileRepository.loadDirectory(env.config.profilesDir)).run(file)
+        }
+        echo(report.render())
     }
 }
 

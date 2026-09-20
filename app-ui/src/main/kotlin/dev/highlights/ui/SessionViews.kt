@@ -58,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.highlights.core.model.Highlight
+import dev.highlights.core.model.aspectLabel
 import dev.highlights.core.serialization.toShortText
 import dev.highlights.core.serialization.toTimecode
 import kotlinx.coroutines.Dispatchers

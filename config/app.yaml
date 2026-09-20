@@ -1,11 +1,12 @@
 # Configuration générale. Les chemins relatifs sont résolus depuis le dossier de ce fichier.
 
 ffmpeg:
-  # Laisser commenté pour une détection automatique (PATH puis installation winget Gyan.FFmpeg).
+  # Laisser commenté pour une détection automatique (installation livrée avec l'application, PATH, puis winget Gyan.FFmpeg).
   # ffmpegPath: C:/ffmpeg/bin/ffmpeg.exe
   # ffprobePath: C:/ffmpeg/bin/ffprobe.exe
-  # Décodage matériel des sources pendant le rendu (d3d11va = GPU sous Windows). Commenter la ligne et mettre null pour du logiciel.
-  hwaccelDecode: d3d11va
+  # Décodage matériel des sources. « auto » laisse FFmpeg prendre ce que la machine sait faire et retomber en logiciel
+  # tout seul ; « none » force le logiciel ; un nom précis (d3d11va, qsv, cuda…) reste possible, avec repli si le rendu échoue.
+  hwaccelDecode: auto
 
 # Où écrire les montages, rapports JSON et sessions (jamais dans les sources).
 outputDir: ../output
@@ -17,8 +18,9 @@ analysis:
   continueOnDetectorError: true
 
 encoder:
-  # Le premier encodeur qui réussit un encodage de test est utilisé.
-  preference: [h264_amf, libx264]
+  # Le premier encodeur qui réussit un encodage de test est utilisé : AMD, NVIDIA, Intel, Apple, puis le logiciel.
+  # La liste couvre toutes les machines ; « app encoders » montre ce qui marche sur la vôtre.
+  preference: [h264_amf, h264_nvenc, h264_qsv, h264_videotoolbox, libx264]
   audioBitrate: 192k
   # Surcharge des arguments d'un encodeur, par exemple :
   # videoArgs:

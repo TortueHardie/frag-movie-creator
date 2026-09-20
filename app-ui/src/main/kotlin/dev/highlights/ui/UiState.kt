@@ -4,11 +4,11 @@ import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SelectionTarget
+import dev.highlights.core.model.aspectLabel
 import dev.highlights.core.serialization.Durations
 import dev.highlights.core.session.Session
 import dev.highlights.export.ExportResult
 import java.nio.file.Path
-import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.time.Duration
 
@@ -106,14 +106,6 @@ data class SessionState(
 data class ErrorInfo(val title: String, val message: String, val details: List<String> = emptyList())
 
 data class ImagePreview(val path: Path, val title: String, val highlightId: String, val version: Long = System.nanoTime())
-
-/** "21:9", "16:9", "9:16"… ou "3440x1440" si le ratio n'est pas courant. */
-fun aspectLabel(width: Int, height: Int): String {
-    if (width <= 0 || height <= 0) return "?"
-    val ratio = width.toDouble() / height
-    val known = listOf("32:9" to 32.0 / 9, "21:9" to 21.0 / 9, "16:10" to 1.6, "16:9" to 16.0 / 9, "4:3" to 4.0 / 3, "9:16" to 9.0 / 16)
-    return known.minBy { abs(it.second - ratio) }.takeIf { abs(it.second - ratio) < 0.06 }?.first ?: "${width}x$height"
-}
 
 fun formatLabel(format: OutputFormat, media: MediaInfo?): String = when (format) {
     OutputFormat.SOURCE -> media?.video?.let { "Ratio d'origine (${aspectLabel(it.width, it.height)})" } ?: "Ratio d'origine"

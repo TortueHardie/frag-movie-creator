@@ -3,9 +3,12 @@ package dev.highlights.export
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.ffmpeg.EncoderSelector
 import dev.highlights.core.ffmpeg.FfmpegCommand
+import dev.highlights.core.ffmpeg.FfmpegException
 import dev.highlights.core.ffmpeg.FfmpegProgressParser
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.StdoutHandler
+import dev.highlights.core.model.AudioLayout
+import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
@@ -15,6 +18,7 @@ import dev.highlights.core.serialization.toTimecode
 import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.session.Session
 import dev.highlights.editing.EditPlanner
+import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.RenderRequest
 import dev.highlights.editing.SourceCutter
@@ -42,6 +46,8 @@ data class ExportRequest(
     val gameName: String,
     val audioBitrate: String = "192k",
     val hwaccel: String? = null,
+    /** Indices de pistes imposés par le profil ; vide = rôles déduits de la capture. */
+    val audioLayout: AudioLayout = AudioLayout(),
 )
 
 data class ExportResult(val videos: Map<OutputFormat, Path>, val report: Path, val duration: Duration, val encoder: String)
@@ -71,6 +77,7 @@ class Exporter(
             progress.child("Préparation des extraits", CUT_WEIGHT),
         )
 
+        val filterScriptOption = ffmpeg.filterScriptOption()
         val done = mutableListOf<Path>()
         for (format in settings.formats) {
             val target = paths.videos.getValue(format)
@@ -88,17 +95,17 @@ class Exporter(
                     audioBitrate = request.audioBitrate,
                     hwaccel = request.hwaccel,
                     cuts = cuts,
+                    audioLayout = request.audioLayout,
+                    filterScriptOption = filterScriptOption,
                 ),
             )
             request.workDir.resolve("filters_${format.name.lowercase()}.txt").writeText(render.filterGraph)
             log.info { "Rendu ${format.label} → $target (${plan.clips.size} clips, ${render.expectedDuration})" }
 
             try {
-                ffmpeg.run(render.command, StdoutHandler.Lines { line ->
-                    FfmpegProgressParser.parseOutTime(line)?.let { t ->
-                        step.update(t / render.expectedDuration, format.label)
-                    }
-                })
+                runWithSoftwareFallback(render, request) { line ->
+                    FfmpegProgressParser.parseOutTime(line)?.let { t -> step.update(t / render.expectedDuration, format.label) }
+                }
                 temp.moveTo(target)
                 done.add(target) // pas de += : Path est lui-même un Iterable<Path>
             } catch (e: Throwable) {
@@ -123,6 +130,25 @@ class Exporter(
         return ExportResult(paths.videos, paths.report, plan.outputDuration, encoder.name)
     }
 
+    /**
+     * Lance le rendu, et le rejoue en décodage logiciel s'il a échoué avec le décodage matériel : sur une machine
+     * où celui-ci n'aboutit pas (pilote, codec exotique), l'export marche quand même.
+     */
+    private suspend fun runWithSoftwareFallback(render: RenderCommand, request: ExportRequest, onLine: (String) -> Unit) {
+        try {
+            ffmpeg.run(render.command, StdoutHandler.Lines(onLine))
+        } catch (e: FfmpegException) {
+            val args = render.command.args
+            if (request.hwaccel == null || "-hwaccel" !in args) throw e
+            log.warn { "Rendu en échec avec -hwaccel ${request.hwaccel} (${e.message}), nouvel essai en décodage logiciel" }
+            ffmpeg.run(render.command.copy(args = withoutHwaccel(args)), StdoutHandler.Lines(onLine))
+        }
+    }
+
+    /** Retire les options « -hwaccel <valeur> » d'une commande. */
+    private fun withoutHwaccel(args: List<String>): List<String> =
+        args.filterIndexed { i, arg -> arg != "-hwaccel" && (i == 0 || args[i - 1] != "-hwaccel") }
+
     /** Images PNG de chaque format à l'instant [at], pour régler recadrage et HUD. */
     suspend fun preview(
         media: MediaInfo,
@@ -138,7 +164,7 @@ class Exporter(
             val output = outputDir.resolve("${media.path.nameWithoutExtension}_${stamp}${format.fileSuffix.ifEmpty { "_source" }}.png")
             ensureNotSource(output, setOf(media.path))
             val script = workDir.resolve("preview_${format.name.lowercase()}.txt")
-            val render = RenderCommandBuilder.buildPreview(media, at, format, settings, script, output)
+            val render = RenderCommandBuilder.buildPreview(media, at, format, settings, script, output, ffmpeg.filterScriptOption())
             script.writeText(render.filterGraph)
             ffmpeg.run(render.command)
             output
@@ -172,7 +198,8 @@ class Exporter(
         output.parent?.createDirectories()
         val encoder = encoders.select()
         val temp = OutputNamer.tempFor(output)
-        val audio = audioStream?.takeIf { s -> media.audio.any { it.audioIndex == s } } ?: media.audio.firstOrNull()?.audioIndex
+        val audio = audioStream?.takeIf { s -> media.audio.any { it.audioIndex == s } }
+            ?: AudioTracks.of(media.audio).mixIndices().firstOrNull()
         try {
             ffmpeg.run(
                 FfmpegCommand(

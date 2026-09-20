@@ -2,12 +2,16 @@ package dev.highlights.vision
 
 import dev.highlights.core.ConfigException
 import dev.highlights.core.analysis.AnalysisContext
+import dev.highlights.core.analysis.DetectorAvailability
 import dev.highlights.core.analysis.DetectorParams
 import dev.highlights.core.analysis.SignalDetector
 import dev.highlights.core.analysis.SignalDetectorFactory
 import dev.highlights.core.analysis.SignalEvent
 import dev.highlights.core.analysis.SignalTrack
+import dev.highlights.core.ffmpeg.Hwaccel
 import dev.highlights.core.model.CropRegion
+import dev.highlights.core.model.RegionAnchor
+import dev.highlights.core.model.ScreenGeometry
 import dev.highlights.core.serialization.Durations
 import dev.highlights.core.serialization.SerialDuration
 import dev.highlights.core.video.FrameSampler
@@ -33,6 +37,13 @@ data class OcrLogParams(
     val region: CropRegion,
     /** Hauteur de capture à laquelle la zone est ramenée (le texte y garde la taille sur laquelle les réglages sont faits). */
     val referenceHeight: Int = 1606,
+    /**
+     * Largeur de cette même capture (ex. 3840 avec referenceHeight 1606). Renseignée, la zone est convertie au format
+     * de la capture analysée : un réglage fait en 21:9 vaut alors aussi en 16:9 (voir [ScreenGeometry]).
+     */
+    val referenceWidth: Int? = null,
+    /** Bord de l'écran auquel le journal est accroché, pour cette conversion. */
+    val anchor: RegionAnchor = RegionAnchor.AUTO,
     /** Langue de l'OCR Windows (repli sur les langues du profil Windows si elle n'est pas installée). */
     val language: String = "fr-FR",
     /** Règles dans l'ordre : la première qui correspond donne le type de la ligne. */
@@ -50,7 +61,8 @@ data class OcrLogParams(
     val fusionBefore: SerialDuration = 3.seconds,
     val fusionAfter: SerialDuration = 8.seconds,
     val sampling: Sampling = Sampling.AUTO,
-    val hwaccel: String? = "d3d11va",
+    /** Décodage matériel de l'échantillonnage : « auto » laisse FFmpeg choisir, null = logiciel. */
+    val hwaccel: String? = Hwaccel.AUTO,
     val fps: Double = 1.0,
     val maxKeyframeInterval: SerialDuration = 1500.milliseconds,
     /** Processus OCR simultanés. */
@@ -85,7 +97,10 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
         val video = ctx.media.video ?: return
         if (!WindowsOcr.supported) return
         icons?.prepare(ctx)
-        val region = params.region
+        val referenceAspect = params.referenceWidth?.let { it.toDouble() / params.referenceHeight }
+        val region = referenceAspect
+            ?.let { ScreenGeometry.rescale(params.region, it, video.width.toDouble() / video.height, params.anchor) }
+            ?: params.region
         val cx = (region.x * video.width).roundToInt().coerceIn(0, video.width - 1)
         val cy = (region.y * video.height).roundToInt().coerceIn(0, video.height - 1)
         val cw = (region.width * video.width).roundToInt().coerceIn(1, video.width - cx)
@@ -157,6 +172,11 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
 
 class OcrLogDetectorFactory : SignalDetectorFactory {
     override val type = "ocr-log"
+
+    override fun availability() = DetectorAvailability(
+        WindowsOcr.supported,
+        if (WindowsOcr.supported) "OCR de Windows disponible" else "OCR de Windows indisponible (${System.getProperty("os.name")})",
+    )
 
     override fun create(id: String, params: DetectorParams): SignalDetector =
         OcrLogDetector(id, params.decode(OcrLogParams.serializer()) { throw ConfigException("$id : paramètres region et rules requis") })

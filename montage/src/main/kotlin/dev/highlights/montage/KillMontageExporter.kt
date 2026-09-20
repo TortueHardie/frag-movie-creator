@@ -2,9 +2,11 @@ package dev.highlights.montage
 
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.ffmpeg.EncoderSelector
+import dev.highlights.core.ffmpeg.FfmpegException
 import dev.highlights.core.ffmpeg.FfmpegProgressParser
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.StdoutHandler
+import dev.highlights.core.model.AudioLayout
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.progress.ProgressReporter
@@ -36,6 +38,8 @@ data class MontageExportRequest(
     val date: LocalDate,
     val audioBitrate: String = "192k",
     val hwaccel: String? = null,
+    /** Indices de pistes imposés par le profil ; vide = rôles déduits de la capture. */
+    val audioLayout: AudioLayout = AudioLayout(),
 )
 
 @Serializable
@@ -104,20 +108,35 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             progress.child("Préparation des extraits", CUT_WEIGHT),
         )
 
+        val filterScriptOption = ffmpeg.filterScriptOption()
         for (format in request.formats) {
             val target = paths.videos.getValue(format)
             val temp = OutputNamer.tempFor(target)
             val step = progress.child(format.label, (1.0 - CUT_WEIGHT) / request.formats.size)
             val script = request.workDir.resolve("montage_${format.name.lowercase()}.txt")
             val render = MontageRenderBuilder.build(
-                MontageRenderRequest(plan, format, request.edit, encoder, temp, script, request.audioBitrate, request.hwaccel, cuts),
+                MontageRenderRequest(
+                    plan, format, request.edit, encoder, temp, script,
+                    request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption,
+                ),
             )
             script.writeText(render.filterGraph)
             log.info { "Montage ${format.label} → $target (${plan.clips.size} clips, ${plan.duration})" }
+            val onLine = { line: String ->
+                FfmpegProgressParser.parseOutTime(line)?.let { step.update(it / render.expectedDuration, format.label) }
+                Unit
+            }
             try {
-                ffmpeg.run(render.command, StdoutHandler.Lines { line ->
-                    FfmpegProgressParser.parseOutTime(line)?.let { step.update(it / render.expectedDuration, format.label) }
-                })
+                try {
+                    ffmpeg.run(render.command, StdoutHandler.Lines(onLine))
+                } catch (e: FfmpegException) {
+                    // Machine où le décodage matériel n'aboutit pas : on rejoue en logiciel plutôt que d'échouer.
+                    if (request.hwaccel == null) throw e
+                    log.warn { "Montage en échec avec -hwaccel ${request.hwaccel} (${e.message}), nouvel essai en décodage logiciel" }
+                    val args = render.command.args
+                    val software = args.filterIndexed { i, arg -> arg != "-hwaccel" && (i == 0 || args[i - 1] != "-hwaccel") }
+                    ffmpeg.run(render.command.copy(args = software), StdoutHandler.Lines(onLine))
+                }
                 temp.moveTo(target)
             } catch (e: Throwable) {
                 temp.deleteIfExists()

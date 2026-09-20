@@ -6,7 +6,8 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
 
 - **Détection des moments** : volume du jeu (EBU R128), prises de parole et rires (YAMNet), événements enregistrés par
   Outplayed (kills, morts, assistances), icônes du HUD et journal des gains lu par OCR (Wardogs).
-- **Highlights** : les meilleurs moments fusionnés et exportés en 16:9 et/ou 9:16, encodés par AMF (repli libx264).
+- **Highlights** : les meilleurs moments fusionnés et exportés en 16:9 et/ou 9:16, encodés par le GPU (AMD, NVIDIA,
+  Intel) avec repli logiciel.
 - **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
 - **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Wardogs, et un profil par défaut.
 
@@ -15,7 +16,9 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
 Pour utiliser l'application sans rien installer d'autre, voir [Installer l'application](#installer-lapplication-autre-ordinateur).
 
 - JDK 21
-- FFmpeg avec AMF : `winget install Gyan.FFmpeg`. Il est détecté automatiquement (PATH puis installation winget) ; sinon renseigner `ffmpeg.ffmpegPath` dans `config/app.yaml`.
+- FFmpeg : `winget install Gyan.FFmpeg`. Il est détecté automatiquement (PATH puis installation winget) ; sinon
+  renseigner `ffmpeg.ffmpegPath` dans `config/app.yaml`. FFmpeg 7 ou plus est conseillé ; une version plus ancienne
+  (6 et avant) marche aussi, le graphe de filtres lui est alors passé avec l'option qu'elle comprend.
 
 ## Construire et tester
 
@@ -30,7 +33,7 @@ Pour utiliser l'application sans rien installer d'autre, voir [Installer l'appli
 .\gradlew.bat :app-ui:packageMsi   # → app-ui\build\compose\binaries\main\msi\Highlights-<version>.msi
 ```
 
-Le MSI (≈ 340 Mo) contient tout : Java, FFmpeg (avec AMF, repli libx264), le modèle YAMNet, les profils et les
+Le MSI (≈ 340 Mo) contient tout : Java, FFmpeg, le modèle YAMNet, les profils et les
 modèles d'images. Sur l'autre PC, un double-clic suffit : l'installation se fait dans le profil de l'utilisateur, sans
 droits administrateur, et crée un raccourci sur le bureau et dans le menu Démarrer. Windows 10 ou 11 64 bits.
 
@@ -44,6 +47,31 @@ droits administrateur, et crée un raccourci sur le bureau et dans le menu Déma
 - **Version** : `highlights.version` dans `gradle.properties`. À augmenter à chaque nouvel installeur, sinon Windows
   refuse la mise à jour ; l'ancienne version est remplacée automatiquement.
 - Pour qu'une application installée lise la config du projet : variable d'environnement `HIGHLIGHTS_CONFIG=D:\...\config\app.yaml`.
+
+## Marche avec n'importe quelle configuration
+
+Rien à régler avant d'analyser une première capture : l'application s'adapte à ce qu'elle trouve.
+
+- **Outplayed ou pas** : les événements du jeu (kills, morts) viennent d'Outplayed quand il est là ; sinon ce signal est
+  simplement absent, les autres (volume, voix, rires, icônes du HUD) continuent et leur poids est redistribué.
+- **Pistes audio** : elles sont désignées par leur rôle (`game`, `mic`, `mix`), pas par leur numéro. Outplayed en écrit
+  trois (mix, jeu, micro), OBS une ou deux (jeu puis micro) : la bonne piste est trouvée dans les deux cas, d'après les
+  titres des pistes puis leur nombre. Le montage garde tout le son sans le doubler : la piste de mix si elle existe,
+  sinon toutes mélangées. Pour imposer des index : `audio: { game: 1, mic: 2 }` dans le profil.
+- **Format d'écran** : les zones du HUD mesurées sur un écran ultrawide sont converties pour une capture 16:9 (et
+  l'inverse). Une zone garde sa taille et sa distance au bord auquel elle est accrochée, comme le fait l'interface du
+  jeu ; il suffit de déclarer la capture de référence (`referenceWidth`/`referenceHeight`, ou `vertical.reference`).
+- **Carte graphique** : AMD, NVIDIA, Intel et Apple sont essayés dans l'ordre, chacun par un vrai encodage de test, avec
+  repli sur l'encodeur logiciel. Le décodage matériel est en `auto` et retombe en logiciel si le rendu échoue.
+- **Micro absent, capture muette, OCR de Windows indisponible** : chaque signal manquant est signalé et ignoré, jamais
+  bloquant.
+
+Pour voir ce que ça donne sur une machine donnée :
+
+```powershell
+& $app doctor                       # FFmpeg, encodeurs utilisables, prérequis des détecteurs, profils
+& $app doctor D:\Videos\partie.mp4  # + format d'écran, rôle des pistes, profil retenu, détecteurs actifs
+```
 
 ## Interface graphique (développement)
 
@@ -130,7 +158,8 @@ Windows (rien à installer), par lots et en parallèle pendant le décodage de l
 ```powershell
 $app = ".\app-cli\build\install\app\bin\app.bat"
 
-& $app encoders                                   # vérifie qu'AMF fonctionne
+& $app doctor                                     # état de l'installation (voir plus haut)
+& $app encoders                                   # encodeurs utilisables sur cette machine
 & $app probe "D:\Videos\Outplayed\League of Legends\partie.mp4"   # pistes audio, résolution, durée
 & $app music D:\Musique\son.mp3 --max 60s --clips 12         # tempo, sections, drop et grille de coupes d'un montage
 & $app process "D:\Videos\...\partie.mp4"         # analyse + montage
@@ -159,7 +188,14 @@ Un fichier existant n'est jamais écrasé (suffixe `_2`, `_3`…), et les source
 - `config/app.yaml` : FFmpeg, dossiers, préférence d'encodeur, parallélisme.
 - `config/profiles/*.yaml` : un fichier par jeu. Il définit les fenêtres d'analyse, les détecteurs (type, poids, normalisation, paramètres), la sélection (seuil, marges, durée cible) et le montage. Le profil est choisi d'après le chemin du fichier (`match.pathContains`), sinon c'est `default`. `--profile` force un profil.
 
-Pistes audio : `game-audio` lit la piste 0, `mic-audio` la piste 1 si elle existe (`optional: true`). Quand une piste manque, son poids est redistribué. `app probe` indique les pistes présentes dans un fichier.
+Pistes audio : un détecteur demande un rôle (`role: game`, `role: mic`…) et non un numéro de piste ; l'index reste
+possible (`stream: 2`) quand la capture sort de l'ordinaire. Quand une piste manque (pas de micro séparé), son poids est
+redistribué. `app probe` montre les pistes d'un fichier et le rôle déduit pour chacune.
+
+Zones d'image (`hud-template`, `ocr-log`, `edit.vertical`) : les coordonnées sont normalisées (0..1). En déclarant la
+capture sur laquelle elles ont été mesurées (`referenceWidth` et `referenceHeight`, ou `vertical.reference`), elles sont
+converties pour un autre format d'écran ; `anchor` (`left`, `center`, `right`, `auto`) dit à quel bord l'élément est
+accroché, ce qui est deviné par défaut d'après sa position.
 
 ## Architecture
 
