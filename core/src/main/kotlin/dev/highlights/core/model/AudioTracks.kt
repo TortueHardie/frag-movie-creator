@@ -53,6 +53,14 @@ class AudioTracks private constructor(
         return if (hasPremix && mix != null) listOf(mix.audioIndex) else streams.map { it.audioIndex }
     }
 
+    /** Résumé court pour l'interface : « 3 pistes audio : jeu + micro séparés ». */
+    fun shortLabel(): String = when {
+        streams.isEmpty() -> "aucune piste audio"
+        this[AudioRole.MIC] != null -> "${streams.size} pistes audio : jeu + micro séparés"
+        streams.size == 1 -> "1 piste audio : tout le son"
+        else -> "${streams.size} pistes audio : micro non séparé"
+    }
+
     /** Résumé lisible : « 3 pistes : a:0 → mix, a:1 → game, a:2 → mic (…) ». */
     fun describe(): String {
         val head = if (streams.size > 1) "${streams.size} pistes : " else "${streams.size} piste : "

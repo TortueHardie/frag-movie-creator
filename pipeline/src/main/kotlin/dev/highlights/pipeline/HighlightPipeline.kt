@@ -354,6 +354,7 @@ class HighlightPipeline(
     }
 
     companion object {
-        val SUPPORTED_EXTENSIONS = setOf("mp4", "mkv", "mov")
+        /** Conteneurs acceptés : ceux des enregistreurs courants (Outplayed, OBS, ShadowPlay, Medal, Xbox Game Bar). */
+        val SUPPORTED_EXTENSIONS = setOf("mp4", "mkv", "mov", "m4v", "avi", "flv", "ts", "mts", "m2ts", "webm", "wmv", "mpg", "mpeg")
     }
 }

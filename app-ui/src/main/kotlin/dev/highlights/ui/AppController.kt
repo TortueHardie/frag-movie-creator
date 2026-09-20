@@ -163,7 +163,10 @@ class AppController(
     private fun selectSource(path: Path) {
         if (state.value.job != null) return
         if (path.extension.lowercase() !in HighlightPipeline.SUPPORTED_EXTENSIONS) {
-            showError("Fichier non supporté", "${path.name} n'est pas une vidéo mp4, mkv ou mov.")
+            showError(
+                "Fichier non supporté",
+                "${path.name} n'est pas une vidéo (${HighlightPipeline.SUPPORTED_EXTENSIONS.sorted().joinToString()}).",
+            )
             return
         }
         val p = backend?.pipeline ?: return showError("Configuration non chargée", "Attends la fin du chargement ou corrige la configuration.")
