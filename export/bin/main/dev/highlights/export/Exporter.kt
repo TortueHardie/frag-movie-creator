@@ -1,0 +1,215 @@
+package dev.highlights.export
+
+import dev.highlights.core.HighlightsException
+import dev.highlights.core.ffmpeg.EncoderSelector
+import dev.highlights.core.ffmpeg.FfmpegCommand
+import dev.highlights.core.ffmpeg.FfmpegProgressParser
+import dev.highlights.core.ffmpeg.FfmpegService
+import dev.highlights.core.ffmpeg.StdoutHandler
+import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.MediaInfo
+import dev.highlights.core.model.OutputFormat
+import dev.highlights.core.model.TimeRange
+import dev.highlights.core.serialization.Durations
+import dev.highlights.core.serialization.toTimecode
+import dev.highlights.core.progress.ProgressReporter
+import dev.highlights.core.session.Session
+import dev.highlights.editing.EditPlanner
+import dev.highlights.editing.RenderCommandBuilder
+import dev.highlights.editing.RenderRequest
+import dev.highlights.editing.SourceCutter
+import io.github.oshai.kotlinlogging.KotlinLogging
+import java.nio.file.Path
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import kotlin.io.path.createDirectories
+import kotlin.io.path.deleteIfExists
+import kotlin.io.path.exists
+import kotlin.io.path.getLastModifiedTime
+import kotlin.io.path.moveTo
+import kotlin.io.path.nameWithoutExtension
+import kotlin.io.path.writeText
+import kotlin.time.Duration
+
+private val log = KotlinLogging.logger {}
+
+data class ExportRequest(
+    val settings: EditSettings,
+    val outputDir: Path,
+    /** Dossier temporaire du job (scripts de filtres). */
+    val workDir: Path,
+    val gameName: String,
+    val audioBitrate: String = "192k",
+    val hwaccel: String? = null,
+)
+
+data class ExportResult(val videos: Map<OutputFormat, Path>, val report: Path, val duration: Duration, val encoder: String)
+
+class Exporter(
+    private val ffmpeg: FfmpegService,
+    private val encoders: EncoderSelector,
+    private val planner: EditPlanner,
+) {
+    suspend fun export(session: Session, request: ExportRequest, progress: ProgressReporter): ExportResult {
+        val settings = request.settings
+        if (settings.formats.isEmpty()) throw HighlightsException("Aucun format de sortie demandé")
+        val plan = planner.plan(session, settings)
+        val encoder = encoders.select()
+
+        request.outputDir.createDirectories()
+        request.workDir.createDirectories()
+        val paths = OutputNamer.reserve(request.outputDir, request.gameName, recordingDate(session), settings.formats)
+        val sources = plan.clips.map { it.media.path }.toSet()
+        paths.all.forEach { ensureNotSource(it, sources) }
+
+        // Découpe des extraits avant le rendu : une seule fois pour tous les formats. Voir SourceCuts.
+        val cuts = SourceCutter.prepare(
+            ffmpeg,
+            RenderCommandBuilder.sourceCuts(plan),
+            request.workDir.resolve("cuts"),
+            progress.child("Préparation des extraits", CUT_WEIGHT),
+        )
+
+        val done = mutableListOf<Path>()
+        for (format in settings.formats) {
+            val target = paths.videos.getValue(format)
+            val temp = OutputNamer.tempFor(target)
+            ensureNotSource(temp, sources)
+            val step = progress.child(format.label, (1.0 - CUT_WEIGHT) / settings.formats.size)
+
+            val render = RenderCommandBuilder.build(
+                RenderRequest(
+                    plan = plan,
+                    format = format,
+                    encoder = encoder,
+                    output = temp,
+                    filterScript = request.workDir.resolve("filters_${format.name.lowercase()}.txt"),
+                    audioBitrate = request.audioBitrate,
+                    hwaccel = request.hwaccel,
+                    cuts = cuts,
+                ),
+            )
+            request.workDir.resolve("filters_${format.name.lowercase()}.txt").writeText(render.filterGraph)
+            log.info { "Rendu ${format.label} → $target (${plan.clips.size} clips, ${render.expectedDuration})" }
+
+            try {
+                ffmpeg.run(render.command, StdoutHandler.Lines { line ->
+                    FfmpegProgressParser.parseOutTime(line)?.let { t ->
+                        step.update(t / render.expectedDuration, format.label)
+                    }
+                })
+                temp.moveTo(target)
+                done.add(target) // pas de += : Path est lui-même un Iterable<Path>
+            } catch (e: Throwable) {
+                temp.deleteIfExists()
+                throw e
+            }
+            step.complete()
+        }
+
+        val report = ExportReport(
+            generatedAt = Instant.now().toString(),
+            source = session.media.path.toString(),
+            profile = session.profileId,
+            encoder = encoder.name,
+            outputs = paths.videos.map { (f, p) -> ReportOutput(f.label, p.toString()) },
+            totalDurationSeconds = plan.outputDuration.inWholeMilliseconds / 1000.0,
+            highlights = plan.clips.mapIndexed { i, c -> ReportHighlight.of(c.highlight, i + 1) },
+            skippedHighlights = session.highlights.filterNot { it.enabled }.map { ReportHighlight.of(it, null) },
+        )
+        paths.report.writeText(reportJson.encodeToString(ExportReport.serializer(), report))
+        log.info { "Export terminé : ${done.joinToString()} + ${paths.report}" }
+        return ExportResult(paths.videos, paths.report, plan.outputDuration, encoder.name)
+    }
+
+    /** Images PNG de chaque format à l'instant [at], pour régler recadrage et HUD. */
+    suspend fun preview(
+        media: MediaInfo,
+        at: Duration,
+        settings: EditSettings,
+        outputDir: Path,
+        workDir: Path,
+    ): List<Path> {
+        outputDir.createDirectories()
+        workDir.createDirectories()
+        val stamp = at.toTimecode().replace(":", "-").replace(".", "-")
+        return settings.formats.map { format ->
+            val output = outputDir.resolve("${media.path.nameWithoutExtension}_${stamp}${format.fileSuffix.ifEmpty { "_source" }}.png")
+            ensureNotSource(output, setOf(media.path))
+            val script = workDir.resolve("preview_${format.name.lowercase()}.txt")
+            val render = RenderCommandBuilder.buildPreview(media, at, format, settings, script, output)
+            script.writeText(render.filterGraph)
+            ffmpeg.run(render.command)
+            output
+        }
+    }
+
+    /** Petite image JPEG à l'instant [at] (vignette de segment). Réutilisée si déjà générée. */
+    suspend fun thumbnail(media: MediaInfo, at: Duration, width: Int, output: Path): Path {
+        if (output.exists()) return output
+        ensureNotSource(output, setOf(media.path))
+        output.parent?.createDirectories()
+        ffmpeg.run(
+            FfmpegCommand(
+                listOf(
+                    "-ss", Durations.ffmpegSeconds(at), "-i", media.path.toString(),
+                    "-frames:v", "1", "-vf", "scale=$width:-2", "-q:v", "4", "-update", "1", "-y", output.toString(),
+                ),
+                "vignette ${at.toTimecode()}",
+            ),
+        )
+        return output
+    }
+
+    /**
+     * Extrait basse résolution d'un segment, avec le son du montage, pour le revoir dans le lecteur du système.
+     * Réutilisé si déjà généré.
+     */
+    suspend fun clipPreview(media: MediaInfo, range: TimeRange, audioStream: Int?, output: Path): Path {
+        if (output.exists()) return output
+        ensureNotSource(output, setOf(media.path))
+        output.parent?.createDirectories()
+        val encoder = encoders.select()
+        val temp = OutputNamer.tempFor(output)
+        val audio = audioStream?.takeIf { s -> media.audio.any { it.audioIndex == s } } ?: media.audio.firstOrNull()?.audioIndex
+        try {
+            ffmpeg.run(
+                FfmpegCommand(
+                    listOf(
+                        "-ss", Durations.ffmpegSeconds(range.start), "-t", Durations.ffmpegSeconds(range.length),
+                        "-i", media.path.toString(),
+                        "-map", "0:v:0",
+                    ) + (audio?.let { listOf("-map", "0:a:$it", "-c:a", "aac", "-b:a", "128k") } ?: emptyList()) +
+                        listOf("-vf", "scale=-2:720") + encoder.videoArgs + listOf("-movflags", "+faststart", "-y", temp.toString()),
+                    "aperçu du segment ${range}",
+                ),
+            )
+            temp.moveTo(output, overwrite = true)
+        } catch (e: Throwable) {
+            temp.deleteIfExists()
+            throw e
+        }
+        return output
+    }
+
+    private fun recordingDate(session: Session): LocalDate {
+        val instant = session.media.creationTime
+            ?: runCatching { session.media.path.getLastModifiedTime().toInstant() }.getOrNull()
+            ?: session.createdAt
+        return instant.atZone(ZoneId.systemDefault()).toLocalDate()
+    }
+
+    /** Garde-fou : on n'écrit jamais par-dessus une source. */
+    private fun ensureNotSource(path: Path, sources: Set<Path>) {
+        val normalized = path.toAbsolutePath().normalize().toString()
+        if (sources.any { it.toAbsolutePath().normalize().toString().equals(normalized, ignoreCase = true) }) {
+            throw HighlightsException("Refus d'écrire sur un fichier source : $path")
+        }
+    }
+
+    private companion object {
+        /** Part de la progression rendue par la pré-découpe : rapide (copie de flux) face au rendu lui-même. */
+        const val CUT_WEIGHT = 0.08
+    }
+}

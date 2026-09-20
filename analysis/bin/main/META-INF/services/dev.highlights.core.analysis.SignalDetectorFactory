@@ -1,0 +1,3 @@
+dev.highlights.analysis.audio.AudioLoudnessDetectorFactory
+dev.highlights.analysis.audio.VoiceActivityDetectorFactory
+dev.highlights.analysis.outplayed.OutplayedEventsDetectorFactory
