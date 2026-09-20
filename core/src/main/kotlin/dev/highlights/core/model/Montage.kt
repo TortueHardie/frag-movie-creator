@@ -40,6 +40,8 @@ data class MontageSettings(
      * court qu'un plan sans intérêt. Les trois meilleurs sont gardés quoi qu'il arrive.
      */
     val minScore: Double = 0.0,
+    /** Quantité d'effets : au rythme normal, un plan reçoit un ralenti ou un zoom, jamais les deux. */
+    val effectDensity: EffectDensity = EffectDensity.BALANCED,
     val cuts: CutSettings = CutSettings(),
     val zoom: ZoomEffect = ZoomEffect(),
     val flash: FlashEffect = FlashEffect(),
@@ -84,6 +86,31 @@ data class CutSettings(
         require(dropPosition in 0.0..1.0) { "montage.cuts.dropPosition doit être entre 0 et 1" }
         require(preBeatFrames in 0..4) { "montage.cuts.preBeatFrames doit être entre 0 et 4" }
     }
+}
+
+/** Ce que devient le son du jeu pendant un ralenti. */
+@Serializable
+enum class SlowAudio {
+    /** Étiré comme l'image : sur un tir ou un impact, le timbre se délite (`atempo`). */
+    @SerialName("stretch") STRETCH,
+    /** Joué à sa vitesse, puis effacé en fondu : le tir sonne juste et la musique porte la fin du ralenti. */
+    @SerialName("natural") NATURAL,
+    /** Silence : seule la musique reste. */
+    @SerialName("mute") MUTE,
+}
+
+/**
+ * Quantité d'effets appliqués. Empiler ralenti, zoom, flash et texte sur le même plan surcharge l'image et rend
+ * l'action difficile à suivre : au rythme normal, chaque plan ne reçoit qu'une seule emphase.
+ */
+@Serializable
+enum class EffectDensity {
+    /** Ralenti sur la drop seulement, aucun zoom, flash aux frontières de section. */
+    @SerialName("sober") SOBER,
+    /** Ralenti sur les plans forts (drop, multi-kill, accroche), zoom sur les autres, jamais les deux. */
+    @SerialName("balanced") BALANCED,
+    /** Tous les effets sur tous les plans. */
+    @SerialName("heavy") HEAVY,
 }
 
 @Serializable
@@ -180,6 +207,10 @@ data class MontageAudio(
     val voiceVolume: Double = 1.0,
     /** Volume de la musique pendant une réaction (ducking). */
     val musicUnderVoice: Double = 0.45,
+    /** Ce que devient le son du jeu pendant un ralenti. */
+    val slowMotion: SlowAudio = SlowAudio.NATURAL,
+    /** Disparition du son du jeu quand il a fini de jouer avant la fin du ralenti (mode `natural`). */
+    val slowFade: SerialDuration = 250.milliseconds,
     /** Montée d'un changement de volume (ducking, son du jeu au kill) : sans elle, la marche s'entend. */
     val duckAttack: SerialDuration = 80.milliseconds,
     /** Retour au volume nominal : plus lent que la montée, comme un compresseur. */

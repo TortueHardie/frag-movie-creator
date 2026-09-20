@@ -3,9 +3,11 @@ package dev.highlights.montage
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.model.AudioStream
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.OutputFormat
+import dev.highlights.core.model.SlowAudio
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.VideoStream
 import dev.highlights.editing.CutInput
@@ -66,7 +68,9 @@ class MontageRenderBuilderTest : FunSpec({
         val cmd = build(plan())
         val g = cmd.filterGraph
         g shouldContain "setpts=(PTS-STARTPTS)/0.5000"
-        g shouldContain "atempo=0.5000"
+        // Le son du jeu n'est pas étiré avec l'image ; la rampe du multi-kill, elle, l'est.
+        g shouldNotContain "atempo=0.5000"
+        g shouldContain "atempo=1.1111"
         g shouldContain "eval=frame:flags=bicubic"
         // Décélération par paliers avant le kill, puis ralenti plein.
         g shouldContain "setpts=(PTS-STARTPTS)/0.8333"
@@ -191,9 +195,41 @@ class MontageRenderBuilderTest : FunSpec({
     test("zoom : un par kill, ou seulement sur celui calé sur le temps") {
         // L'expression du zoom est reprise pour la largeur et pour la hauteur : deux occurrences par kill.
         fun punches(s: MontageSettings) = Regex("""if\(gte\(t\\,""").findAll(build(plan(s)).filterGraph).count() / 2
+        val all = settings.copy(effectDensity = EffectDensity.HEAVY)
         // Trois kills visibles en tout (un doublé et un simple) ; sinon un seul par plan.
-        punches(settings) shouldBe 3
-        punches(settings.copy(zoom = settings.zoom.copy(onEveryKill = false))) shouldBe 2
+        punches(all) shouldBe 3
+        punches(all.copy(zoom = all.zoom.copy(onEveryKill = false))) shouldBe 2
+    }
+
+    test("densité d'effets : un plan ralenti ne reçoit pas de zoom en plus") {
+        // Le plan fort (multi-kill sur la drop) est ralenti, l'autre reçoit le zoom : une seule emphase par plan.
+        val p = plan()
+        p.clips.map { it.slow != null } shouldBe listOf(true, false)
+        MontageRenderBuilder.zooms(p) shouldBe listOf(false, true)
+
+        val heavy = plan(settings.copy(effectDensity = EffectDensity.HEAVY))
+        heavy.clips.map { it.slow != null } shouldBe listOf(true, true)
+        MontageRenderBuilder.zooms(heavy) shouldBe listOf(true, true)
+
+        val sober = plan(settings.copy(effectDensity = EffectDensity.SOBER))
+        MontageRenderBuilder.zooms(sober) shouldBe listOf(false, false)
+        sober.clips.map { it.slow != null } shouldBe listOf(true, false)
+    }
+
+    test("son du ralenti : joué à sa vitesse puis effacé, ou étiré, ou tu") {
+        val audio = settings.audio
+        val slow = MontageRenderBuilder.SpeedPart(Duration.ZERO, 500.milliseconds, 0.5, SpeedKind.SLOW)
+        // 500 ms de source à jouer sur 1 s : le son sort normalement, s'efface sur 250 ms, le silence complète.
+        MontageRenderBuilder.slowAudio(slow, Duration.ZERO, audio) shouldBe
+            ",afade=t=out:st=0.250:d=0.250,apad=whole_dur=1.000,atrim=duration=1.000"
+        MontageRenderBuilder.slowAudio(slow, Duration.ZERO, audio.copy(slowMotion = SlowAudio.MUTE)) shouldBe
+            ",volume=0,apad=whole_dur=1.000,atrim=duration=1.000"
+        MontageRenderBuilder.slowAudio(slow, Duration.ZERO, audio.copy(slowMotion = SlowAudio.STRETCH)) shouldBe ",atempo=0.5000"
+
+        // Une rampe de multi-kill reste étirée : ±15 % ne s'entend pas. Et à vitesse normale, rien du tout.
+        val ramp = MontageRenderBuilder.SpeedPart(Duration.ZERO, 500.milliseconds, 1.1, SpeedKind.RAMP)
+        MontageRenderBuilder.slowAudio(ramp, Duration.ZERO, audio) shouldBe ",atempo=1.1000"
+        MontageRenderBuilder.slowAudio(slow.copy(factor = 1.0), Duration.ZERO, audio) shouldBe ""
     }
 
     test("ralenti : images calculées seulement sur les portions ralenties, et sur demande") {

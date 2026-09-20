@@ -3,7 +3,10 @@ package dev.highlights.montage
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.MontageAudio
 import dev.highlights.core.model.OutputFormat
+import dev.highlights.core.model.SlowAudio
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.serialization.Durations
 import dev.highlights.editing.RenderCommand
@@ -57,6 +60,7 @@ object MontageRenderBuilder {
         val audio = settings.audio
         val bleeds = bleeds(plan, fps)
         val flashes = flashes(plan)
+        val zooms = zooms(plan)
 
         val args = mutableListOf<String>()
         clips.forEachIndexed { i, clip ->
@@ -107,7 +111,7 @@ object MontageRenderBuilder {
             if (clip.padBefore.isPositive()) effects += "tpad=start_mode=clone:start_duration=${sec(clip.padBefore)}"
             // Le dernier kill du clip est celui calé sur le temps : c'est lui qui mérite le zoom en priorité.
             val zoomKills = if (settings.zoom.onEveryKill) outKills else outKills.takeLast(1)
-            if (settings.zoom.enabled && zoomKills.isNotEmpty()) {
+            if (settings.zoom.enabled && zooms[i] && zoomKills.isNotEmpty()) {
                 val decay = settings.zoom.decay.inWholeMicroseconds / 1e6
                 val z = "(1+${num(settings.zoom.amount)}*(" + zoomKills.joinToString("+") { k ->
                     val tk = sec(k)
@@ -162,9 +166,10 @@ object MontageRenderBuilder {
             } else if (parts.size > 1) {
                 graph += "[$i:a:$stream]asetpts=PTS-STARTPTS,$format,asplit=${parts.size}" + parts.indices.joinToString("") { "[x${i}s$it]" }
                 parts.forEachIndexed { p, part ->
-                    val tempo = if (part.factor == 1.0) "" else ",atempo=${num(part.factor)}"
-                    val to = if (p == parts.lastIndex) sec(part.to + bleed) else sec(part.to)
-                    graph += "[x${i}s$p]atrim=start=${sec(part.from)}:end=$to,asetpts=PTS-STARTPTS$tempo[x${i}p$p]"
+                    val extra = if (p == parts.lastIndex) bleed else Duration.ZERO
+                    val to = sec(part.to + extra)
+                    graph += "[x${i}s$p]atrim=start=${sec(part.from)}:end=$to,asetpts=PTS-STARTPTS" +
+                        slowAudio(part, extra, audio) + "[x${i}p$p]"
                 }
                 graph += parts.indices.joinToString("") { "[x${i}p$it]" } + "concat=n=${parts.size}:v=0:a=1,${delay}volume='$volume':eval=frame,$tail$cut,$place[a$i]"
             } else {
@@ -217,8 +222,22 @@ object MontageRenderBuilder {
             plan.settings.flash.onEveryCut -> true
             clip.slot.dropBeat != null -> true
             clip.slot.section != plan.clips[i - 1].slot.section -> true
+            // Au minimum, seules la drop et les frontières de section méritent encore un flash.
+            plan.settings.effectDensity == EffectDensity.SOBER -> false
             // Les kills visibles, pas ceux du groupe : un multi-kill dont le début a été coupé n'en est plus un à l'écran.
             else -> clip.kills.size > 1
+        }
+    }
+
+    /**
+     * Plans qui reçoivent un zoom « punch ». Au rythme normal, un plan déjà ralenti n'en reçoit pas : le ralenti est
+     * son emphase, et empiler les deux surcharge l'image sans rien souligner de plus.
+     */
+    internal fun zooms(plan: MontagePlan): List<Boolean> = plan.clips.map { clip ->
+        when (plan.settings.effectDensity) {
+            EffectDensity.SOBER -> false
+            EffectDensity.BALANCED -> clip.slow == null
+            EffectDensity.HEAVY -> true
         }
     }
 
@@ -266,7 +285,10 @@ object MontageRenderBuilder {
     }
 
     /** Portion de l'extrait (relative à son début) jouée à une vitesse donnée. */
-    internal data class SpeedPart(val from: Duration, val to: Duration, val factor: Double)
+    internal data class SpeedPart(val from: Duration, val to: Duration, val factor: Double, val kind: SpeedKind = SpeedKind.RAMP) {
+        val sourceLength: Duration get() = to - from
+        val outputLength: Duration get() = sourceLength / factor
+    }
 
     /**
      * Découpe de l'extrait en portions à vitesse constante (1 entre les segments), sans portion vide. Les instants sont
@@ -280,7 +302,7 @@ object MontageRenderBuilder {
             val to = minOf(seg.range.end, clip.end)
             if (to <= from) continue
             if (from > pos) parts += SpeedPart(pos - clip.start + lead, from - clip.start + lead, 1.0)
-            parts += SpeedPart(from - clip.start + lead, to - clip.start + lead, seg.factor)
+            parts += SpeedPart(from - clip.start + lead, to - clip.start + lead, seg.factor, seg.kind)
             pos = to
         }
         if (clip.end > pos || parts.isEmpty()) parts += SpeedPart(pos - clip.start + lead, clip.end - clip.start + lead, 1.0)
@@ -291,6 +313,25 @@ object MontageRenderBuilder {
         } else {
             listOf(SpeedPart(Duration.ZERO, lead, 1.0)) + parts
         }
+    }
+
+    /**
+     * Traitement du son d'une portion, préfixé d'une virgule (vide à vitesse normale). Étirer le son du jeu comme
+     * l'image délite le timbre d'un tir ou d'un impact : pendant un ralenti, il vaut mieux le laisser à sa vitesse
+     * puis l'effacer, ou le taire, et laisser la musique porter la suite. Les rampes de vitesse d'un multi-kill, elles,
+     * restent à ±15 % : `atempo` y est inaudible. [extra] est le débordement sonore sur le plan suivant, jamais étiré.
+     */
+    internal fun slowAudio(part: SpeedPart, extra: Duration, audio: MontageAudio): String {
+        if (part.factor == 1.0) return ""
+        val out = part.outputLength + extra
+        if (part.kind != SpeedKind.SLOW || audio.slowMotion == SlowAudio.STRETCH) return ",atempo=${num(part.factor)}"
+        val played = part.sourceLength + extra
+        val fade = audio.slowFade.coerceAtMost(played)
+        val head = when (audio.slowMotion) {
+            SlowAudio.MUTE -> "volume=0"
+            else -> "afade=t=out:st=${sec(played - fade)}:d=${sec(fade)}"
+        }
+        return ",$head,apad=whole_dur=${sec(out)},atrim=duration=${sec(out)}"
     }
 
     /**

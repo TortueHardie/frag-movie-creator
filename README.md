@@ -92,6 +92,9 @@ détecte les kills). En ligne de commande :
   même longueur, le kill tombe toujours au même endroit du plan (élan).
 - **Accroche** : le meilleur groupe après celui de la drop ouvre le montage (`--no-hook`) : c'est dans les premières
   secondes que le spectateur décide de rester.
+- **Une emphase par plan** (`effectDensity`, `--effects sober|balanced|heavy`) : au rythme normal, un plan reçoit un
+  ralenti *ou* un zoom, jamais les deux. Le ralenti va aux plans forts — drop, multi-kill visible à l'écran, accroche —
+  et les autres prennent le zoom. `sober` ne garde que le ralenti de la drop, `heavy` remet tout partout.
 - **Effets** (désactivables : `--no-zoom`, `--no-flash`, `--no-slowmo`, `--no-text`) : zoom punch, ralenti ×0,5 sur le
   kill (seulement s'il tient dans le plan), textes « DOUBLÉ / TRIPLÉ », fondu au noir final. Le ralenti s'installe par
   paliers avant le kill et le plein régime revient exactement sur un temps, au lieu d'un changement de vitesse net ;
@@ -99,7 +102,9 @@ détecte les kills). En ligne de commande :
   fluide, rendu bien plus lent). Le flash blanc ne tombe qu'aux coupes fortes — nouvelle section, drop, multi-kill
   (`--flash-every-cut` pour toutes) ; `zoom.onEveryKill: false` réserve le zoom au kill calé sur le temps.
 - **Son** : musique au premier plan ; le jeu remonte sur les kills ; voix et rires restent audibles, et la musique baisse
-  pendant qu'on les entend ; tous ces changements de volume montent et descendent en fondu (`audio.duckAttack`,
+  pendant qu'on les entend. Pendant un ralenti, le son du jeu n'est **pas** étiré avec l'image (le timbre d'un tir s'y
+  déliterait) : il joue à sa vitesse puis s'efface, la musique porte la fin du plan (`audio.slowMotion` : `natural` par
+  défaut, sinon `stretch` ou `mute`). Tous ces changements de volume montent et descendent en fondu (`audio.duckAttack`,
   `audio.duckRelease`), sinon la marche s'entend plus que ce qu'elle met en avant ; le son d'un kill ou d'une phrase
   déborde un peu sur le plan suivant (`audio.bleed`).
 - Réglages détaillés : section `montage:` d'un profil (voir `core/.../model/Montage.kt`), notamment `cuts:` (durées

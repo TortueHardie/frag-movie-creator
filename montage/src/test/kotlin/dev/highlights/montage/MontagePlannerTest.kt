@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.MontageSettings
@@ -21,6 +22,7 @@ import io.kotest.matchers.shouldBe
 import java.time.Instant
 import kotlin.io.path.Path
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -262,6 +264,40 @@ class MontagePlannerTest : FunSpec({
         // Sans la règle, deux kills séparés de 30 s finissent côte à côte ; avec, plus aucun voisin semblable.
         (tooClose(neighbours(Duration.ZERO), 45) > 0) shouldBe true
         tooClose(neighbours(45.seconds), 45) shouldBe 0
+    }
+
+    test("densité d'effets : le ralenti va aux plans forts, pas à tous") {
+        val p = plan(manyKills)
+        check(p)
+        // Un plan ordinaire (ni drop, ni multi-kill, ni accroche) n'est pas ralenti : son emphase sera le zoom.
+        p.clips.forEachIndexed { i, c ->
+            withClue("clip $i") {
+                if (!MontagePlanner.isStrong(i, c.slot, c.kills.size)) (c.slow == null) shouldBe true
+            }
+        }
+        val strong = p.clips.count { it.slow != null }
+        (strong < p.clips.size) shouldBe true
+
+        // Tout activé : le ralenti revient partout où il tient.
+        val heavy = plan(manyKills, s = settings.copy(effectDensity = EffectDensity.HEAVY))
+        check(heavy)
+        (heavy.clips.count { it.slow != null } > strong) shouldBe true
+
+        // Au minimum : seul le plan de la drop le garde.
+        val sober = plan(manyKills, s = settings.copy(effectDensity = EffectDensity.SOBER))
+        check(sober)
+        sober.clips.filter { it.slow != null }.map { it.slot.dropBeat != null } shouldBe listOf(true)
+    }
+
+    test("un multi-kill dont le début serait coupé ne vaut pas un ralenti") {
+        // Slots courts : le groupe de deux kills n'en montre qu'un, le plan n'a donc rien d'un moment fort.
+        val tight = settings.copy(cuts = settings.cuts.copy(maxBeats = 4, minLead = 250.milliseconds))
+        val p = plan(listOf(100, 104, 300, 500, 700, 900, 1100), s = tight)
+        check(p)
+        val trimmed = p.clips.single { it.group.kills.size > 1 }
+        trimmed.kills shouldHaveSize 1
+        // Ni la drop, ni l'accroche : sans multi-kill visible, pas de ralenti.
+        if (trimmed.slot.dropBeat == null && p.clips.indexOf(trimmed) != 0) (trimmed.slow == null) shouldBe true
     }
 
     test("ralenti : décélération par paliers et plein régime retrouvé sur un temps") {

@@ -10,10 +10,12 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.split
+import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.double
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.clikt.parameters.types.restrictTo
+import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
@@ -133,6 +135,8 @@ class MontageCommand : PipelineCommand("montage") {
     }
     private val formats by formatsOption()
     private val chronological by option("--chronological", help = "Ordre chronologique au lieu de la montée en puissance").flag()
+    private val effects by option("--effects", help = "Quantité d'effets : sober, balanced (défaut) ou heavy")
+        .choice("sober" to EffectDensity.SOBER, "balanced" to EffectDensity.BALANCED, "heavy" to EffectDensity.HEAVY)
     private val noHook by option("--no-hook", help = "Sans accroche : le meilleur groupe restant n'ouvre pas le montage").flag()
     private val noZoom by option("--no-zoom", help = "Sans zoom sur les kills").flag()
     private val noFlash by option("--no-flash", help = "Sans flash aux coupes").flag()
@@ -159,6 +163,7 @@ class MontageCommand : PipelineCommand("montage") {
                         maxDuration = max,
                         order = if (chronological) MontageOrder.CHRONOLOGICAL else null,
                         hook = if (noHook) false else null,
+                        effectDensity = effects,
                         zoom = if (noZoom) false else null,
                         flash = if (noFlash) false else null,
                         flashEveryCut = if (flashEveryCut) true else null,

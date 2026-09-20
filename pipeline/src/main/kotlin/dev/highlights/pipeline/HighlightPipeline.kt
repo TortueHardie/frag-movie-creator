@@ -8,6 +8,7 @@ import dev.highlights.core.analysis.SignalTrack
 import dev.highlights.core.config.LoadedConfig
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
@@ -76,6 +77,7 @@ data class MontageOptions(
     val maxDuration: Duration? = null,
     val order: MontageOrder? = null,
     val hook: Boolean? = null,
+    val effectDensity: EffectDensity? = null,
     val zoom: Boolean? = null,
     val flash: Boolean? = null,
     val flashEveryCut: Boolean? = null,
@@ -251,6 +253,7 @@ class HighlightPipeline(
             maxDuration = options.maxDuration ?: base.maxDuration,
             order = options.order ?: base.order,
             hook = options.hook ?: base.hook,
+            effectDensity = options.effectDensity ?: base.effectDensity,
             zoom = base.zoom.copy(enabled = options.zoom ?: base.zoom.enabled),
             flash = base.flash.copy(
                 enabled = options.flash ?: base.flash.enabled,

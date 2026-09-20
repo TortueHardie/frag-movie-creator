@@ -1,6 +1,7 @@
 package dev.highlights.montage
 
 import dev.highlights.core.HighlightsException
+import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.MontageSettings
@@ -170,7 +171,17 @@ object MontagePlanner {
 
         val cells = assign(window, groups, music, settings, minLeadBeats, minTailBeats)
         val preferred = preferredOffsets(cells.map { it.first }, music, minLeadBeats, minTailBeats)
-        val clips = cells.map { clipFor(it, music, settings, minLeadBeats, minTailBeats, preferred[it.first.section to it.first.beats]) }
+        val clips = cells.mapIndexed { i, cell ->
+            val offset = preferred[cell.first.section to cell.first.beats]
+            // Le plan sans ralenti d'abord : c'est lui qui dit combien de kills seront réellement à l'écran, donc si le
+            // plan mérite le ralenti. Un multi-kill dont tout le début serait coupé n'en est pas un pour le spectateur.
+            val plain = clipFor(cell, music, settings, minLeadBeats, minTailBeats, offset, allowSlow = false)
+            if (allowsSlow(settings, i, cell.first, plain.kills.size)) {
+                clipFor(cell, music, settings, minLeadBeats, minTailBeats, offset, allowSlow = true)
+            } else {
+                plain
+            }
+        }
         log.info {
             "Grille ×${"%.0f".format(scale)} : ${window.size} slots, ${clips.size} clips, ${clips.sumOf { it.beats }} temps, " +
                 clips.joinToString(" ") { "${it.beats}${if (it.slot.dropBeat != null) "*" else ""}" }
@@ -322,6 +333,21 @@ object MontagePlanner {
         return cells.map { it.toSlot() to it.group!! }
     }
 
+    /**
+     * Plan « fort » : celui de la drop, un multi-kill, ou l'accroche qui ouvre le montage. Ce sont les seuls à mériter
+     * un ralenti au rythme normal ; les autres reçoivent un zoom, et jamais les deux.
+     */
+    internal fun isStrong(index: Int, slot: CutSlot, visibleKills: Int): Boolean =
+        slot.dropBeat != null || visibleKills > 1 || index == 0
+
+    /** Le plan a-t-il droit au ralenti, vu la quantité d'effets demandée ? */
+    internal fun allowsSlow(settings: MontageSettings, index: Int, slot: CutSlot, visibleKills: Int): Boolean =
+        when (settings.effectDensity) {
+            EffectDensity.SOBER -> slot.dropBeat != null
+            EffectDensity.BALANCED -> isStrong(index, slot, visibleKills)
+            EffectDensity.HEAVY -> true
+        }
+
     /** Score musical d'un temps d'ancrage dans un slot : attaque, premier temps de mesure, un peu tard dans le plan. */
     private fun anchorScore(music: MusicAnalysis, slot: CutSlot, beat: Int): Double =
         music.beatAccent[beat.coerceIn(0, music.beatAccent.lastIndex)] +
@@ -351,6 +377,7 @@ object MontagePlanner {
         minLeadBeats: Int,
         minTailBeats: Int,
         preferredOffset: Int? = null,
+        allowSlow: Boolean = true,
     ): MontageClip {
         val (slot, group) = assignment
         val media = group.media
@@ -388,7 +415,7 @@ object MontagePlanner {
         var sa = Duration.ZERO
         var outBefore = Duration.ZERO
         var outAfter = Duration.ZERO
-        if (slowSettings.enabled) {
+        if (slowSettings.enabled && allowSlow) {
             val f = slowSettings.factor
             val before = minOf(slowSettings.before, anchor - media.bounds.start).coerceAtLeast(Duration.ZERO)
             val maxAfter = minOf(slowSettings.after, media.duration - anchor).coerceAtLeast(Duration.ZERO)
