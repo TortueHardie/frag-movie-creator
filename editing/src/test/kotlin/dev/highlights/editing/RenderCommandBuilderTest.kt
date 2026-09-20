@@ -145,6 +145,13 @@ class RenderCommandBuilderTest : FunSpec({
         chain.none { it.contains("hud1") } shouldBe true
     }
 
+    test("format source : une capture plus petite n'est jamais agrandie") {
+        val hd720 = session(clipA).let { it.copy(media = it.media.copy(video = VideoStream(0, "h264", 1280, 720, 60.0))) }
+        val plan = DefaultEditPlanner.plan(hd720, EditSettings(sourceHeight = 1080))
+        plan.settings.sourceHeight shouldBe 720
+        RenderCommandBuilder.build(request(plan, OutputFormat.SOURCE)).filterGraph shouldContain "scale=1280:720"
+    }
+
     test("cadence du montage plafonnée à celle de la capture") {
         // Capture 60 img/s : la cadence demandée s'applique.
         DefaultEditPlanner.plan(session(clipA), EditSettings(fps = 60)).settings.fps shouldBe 60

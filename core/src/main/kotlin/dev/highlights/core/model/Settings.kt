@@ -53,7 +53,10 @@ data class EditSettings(
     /** Pistes audio (0:a:N) imposées, si la capture sort de l'ordinaire. null = [audio] décide. */
     val audioStreams: List<Int>? = null,
     val formats: List<OutputFormat> = listOf(OutputFormat.SOURCE),
-    /** Hauteur de sortie du format "source" : la largeur suit le ratio de la capture (3440x1440 → 2580x1080). */
+    /**
+     * Hauteur de sortie du format "source" : la largeur suit le ratio de la capture (3440x1440 → 2580x1080).
+     * Plafonnée par celle de la capture, pour ne jamais agrandir un enregistrement plus petit.
+     */
     val sourceHeight: Int = 1080,
     val landscape: FrameSize = FrameSize(1920, 1080),
     val vertical: VerticalSettings = VerticalSettings(),

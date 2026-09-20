@@ -76,17 +76,29 @@ object MontageRenderBuilder {
         var killCounter = 0
         val musicDuck = mutableListOf<TimeRange>()
 
+        // Taille commune à tout le montage, prise sur la première capture : les suivantes y sont ramenées, avec des
+        // bandes noires si leur format diffère. Sans cela, un montage mélangeant du 1080p et du 1440p (ou du 16:9 et
+        // de l'ultrawide) échouerait au moment de concaténer des images de tailles différentes.
+        val (w, h) = RenderCommandBuilder.outputSize(request.format, clips.first().group.media, edit)
+
         clips.forEachIndexed { i, clip ->
             val media = clip.group.media
-            val (w, h) = RenderCommandBuilder.outputSize(request.format, media, edit)
             val length = ((boundaries[i + 1] - boundaries[i]) * 1_000_000 / fps).microseconds
             val outKills = clip.outputKills()
             val parts = speedParts(clip)
 
             // --- vidéo : géométrie du format (recadrage 9:16 + HUD), puis ralenti et rampes
             graph += RenderCommandBuilder.videoChain(i, media, request.format, edit, "g$i")
+            val own = RenderCommandBuilder.outputSize(request.format, media, edit)
+            val sized = if (own == w to h) {
+                "g$i"
+            } else {
+                graph += "[g$i]scale=$w:$h:force_original_aspect_ratio=decrease:flags=lanczos," +
+                    "pad=$w:$h:(ow-iw)/2:(oh-ih)/2,setsar=1[z$i]"
+                "z$i"
+            }
             val base = if (parts.size > 1) {
-                graph += "[g$i]split=${parts.size}" + parts.indices.joinToString("") { "[g${i}s$it]" }
+                graph += "[$sized]split=${parts.size}" + parts.indices.joinToString("") { "[g${i}s$it]" }
                 parts.forEachIndexed { p, part ->
                     val pts = if (part.factor == 1.0) "setpts=PTS-STARTPTS" else "setpts=(PTS-STARTPTS)/${num(part.factor)},fps=${edit.fps}"
                     graph += "[g${i}s$p]trim=start=${sec(part.from)}:end=${sec(part.to)},$pts[g${i}p$p]"
@@ -94,7 +106,7 @@ object MontageRenderBuilder {
                 graph += parts.indices.joinToString("") { "[g${i}p$it]" } + "concat=n=${parts.size}:v=1:a=0[s$i]"
                 "s$i"
             } else {
-                "g$i"
+                sized
             }
 
             val effects = mutableListOf<String>()
