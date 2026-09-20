@@ -7,6 +7,7 @@ import dev.highlights.core.analysis.SignalDetectorFactory
 import dev.highlights.core.analysis.SignalTrack
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.StdoutHandler
+import dev.highlights.core.model.AudioRole
 import dev.highlights.core.model.AudioStream
 import dev.highlights.core.model.WindowGrid
 import dev.highlights.core.serialization.SerialDuration
@@ -19,8 +20,13 @@ private val log = KotlinLogging.logger {}
 
 @Serializable
 data class AudioLoudnessParams(
-    /** Piste audio à analyser (0:a:N). Ignoré si [titleContains] trouve une piste. */
-    val stream: Int = 0,
+    /**
+     * Rôle de la piste à analyser (game, mic, mix) : la bonne piste est trouvée quel que soit l'enregistreur.
+     * Par défaut le son du jeu. Ignoré si [stream] ou [titleContains] désigne une piste.
+     */
+    val role: AudioRole = AudioRole.GAME,
+    /** Index de piste imposé (0:a:N). null = le rôle décide. */
+    val stream: Int? = null,
     /** Piste utilisée si [stream] n'existe pas dans ce fichier (ex. capture à piste unique). */
     val fallbackStream: Int? = null,
     /** Sélection par titre de piste (sans casse), ex. "mic". */
@@ -45,8 +51,8 @@ class AudioLoudnessDetector(override val id: String, private val params: AudioLo
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
         val grid = ctx.grid
-        val stream = selectStream(ctx.media.audio)
-            ?: return missing(ctx, "piste audio ${params.titleContains?.let { "« $it »" } ?: "a:${params.stream}"} absente")
+        val stream = selectStream(ctx)
+            ?: return missing(ctx, "piste audio ${wanted()} absente (${ctx.audio.describe()})")
 
         val windowMax = DoubleArray(grid.count) { Double.NaN }
         val parser = Ebur128MetadataParser { t, lufs -> accumulate(grid, windowMax, t, lufs) }
@@ -88,16 +94,24 @@ class AudioLoudnessDetector(override val id: String, private val params: AudioLo
         return SignalTrack(id, LoudnessContrast.compute(windowMax, grid, params.localBaseline, params.localContrastWeight), note = note)
     }
 
-    private fun selectStream(streams: List<AudioStream>): AudioStream? {
+    /** Libellé de la piste demandée, pour les messages. */
+    private fun wanted(): String = params.titleContains?.let { "« $it »" }
+        ?: params.stream?.let { "a:$it" }
+        ?: "du rôle ${params.role.name.lowercase()}"
+
+    private fun selectStream(ctx: AnalysisContext): AudioStream? {
+        val streams = ctx.media.audio
         params.titleContains?.let { needle ->
             streams.firstOrNull { it.title?.contains(needle, ignoreCase = true) == true }?.let { return it }
         }
-        streams.getOrNull(params.stream)?.let { return it }
-        return params.fallbackStream?.let { fallback ->
-            streams.getOrNull(fallback)?.also {
-                log.info { "$id : piste a:${params.stream} absente, repli sur ${it.label}" }
+        val explicit = params.stream
+        if (explicit != null) {
+            streams.getOrNull(explicit)?.let { return it }
+            return params.fallbackStream?.let { fallback ->
+                streams.getOrNull(fallback)?.also { log.info { "$id : piste a:$explicit absente, repli sur ${it.label}" } }
             }
         }
+        return ctx.audio[params.role]?.also { log.info { "$id : rôle ${params.role.name.lowercase()} → ${it.label}" } }
     }
 
     private fun accumulate(grid: WindowGrid, windowMax: DoubleArray, t: Duration, lufs: Double) {

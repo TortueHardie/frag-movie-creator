@@ -6,6 +6,7 @@ import dev.highlights.core.model.AudioStream
 import dev.highlights.core.model.ClipOrder
 import dev.highlights.core.model.CropRegion
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.FrameSize
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.HudOverlay
 import dev.highlights.core.model.OverlayTarget
@@ -22,6 +23,7 @@ import dev.highlights.core.session.Session
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainInOrder
+import io.kotest.matchers.doubles.plusOrMinus
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.collections.shouldNotContain
@@ -141,6 +143,68 @@ class RenderCommandBuilderTest : FunSpec({
         chain.contains("[c2l0][c2o0]overlay=x=0:y=790:shortest=1[c2l1]") shouldBe true
         chain.last() shouldBe "[c2l1]format=yuv420p,settb=AVTB[v2]"
         chain.none { it.contains("hud1") } shouldBe true
+    }
+
+    test("cadence du montage plafonnée à celle de la capture") {
+        // Capture 60 img/s : la cadence demandée s'applique.
+        DefaultEditPlanner.plan(session(clipA), EditSettings(fps = 60)).settings.fps shouldBe 60
+
+        // Capture 30 img/s (ou 29,97) : inutile de doubler les images à l'export.
+        val slow = session(clipA).let { it.copy(media = it.media.copy(video = VideoStream(0, "h264", 1920, 1080, 29.97))) }
+        DefaultEditPlanner.plan(slow, EditSettings(fps = 60)).settings.fps shouldBe 30
+        RenderCommandBuilder.videoChain(0, slow.media, OutputFormat.SOURCE, EditSettings(fps = 30), "v0").single() shouldContain "fps=30"
+    }
+
+    test("son du montage : une piste de mix seule, sinon toutes mélangées") {
+        val plan = DefaultEditPlanner.plan(session(clipA), EditSettings())
+
+        // Capture Outplayed : a:0 contient déjà le jeu et la voix, inutile de remixer les deux autres.
+        val outplayed = media.copy(
+            audio = listOf(
+                AudioStream(1, 0, "aac", 2, 48000),
+                AudioStream(2, 1, "aac", 2, 48000),
+                AudioStream(3, 2, "aac", 2, 48000),
+            ),
+        )
+        val outplayedGraph = RenderCommandBuilder.build(request(plan.copy(clips = plan.clips.map { it.copy(media = outplayed) }))).filterGraph
+        outplayedGraph shouldContain "[0:a:0]asetpts"
+        outplayedGraph shouldNotContain "amix"
+
+        // Capture OBS à piste unique : rien à mélanger non plus.
+        val single = media.copy(audio = listOf(AudioStream(1, 0, "aac", 2, 48000)))
+        val singleGraph = RenderCommandBuilder.build(request(plan.copy(clips = plan.clips.map { it.copy(media = single) }))).filterGraph
+        singleGraph shouldContain "[0:a:0]asetpts"
+        singleGraph shouldNotContain "amix"
+
+        // Capture sans son : le montage garde une piste silencieuse plutôt que d'échouer.
+        val mute = media.copy(audio = emptyList())
+        RenderCommandBuilder.build(request(plan.copy(clips = plan.clips.map { it.copy(media = mute) }))).filterGraph shouldContain "anullsrc"
+    }
+
+    test("zones du HUD mesurées en 21:9 et appliquées à une capture 16:9") {
+        val settings = EditSettings(
+            vertical = VerticalSettings(
+                hud = listOf(HudOverlay("status", CropRegion(0.892, 0.830, 0.103, 0.135), OverlayTarget(0.62, 0.74, 0.36))),
+                reference = FrameSize(3440, 1440),
+            ),
+        )
+        val hd = media.copy(video = VideoStream(0, "h264", 1920, 1080, 60.0))
+        val chain = RenderCommandBuilder.videoChain(0, hd, OutputFormat.VERTICAL, settings, "v0")
+        val crop = Regex("""\[c0hud0\]crop=(\d+):(\d+):(\d+):(\d+)""").find(chain.joinToString("\n"))!!.groupValues.map { it.toIntOrNull() ?: 0 }
+
+        // Même taille et même distance au bord droit qu'en 21:9 (à l'échelle de la hauteur), pas la même part de la largeur.
+        val referenceWidthPx = 0.103 * 3440 * (1080.0 / 1440)
+        val referenceRightPx = (1 - 0.892 - 0.103) * 3440 * (1080.0 / 1440)
+        crop[1].toDouble() shouldBe (referenceWidthPx plusOrMinus 3.0)
+        (1920 - crop[3] - crop[1]).toDouble() shouldBe (referenceRightPx plusOrMinus 3.0)
+        crop[2].toDouble() shouldBe (0.135 * 1080 plusOrMinus 2.0)
+    }
+
+    test("sans résolution de référence, les zones restent des proportions de l'image") {
+        val settings = EditSettings(vertical = VerticalSettings(hud = listOf(HudOverlay("m", CropRegion(0.0, 0.5, 0.1, 0.5), OverlayTarget(0.0, 0.5, 0.5)))))
+        val hd = media.copy(video = VideoStream(0, "h264", 1920, 1080, 60.0))
+        RenderCommandBuilder.videoChain(0, hd, OutputFormat.VERTICAL, settings, "v0")
+            .any { it.contains("[c0hud0]crop=192:540:0:540") } shouldBe true
     }
 
     test("9:16 recadré sur une zone, borné à l'image") {

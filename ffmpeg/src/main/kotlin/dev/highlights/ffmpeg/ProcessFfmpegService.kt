@@ -13,6 +13,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.io.OutputStream
@@ -22,6 +24,9 @@ import kotlin.io.path.name
 import kotlin.time.TimeSource
 
 private val log = KotlinLogging.logger {}
+
+/** « ffmpeg version 7.1-full_build… », « ffmpeg version n6.1.1 », « ffmpeg version 6.1.1-3ubuntu5 ». */
+private val VERSION = Regex("""ffmpeg version n?(\d+)\.""")
 
 /**
  * Exécute ffmpeg/ffprobe via ProcessBuilder.
@@ -33,6 +38,9 @@ class ProcessFfmpegService(
     val ffprobePath: Path,
     private val stderrLines: Int = 200,
 ) : FfmpegService {
+    private val filterOption = Mutex()
+    private var cachedFilterOption: String? = null
+    private var majorVersion: Int? = null
 
     override suspend fun probe(file: Path): MediaInfo {
         if (!file.isRegularFile()) throw InputException("Fichier introuvable : $file")
@@ -51,6 +59,26 @@ class ProcessFfmpegService(
 
     override suspend fun runProbe(command: FfmpegCommand, stdout: StdoutHandler): FfmpegResult =
         exec(ffprobePath, command.args, command.description, stdout)
+
+    override suspend fun filterScriptOption(): String = filterOption.withLock {
+        cachedFilterOption ?: detectFilterOption().also {
+            cachedFilterOption = it
+            log.info { "Graphe de filtres lu par « $it » (FFmpeg ${majorVersion ?: "?"})" }
+        }
+    }
+
+    /** Version majeure de ffmpeg, ou null si la ligne de version n'est pas lisible (builds git « N-… »). */
+    private suspend fun detectFilterOption(): String {
+        var version: String? = null
+        runCatching {
+            run(FfmpegCommand(listOf("-version"), "version de ffmpeg"), StdoutHandler.Lines { line ->
+                if (version == null) VERSION.find(line)?.let { version = it.groupValues[1] }
+            })
+        }.onFailure { log.warn { "Version de ffmpeg illisible (${it.message}), option moderne supposée" } }
+        majorVersion = version?.toIntOrNull()
+        // Version inconnue = build git récent : l'option moderne est le bon pari.
+        return if ((majorVersion ?: Int.MAX_VALUE) >= 7) FfmpegService.FILTER_COMPLEX_FROM_FILE else FfmpegService.FILTER_COMPLEX_SCRIPT
+    }
 
     private suspend fun exec(
         exe: Path,

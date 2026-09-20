@@ -4,33 +4,36 @@ displayName: Générique
 
 window: { size: 2s, hop: 1s }
 
+# Les pistes sont désignées par leur rôle (game, mic, mix) : l'application les retrouve quelle que soit la disposition
+# de l'enregistreur (Outplayed : mix, jeu, micro ; OBS : une ou deux pistes). Pour imposer des index, ajouter au profil
+# « audio: { game: 1, mic: 2 } ».
 detectors:
-  # Première piste audio : le son du jeu (ou le mix complet si une seule piste).
+  # Son du jeu (le mix complet si l'enregistreur n'a pas isolé les pistes).
   - id: game-audio
     type: audio-loudness
     weight: 0.7
     normalization: { lowPercentile: 0.5, highPercentile: 0.98, minSpread: 10 }
-    params: { stream: 0 }
+    params: { role: game }
 
-  # Deuxième piste si elle existe (micro séparé). Absente = poids redistribué automatiquement.
+  # Micro, s'il a sa propre piste. Absent = poids redistribué automatiquement.
   - id: mic-audio
     type: audio-loudness
     weight: 0.3
     normalization: { lowPercentile: 0.8, highPercentile: 0.99, minSpread: 12 }
-    params: { stream: 1, optional: true }
+    params: { role: mic, optional: true }
 
   # Prises de parole sur la piste micro : un moment n'est jamais coupé au milieu d'une phrase ou d'un rire.
   - id: voice
     type: voice-activity
     weight: 0
-    params: { stream: 1, optional: true, silenceDb: -50 }
+    params: { role: mic, optional: true, silenceDb: -50 }
 
   # Rires et exclamations sur le micro (IA locale YAMNet) : deviennent des moments à garder, et ne sont jamais coupés.
   - id: reactions
     type: audio-events
     weight: 0
     eventBoosts: { laughter: 0.7, shout: 0.35 }
-    params: { stream: 1, optional: true }
+    params: { role: mic, optional: true }
 
 selection:
   # Types de segments jamais coupés : le moment s'étend (jusqu'à maxExtension) pour finir la phrase ou le rire.

@@ -54,6 +54,18 @@ interface FfmpegService {
 
     /** Lance ffprobe avec des arguments libres (sans -hide_banner). */
     suspend fun runProbe(command: FfmpegCommand, stdout: StdoutHandler): FfmpegResult
+
+    /**
+     * Option qui fait lire le graphe de filtres dans un fichier (les graphes dépassent la longueur de ligne de
+     * commande de Windows) : « -/filter_complex » depuis FFmpeg 7, « -filter_complex_script » avant. Détectée sur
+     * l'exécutable réellement utilisé, pour marcher aussi avec un FFmpeg plus ancien déjà installé.
+     */
+    suspend fun filterScriptOption(): String = FILTER_COMPLEX_FROM_FILE
+
+    companion object {
+        const val FILTER_COMPLEX_FROM_FILE = "-/filter_complex"
+        const val FILTER_COMPLEX_SCRIPT = "-filter_complex_script"
+    }
 }
 
 data class EncoderProfile(

@@ -2,6 +2,7 @@ package dev.highlights.core.profile
 
 import com.charleskorn.kaml.YamlNode
 import dev.highlights.core.analysis.DetectorParams
+import dev.highlights.core.model.AudioLayout
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.SelectionPolicy
@@ -16,6 +17,11 @@ data class GameProfile(
     val displayName: String = id,
     val match: ProfileMatch = ProfileMatch(),
     val window: WindowSpec = WindowSpec(),
+    /**
+     * Indices des pistes audio de la capture, quand la déduction automatique se trompe (voir AudioTracks) :
+     * ex. « audio: { game: 1, mic: 2 } ». Vide = rôles déduits du nombre de pistes et de leurs titres.
+     */
+    val audio: AudioLayout = AudioLayout(),
     val detectors: List<DetectorConfig>,
     val selection: SelectionPolicy = SelectionPolicy(),
     val edit: EditSettings = EditSettings(),

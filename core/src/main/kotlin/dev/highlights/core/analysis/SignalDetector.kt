@@ -5,6 +5,7 @@ import com.charleskorn.kaml.YamlNull
 import dev.highlights.core.ConfigException
 import dev.highlights.core.config.ConfigYaml
 import dev.highlights.core.ffmpeg.FfmpegService
+import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.WindowGrid
@@ -37,7 +38,16 @@ interface SignalDetectorFactory {
     val type: String
 
     fun create(id: String, params: DetectorParams): SignalDetector
+
+    /**
+     * Prérequis de ce type de détecteur sur cette machine (OCR de Windows, base Outplayed…), pour le diagnostic.
+     * null = rien à vérifier, le détecteur marche partout.
+     */
+    fun availability(): DetectorAvailability? = null
 }
+
+/** Ce dont un détecteur a besoin en dehors de la capture, et si c'est présent ici. */
+data class DetectorAvailability(val usable: Boolean, val detail: String)
 
 class AnalysisContext(
     val media: MediaInfo,
@@ -50,6 +60,8 @@ class AnalysisContext(
     val configDir: Path = workDir,
     /** Décodage vidéo partagé entre détecteurs : une seule lecture de la capture pour toutes leurs zones. */
     val frames: FrameSampler = FrameSampler(ffmpeg, media),
+    /** Rôle de chaque piste audio (mix, jeu, micro), déduit de la capture : voir [AudioTracks]. */
+    val audio: AudioTracks = AudioTracks.of(media.audio),
 )
 
 /**

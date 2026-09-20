@@ -45,7 +45,12 @@ data class EditSettings(
     val transition: TransitionSettings = TransitionSettings(),
     /** Cible de normalisation loudnorm en LUFS. null = pas de normalisation. */
     val loudnessLufs: Double? = -14.0,
-    /** Pistes audio (0:a:N) mixées dans le montage. null = toutes. */
+    /**
+     * Son gardé dans le montage : mix (tout le son, sans doubler une piste qui contient déjà les autres), all, game
+     * ou mic. Les pistes sont retrouvées par leur rôle, donc le réglage vaut pour toutes les captures.
+     */
+    val audio: AudioSelection = AudioSelection.MIX,
+    /** Pistes audio (0:a:N) imposées, si la capture sort de l'ordinaire. null = [audio] décide. */
     val audioStreams: List<Int>? = null,
     val formats: List<OutputFormat> = listOf(OutputFormat.SOURCE),
     /** Hauteur de sortie du format "source" : la largeur suit le ratio de la capture (3440x1440 → 2580x1080). */
@@ -57,6 +62,32 @@ data class EditSettings(
     init {
         require(sourceHeight > 0 && sourceHeight % 2 == 0) { "sourceHeight doit être pair et > 0" }
     }
+
+    /** Pistes (0:a:N) à mélanger pour ce montage, sur une capture dont les rôles sont [tracks]. */
+    fun audioIndices(tracks: AudioTracks): List<Int> {
+        val available = tracks.streams.map { it.audioIndex }
+        audioStreams?.filter { it in available }?.ifEmpty { null }?.let { return it }
+        return when (audio) {
+            AudioSelection.MIX -> tracks.mixIndices()
+            AudioSelection.ALL -> available
+            AudioSelection.GAME -> listOfNotNull(tracks.indexOf(AudioRole.GAME)).ifEmpty { available }
+            AudioSelection.MIC -> listOfNotNull(tracks.indexOf(AudioRole.MIC))
+        }
+    }
+}
+
+/** Son gardé dans un montage. */
+@Serializable
+enum class AudioSelection {
+    /** Tout le son de la capture, sans doubler une piste qui contient déjà les autres. */
+    @SerialName("mix") MIX,
+
+    /** Toutes les pistes mélangées, même redondantes. */
+    @SerialName("all") ALL,
+
+    @SerialName("game") GAME,
+
+    @SerialName("mic") MIC,
 }
 
 @Serializable
@@ -108,6 +139,11 @@ data class VerticalSettings(
     val cropRegion: CropRegion? = null,
     /** Éléments d'interface découpés hors du recadrage et replacés par-dessus (« crop and replace »). */
     val hud: List<HudOverlay> = emptyList(),
+    /**
+     * Résolution de la capture sur laquelle [cropRegion] et [hud] ont été mesurés (ex. 3440x1440). Renseignée, les
+     * zones sont converties au format de la capture traitée : un réglage fait en 21:9 vaut alors aussi en 16:9.
+     */
+    val reference: FrameSize? = null,
 )
 
 /**
@@ -120,6 +156,8 @@ data class HudOverlay(
     val source: CropRegion,
     val target: OverlayTarget,
     val enabled: Boolean = true,
+    /** Bord auquel l'élément est accroché à l'écran, pour la conversion vers un autre format (voir [ScreenGeometry]). */
+    val anchor: RegionAnchor = RegionAnchor.AUTO,
 )
 
 @Serializable

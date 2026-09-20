@@ -84,15 +84,26 @@ class FfmpegEncoderSelector(
 }
 
 object EncoderPresets {
+    /** Débit visé et plafond communs aux encodeurs matériels : compromis qualité/poids pour YouTube/TikTok en 1080p60. */
+    private val VBR = listOf("-b:v", "12M", "-maxrate", "20M", "-bufsize", "24M", "-profile:v", "high")
+
     fun defaultVideoArgs(name: String): List<String> = when (name) {
-        // VBR plafonné : bon compromis qualité/poids pour YouTube/TikTok en 1080p60.
-        "h264_amf" -> listOf(
-            "-c:v", "h264_amf", "-usage", "transcoding", "-quality", "quality",
-            "-rc", "vbr_peak", "-b:v", "12M", "-maxrate", "20M", "-bufsize", "24M", "-profile:v", "high",
-        )
+        // AMD.
+        "h264_amf" -> listOf("-c:v", "h264_amf", "-usage", "transcoding", "-quality", "quality", "-rc", "vbr_peak") + VBR
+        "hevc_amf" -> listOf("-c:v", "hevc_amf", "-usage", "transcoding", "-quality", "quality", "-rc", "vbr_peak") + VBR
+        // NVIDIA.
+        "h264_nvenc" -> listOf("-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr") + VBR
+        "hevc_nvenc" -> listOf("-c:v", "hevc_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr") + VBR
+        // Intel (Quick Sync).
+        "h264_qsv" -> listOf("-c:v", "h264_qsv", "-preset", "slow") + VBR
+        "hevc_qsv" -> listOf("-c:v", "hevc_qsv", "-preset", "slow") + VBR
+        // Apple.
+        "h264_videotoolbox" -> listOf("-c:v", "h264_videotoolbox", "-profile:v", "high", "-b:v", "12M", "-maxrate", "20M", "-bufsize", "24M")
+        // Logiciel : marche partout, plus lent.
         "libx264" -> listOf("-c:v", "libx264", "-preset", "medium", "-crf", "20", "-profile:v", "high")
+        "libx265" -> listOf("-c:v", "libx265", "-preset", "medium", "-crf", "24")
         else -> listOf("-c:v", name)
     }
 
-    fun isHardware(name: String) = listOf("_amf", "_nvenc", "_qsv", "_vaapi", "_mf").any { name.endsWith(it) }
+    fun isHardware(name: String) = listOf("_amf", "_nvenc", "_qsv", "_vaapi", "_mf", "_videotoolbox").any { name.endsWith(it) }
 }

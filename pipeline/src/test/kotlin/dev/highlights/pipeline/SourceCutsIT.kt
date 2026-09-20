@@ -71,7 +71,10 @@ class SourceCutsIT : FunSpec({
             val script = root.resolve("$name.txt")
             val output = root.resolve("$name.mp4")
             val command = RenderCommandBuilder.build(
-                RenderRequest(plan, OutputFormat.SOURCE, encoder, output, script, cuts = cuts),
+                RenderRequest(
+                    plan, OutputFormat.SOURCE, encoder, output, script,
+                    cuts = cuts, filterScriptOption = ffmpeg.filterScriptOption(),
+                ),
             )
             script.writeText(command.filterGraph)
             ffmpeg.run(command.command)

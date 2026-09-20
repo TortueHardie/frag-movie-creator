@@ -4,6 +4,7 @@ import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlConfiguration
 import com.charleskorn.kaml.YamlException
 import dev.highlights.core.ConfigException
+import dev.highlights.core.ffmpeg.Hwaccel
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
@@ -26,11 +27,15 @@ data class AppConfig(
 
 @Serializable
 data class FfmpegSettings(
-    /** null = recherche automatique (PATH puis installation winget). */
+    /** null = recherche automatique (PATH, installation livrée, winget). */
     val ffmpegPath: String? = null,
     val ffprobePath: String? = null,
-    /** Décodage matériel pour le rendu (d3d11va sur Windows). null = logiciel. */
-    val hwaccelDecode: String? = "d3d11va",
+    /**
+     * Décodage matériel des sources (`-hwaccel`). « auto » laisse FFmpeg prendre ce que la machine sait faire et
+     * retomber en logiciel : c'est le réglage qui marche sur n'importe quelle carte. « none » force le logiciel ;
+     * un nom précis (d3d11va, qsv, cuda…) est possible, avec repli logiciel si le rendu échoue.
+     */
+    val hwaccelDecode: String? = Hwaccel.AUTO,
 )
 
 @Serializable
@@ -47,7 +52,11 @@ data class AnalysisSettings(
 
 @Serializable
 data class EncoderSettings(
-    val preference: List<String> = listOf("h264_amf", "libx264"),
+    /**
+     * Encodeurs essayés dans l'ordre : AMD, NVIDIA, Intel, Apple, puis le logiciel. Chacun est validé par un vrai
+     * encodage avant d'être retenu, donc la liste couvre toutes les machines sans rien avoir à régler.
+     */
+    val preference: List<String> = listOf("h264_amf", "h264_nvenc", "h264_qsv", "h264_videotoolbox", "libx264"),
     /** Remplace les arguments vidéo par défaut d'un encodeur, ex. h264_amf: ["-c:v", "h264_amf", "-rc", "cqp", …]. */
     val videoArgs: Map<String, List<String>> = emptyMap(),
     val audioBitrate: String = "192k",

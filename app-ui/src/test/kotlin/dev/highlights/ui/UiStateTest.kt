@@ -5,6 +5,7 @@ import dev.highlights.core.model.SelectionPolicy
 import dev.highlights.core.model.SelectionTarget
 import dev.highlights.core.profile.GameProfile
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.aspectLabel
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe

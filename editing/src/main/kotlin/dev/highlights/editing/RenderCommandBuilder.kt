@@ -3,10 +3,14 @@ package dev.highlights.editing
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.FfmpegCommand
+import dev.highlights.core.ffmpeg.FfmpegService
+import dev.highlights.core.model.AudioLayout
+import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.CropRegion
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
+import dev.highlights.core.model.ScreenGeometry
 import dev.highlights.core.serialization.Durations
 import java.nio.file.Path
 import java.util.Locale
@@ -33,6 +37,10 @@ data class RenderRequest(
     val hwaccel: String? = null,
     /** Pré-découpes des extraits, lues à la place des sources. Voir [SourceCuts]. */
     val cuts: SourceCuts = SourceCuts.NONE,
+    /** Indices de pistes imposés par le profil ; vide = rôles déduits de la capture. */
+    val audioLayout: AudioLayout = AudioLayout(),
+    /** Option de lecture du graphe depuis un fichier, selon la version de FFmpeg (voir [FfmpegService.filterScriptOption]). */
+    val filterScriptOption: String = FfmpegService.FILTER_COMPLEX_FROM_FILE,
 )
 
 /**
@@ -56,7 +64,7 @@ object RenderCommandBuilder {
         val graph = mutableListOf<String>()
         clips.forEachIndexed { i, clip ->
             graph += videoChain(i, clip.media, request.format, settings, "v$i")
-            graph += audioChain(i, clip, settings.audioStreams)
+            graph += audioChain(i, clip, settings, request.audioLayout)
         }
 
         val (videoOut, audioOut) = if (clips.size == 1) {
@@ -81,9 +89,12 @@ object RenderCommandBuilder {
 
         val loudness = settings.loudnessLufs?.let { "loudnorm=I=${fmt(it)}:TP=-1.5:LRA=11," } ?: ""
         graph += "[$audioOut]${loudness}aresample=48000[aout]"
+        // Format imposé juste avant l'encodeur : xfade et concat peuvent sinon négocier du 4:4:4 (selon la version de
+        // FFmpeg), que le profil « high » de x264 refuse.
+        graph += "[$videoOut]format=yuv420p[vout]"
 
-        args += listOf("-/filter_complex", request.filterScript.toString())
-        args += listOf("-map", "[$videoOut]", "-map", "[aout]")
+        args += listOf(request.filterScriptOption, request.filterScript.toString())
+        args += listOf("-map", "[vout]", "-map", "[aout]")
         args += request.encoder.videoArgs
         args += listOf(
             "-c:a", "aac", "-b:a", request.audioBitrate, "-ar", "48000",
@@ -103,10 +114,18 @@ object RenderCommandBuilder {
     fun sourceCuts(plan: EditPlan): List<SourceCut> = plan.clips.map { SourceCut(it.media, it.range) }
 
     /** Une image PNG du format demandé à l'instant [at] : sert à régler recadrage et HUD sans rendu complet. */
-    fun buildPreview(media: MediaInfo, at: Duration, format: OutputFormat, settings: EditSettings, filterScript: Path, output: Path): RenderCommand {
+    fun buildPreview(
+        media: MediaInfo,
+        at: Duration,
+        format: OutputFormat,
+        settings: EditSettings,
+        filterScript: Path,
+        output: Path,
+        filterScriptOption: String = FfmpegService.FILTER_COMPLEX_FROM_FILE,
+    ): RenderCommand {
         val args = inputArgs(null, at, 1.seconds, media.path).toMutableList()
         val graph = videoChain(0, media, format, settings, "vout")
-        args += listOf("-/filter_complex", filterScript.toString(), "-map", "[vout]", "-frames:v", "1", "-update", "1", "-y", output.toString())
+        args += listOf(filterScriptOption, filterScript.toString(), "-map", "[vout]", "-frames:v", "1", "-update", "1", "-y", output.toString())
         return RenderCommand(FfmpegCommand(args, "aperçu ${format.label} à ${Durations.format(at)}"), graph.joinToString(";\n") + "\n", Duration.ZERO)
     }
 
@@ -134,7 +153,8 @@ object RenderCommandBuilder {
         statements += "$head,split=${overlays.size + 1}[${p}base]" + overlays.indices.joinToString("") { "[${p}hud$it]" }
         statements += "[${p}base]${geometry(format, video.width, video.height, settings)}[${p}l0]"
         overlays.forEachIndexed { k, hud ->
-            val src = pixelBox(video.width, video.height, hud.source)
+            val region = ScreenGeometry.forVideo(hud.source, settings.vertical.reference, video.width, video.height, hud.anchor)
+            val src = pixelBox(video.width, video.height, region)
             val w = even(hud.target.width * size.width)
             val h = even(w.toDouble() * src.h / src.w).coerceAtLeast(2)
             val x = (hud.target.x * size.width).roundToInt().coerceIn(0, size.width - w)
@@ -146,10 +166,9 @@ object RenderCommandBuilder {
         return statements
     }
 
-    private fun audioChain(i: Int, clip: PlannedClip, selection: List<Int>?): String {
+    private fun audioChain(i: Int, clip: PlannedClip, settings: EditSettings, layout: AudioLayout): String {
         val length = Durations.ffmpegSeconds(clip.range.length)
-        val available = clip.media.audio.map { it.audioIndex }
-        val streams = selection?.filter { it in available }?.ifEmpty { null } ?: available
+        val streams = settings.audioIndices(AudioTracks.of(clip.media.audio, layout))
         // Longueur audio forcée à celle du clip : sinon une piste plus courte décalerait la synchro des clips suivants.
         val tail = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad,atrim=duration=$length,asetpts=PTS-STARTPTS[a$i]"
         return when (streams.size) {
@@ -174,7 +193,9 @@ object RenderCommandBuilder {
 
         OutputFormat.VERTICAL -> {
             val size = settings.vertical.size
-            val crop = cropBox(srcWidth, srcHeight, size.width.toDouble() / size.height, settings.vertical.cropRegion)
+            val region = settings.vertical.cropRegion
+                ?.let { ScreenGeometry.forVideo(it, settings.vertical.reference, srcWidth, srcHeight) }
+            val crop = cropBox(srcWidth, srcHeight, size.width.toDouble() / size.height, region)
             "crop=${crop.w}:${crop.h}:${crop.x}:${crop.y},scale=${size.width}:${size.height}:flags=lanczos,setsar=1"
         }
     }

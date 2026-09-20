@@ -7,6 +7,8 @@ import dev.highlights.core.analysis.DetectorRegistry
 import dev.highlights.core.analysis.SignalTrack
 import dev.highlights.core.config.LoadedConfig
 import dev.highlights.core.ffmpeg.FfmpegService
+import dev.highlights.core.ffmpeg.Hwaccel
+import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
@@ -179,7 +181,8 @@ class HighlightPipeline(
                     workDir = workDir,
                     gameName = profile.id,
                     audioBitrate = config.app.encoder.audioBitrate,
-                    hwaccel = config.app.ffmpeg.hwaccelDecode,
+                    hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
+                    audioLayout = profile.audio,
                 ),
                 progress,
             )
@@ -219,7 +222,8 @@ class HighlightPipeline(
 
     /** Extrait basse résolution d'un segment (son du montage), mis en cache. */
     suspend fun clipPreview(session: Session, highlight: Highlight): Path {
-        val audio = profiles.byId(session.profileId).edit.audioStreams?.firstOrNull()
+        val profile = profiles.byId(session.profileId)
+        val audio = profile.edit.audioIndices(AudioTracks.of(session.media.audio, profile.audio)).firstOrNull()
         val name = "clip_${highlight.range.start.inWholeMilliseconds}_${highlight.range.end.inWholeMilliseconds}.mp4"
         return exporter.clipPreview(session.media, highlight.range, audio, cacheDir(session.media).resolve(name))
     }
@@ -261,7 +265,8 @@ class HighlightPipeline(
                     gameName = profile.id,
                     date = KillMontageExporter.recordingDate(sessions.first().media.creationTime),
                     audioBitrate = config.app.encoder.audioBitrate,
-                    hwaccel = config.app.ffmpeg.hwaccelDecode,
+                    hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
+                    audioLayout = profile.audio,
                 ),
                 progress.child("Rendu", 0.92),
             )
@@ -292,8 +297,10 @@ class HighlightPipeline(
         // qu'une fois pour tous ceux qui lisent des images. Une préparation en échec est relancée dans son détecteur,
         // pour être traitée comme n'importe quelle autre panne (continueOnDetectorError).
         val frames = FrameSampler(ffmpeg, media)
+        val tracks = AudioTracks.of(media.audio, profile.audio)
+        log.info { "Pistes audio : ${tracks.describe()}" }
         val contexts = instances.map { (cfg, _) ->
-            AnalysisContext(media, grid, ffmpeg, workDir, progress.child(cfg.id, 1.0 / instances.size), config.baseDir, frames)
+            AnalysisContext(media, grid, ffmpeg, workDir, progress.child(cfg.id, 1.0 / instances.size), config.baseDir, frames, tracks)
         }
         val preparations = instances.mapIndexed { i, (_, detector) -> runCatching { detector.prepare(contexts[i]) } }
 
