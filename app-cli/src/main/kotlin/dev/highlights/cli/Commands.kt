@@ -52,7 +52,7 @@ private fun PipelineCommand.targetOption() = mutuallyExclusiveOptions(
 )
 
 class ProcessCommand : PipelineCommand("process") {
-    private val file by argument(help = "Vidéo à traiter (mp4, mkv, mov)").path(mustExist = true, canBeDir = false)
+    private val file by argument(help = "Vidéo à traiter (mp4, mkv, mov, avi, flv, ts…)").path(mustExist = true, canBeDir = false)
     private val profile by option("-p", "--profile", help = "Profil de jeu (sinon détecté d'après le chemin)")
     private val threshold by option("--threshold", help = "Seuil de score 0..1").double().restrictTo(0.0, 1.0)
     private val target by targetOption()

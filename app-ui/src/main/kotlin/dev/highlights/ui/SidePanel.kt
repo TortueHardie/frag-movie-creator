@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.aspectLabel
 import dev.highlights.core.serialization.toTimecode
@@ -114,7 +115,7 @@ fun SourceSection(state: UiState, actions: UiActions) {
                         video?.let { "${it.fps.toInt()} fps" },
                         media.duration.toTimecode().substringBefore('.'),
                         formatBytes(media.sizeBytes),
-                        "${media.audio.size} piste(s) audio",
+                        AudioTracks.of(media.audio).shortLabel(),
                     ).joinToString(" · ")
                     Text(line, style = MaterialTheme.typography.bodySmall)
                 }

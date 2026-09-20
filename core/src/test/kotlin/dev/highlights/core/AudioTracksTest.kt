@@ -72,6 +72,12 @@ class AudioTracksTest : FunSpec({
         tracks[AudioRole.GAME].shouldBeNull()
     }
 
+    test("résumé court affiché par l'interface") {
+        AudioTracks.of(listOf(stream(0))).shortLabel() shouldBe "1 piste audio : tout le son"
+        AudioTracks.of(listOf(stream(0), stream(1))).shortLabel() shouldBe "2 pistes audio : jeu + micro séparés"
+        AudioTracks.of(emptyList()).shortLabel() shouldBe "aucune piste audio"
+    }
+
     test("choix des pistes du montage selon le réglage du profil") {
         val outplayed = AudioTracks.of(listOf(stream(0), stream(1), stream(2)))
         val obs = AudioTracks.of(listOf(stream(0), stream(1)))

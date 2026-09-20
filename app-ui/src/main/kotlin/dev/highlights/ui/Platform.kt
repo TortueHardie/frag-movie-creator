@@ -1,5 +1,6 @@
 package dev.highlights.ui
 
+import dev.highlights.pipeline.HighlightPipeline
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.awt.Desktop
 import java.awt.FileDialog
@@ -29,7 +30,9 @@ class DesktopPlatform(private val owner: () -> Frame?) : Platform {
     }
 
     override fun chooseVideo(initialDir: Path?): Path? =
-        fileDialog("Choisir une capture", initialDir) { name -> name.lowercase().let { it.endsWith(".mp4") || it.endsWith(".mkv") || it.endsWith(".mov") } }
+        fileDialog("Choisir une capture", initialDir) { name ->
+            name.lowercase().substringAfterLast('.', "") in HighlightPipeline.SUPPORTED_EXTENSIONS
+        }
 
     override fun chooseAudio(initialDir: Path?): Path? =
         fileDialog("Choisir une musique", initialDir) { name ->
