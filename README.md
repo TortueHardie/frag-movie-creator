@@ -11,9 +11,24 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
 - **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
 - **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Wardogs, et un profil par défaut.
 
-## Prérequis (développement)
+## Installer l'application (Windows)
 
-Pour utiliser l'application sans rien installer d'autre, voir [Installer l'application](#installer-lapplication-autre-ordinateur).
+Rien à compiler ni à installer d'autre. Dans [les releases du dépôt](../../releases/latest), prendre :
+
+- **`Highlights-<version>.msi`** : double-clic, l'installation se fait dans le profil de l'utilisateur, sans droits
+  administrateur, avec un raccourci sur le bureau et dans le menu Démarrer ;
+- **`Highlights-<version>-portable.zip`** : la même application sans installation, à décompresser puis lancer
+  `Highlights\Highlights.exe` (clé USB, poste verrouillé…).
+
+Windows 10 ou 11 64 bits. Tout est inclus : Java, FFmpeg, le modèle YAMNet et les profils de jeu ; ni Outplayed ni
+carte graphique particulière ne sont nécessaires.
+
+L'installeur n'étant pas signé, Windows affiche « Windows a protégé votre ordinateur » : « Informations
+complémentaires », puis « Exécuter quand même ». (Signer demanderait un certificat payant.)
+
+Une nouvelle version remplace l'ancienne ; les profils modifiés dans `%APPDATA%\Highlights\config` sont conservés.
+
+## Prérequis (développement)
 
 - JDK 21
 - FFmpeg : `winget install Gyan.FFmpeg`. Il est détecté automatiquement (PATH puis installation winget) ; sinon
@@ -27,23 +42,30 @@ Pour utiliser l'application sans rien installer d'autre, voir [Installer l'appli
 .\gradlew.bat :app-cli:installDist    # → app-cli\build\install\app\bin\app.bat
 ```
 
-## Installer l'application (autre ordinateur)
+## Construire l'installeur
 
 ```powershell
-.\gradlew.bat :app-ui:packageMsi   # → app-ui\build\compose\binaries\main\msi\Highlights-<version>.msi
+.\gradlew.bat :app-ui:packageMsi     # → app-ui\build\compose\binaries\main\msi\Highlights-<version>.msi
+.\gradlew.bat :app-ui:portableZip    # → app-ui\build\distributions\Highlights-<version>-portable.zip
 ```
 
-Le MSI (≈ 340 Mo) contient tout : Java, FFmpeg, le modèle YAMNet, les profils et les
-modèles d'images. Sur l'autre PC, un double-clic suffit : l'installation se fait dans le profil de l'utilisateur, sans
-droits administrateur, et crée un raccourci sur le bureau et dans le menu Démarrer. Windows 10 ou 11 64 bits.
+Sur une machine neuve, il ne manque que [WiX 3](https://github.com/wixtoolset/wix3/releases) (utilisé par `jpackage`
+pour écrire un MSI) : FFmpeg est téléchargé par le build s'il n'est pas déjà là. Le MSI (≈ 340 Mo) contient tout :
+Java, FFmpeg, le modèle YAMNet, les profils et les modèles d'images.
+
+**Publier une version** : augmenter `highlights.version` dans `gradle.properties`, puis pousser un tag `v<version>`
+(`git tag v1.2.0 && git push origin v1.2.0`). Le workflow `.github/workflows/installeur.yml` construit le MSI et le ZIP
+portable sur une machine Windows neuve, lance les tests avant de les assembler, et les publie dans une release GitHub.
+Chaque push construit aussi les deux fichiers, téléchargeables depuis l'onglet Actions.
 
 - **Configuration** : au premier lancement, la config livrée est copiée dans `%APPDATA%\Highlights\config`, où les
   profils se modifient (puis « Recharger » dans l'application). Une mise à jour de l'application apporte les nouveaux
   fichiers et remplace ceux qui n'ont pas été retouchés ; les profils modifiés sont conservés.
 - **Montages** : écrits dans `Vidéos\Highlights` (`outputDir` dans `app.yaml` ; `~/` désigne le dossier de l'utilisateur).
 - **FFmpeg** : celui de l'installeur est utilisé en priorité (sauf `ffmpeg.ffmpegPath` dans `app.yaml`). À la
-  construction, il est repris de l'installation winget `Gyan.FFmpeg`, ou de `-PffmpegDir=<dossier contenant bin\ffmpeg.exe>` ;
-  sans lui, `packageMsi` échoue. Sa licence (GPL) est livrée à côté, dans `resources\ffmpeg`.
+  construction, il est pris dans `-PffmpegDir=<dossier contenant bin\ffmpeg.exe>`, sinon dans l'installation winget
+  `Gyan.FFmpeg`, sinon téléchargé (build Windows 64 bits GPL ; `-PffmpegUrl` pour changer d'archive et
+  `-PffmpegSha256` pour figer son empreinte). Sa licence (GPL) est livrée à côté, dans `resources\ffmpeg`.
 - **Version** : `highlights.version` dans `gradle.properties`. À augmenter à chaque nouvel installeur, sinon Windows
   refuse la mise à jour ; l'ancienne version est remplacée automatiquement.
 - Pour qu'une application installée lise la config du projet : variable d'environnement `HIGHLIGHTS_CONFIG=D:\...\config\app.yaml`.

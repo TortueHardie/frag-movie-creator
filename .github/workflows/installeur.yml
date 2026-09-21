@@ -1,0 +1,108 @@
+name: Installeur
+
+# Construit l'installeur Windows (MSI) et la version portable (ZIP) sur une machine neuve : FFmpeg est téléchargé par
+# le build, rien n'est supposé installé. Un tag « v1.2.3 » publie les deux fichiers dans une release GitHub, d'où
+# n'importe qui peut les télécharger.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: installeur-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # jpackage produit un MSI avec WiX 3 ; l'image du runner ne le fournit pas toujours.
+      - name: WiX 3 (requis par jpackage)
+        shell: pwsh
+        run: |
+          if (Get-Command candle.exe -ErrorAction SilentlyContinue) {
+            Write-Host "WiX déjà présent : $((Get-Command candle.exe).Source)"
+          } else {
+            choco install wixtoolset -y --no-progress
+            $wix = Get-ChildItem 'C:\Program Files (x86)' -Filter 'WiX Toolset v3*' -Directory |
+              Sort-Object Name -Descending | Select-Object -First 1
+            if (-not $wix) { throw "WiX 3 introuvable après installation" }
+            Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $wix.FullName 'bin')
+          }
+
+      # Numéro de version : celui du tag (v1.2.3 → 1.2.3), sinon celui de gradle.properties.
+      - name: Version
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '' }
+          Add-Content -Path $env:GITHUB_ENV -Value "HIGHLIGHTS_VERSION=$version"
+
+      # FFmpeg livré avec l'application, téléchargé par le build : les tests s'exécutent contre ce binaire-là.
+      - name: FFmpeg
+        shell: pwsh
+        run: |
+          $extra = if ($env:HIGHLIGHTS_VERSION) { @("-Phighlights.version=$env:HIGHLIGHTS_VERSION") } else { @() }
+          .\gradlew.bat --no-daemon :app-ui:prepareBundledResources @extra
+          Add-Content -Path $env:GITHUB_PATH -Value (Resolve-Path 'app-ui\build\appResources\windows\ffmpeg')
+
+      - name: Tests
+        shell: pwsh
+        run: |
+          $extra = if ($env:HIGHLIGHTS_VERSION) { @("-Phighlights.version=$env:HIGHLIGHTS_VERSION") } else { @() }
+          .\gradlew.bat --no-daemon test @extra
+
+      - name: Installeur et version portable
+        shell: pwsh
+        run: |
+          $extra = if ($env:HIGHLIGHTS_VERSION) { @("-Phighlights.version=$env:HIGHLIGHTS_VERSION") } else { @() }
+          .\gradlew.bat --no-daemon :app-ui:packageMsi :app-ui:portableZip @extra
+
+      - name: Rassembler les fichiers
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path installeur | Out-Null
+          Copy-Item app-ui\build\compose\binaries\main\msi\*.msi installeur\
+          Copy-Item app-ui\build\distributions\*-portable.zip installeur\
+          Get-ChildItem installeur | ForEach-Object { "{0} : {1:N0} octets" -f $_.Name, $_.Length }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: highlights-installeur
+          path: installeur/*
+          if-no-files-found: error
+
+      - name: Publier la release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = $env:HIGHLIGHTS_VERSION
+          $notes = @"
+          Installation : télécharger Highlights-$version.msi et double-cliquer. L'installation se fait dans le profil de
+          l'utilisateur, sans droits administrateur. Windows 10 ou 11 64 bits.
+
+          Windows affiche un avertissement SmartScreen (l'installeur n'est pas signé) : « Informations complémentaires »
+          puis « Exécuter quand même ».
+
+          Highlights-$version-portable.zip est la même application sans installation : décompresser et lancer
+          Highlights\Highlights.exe.
+
+          Tout est inclus : Java, FFmpeg, le modèle YAMNet et les profils de jeu.
+          "@
+          $fichiers = Get-ChildItem installeur | ForEach-Object { $_.FullName }
+          gh release create $env:GITHUB_REF_NAME @fichiers --title "Highlights $version" --notes $notes
