@@ -54,6 +54,8 @@ data class MontageReport(
     val sections: List<MontageReportSection> = emptyList(),
     val outputs: List<String>,
     val clips: List<MontageReportClip>,
+    /** Note du montage : ce que le moteur prétend faire, mesuré. Voir [MontageScorer]. */
+    val score: MontageScore? = null,
 )
 
 /** Section de la musique couverte par le montage (instants dans le montage). */
@@ -158,6 +160,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                 MontageReportSection((from.inWholeMilliseconds / 1000.0).roundTo(3), (to.inWholeMilliseconds / 1000.0).roundTo(3), s.intensity.roundTo(2), s.level.name)
             },
             outputs = paths.videos.values.map { it.toString() },
+            score = MontageScorer.score(plan),
             clips = plan.clips.zip(plan.clipOffsets()).map { (c, offset) ->
                 MontageReportClip(
                     c.group.media.path.toString(), c.start.toTimecode(), c.end.toTimecode(), c.kills.map { it.toTimecode() },

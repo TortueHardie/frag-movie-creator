@@ -432,6 +432,7 @@ class AppController(
                     outputDir = s.settings.outputDir,
                     maxDuration = montage.maxDuration,
                     order = if (montage.buildUp) dev.highlights.core.model.MontageOrder.BUILD_UP else dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
+                    effectDensity = montage.density,
                     zoom = montage.zoom,
                     flash = montage.flash,
                     slowMotion = montage.slowMotion,

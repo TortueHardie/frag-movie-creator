@@ -7,6 +7,7 @@ import dev.highlights.core.model.ClipOrder
 import dev.highlights.core.model.CropRegion
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.FrameSize
+import dev.highlights.core.model.GradeSettings
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.HudOverlay
 import dev.highlights.core.model.OverlayTarget
@@ -212,6 +213,24 @@ class RenderCommandBuilderTest : FunSpec({
         val hd = media.copy(video = VideoStream(0, "h264", 1920, 1080, 60.0))
         RenderCommandBuilder.videoChain(0, hd, OutputFormat.VERTICAL, settings, "v0")
             .any { it.contains("[c0hud0]crop=192:540:0:540") } shouldBe true
+    }
+
+    test("étalonnage : rien par défaut, sinon table, retouche et vignettage dans cet ordre") {
+        RenderCommandBuilder.grade(GradeSettings()) shouldBe ""
+
+        // Chemin Windows : les deux-points sont protégés comme pour une police.
+        RenderCommandBuilder.grade(
+            GradeSettings(lut = "C:/config/luts/valorant.cube", saturation = 1.1, contrast = 1.05, vignette = 0.5),
+        ) shouldBe """lut3d=file='C\:/config/luts/valorant.cube',eq=saturation=1.100:contrast=1.050,vignette=a=0.393,"""
+
+        // Une seule retouche : les filtres neutres sont omis.
+        RenderCommandBuilder.grade(GradeSettings(vignette = 0.2)) shouldBe "vignette=a=0.157,"
+    }
+
+    test("étalonnage appliqué à l'image finale, après recadrage et HUD") {
+        val graded = EditSettings(grade = GradeSettings(saturation = 1.2))
+        val chain = RenderCommandBuilder.videoChain(0, media, OutputFormat.SOURCE, graded, "v0")
+        chain.single() shouldContain "setsar=1,eq=saturation=1.200:contrast=1.000,format=yuv420p"
     }
 
     test("9:16 recadré sur une zone, borné à l'image") {

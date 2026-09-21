@@ -8,6 +8,7 @@ import dev.highlights.core.model.AudioLayout
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.CropRegion
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.GradeSettings
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.ScreenGeometry
@@ -136,11 +137,12 @@ object RenderCommandBuilder {
             "-i", source.toString(),
         )
 
-    /** Chaîne vidéo d'une entrée jusqu'au label [out] : géométrie du format, cadence, HUD éventuel. */
+    /** Chaîne vidéo d'une entrée jusqu'au label [out] : géométrie du format, cadence, HUD éventuel, étalonnage. */
     fun videoChain(input: Int, media: MediaInfo, format: OutputFormat, settings: EditSettings, out: String): List<String> {
         val video = media.video ?: throw HighlightsException("${media.path} ne contient pas de flux vidéo")
         val head = "[$input:v:0]setpts=PTS-STARTPTS,fps=${settings.fps}"
-        val tail = "format=yuv420p,settb=AVTB[$out]"
+        // L'étalonnage vient après le recadrage et le HUD : il s'applique à l'image finale, avant les effets du montage.
+        val tail = "${grade(settings.grade)}format=yuv420p,settb=AVTB[$out]"
 
         val overlays = if (format == OutputFormat.VERTICAL) settings.vertical.hud.filter { it.enabled } else emptyList()
         if (overlays.isEmpty()) {
@@ -240,7 +242,25 @@ object RenderCommandBuilder {
         return CropBox(x, y, w, h)
     }
 
+    /**
+     * Filtres d'étalonnage, terminés par une virgule (chaîne vide si l'image reste telle quelle) : table de
+     * correspondance, puis saturation et contraste, puis assombrissement des bords.
+     */
+    internal fun grade(settings: GradeSettings): String {
+        if (settings.isNeutral) return ""
+        val filters = mutableListOf<String>()
+        settings.lut?.let { filters += "lut3d=file='${it.replace("\\", "/").replace(":", "\\:")}'" }
+        if (settings.saturation != 1.0 || settings.contrast != 1.0) {
+            filters += "eq=saturation=${fmt2(settings.saturation)}:contrast=${fmt2(settings.contrast)}"
+        }
+        // L'angle de l'objectif pilote la force du vignettage : plus il est ouvert, plus les bords tombent.
+        if (settings.vignette > 0) filters += "vignette=a=${fmt2(settings.vignette * Math.PI / 4)}"
+        return filters.joinToString(",") + ","
+    }
+
     private fun even(v: Double) = (v.toInt() / 2) * 2
 
     private fun fmt(v: Double) = String.format(Locale.ROOT, "%.1f", v)
+
+    private fun fmt2(v: Double) = String.format(Locale.ROOT, "%.3f", v)
 }

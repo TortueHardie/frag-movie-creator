@@ -60,6 +60,7 @@ data class EditSettings(
     val sourceHeight: Int = 1080,
     val landscape: FrameSize = FrameSize(1920, 1080),
     val vertical: VerticalSettings = VerticalSettings(),
+    val grade: GradeSettings = GradeSettings(),
     val fps: Int = 60,
 ) {
     init {
@@ -91,6 +92,32 @@ enum class AudioSelection {
     @SerialName("game") GAME,
 
     @SerialName("mic") MIC,
+}
+
+/**
+ * Étalonnage appliqué à l'image, avant les effets du montage : il unifie des captures venues de sessions, de réglages
+ * ou de jeux différents. Rien n'est appliqué tant que tout est à sa valeur neutre.
+ */
+@Serializable
+data class GradeSettings(
+    /** Table de correspondance .cube (ou .3dl) appliquée à l'image. Chemin relatif au fichier de configuration. */
+    val lut: String? = null,
+    /** Saturation (1 = inchangée). */
+    val saturation: Double = 1.0,
+    /** Contraste (1 = inchangé). */
+    val contrast: Double = 1.0,
+    /** Assombrissement des bords, 0 (aucun) à 1 (marqué) : ramène le regard au centre de l'image. */
+    val vignette: Double = 0.0,
+) {
+    init {
+        require(saturation in 0.0..3.0) { "grade.saturation doit être entre 0 et 3" }
+        require(contrast in 0.0..3.0) { "grade.contrast doit être entre 0 et 3" }
+        require(vignette in 0.0..1.0) { "grade.vignette doit être entre 0 et 1" }
+    }
+
+    /** Vrai si l'étalonnage laisse l'image telle quelle. */
+    val isNeutral: Boolean
+        get() = lut == null && saturation == 1.0 && contrast == 1.0 && vignette == 0.0
 }
 
 @Serializable

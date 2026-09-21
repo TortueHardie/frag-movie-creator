@@ -8,6 +8,9 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
   Outplayed (kills, morts, assistances), icônes du HUD et journal des gains lu par OCR (Wardogs).
 - **Highlights** : les meilleurs moments fusionnés et exportés en 16:9 et/ou 9:16, encodés par le GPU (AMD, NVIDIA,
   Intel) avec repli logiciel.
+- **Étalonnage** (`edit.grade` d'un profil, pour les highlights comme pour le montage) : table de correspondance
+  `.cube` (chemin relatif au dossier de configuration), saturation, contraste et vignettage. Sert à unifier des
+  captures venues de sessions ou de jeux différents. Neutre tant qu'on n'y touche pas.
 - **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
 - **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Wardogs, et un profil par défaut.
 
@@ -140,11 +143,21 @@ détecte les kills). En ligne de commande :
 ```
 
 - **Musique** : analysée entièrement (`app music son.mp3` pour voir le résultat) : tempo et temps (suivi à ~12 ms, sans
-  dérive), mesures, **sections** (intro, montée, drop, breakdown… par timbre et volume, alignées sur les mesures) avec
-  leur intensité, et la **drop** (plus gros saut d'intensité).
+  dérive), mesures, **sections** (délimitées par timbre et volume, alignées sur les mesures) avec leur intensité, et la
+  **drop** (plus gros saut d'intensité). Chaque section reçoit aussi un **rôle** — intro, montée, drop, breakdown, corps
+  de morceau, outro — qui dit ce qu'elle *fait* et pas seulement à quel point elle joue fort. La section qui mène à la
+  drop en est la montée par construction : un riser perd souvent ses basses en gagnant ses aigus, si bien que son volume
+  peut même baisser. Ailleurs, il faut l'entendre monter (+2,5 dB entre son premier et son dernier tiers).
+- **Coupes qui accélèrent dans une montée** (`cuts.accelerateBuildUp`) : les plans partent du double de leur longueur
+  nominale et sont divisés par deux à mi-parcours, puis aux trois quarts — toujours en puissances de deux, donc toujours
+  sur les mesures. Le montage préfère aussi s'ouvrir sur une intro ou une montée, pour avoir la rampe qui mène à la drop.
 - **Coupes dictées par la musique** : la longueur des plans dépend de la section (courts dans les parties intenses, longs
   dans les calmes, toujours des mesures entières), les frontières de sections sont des coupes, et le montage est placé
-  sur la fenêtre de la musique la plus intéressante (montée puis drop vers 40 %).
+  sur la fenêtre de la musique la plus intéressante (montée puis drop vers 40 %). Chaque coupe tombe une image avant son
+  temps (`cuts.preBeatFrames`) — l'œil met quelques images à enregistrer un nouveau plan — sans déplacer le kill.
+- **Choix et ordre des clips** : deux plans voisins ne viennent pas du même moment de la même partie (`varietyGap`), et
+  `minScore` permet d'écarter les groupes de kills trop faibles quitte à raccourcir le montage (0 = tout garder ; les
+  trois meilleurs sont gardés quoi qu'il arrive). Les meilleurs groupes restants terminent naturellement le montage.
 - **Clips taillés pour la musique** : chaque clip est étendu ou coupé pour remplir exactement son plan ; le dernier kill
   tombe sur le temps le plus accentué du plan, le meilleur groupe (multi-kill) exactement sur la drop ; les multi-kills
   et les réactions (voix, rires) fusionnent des plans voisins ; l'image est gelée si la vidéo manque. Quand il y a peu de
@@ -152,11 +165,33 @@ détecte les kills). En ligne de commande :
 - **Chaque kill sur un temps** : dans un multi-kill, la lecture entre deux kills est accélérée ou ralentie de ±15 % au
   plus (speed ramp, `--no-ramp` pour désactiver) pour que chaque kill tombe sur un temps ; dans une suite de plans de
   même longueur, le kill tombe toujours au même endroit du plan (élan).
-- **Effets** (désactivables : `--no-zoom`, `--no-flash`, `--no-slowmo`, `--no-text`) : zoom punch, flash blanc aux
-  coupes, ralenti ×0,5 sur le kill (seulement s'il tient dans le plan), textes « DOUBLÉ / TRIPLÉ » et compteur de kills,
-  fondu au noir final.
+- **Accroche** : le meilleur groupe après celui de la drop ouvre le montage (`--no-hook`) : c'est dans les premières
+  secondes que le spectateur décide de rester.
+- **Une emphase par plan** (`effectDensity`, `--effects sober|balanced|heavy`) : au rythme normal, un plan reçoit un
+  ralenti *ou* un zoom, jamais les deux. Le ralenti va aux plans forts — drop, multi-kill visible à l'écran, accroche —
+  et les autres prennent le zoom. `sober` ne garde que le ralenti de la drop, `heavy` remet tout partout.
+- **Effets** (désactivables : `--no-zoom`, `--no-flash`, `--no-slowmo`, `--no-text`) : zoom punch, ralenti ×0,5 sur le
+  kill (seulement s'il tient dans le plan), textes « DOUBLÉ / TRIPLÉ », fondu au noir final. Le ralenti s'installe par
+  paliers avant le kill et le plein régime revient exactement sur un temps, au lieu d'un changement de vitesse net ;
+  `slowMotion.interpolate` calcule de vraies images intermédiaires au lieu de répéter celles de la source (mouvement
+  fluide, rendu bien plus lent). Le flash blanc ne tombe qu'aux coupes fortes — nouvelle section, drop, multi-kill
+  (`--flash-every-cut` pour toutes) ; `zoom.onEveryKill: false` réserve le zoom au kill calé sur le temps.
 - **Son** : musique au premier plan ; le jeu remonte sur les kills ; voix et rires restent audibles, et la musique baisse
-  pendant qu'on les entend ; le son d'un kill ou d'une phrase déborde un peu sur le plan suivant (`audio.bleed`).
+  pendant qu'on les entend. Pendant un ralenti, le son du jeu n'est **pas** étiré avec l'image (le timbre d'un tir s'y
+  déliterait) : il joue à sa vitesse puis s'efface, la musique porte la fin du plan (`audio.slowMotion` : `natural` par
+  défaut, sinon `stretch` ou `mute`). Tous ces changements de volume montent et descendent en fondu (`audio.duckAttack`,
+  `audio.duckRelease`), sinon la marche s'entend plus que ce qu'elle met en avant ; le son d'un kill ou d'une phrase
+  déborde un peu sur le plan suivant (`audio.bleed`).
+- **Note du montage** : chaque rapport porte une note qui mesure ce que le moteur prétend faire — kills sur un temps,
+  temps accentués, sobriété des effets, variété des clips, durée occupée, plans plus courts dans les sections intenses,
+  absence d'image gelée. Elle ne dit pas si un montage est beau ; elle sert à comparer deux versions du moteur sans les
+  regarder l'une après l'autre. Un critère qu'on ne peut pas mesurer sur un montage donné (`-` à l'affichage) sort de la
+  moyenne au lieu d'y entrer à 1.
+
+  ```powershell
+  & $app score output\a\partie_killmontage.json output\b\partie_killmontage.json
+  ```
+
 - Réglages détaillés : section `montage:` d'un profil (voir `core/.../model/Montage.kt`), notamment `cuts:` (durées
   visées par intensité `low`/`mid`/`high`, `maxBeats`, `minLead`/`minTail`, `dropPosition`).
 

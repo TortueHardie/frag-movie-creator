@@ -25,6 +25,23 @@ data class MontageSettings(
     /** Segments à ne pas couper (réactions après le kill) : le clip s'étend sur le slot suivant s'il est libre. */
     val keepWhole: List<String> = listOf("laughter", "shout", "speech"),
     val order: MontageOrder = MontageOrder.BUILD_UP,
+    /**
+     * Accroche : le deuxième meilleur groupe ouvre le montage (le meilleur reste pour la drop). Sans ça, les premières
+     * secondes tombent sur un clip quelconque, là où se joue l'essentiel de la rétention.
+     */
+    val hook: Boolean = true,
+    /**
+     * Deux clips voisins tirés de la même capture et distants de moins que ça se ressemblent (même endroit, même
+     * situation) : à importance égale, on les éloigne l'un de l'autre. Zéro désactive la règle.
+     */
+    val varietyGap: SerialDuration = 45.seconds,
+    /**
+     * Score minimal d'un groupe de kills (0..1) pour entrer au montage : au-dessus de zéro, mieux vaut un montage plus
+     * court qu'un plan sans intérêt. Les trois meilleurs sont gardés quoi qu'il arrive.
+     */
+    val minScore: Double = 0.0,
+    /** Quantité d'effets : au rythme normal, un plan reçoit un ralenti ou un zoom, jamais les deux. */
+    val effectDensity: EffectDensity = EffectDensity.BALANCED,
     val cuts: CutSettings = CutSettings(),
     val zoom: ZoomEffect = ZoomEffect(),
     val flash: FlashEffect = FlashEffect(),
@@ -34,6 +51,9 @@ data class MontageSettings(
     val audio: MontageAudio = MontageAudio(),
     val formats: List<OutputFormat> = listOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
 ) {
+    init {
+        require(minScore in 0.0..1.0) { "montage.minScore doit être entre 0 et 1" }
+    }
 }
 
 /**
@@ -55,11 +75,44 @@ data class CutSettings(
     val minTail: SerialDuration = 250.milliseconds,
     /** Position souhaitée de la drop dans le montage (0 = début, 1 = fin) : avant, la montée ; après, la fête. */
     val dropPosition: Double = 0.4,
+    /**
+     * Images d'avance de chaque coupe sur son temps : l'œil met quelques images à enregistrer un nouveau plan, si bien
+     * qu'une coupe pile sur le temps paraît en retard. Le kill, lui, ne bouge pas : seule la coupe avance.
+     */
+    val preBeatFrames: Int = 1,
+    /** Dans une montée de la musique, les plans raccourcissent au fur et à mesure : les coupes accélèrent avec elle. */
+    val accelerateBuildUp: Boolean = true,
 ) {
     init {
         require(maxBeats in 4..64) { "montage.cuts.maxBeats doit être entre 4 et 64" }
         require(dropPosition in 0.0..1.0) { "montage.cuts.dropPosition doit être entre 0 et 1" }
+        require(preBeatFrames in 0..4) { "montage.cuts.preBeatFrames doit être entre 0 et 4" }
     }
+}
+
+/** Ce que devient le son du jeu pendant un ralenti. */
+@Serializable
+enum class SlowAudio {
+    /** Étiré comme l'image : sur un tir ou un impact, le timbre se délite (`atempo`). */
+    @SerialName("stretch") STRETCH,
+    /** Joué à sa vitesse, puis effacé en fondu : le tir sonne juste et la musique porte la fin du ralenti. */
+    @SerialName("natural") NATURAL,
+    /** Silence : seule la musique reste. */
+    @SerialName("mute") MUTE,
+}
+
+/**
+ * Quantité d'effets appliqués. Empiler ralenti, zoom, flash et texte sur le même plan surcharge l'image et rend
+ * l'action difficile à suivre : au rythme normal, chaque plan ne reçoit qu'une seule emphase.
+ */
+@Serializable
+enum class EffectDensity {
+    /** Ralenti sur la drop seulement, aucun zoom, flash aux frontières de section. */
+    @SerialName("sober") SOBER,
+    /** Ralenti sur les plans forts (drop, multi-kill, accroche), zoom sur les autres, jamais les deux. */
+    @SerialName("balanced") BALANCED,
+    /** Tous les effets sur tous les plans. */
+    @SerialName("heavy") HEAVY,
 }
 
 @Serializable
@@ -69,22 +122,58 @@ enum class MontageOrder {
     @SerialName("chronological") CHRONOLOGICAL,
 }
 
+/**
+ * Zoom « punch » : l'image bondit sur le kill puis revient. [onEveryKill] décide si les kills intermédiaires d'un
+ * multi-kill en reçoivent un aussi, ou si seul celui qui tombe sur le temps y a droit (les libellés DOUBLÉ / TRIPLÉ
+ * marquent déjà les autres).
+ */
 @Serializable
-data class ZoomEffect(val enabled: Boolean = true, val amount: Double = 0.18, val decay: SerialDuration = 350.milliseconds)
+data class ZoomEffect(
+    val enabled: Boolean = true,
+    val amount: Double = 0.18,
+    val decay: SerialDuration = 350.milliseconds,
+    val onEveryKill: Boolean = true,
+    /** Rééchantillonnage du zoom, appliqué à chaque image : bicubic tient le détail, bilinear coûte moins cher. */
+    val scaleFlags: String = "bicubic",
+)
 
+/**
+ * Flash blanc à la coupe. Par défaut seulement aux coupes fortes (changement de section, drop, multi-kill) : à chaque
+ * coupe, l'effet se retourne contre le montage et rend l'action plus difficile à suivre.
+ */
 @Serializable
-data class FlashEffect(val enabled: Boolean = true, val duration: SerialDuration = 120.milliseconds)
+data class FlashEffect(
+    val enabled: Boolean = true,
+    val duration: SerialDuration = 60.milliseconds,
+    val onEveryCut: Boolean = false,
+)
 
+/**
+ * Ralenti sur le kill d'ancrage : la vitesse descend par paliers avant le kill ([rampSteps]) au lieu de changer d'un
+ * coup, et le plein régime est retrouvé exactement sur un temps ([snapToBeat]) — la relance tombe alors avec la musique.
+ */
 @Serializable
 data class SlowMotionEffect(
     val enabled: Boolean = true,
     /** 0,5 = deux fois plus lent (minimum : atempo ne descend pas en dessous). */
     val factor: Double = 0.5,
+    /** Durée source de la décélération, juste avant le kill. */
     val before: SerialDuration = 300.milliseconds,
+    /** Durée source maximale du ralenti après le kill. */
     val after: SerialDuration = 500.milliseconds,
+    /** Paliers de décélération avant le kill (1 = changement de vitesse net). */
+    val rampSteps: Int = 3,
+    /** Retour au plein régime sur un temps plutôt qu'au bout de [after]. */
+    val snapToBeat: Boolean = true,
+    /**
+     * Images intermédiaires calculées par estimation de mouvement pendant le ralenti, au lieu de répéter les images
+     * de la source. Le mouvement devient fluide, mais le rendu de ces portions est bien plus lent (`minterpolate`).
+     */
+    val interpolate: Boolean = false,
 ) {
     init {
         require(factor in 0.5..1.0) { "slowMotion.factor doit être entre 0,5 et 1" }
+        require(rampSteps in 1..8) { "slowMotion.rampSteps doit être entre 1 et 8" }
     }
 }
 
@@ -105,8 +194,8 @@ data class TextEffect(
     val font: String = "C:/Windows/Fonts/impact.ttf",
     /** Texte affiché au 2e, 3e… kill d'un même clip. */
     val multiKillLabels: List<String> = listOf("DOUBLÉ", "TRIPLÉ", "QUADRUPLÉ", "QUINTUPLÉ"),
-    /** Petit compteur « KILL n » à chaque kill. */
-    val killCounter: Boolean = true,
+    /** Petit compteur « KILL n » à chaque kill. Désactivé par défaut : il n'apporte rien et surcharge l'image. */
+    val killCounter: Boolean = false,
 )
 
 @Serializable
@@ -120,6 +209,14 @@ data class MontageAudio(
     val voiceVolume: Double = 1.0,
     /** Volume de la musique pendant une réaction (ducking). */
     val musicUnderVoice: Double = 0.45,
+    /** Ce que devient le son du jeu pendant un ralenti. */
+    val slowMotion: SlowAudio = SlowAudio.NATURAL,
+    /** Disparition du son du jeu quand il a fini de jouer avant la fin du ralenti (mode `natural`). */
+    val slowFade: SerialDuration = 250.milliseconds,
+    /** Montée d'un changement de volume (ducking, son du jeu au kill) : sans elle, la marche s'entend. */
+    val duckAttack: SerialDuration = 80.milliseconds,
+    /** Retour au volume nominal : plus lent que la montée, comme un compresseur. */
+    val duckRelease: SerialDuration = 220.milliseconds,
     /** Le son du jeu peut déborder d'autant sur le plan suivant pour finir un kill ou une phrase (fondu). */
     val bleed: SerialDuration = 300.milliseconds,
     val loudnessLufs: Double = -14.0,

@@ -1,5 +1,6 @@
 package dev.highlights.ui
 
+import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
@@ -140,6 +141,7 @@ data class MontageUiState(
     val maxDurationText: String = "60s",
     val buildUp: Boolean = true,
     val formats: Set<OutputFormat> = setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
+    val density: EffectDensity = EffectDensity.BALANCED,
     val zoom: Boolean = true,
     val flash: Boolean = true,
     val slowMotion: Boolean = true,
