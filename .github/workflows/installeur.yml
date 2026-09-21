@@ -59,20 +59,23 @@ jobs:
         shell: pwsh
         run: |
           $extra = if ($env:HIGHLIGHTS_VERSION) { @("-Phighlights.version=$env:HIGHLIGHTS_VERSION") } else { @() }
-          .\gradlew.bat --no-daemon :app-ui:prepareBundledResources @extra
+          & .\gradlew.bat @('--no-daemon', ':app-ui:prepareBundledResources') @extra
+          if ($LASTEXITCODE -ne 0) { throw "prepareBundledResources : code $LASTEXITCODE" }
           Add-Content -Path $env:GITHUB_PATH -Value (Resolve-Path 'app-ui\build\appResources\windows\ffmpeg')
 
       - name: Tests
         shell: pwsh
         run: |
           $extra = if ($env:HIGHLIGHTS_VERSION) { @("-Phighlights.version=$env:HIGHLIGHTS_VERSION") } else { @() }
-          .\gradlew.bat --no-daemon test @extra
+          & .\gradlew.bat @('--no-daemon', 'test') @extra
+          if ($LASTEXITCODE -ne 0) { throw "tests : code $LASTEXITCODE" }
 
       - name: Installeur et version portable
         shell: pwsh
         run: |
           $extra = if ($env:HIGHLIGHTS_VERSION) { @("-Phighlights.version=$env:HIGHLIGHTS_VERSION") } else { @() }
-          .\gradlew.bat --no-daemon :app-ui:packageMsi :app-ui:portableZip @extra
+          & .\gradlew.bat @('--no-daemon', ':app-ui:packageMsi', ':app-ui:portableZip') @extra
+          if ($LASTEXITCODE -ne 0) { throw "empaquetage : code $LASTEXITCODE" }
 
       - name: Rassembler les fichiers
         shell: pwsh
