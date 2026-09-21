@@ -23,6 +23,14 @@ data class SelectionPolicy(
     val keepWhole: List<String> = emptyList(),
     /** Extension maximale ajoutée de chaque côté pour ne pas couper un segment. */
     val maxExtension: SerialDuration = 8.seconds,
+    /**
+     * Bonus de classement d'un moment suivi d'une réaction : un rire compte plein, un cri 70 %, une phrase 30 %. À
+     * score égal, un moment qui raconte quelque chose (action puis réaction) passe devant un moment muet. La réaction
+     * est aussi gardée en entier dans le moment (dans la limite de [maxExtension]). 0 désactive la règle.
+     */
+    val reactionBonus: Double = 0.15,
+    /** Délai après le pic dans lequel une réaction lui est attribuée. */
+    val reactionWindow: SerialDuration = 4.seconds,
 ) {
     init {
         require(threshold in 0.0..1.0) { "threshold doit être dans [0, 1]" }

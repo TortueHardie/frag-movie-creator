@@ -6,6 +6,7 @@ import dev.highlights.core.model.SelectionPolicy
 import dev.highlights.core.model.TimeRange
 import java.nio.file.Path
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
 fun interface MomentSelector {
     /** Retourne les moments retenus, dans l'ordre chronologique. */
@@ -33,6 +34,15 @@ object ThresholdMomentSelector : MomentSelector {
 
     /** Bonus de classement par événement supplémentaire dans un même moment (multi-kill). */
     private const val EXTRA_EVENT_RANK_BONUS = 0.25
+
+    /** Poids d'une réaction dans le classement : un rire raconte plus qu'un cri, un cri plus qu'une phrase. */
+    private val REACTION_WEIGHTS = mapOf("laughter" to 1.0, "shout" to 0.7, "speech" to 0.3)
+
+    /** Une réaction peut démarrer juste avant le pic (le cri part avec le tir). */
+    private val REACTION_LEAD = 500.milliseconds
+
+    /** Marge gardée après la fin d'une réaction, pour ne pas couper le dernier souffle d'un rire. */
+    private val REACTION_TAIL = 400.milliseconds
 
     override fun select(timeline: ScoredTimeline, policy: SelectionPolicy, source: Path): List<Highlight> =
         selectAcross(listOf(timeline to source), policy).single()
@@ -80,7 +90,16 @@ object ThresholdMomentSelector : MomentSelector {
             Candidate(fitLength(padded, peak, policy, bounds), peakIndex, peak, scores[peakIndex])
         }
 
-        val extended = candidates.map { it.copy(range = SegmentExtension.extend(it.range, timeline, policy, bounds)) }
+        val extended = candidates.map { c ->
+            val range = SegmentExtension.extend(c.range, timeline, policy, bounds)
+            // La réaction qui suit le pic (rire, cri) est la chute du moment : elle est gardée jusqu'au bout.
+            val payoff = reaction(timeline, c.peak, policy)?.takeIf { it.first != "speech" }?.second
+            c.copy(range = if (payoff != null && payoff.end > range.end) {
+                TimeRange(range.start, minOf(payoff.end + REACTION_TAIL, range.end + policy.maxExtension)).clampTo(bounds)
+            } else {
+                range
+            })
+        }
 
         val merged = mutableListOf<Candidate>()
         for (c in extended.sortedBy { it.range.start }) {
@@ -137,7 +156,12 @@ object ThresholdMomentSelector : MomentSelector {
     }
 
     private fun applyTarget(candidates: List<Candidate>, policy: SelectionPolicy, timelineOf: (Candidate) -> ScoredTimeline): List<Candidate> {
-        fun rank(c: Candidate) = c.score + EXTRA_EVENT_RANK_BONUS * (eventsIn(timelineOf(c), c.range).values.sum() - 1).coerceAtLeast(0)
+        fun rank(c: Candidate): Double {
+            val timeline = timelineOf(c)
+            val events = EXTRA_EVENT_RANK_BONUS * (eventsIn(timeline, c.range).values.sum() - 1).coerceAtLeast(0)
+            val reaction = reaction(timeline, c.peak, policy)?.let { (kind, _) -> policy.reactionBonus * (REACTION_WEIGHTS[kind] ?: 0.0) } ?: 0.0
+            return c.score + events + reaction
+        }
         val byRank = candidates.sortedWith(compareByDescending<Candidate> { rank(it) }.thenBy { it.input }.thenBy { it.range.start })
         if (policy.target.all) return byRank
         policy.target.topN?.let { return byRank.take(it) }
@@ -160,6 +184,18 @@ object ThresholdMomentSelector : MomentSelector {
             used += clip.range.length
         }
         return chosen
+    }
+
+    /**
+     * Réaction attribuée au pic : le segment de voix le plus parlant (rire, puis cri, puis phrase) qui commence entre
+     * un peu avant le pic et [SelectionPolicy.reactionWindow] après. null si aucune, ou si la règle est désactivée.
+     */
+    internal fun reaction(timeline: ScoredTimeline, peak: Duration, policy: SelectionPolicy): Pair<String, TimeRange>? {
+        if (policy.reactionBonus <= 0.0) return null
+        return timeline.segments
+            .filter { it.kind in REACTION_WEIGHTS && it.range.start >= peak - REACTION_LEAD && it.range.start <= peak + policy.reactionWindow }
+            .maxByOrNull { REACTION_WEIGHTS.getValue(it.kind) }
+            ?.let { it.kind to it.range }
     }
 
     private fun eventsIn(timeline: ScoredTimeline, range: TimeRange): Map<String, Int> =
