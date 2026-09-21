@@ -34,6 +34,7 @@ data class StorySettings(
     val music: MusicBed = MusicBed(),
     val captions: CaptionSettings = CaptionSettings(),
     val labels: EventLabels = EventLabels(),
+    val slowMo: StorySlowMo = StorySlowMo(),
     /** Fondu au noir (image et son) sur la fin du montage. */
     val fadeOut: SerialDuration = 600.milliseconds,
 )
@@ -245,5 +246,25 @@ data class EventLabels(
     init {
         require(y in 0.0..1.0 && verticalY in 0.0..1.0) { "story.labels.y doit être entre 0 et 1" }
         require(size in 0.02..0.25) { "story.labels.size doit être entre 0,02 et 0,25" }
+    }
+}
+
+/**
+ * Ralenti sur le pic des moments forts : le meilleur moment et les séries de kills. Le son du jeu y garde sa vitesse
+ * puis s'efface (un tir étiré sonne faux), l'image seule ralentit.
+ */
+@Serializable
+data class StorySlowMo(
+    val enabled: Boolean = true,
+    /** 0,5 = deux fois plus lent. */
+    val factor: Double = 0.5,
+    /** Durée source ralentie avant et après le pic. */
+    val before: SerialDuration = 250.milliseconds,
+    val after: SerialDuration = 600.milliseconds,
+    /** Ralentir seulement les moments forts (meilleur moment, séries de kills) ; faux = chaque moment. */
+    val onlyStrong: Boolean = true,
+) {
+    init {
+        require(factor in 0.25..1.0) { "story.slowMo.factor doit être entre 0,25 et 1" }
     }
 }

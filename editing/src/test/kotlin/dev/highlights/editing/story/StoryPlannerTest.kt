@@ -132,7 +132,31 @@ class StoryPlannerTest : FunSpec({
         plan.shots.first().range shouldBe TimeRange(sec(63.2), sec(66.2))
         plan.shots.first().highlight.id shouldBe "h2"
         plan.shots.drop(1).map { it.highlight.id } shouldContainExactly listOf("h1", "h2")
-        plan.outputDuration shouldBe 3.seconds + 8.seconds + 10.seconds
+        // Le meilleur moment est ralenti sur son pic (0,85 s de source jouées deux fois plus lentement) ; l'accroche non.
+        plan.outputDuration shouldBe 3.seconds + 8.seconds + 10.seconds + sec(0.85)
+        plan.shots.map { it.slow != null } shouldContainExactly listOf(false, false, true)
+    }
+
+    test("ralenti : seulement les moments forts (meilleur moment, série de kills), autour du pic") {
+        val kills = listOf(40.0, 42.0).map { TimelineEvent(sec(it), "kill", 1.0, "outplayed") }
+        val t = timeline(120, loud = (10..17).toSet() + (38..45).toSet() + (60..69).toSet(), events = kills)
+        val plain = highlight(TimeRange(10.seconds, 18.seconds), 14.seconds, score = 0.5, id = "h1")
+        val streak = highlight(TimeRange(38.seconds, 46.seconds), 42.seconds, score = 0.6, id = "h2")
+        val best = highlight(TimeRange(60.seconds, 70.seconds), 65.seconds, score = 0.9, id = "h3")
+        val shots = storyPlan(session(t, plain, streak, best)).shots.filter { it.role != ShotRole.COLD_OPEN }
+        shots.map { it.highlight.id to (it.slow != null) } shouldContainExactly listOf("h1" to false, "h2" to true, "h3" to true)
+        // 250 ms avant le pic, 600 ms après, relatifs au plan.
+        shots[1].slow shouldBe TimeRange(sec(3.75), sec(4.6))
+        shots[1].slowFactor shouldBe 0.5
+    }
+
+    test("ralenti : les instants de la source passent à l'écran") {
+        val shot = StoryShot(media, TimeRange(10.seconds, 20.seconds), highlight(TimeRange(10.seconds, 20.seconds), 14.seconds), ShotRole.OPENING,
+            slow = TimeRange(4.seconds, 5.seconds), slowFactor = 0.5)
+        shot.outputLength shouldBe 11.seconds
+        shot.toOutput(3.seconds) shouldBe 3.seconds
+        shot.toOutput(sec(4.5)) shouldBe 5.seconds
+        shot.toOutput(8.seconds) shouldBe 9.seconds
     }
 
     test("pas d'accroche pour un seul moment") {

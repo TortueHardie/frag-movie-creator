@@ -28,7 +28,8 @@ enum class ShotRole {
 
 /**
  * Un plan du montage : un extrait continu de la source. Les instants des effets ([punchIns], [shakes], [drops],
- * [voice]) sont relatifs au début du plan, en sortie (le montage « story » ne change pas la vitesse).
+ * [voice], [captions], [labels]) sont relatifs au début du plan, en temps source ; [toOutput] les place à l'écran,
+ * ralenti compris.
  */
 data class StoryShot(
     val media: MediaInfo,
@@ -47,8 +48,27 @@ data class StoryShot(
     val captions: List<Caption> = emptyList(),
     /** Libellés de séries (« DOUBLÉ »…) : instant d'apparition dans le plan et texte. */
     val labels: List<Pair<Duration, String>> = emptyList(),
+    /** Portion ralentie (relative au début du plan, en temps source) et sa vitesse (0,5 = deux fois plus lent). */
+    val slow: TimeRange? = null,
+    val slowFactor: Double = 1.0,
 ) {
+    /** Durée lue dans la source. */
     val length: Duration get() = range.length
+
+    /** Durée à l'écran : le ralenti allonge le plan. */
+    val outputLength: Duration get() = slow?.let { length + it.length * (1 / slowFactor - 1) } ?: length
+
+    /** Instant à l'écran (relatif au plan) d'un instant de la source (relatif au plan). */
+    fun toOutput(t: Duration): Duration {
+        val s = slow ?: return t
+        return when {
+            t <= s.start -> t
+            t <= s.end -> s.start + (t - s.start) / slowFactor
+            else -> t + s.length * (1 / slowFactor - 1)
+        }
+    }
+
+    fun toOutput(r: TimeRange): TimeRange = TimeRange(toOutput(r.start), toOutput(r.end))
 }
 
 data class StoryPlan(
@@ -61,10 +81,10 @@ data class StoryPlan(
         require(shots.isNotEmpty()) { "montage vide" }
     }
 
-    val outputDuration: Duration get() = shots.fold(Duration.ZERO) { acc, s -> acc + s.length }
+    val outputDuration: Duration get() = shots.fold(Duration.ZERO) { acc, s -> acc + s.outputLength }
 
     /** Début de chaque plan dans le montage. */
-    fun offsets(): List<Duration> = shots.runningFold(Duration.ZERO) { acc, s -> acc + s.length }.dropLast(1)
+    fun offsets(): List<Duration> = shots.runningFold(Duration.ZERO) { acc, s -> acc + s.outputLength }.dropLast(1)
 
     /** Temps retiré par les jump cuts, sur l'ensemble des moments. */
     val removed: Duration
@@ -96,13 +116,16 @@ object StoryPlanner {
             val range = teaser(best, coldOpen.length, coldOpen.beforePeak)
             shots += decorate(best, range, ShotRole.COLD_OPEN, 1.0, timelines[best.media.path], settings)
         }
+        val bestId = moments.maxByOrNull { it.highlight.score }?.highlight
         for (clip in moments) {
             val timeline = timelines[clip.media.path]
+            // Moment fort : le meilleur, ou une série de kills. C'est lui qui mérite le ralenti.
+            val strong = clip.highlight == bestId || streakLabels(timeline, story.labels).any { (at, _) -> at in clip.range }
             val pieces = if (timeline == null) listOf(clip.range) else liveRanges(clip.range, clip.highlight, timeline, story.jumpCuts)
             pieces.forEachIndexed { k, range ->
                 val role = if (k == 0) ShotRole.OPENING else ShotRole.JUMP
                 val zoom = if (k % 2 == 1) story.jumpCuts.alternateZoom else 1.0
-                shots += decorate(clip, range, role, zoom, timeline, settings)
+                shots += decorate(clip, range, role, zoom, timeline, settings, strong)
             }
         }
         return StoryPlan(shots, moments, settings)
@@ -183,7 +206,15 @@ object StoryPlanner {
     }
 
     /** Effets du plan [range] : punch-in sur les réactions, secousses sur les impacts, voix et pics pour la musique. */
-    private fun decorate(clip: PlannedClip, range: TimeRange, role: ShotRole, zoom: Double, timeline: ScoredTimeline?, settings: EditSettings): StoryShot {
+    private fun decorate(
+        clip: PlannedClip,
+        range: TimeRange,
+        role: ShotRole,
+        zoom: Double,
+        timeline: ScoredTimeline?,
+        settings: EditSettings,
+        strong: Boolean = false,
+    ): StoryShot {
         val story = settings.story
         fun relative(r: TimeRange): TimeRange? {
             val s = maxOf(r.start, range.start)
@@ -215,7 +246,19 @@ object StoryPlanner {
         val labels = streakLabels(timeline, story.labels)
             .filter { (at, _) -> at >= range.start && at < range.end - story.labels.duration / 2 }
             .map { (at, text) -> at - range.start to text }
-        return StoryShot(clip.media, range, clip.highlight, role, zoom, punchIns, shakes, drops, voice, labels = labels)
+        // Ralenti sur le pic, dans le plan qui le montre ; jamais dans l'accroche, qui doit rester vive.
+        val slowMo = story.slowMo
+        val peak = clip.highlight.peak
+        val slow = if (slowMo.enabled && slowMo.factor < 1.0 && role != ShotRole.COLD_OPEN && (strong || !slowMo.onlyStrong) && peak in range) {
+            TimeRange((peak - slowMo.before).coerceAtLeast(range.start) - range.start, (peak + slowMo.after).coerceAtMost(range.end) - range.start)
+                .takeIf { it.length.isPositive() }
+        } else {
+            null
+        }
+        return StoryShot(
+            clip.media, range, clip.highlight, role, zoom, punchIns, shakes, drops, voice,
+            labels = labels, slow = slow, slowFactor = if (slow != null) slowMo.factor else 1.0,
+        )
     }
 
     /**

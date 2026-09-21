@@ -11,6 +11,7 @@ import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.VideoStream
 import dev.highlights.editing.PlannedClip
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.collections.shouldContainInOrder
 import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
@@ -131,6 +132,33 @@ class StoryRenderBuilderTest : FunSpec({
         line shouldContain "text='VAS-Y'"
         // En vertical, le texte remonte (le bas de l'image est souvent couvert par l'interface de la plateforme).
         build(captioned, OutputFormat.VERTICAL).lines().single { it.endsWith("[v2]") } shouldContain "y=h*0.660-lh/2"
+    }
+
+    test("ralenti : image étirée par portions, son joué à sa vitesse puis effacé, effets placés à l'écran") {
+        val base = plan()
+        // Dernier plan (60-70 s) : pic à 5 s, ralenti de 4,75 à 5,6 s ; secousse, libellé et sous-titre sur le pic.
+        val slowed = base.copy(shots = base.shots.mapIndexed { i, s ->
+            if (i == 3) s.copy(slow = TimeRange(4750.milliseconds, 5600.milliseconds), slowFactor = 0.5,
+                labels = listOf(5.seconds to "DOUBLÉ"), captions = listOf(Caption(TimeRange(6.seconds, 7.seconds), "gg"))) else s
+        })
+        val cmd = build(slowed)
+        cmd.expectedDuration shouldBe sec(21.6 + 0.85)
+        val lines = cmd.lines()
+        lines shouldContainAll listOf(
+            "[g3]split=3[r3s0][r3s1][r3s2]",
+            "[r3s1]trim=start=4.750:end=5.600,setpts=(PTS-STARTPTS)/0.5000,fps=60[r3p1]",
+            "[r3p0][r3p1][r3p2]concat=n=3:v=1:a=0[r3]",
+        )
+        lines.single { it.startsWith("[x3s1]") } shouldContain "afade=t=out:st=0.650:d=0.200,apad=whole_dur=1.700,atrim=duration=1.700"
+        val video = lines.single { it.endsWith("[v3]") }
+        video shouldContain "[r3]"
+        video shouldContain "trim=duration=10.850"
+        // Pic à 5 s de source → 4,75 + 0,25 × 2 = 5,25 s à l'écran ; sous-titre à 6 s → 6,85 s.
+        video shouldContain "between(t\\,5.2500\\,5.2500+0.3500)"
+        video shouldContain "enable='between(t\\,5.250\\,6.350)'"
+        video shouldContain "enable='between(t\\,6.850\\,7.850)'"
+        // Impact sous la secousse du pic : 11,6 s de début de plan + 5,25 s.
+        cmd.filterGraph shouldContain "[ims1]adelay=16850|16850[im1]"
     }
 
     test("9:16 : même montage recadré") {

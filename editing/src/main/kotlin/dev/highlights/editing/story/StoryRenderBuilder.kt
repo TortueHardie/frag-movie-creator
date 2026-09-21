@@ -43,6 +43,9 @@ object StoryRenderBuilder {
     private val WHOOSH_PEAK = 300.milliseconds
     private val IMPACT_LENGTH = 600.milliseconds
 
+    /** Effacement du son du jeu pendant un ralenti, une fois joué à sa vitesse. */
+    private val SLOW_AUDIO_FADE = 200.milliseconds
+
     /** Voir MontageRenderBuilder : trames courtes pour qu'une enveloppe de volume ne fasse pas d'escalier. */
     private const val GAIN_FRAMES = "asetnsamples=n=64:p=0"
     private const val AUDIO_FORMAT = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
@@ -74,7 +77,10 @@ object StoryRenderBuilder {
 
         val (w, h) = RenderCommandBuilder.outputSize(request.format, shots.first().media, edit)
         val graph = mutableListOf<String>()
-        shots.forEachIndexed { i, shot ->
+        // Instants des effets passés à l'écran (ralenti compris) : le reste du graphe ne connaît que le temps de sortie.
+        val screen = shots.map(::onScreen)
+        shots.forEachIndexed { i, source ->
+            val shot = screen[i]
             graph += RenderCommandBuilder.videoChain(i, shot.media, request.format, edit, "g$i")
             val sized = if (RenderCommandBuilder.outputSize(request.format, shot.media, edit) == w to h) {
                 "g$i"
@@ -82,6 +88,7 @@ object StoryRenderBuilder {
                 graph += "[g$i]scale=$w:$h:force_original_aspect_ratio=decrease:flags=lanczos,pad=$w:$h:(ow-iw)/2:(oh-ih)/2,setsar=1[z$i]"
                 "z$i"
             }
+            val base = slowVideo(graph, i, sized, source, edit.fps)
             val effects = mutableListOf<String>()
             effects += framing(shot, w, h, story.punchIn.amount, story.punchIn.ramp, story.shake.amplitude, story.shake.duration, story.shake.frequency)
             // Après le cadrage : le texte ne suit ni le zoom ni la secousse.
@@ -90,18 +97,18 @@ object StoryRenderBuilder {
             val labels = story.labels
             val labelY = if (request.format == OutputFormat.VERTICAL) labels.verticalY else labels.y
             shot.labels.forEach { (at, text) ->
-                val end = minOf(at + labels.duration, shot.length)
+                val end = minOf(at + labels.duration, shot.outputLength)
                 effects += Captions.drawLabel(text, TimeRange(at, end), story.captions.font, labels.size, labels.color, h, labelY, story.captions.pop)
             }
             if (story.transition.flash && shot.role == ShotRole.OPENING && i > 0) {
                 effects += "fade=t=in:st=0:d=${sec(story.transition.flashDuration)}:color=white"
             }
-            effects += "trim=duration=${sec(shot.length)}"
+            effects += "trim=duration=${sec(shot.outputLength)}"
             effects += "setpts=PTS-STARTPTS"
             effects += "format=yuv420p"
             effects += "settb=AVTB"
-            graph += "[$sized]${effects.joinToString(",")}[v$i]"
-            graph += audioChain(i, shot, edit.audioIndices(AudioTracks.of(shot.media.audio, request.audioLayout)), story.transition.audioFade)
+            graph += "[$base]${effects.joinToString(",")}[v$i]"
+            graph += audioChain(graph, i, source, edit.audioIndices(AudioTracks.of(shot.media.audio, request.audioLayout)), story.transition.audioFade)
         }
         graph += shots.indices.joinToString("") { "[v$it][a$it]" } + "concat=n=${shots.size}:v=1:a=1[vcat][acat]"
 
@@ -113,7 +120,7 @@ object StoryRenderBuilder {
         if (sfx.enabled) {
             val whooshes = shots.indices.filter { shots[it].role == ShotRole.OPENING && it > 0 }
                 .map { (offsets[it] - WHOOSH_PEAK).coerceAtLeast(Duration.ZERO) }
-            val impacts = shots.indices.flatMap { i -> shots[i].shakes.map { offsets[i] + it } }
+            val impacts = shots.indices.flatMap { i -> screen[i].shakes.map { offsets[i] + it } }
             mixInputs += placeSfx(graph, "wh", whooshes, sfx.whooshVolume, whooshInput?.let { "[$it:a]" } ?: WHOOSH)
             mixInputs += placeSfx(graph, "im", impacts, sfx.impactVolume, impactInput?.let { "[$it:a]" } ?: IMPACT)
         }
@@ -121,8 +128,8 @@ object StoryRenderBuilder {
         // --- musique de fond : baissée sous la voix, coupée sur le pic de chaque moment
         if (musicInput != null) {
             val music = story.music
-            val voice = shots.indices.flatMap { i -> shots[i].voice.map { TimeRange(offsets[i] + it.start, offsets[i] + it.end) } }
-            val drops = if (music.dropOut) shots.indices.flatMap { i -> shots[i].drops.map { offsets[i] + it } } else emptyList()
+            val voice = shots.indices.flatMap { i -> screen[i].voice.map { TimeRange(offsets[i] + it.start, offsets[i] + it.end) } }
+            val drops = if (music.dropOut) shots.indices.flatMap { i -> screen[i].drops.map { offsets[i] + it } } else emptyList()
             graph += "[$musicInput:a]asetpts=PTS-STARTPTS,$AUDIO_FORMAT,atrim=duration=${sec(total)},$GAIN_FRAMES," +
                 "volume='${musicVolume(music.volume, music.underVoice, voice, drops, music.dropLength)}':eval=frame[music]"
             mixInputs += "[music]"
@@ -218,16 +225,73 @@ object StoryRenderBuilder {
      * Son d'un plan : pistes choisies par leur rôle, fondu très court à chaque bord (une coupe au milieu d'un son
      * claque), longueur forcée à celle du plan pour que la synchro ne dérive pas au fil des coupes.
      */
-    private fun audioChain(i: Int, shot: StoryShot, streams: List<Int>, fade: Duration): String {
-        val length = shot.length
+    private fun audioChain(graph: MutableList<String>, i: Int, shot: StoryShot, streams: List<Int>, fade: Duration): String {
+        val length = shot.outputLength
         val f = minOf(fade, length / 4)
         val fades = if (f.isPositive()) "afade=t=in:d=${sec(f)},afade=t=out:st=${sec(length - f)}:d=${sec(f)}," else ""
         val tail = "$AUDIO_FORMAT,apad,atrim=duration=${sec(length)},${fades}asetpts=PTS-STARTPTS[a$i]"
-        return when (streams.size) {
-            0 -> "anullsrc=r=48000:cl=stereo,$tail"
-            1 -> "[$i:a:${streams[0]}]asetpts=PTS-STARTPTS,$tail"
-            else -> streams.joinToString("") { "[$i:a:$it]" } + "amix=inputs=${streams.size}:normalize=0:duration=longest,$tail"
+        val source = when (streams.size) {
+            0 -> return "anullsrc=r=48000:cl=stereo,$tail"
+            1 -> "[$i:a:${streams[0]}]asetpts=PTS-STARTPTS,"
+            else -> streams.joinToString("") { "[$i:a:$it]" } + "amix=inputs=${streams.size}:normalize=0:duration=longest,"
         }
+        if (shot.slow == null) return source + tail
+
+        // Ralenti : le son garde sa vitesse (un tir étiré sonne faux) puis s'efface, le silence comble le reste du
+        // ralenti. Avant et après, il est lu tel quel.
+        val parts = speedParts(shot)
+        graph += "$source$AUDIO_FORMAT,asplit=${parts.size}" + parts.indices.joinToString("") { "[x${i}s$it]" }
+        parts.forEachIndexed { p, (range, factor) ->
+            val cut = "[x${i}s$p]atrim=start=${sec(range.start)}:end=${sec(range.end)},asetpts=PTS-STARTPTS"
+            graph += if (factor == 1.0) {
+                "$cut[x${i}p$p]"
+            } else {
+                val out = range.length / factor
+                val fadeLength = minOf(SLOW_AUDIO_FADE, range.length)
+                "$cut,afade=t=out:st=${sec(range.length - fadeLength)}:d=${sec(fadeLength)},apad=whole_dur=${sec(out)},atrim=duration=${sec(out)}[x${i}p$p]"
+            }
+        }
+        return parts.indices.joinToString("") { "[x${i}p$it]" } + "concat=n=${parts.size}:v=0:a=1,$tail"
+    }
+
+    /**
+     * Vidéo d'un plan ralenti : découpée en portions à vitesse constante, la portion lente étirée (`setpts`) puis
+     * ramenée à la cadence du montage. Renvoie le label à suivre (celui d'entrée si le plan n'est pas ralenti).
+     */
+    private fun slowVideo(graph: MutableList<String>, i: Int, input: String, shot: StoryShot, fps: Int): String {
+        if (shot.slow == null) return input
+        val parts = speedParts(shot)
+        graph += "[$input]split=${parts.size}" + parts.indices.joinToString("") { "[r${i}s$it]" }
+        parts.forEachIndexed { p, (range, factor) ->
+            val pts = if (factor == 1.0) "setpts=PTS-STARTPTS" else "setpts=(PTS-STARTPTS)/${num(factor)},fps=$fps"
+            graph += "[r${i}s$p]trim=start=${sec(range.start)}:end=${sec(range.end)},$pts[r${i}p$p]"
+        }
+        graph += parts.indices.joinToString("") { "[r${i}p$it]" } + "concat=n=${parts.size}:v=1:a=0[r$i]"
+        return "r$i"
+    }
+
+    /** Portions à vitesse constante d'un plan ralenti (relatives à son début, en temps source), sans portion vide. */
+    internal fun speedParts(shot: StoryShot): List<Pair<TimeRange, Double>> {
+        val slow = shot.slow ?: return listOf(TimeRange(Duration.ZERO, shot.length) to 1.0)
+        return listOf(
+            TimeRange(Duration.ZERO, slow.start) to 1.0,
+            slow to shot.slowFactor,
+            TimeRange(slow.end, shot.length) to 1.0,
+        ).filter { it.first.length.isPositive() }
+    }
+
+    /** Plan dont tous les instants d'effets sont passés à l'écran (voir [StoryShot.toOutput]). */
+    internal fun onScreen(shot: StoryShot): StoryShot = if (shot.slow == null) {
+        shot
+    } else {
+        shot.copy(
+            punchIns = shot.punchIns.map(shot::toOutput),
+            shakes = shot.shakes.map(shot::toOutput),
+            drops = shot.drops.map(shot::toOutput),
+            voice = shot.voice.map(shot::toOutput),
+            captions = shot.captions.map { it.copy(range = shot.toOutput(it.range)) },
+            labels = shot.labels.map { (at, text) -> shot.toOutput(at) to text },
+        )
     }
 
     /**
