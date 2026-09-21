@@ -13,5 +13,5 @@ music sample/
 # Rapports de plantage de la JVM
 hs_err_pid*.log
 
-# Accesseurs Gradle générés : leur nom contient un hash refait à chaque build.
-build-logic/bin/
+# Sorties de compilation de l'IDE (VS Code / Eclipse), dont les accesseurs Gradle au nom changeant.
+bin/
