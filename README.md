@@ -15,8 +15,8 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
 
 Rien à compiler ni à installer d'autre. Dans [les releases du dépôt](../../releases/latest), prendre :
 
-- **`Highlights-<version>.msi`** : double-clic, l'installation se fait dans le profil de l'utilisateur, sans droits
-  administrateur, avec un raccourci sur le bureau et dans le menu Démarrer ;
+- **`Highlights-<version>.msi`** : double-clic, l'installation se fait dans le profil de l'utilisateur
+  (`%LOCALAPPDATA%\Highlights`), sans droits administrateur, avec un raccourci sur le bureau et dans le menu Démarrer ;
 - **`Highlights-<version>-portable.zip`** : la même application sans installation, à décompresser puis lancer
   `Highlights\Highlights.exe` (clé USB, poste verrouillé…).
 
@@ -36,9 +36,10 @@ clic droit sur l'application dans le menu Démarrer). L'application, FFmpeg livr
 et du menu Démarrer sont retirés. Les montages déjà produits (`Vidéos\Highlights`) et la configuration
 (`%APPDATA%\Highlights`) restent en place : à supprimer à la main si vous n'en voulez plus.
 
-Ces trois parcours (installation, mise à jour, désinstallation) sont rejoués à chaque publication sur une machine
-Windows neuve par le workflow `.github/workflows/installeur-verif.yml`, qui vérifie l'état du registre, des fichiers et
-des raccourcis après chaque étape.
+Ces parcours sont rejoués sur une machine Windows neuve à chaque publication (`.github/workflows/installeur-verif.yml`) :
+installation, mise à jour vers une version plus récente, réinstallation de la même version, désinstallation, avec
+contrôle du registre, des fichiers et des raccourcis après chaque étape. Chaque construction vérifie en plus, dans le
+MSI lui-même, qu'il s'installe sans droits administrateur et qu'il porte un code de mise à niveau.
 
 ## Prérequis (développement)
 
