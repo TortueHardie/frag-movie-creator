@@ -117,6 +117,10 @@ jobs:
           if (-not (Test-Path (Join-Path $dossier 'Highlights.exe'))) { throw "Highlights.exe absent de $dossier" }
           Write-Host "Installé dans $dossier, version $($entree.DisplayVersion)"
           Write-Host "Enregistré dans $($entree.Ruche)"
+          $portee = if ($entree.Ruche -like 'HKCU*') { 'par utilisateur (aucun droit administrateur)' } else { 'pour toute la machine (droits administrateur requis)' }
+          Add-Content -Path $env:GITHUB_ENV -Value "INSTALLEUR_RESUME=$($msi.Name) → $dossier, portée : $portee"
+          "### Installeur`n- fichier : $($msi.Name)`n- dossier : $dossier`n- portée : $portee" |
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY
 
           $p = Start-Process msiexec.exe -ArgumentList "/x $($entree.PSChildName) /qn" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Désinstallation : code $($p.ExitCode)" }
@@ -128,6 +132,11 @@ jobs:
           name: highlights-installeur
           path: installeur/*
           if-no-files-found: error
+
+      # Répété en fin de job : le journal de l'essai est noyé sous l'envoi de l'artefact.
+      - name: Portée de l'installation
+        shell: pwsh
+        run: Write-Host $env:INSTALLEUR_RESUME
 
       - name: Publier la release
         if: startsWith(github.ref, 'refs/tags/v')
