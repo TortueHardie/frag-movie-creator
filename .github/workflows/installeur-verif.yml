@@ -60,11 +60,22 @@ jobs:
       - name: Construire deux versions de l'installeur
         shell: pwsh
         run: |
-          .\gradlew.bat --no-daemon :app-ui:packageMsi -Phighlights.version=9.9.8
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path msi | Out-Null
-          Copy-Item app-ui\build\compose\binaries\main\msi\*.msi msi\ancienne.msi
-          .\gradlew.bat --no-daemon :app-ui:packageMsi -Phighlights.version=9.9.9
-          Copy-Item app-ui\build\compose\binaries\main\msi\*.msi msi\nouvelle.msi
+
+          function Empaqueter($version, $cible) {
+            $sortie = 'app-ui\build\compose\binaries\main\msi'
+            Remove-Item $sortie -Recurse -Force -ErrorAction SilentlyContinue
+            # Argument passé dans un tableau : PowerShell couperait « -Phighlights.version=… » en deux sinon.
+            & .\gradlew.bat @('--no-daemon', ':app-ui:packageMsi', "-Phighlights.version=$version")
+            if ($LASTEXITCODE -ne 0) { throw "packageMsi $version : code $LASTEXITCODE" }
+            $msi = Get-ChildItem "$sortie\*.msi" | Select-Object -First 1
+            if (-not $msi) { throw "Aucun MSI produit pour la version $version" }
+            Copy-Item $msi.FullName $cible
+          }
+
+          Empaqueter '9.9.8' 'msi\ancienne.msi'
+          Empaqueter '9.9.9' 'msi\nouvelle.msi'
           Get-ChildItem msi | ForEach-Object { "{0} : {1:N0} octets" -f $_.Name, $_.Length }
 
       - name: Installer, mettre à jour, désinstaller
@@ -83,6 +94,13 @@ jobs:
             } | Where-Object { $_.DisplayName -like 'Highlights*' }
           }
 
+          # jpackage ne renseigne pas toujours InstallLocation : repli sur l'emplacement par défaut d'une installation
+          # par utilisateur.
+          function Dossier($entree) {
+            if ($entree.InstallLocation) { return $entree.InstallLocation }
+            return (Join-Path $env:LOCALAPPDATA 'Highlights')
+          }
+
           function Installer($fichier, $journal) {
             $p = Start-Process msiexec.exe -ArgumentList "/i `"$fichier`" /qn /l*v $journal" -Wait -PassThru
             if ($p.ExitCode -ne 0) {
@@ -96,7 +114,7 @@ jobs:
           $apres = @(Entrees)
           $apres | Format-List DisplayName, DisplayVersion, InstallLocation, PSChildName | Out-String | Write-Host
           if ($apres.Count -ne 1) { throw "Après la première installation : $($apres.Count) entrée(s) au lieu d'une" }
-          $dossier = $apres[0].InstallLocation
+          $dossier = Dossier $apres[0]
           if (-not (Test-Path (Join-Path $dossier 'Highlights.exe'))) { throw "Highlights.exe absent de $dossier" }
           Write-Host "Installé dans $dossier, version $($apres[0].DisplayVersion)"
 
@@ -106,12 +124,12 @@ jobs:
           $apres | Format-List DisplayName, DisplayVersion, InstallLocation, PSChildName | Out-String | Write-Host
           if ($apres.Count -ne 1) { throw "Après la mise à jour : $($apres.Count) entrées, l'application est installée en double" }
           if ($apres[0].DisplayVersion -ne '9.9.9') { throw "Version installée : $($apres[0].DisplayVersion) au lieu de 9.9.9" }
-          if (-not (Test-Path (Join-Path $apres[0].InstallLocation 'Highlights.exe'))) { throw "Highlights.exe absent après mise à jour" }
+          if (-not (Test-Path (Join-Path (Dossier $apres[0]) 'Highlights.exe'))) { throw "Highlights.exe absent après mise à jour" }
           Write-Host "Mise à jour en place : une seule entrée, version $($apres[0].DisplayVersion)"
 
           Write-Host '--- désinstallation'
           $code = $apres[0].PSChildName
-          $dossier = $apres[0].InstallLocation
+          $dossier = Dossier $apres[0]
           $p = Start-Process msiexec.exe -ArgumentList "/x $code /qn /l*v desinstallation.log" -Wait -PassThru
           if ($p.ExitCode -ne 0) {
             Get-Content desinstallation.log -Tail 40 | ForEach-Object { Write-Host $_ }
