@@ -127,6 +127,20 @@ jobs:
           if (-not (Test-Path (Join-Path (Dossier $apres[0]) 'Highlights.exe'))) { throw "Highlights.exe absent après mise à jour" }
           Write-Host "Mise à jour en place : une seule entrée, version $($apres[0].DisplayVersion)"
 
+          Write-Host '--- réinstallation de la même version (téléchargement refait, installeur relancé)'
+          Installer (Resolve-Path msi\nouvelle.msi) 'install-meme-version.log'
+          $apres = @(Entrees)
+          $apres | Format-List DisplayName, DisplayVersion, PSChildName | Out-String | Write-Host
+          if ($apres.Count -ne 1) { throw "Après réinstallation de la même version : $($apres.Count) entrées" }
+          Write-Host "Réinstallation sans doublon : une seule entrée"
+
+          Write-Host '--- raccourcis'
+          $menu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Highlights\Highlights.lnk'
+          $bureau = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Highlights.lnk'
+          if (-not (Test-Path $menu)) { throw "Raccourci du menu Démarrer absent : $menu" }
+          if (-not (Test-Path $bureau)) { throw "Raccourci du bureau absent : $bureau" }
+          Write-Host "Raccourcis en place : menu Démarrer et bureau"
+
           Write-Host '--- désinstallation'
           $code = $apres[0].PSChildName
           $dossier = Dossier $apres[0]
@@ -138,7 +152,9 @@ jobs:
           $restant = @(Entrees)
           if ($restant.Count -ne 0) { throw "Après désinstallation : $($restant.Count) entrée(s) restante(s)" }
           if (Test-Path (Join-Path $dossier 'Highlights.exe')) { throw "Fichiers encore présents dans $dossier" }
-          Write-Host "Désinstallation propre : plus d'entrée, plus de fichiers dans $dossier"
+          if (Test-Path $menu) { throw "Raccourci du menu Démarrer encore présent" }
+          if (Test-Path $bureau) { throw "Raccourci du bureau encore présent" }
+          Write-Host "Désinstallation propre : plus d'entrée, plus de fichiers, plus de raccourcis"
 
       - name: Journaux d'installation
         if: always()
