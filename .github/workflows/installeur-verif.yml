@@ -1,0 +1,131 @@
+name: Vérifier l'installeur
+
+# Installe réellement l'application sur une machine Windows, l'installe à nouveau dans une version plus récente, puis
+# la désinstalle, en vérifiant à chaque étape l'état du système : une seule entrée dans « Applications installées »,
+# les fichiers de la nouvelle version en place, et plus rien après désinstallation.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['claude/**']
+    tags: ['v*']
+
+concurrency:
+  group: installeur-verif-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cycle-de-vie:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: WiX 3 (requis par jpackage)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            choco install wixtoolset -y --no-progress
+            $wix = Get-ChildItem 'C:\Program Files (x86)' -Filter 'WiX Toolset v3*' -Directory |
+              Sort-Object Name -Descending | Select-Object -First 1
+            if (-not $wix) { throw "WiX 3 introuvable après installation" }
+            Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $wix.FullName 'bin')
+          }
+
+      # Ce que jpackage génère par défaut : sert à savoir quels réglages de mise à jour sont déjà en place.
+      - name: Gabarits WiX de jpackage
+        shell: pwsh
+        run: |
+          @'
+          import java.nio.file.*;
+          public class Dump {
+              public static void main(String[] a) throws Exception {
+                  FileSystem fs = FileSystems.getFileSystem(java.net.URI.create("jrt:/"));
+                  Path base = fs.getPath("/modules/jdk.jpackage/jdk/jpackage/internal/resources");
+                  for (Path p : Files.newDirectoryStream(base, "*.wx*")) {
+                      System.out.println("=== " + p.getFileName());
+                      Files.readAllLines(p).forEach(System.out::println);
+                  }
+              }
+          }
+          '@ | Set-Content -Path Dump.java -Encoding utf8
+          java Dump.java
+
+      - name: Construire deux versions de l'installeur
+        shell: pwsh
+        run: |
+          .\gradlew.bat --no-daemon :app-ui:packageMsi -Phighlights.version=9.9.8
+          New-Item -ItemType Directory -Force -Path msi | Out-Null
+          Copy-Item app-ui\build\compose\binaries\main\msi\*.msi msi\ancienne.msi
+          .\gradlew.bat --no-daemon :app-ui:packageMsi -Phighlights.version=9.9.9
+          Copy-Item app-ui\build\compose\binaries\main\msi\*.msi msi\nouvelle.msi
+          Get-ChildItem msi | ForEach-Object { "{0} : {1:N0} octets" -f $_.Name, $_.Length }
+
+      - name: Installer, mettre à jour, désinstaller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Entrees {
+            $chemins = @(
+              'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+              'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+              'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+            )
+            $chemins | Where-Object { Test-Path $_ } | ForEach-Object {
+              Get-ChildItem $_ | ForEach-Object { Get-ItemProperty $_.PSPath }
+            } | Where-Object { $_.DisplayName -like 'Highlights*' }
+          }
+
+          function Installer($fichier, $journal) {
+            $p = Start-Process msiexec.exe -ArgumentList "/i `"$fichier`" /qn /l*v $journal" -Wait -PassThru
+            if ($p.ExitCode -ne 0) {
+              Get-Content $journal -Tail 40 | ForEach-Object { Write-Host $_ }
+              throw "Installation de $fichier : code $($p.ExitCode)"
+            }
+          }
+
+          Write-Host '--- installation de la 9.9.8'
+          Installer (Resolve-Path msi\ancienne.msi) 'install-ancienne.log'
+          $apres = @(Entrees)
+          $apres | Format-List DisplayName, DisplayVersion, InstallLocation, PSChildName | Out-String | Write-Host
+          if ($apres.Count -ne 1) { throw "Après la première installation : $($apres.Count) entrée(s) au lieu d'une" }
+          $dossier = $apres[0].InstallLocation
+          if (-not (Test-Path (Join-Path $dossier 'Highlights.exe'))) { throw "Highlights.exe absent de $dossier" }
+          Write-Host "Installé dans $dossier, version $($apres[0].DisplayVersion)"
+
+          Write-Host '--- mise à jour vers la 9.9.9'
+          Installer (Resolve-Path msi\nouvelle.msi) 'install-nouvelle.log'
+          $apres = @(Entrees)
+          $apres | Format-List DisplayName, DisplayVersion, InstallLocation, PSChildName | Out-String | Write-Host
+          if ($apres.Count -ne 1) { throw "Après la mise à jour : $($apres.Count) entrées, l'application est installée en double" }
+          if ($apres[0].DisplayVersion -ne '9.9.9') { throw "Version installée : $($apres[0].DisplayVersion) au lieu de 9.9.9" }
+          if (-not (Test-Path (Join-Path $apres[0].InstallLocation 'Highlights.exe'))) { throw "Highlights.exe absent après mise à jour" }
+          Write-Host "Mise à jour en place : une seule entrée, version $($apres[0].DisplayVersion)"
+
+          Write-Host '--- désinstallation'
+          $code = $apres[0].PSChildName
+          $dossier = $apres[0].InstallLocation
+          $p = Start-Process msiexec.exe -ArgumentList "/x $code /qn /l*v desinstallation.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            Get-Content desinstallation.log -Tail 40 | ForEach-Object { Write-Host $_ }
+            throw "Désinstallation : code $($p.ExitCode)"
+          }
+          $restant = @(Entrees)
+          if ($restant.Count -ne 0) { throw "Après désinstallation : $($restant.Count) entrée(s) restante(s)" }
+          if (Test-Path (Join-Path $dossier 'Highlights.exe')) { throw "Fichiers encore présents dans $dossier" }
+          Write-Host "Désinstallation propre : plus d'entrée, plus de fichiers dans $dossier"
+
+      - name: Journaux d'installation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journaux-msi
+          path: '*.log'
+          if-no-files-found: ignore
