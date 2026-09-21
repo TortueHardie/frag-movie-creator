@@ -10,6 +10,9 @@ local/
 # Musiques de test (fichiers personnels, non redistribuables)
 music sample/
 
+# Modèles de transcription whisper.cpp (plusieurs centaines de Mo), téléchargés à part
+config/models/ggml-*.bin
+
 # Rapports de plantage de la JVM
 hs_err_pid*.log
 

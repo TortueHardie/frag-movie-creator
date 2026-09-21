@@ -97,6 +97,8 @@ val prepareBundledResources by tasks.registering(Sync::class) {
     into(appResources)
     from(rootProject.file("config")) {
         into("common/config")
+        // Modèles de transcription whisper (plusieurs centaines de Mo) : téléchargés à part, pas livrés dans l'installeur.
+        exclude("models/ggml-*.bin")
         // Installée, l'application écrit dans le dossier Vidéos de l'utilisateur plutôt qu'à côté de la config.
         filesMatching("app.yaml") {
             filter { line -> if (line.startsWith("outputDir:")) "outputDir: ~/Videos/Highlights" else line }

@@ -84,6 +84,9 @@ object StoryRenderBuilder {
             }
             val effects = mutableListOf<String>()
             effects += framing(shot, w, h, story.punchIn.amount, story.punchIn.ramp, story.shake.amplitude, story.shake.duration, story.shake.frequency)
+            // Après le cadrage : le texte ne suit ni le zoom ni la secousse.
+            val captionY = if (request.format == OutputFormat.VERTICAL) story.captions.verticalY else story.captions.y
+            shot.captions.forEach { effects += Captions.drawText(it, story.captions, h, captionY) }
             if (story.transition.flash && shot.role == ShotRole.OPENING && i > 0) {
                 effects += "fade=t=in:st=0:d=${sec(story.transition.flashDuration)}:color=white"
             }

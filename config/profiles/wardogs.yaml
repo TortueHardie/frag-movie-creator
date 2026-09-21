@@ -163,6 +163,9 @@ edit:
     punchIn: { amount: 0.15, on: [laughter, shout] }
     shake: { amplitude: 0.012, events: [kill] }
     sfx: { enabled: true, whooshVolume: 0.35, impactVolume: 0.5 }
+    # Sous-titres de la voix (micro), transcrite en local par whisper.cpp. Sans le modèle, le montage sort sans
+    # sous-titres. Modèle : https://huggingface.co/ggerganov/whisper.cpp (ggml-large-v3-turbo-q5_0.bin, ~574 Mo).
+    captions: { model: models/ggml-large-v3-turbo-q5_0.bin, language: fr, maxChars: 18 }
     # Musique de fond facultative (chemin relatif au dossier de configuration), baissée sous la voix et coupée sur
     # le pic de chaque moment : music: { file: musique/fond.mp3, volume: 0.25 }
   order: chronological

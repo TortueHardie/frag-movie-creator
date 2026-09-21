@@ -9,6 +9,7 @@ import dev.highlights.core.model.TimeRange
 import dev.highlights.core.session.Session
 import dev.highlights.editing.EditPlan
 import dev.highlights.editing.PlannedClip
+import java.nio.file.Path
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -41,6 +42,8 @@ data class StoryShot(
     val drops: List<Duration> = emptyList(),
     /** Voix et réactions : la musique de fond passe dessous. */
     val voice: List<TimeRange> = emptyList(),
+    /** Sous-titres de la voix visibles dans le plan. */
+    val captions: List<Caption> = emptyList(),
 ) {
     val length: Duration get() = range.length
 }
@@ -101,6 +104,13 @@ object StoryPlanner {
         }
         return StoryPlan(shots, moments, settings)
     }
+
+    /**
+     * Pose les sous-titres (instants dans la source, par capture) sur les plans qui les montrent. L'accroche en garde
+     * aussi : c'est souvent la réplique qui accroche.
+     */
+    fun withCaptions(plan: StoryPlan, captions: Map<Path, List<Caption>>): StoryPlan =
+        plan.copy(shots = plan.shots.map { shot -> shot.copy(captions = Captions.inShot(captions[shot.media.path].orEmpty(), shot.range)) })
 
     /** Extrait de l'accroche : [length] autour du pic, [beforePeak] de mise en place, borné au moment. */
     internal fun teaser(clip: PlannedClip, length: Duration, beforePeak: Double): TimeRange =

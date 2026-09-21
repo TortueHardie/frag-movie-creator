@@ -1,0 +1,92 @@
+package dev.highlights.editing.story
+
+import dev.highlights.core.model.CaptionSettings
+import dev.highlights.core.model.TimeRange
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
+import kotlin.io.path.Path
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+
+class CaptionsTest : FunSpec({
+    fun ms(start: Long, end: Long) = TimeRange(start.milliseconds, end.milliseconds)
+
+    /** Sortie réelle du filtre whisper sur 35 s de micro (extrait débutant à 95 s d'une partie de VALORANT). */
+    val whisper = listOf(
+        """{"start":0,"end":1780,"text":"Sous-titrage Société"}""",
+        """{"start":1780,"end":2980,"text":"Radio-Canada"}""",
+        """{"start":2983,"end":5743,"text":"Il y a de roche"}""",
+        """{"start":5743,"end":5983,"text":"là."}""",
+        """{"start":5970,"end":7490,"text":"et..."}""",
+        """{"start":8956,"end":10736,"text":"Sous-titrage Société"}""",
+        """{"start":20903,"end":23883,"text":"- Oui."}""",
+        """{"start":23890,"end":24670,"text":"fort devant."}""",
+        """{"start":26876,"end":28616,"text":"63 la tête au"}""",
+        """{"start":29863,"end":31123,"text":"Oulà !"}""",
+        """{"start":32850,"end":34290,"text":"Sous-titrage Société"}""",
+        """{"start":34290,"end":34990,"text":"Radio-Canada"}""",
+        "",
+        "pas du json",
+    )
+    /** Prises de parole détectées par l'analyse sur le même extrait, en temps de la capture. */
+    val speech = listOf(
+        ms(100263, 100945), ms(101831, 102579), ms(118349, 119944), ms(122937, 124364), ms(125209, 126127), ms(129303, 129709),
+    )
+
+    test("lecture de la sortie JSON de whisper, instants ramenés dans la capture") {
+        val parsed = Captions.parse(whisper, 95.seconds)
+        parsed.size shouldBe 12
+        parsed[2] shouldBe Caption(ms(97983, 100743), "Il y a de roche")
+    }
+
+    test("nettoyage : hallucinations écartées, seule la parole détectée reste, calée sur son début") {
+        val clean = Captions.clean(Captions.parse(whisper, 95.seconds), speech)
+        clean.map { it.text } shouldContainExactly listOf("Il y a de roche", "là.", "et...", "Oui.", "fort devant.", "63 la tête au", "Oulà !")
+        // « Il y a de roche » commence 2,3 s avant la parole détectée : il est recalé 100 ms avant elle.
+        clean.first().range.start shouldBe 99963.milliseconds
+    }
+
+    test("sans détection de voix, seules les hallucinations connues sautent") {
+        val clean = Captions.clean(Captions.parse(whisper, 0.seconds), emptyList())
+        clean.map { it.text }.none { "Radio" in it || "Sous-titrage" in it } shouldBe true
+        clean.size shouldBe 7
+    }
+
+    test("un texte étiré sur plusieurs secondes est une hallucination") {
+        Captions.clean(listOf(Caption(ms(0, 27000), "Merci")), emptyList()).shouldBeEmpty()
+    }
+
+    test("sous-titres d'un plan : relatifs au plan, coupés à ses bords, jamais superposés") {
+        val captions = listOf(Caption(ms(9000, 10500), "avant"), Caption(ms(11000, 12000), "un"), Caption(ms(11800, 13000), "deux"), Caption(ms(19900, 21000), "fin"))
+        Captions.inShot(captions, ms(10000, 20000)) shouldContainExactly listOf(
+            Caption(ms(0, 500), "avant"),
+            Caption(ms(900, 1700), "un"),
+            Caption(ms(1700, 3000), "deux"),
+        )
+    }
+
+    test("texte sûr pour FFmpeg : apostrophe typographique, caractères spéciaux retirés, majuscules") {
+        Captions.sanitize("c'est: [bon]; vas-y", uppercase = true) shouldBe "C’EST BON VAS-Y"
+        Captions.sanitize("à côté", uppercase = true) shouldBe "À CÔTÉ"
+    }
+
+    test("texte « pop » : taille qui grossit à l'apparition, affiché le temps du sous-titre") {
+        val text = Captions.drawText(Caption(ms(1200, 2000), "oulà !"), CaptionSettings(), 1080, 0.78)
+        text shouldContain "text='OULÀ !':expansion=none"
+        text shouldContain "fontsize='81*(0.7+0.3*min(max((t-1.200)/0.120\\,0)\\,1))'"
+        text shouldContain "enable='between(t\\,1.200\\,2.000)'"
+        text shouldContain "y=h*0.780-text_h/2"
+        text shouldContain "fontfile='C\\:/Windows/Fonts/impact.ttf'"
+    }
+
+    test("filtre de transcription : 16 kHz, chemins échappés, JSON par groupes de quelques mots") {
+        val filter = Captions.transcriptionFilter(Path("D:/modeles/m.bin"), Path("D:/tmp/out.jsonl"), CaptionSettings(language = "fr"))
+        filter shouldContain "aresample=16000,whisper=model='D\\:/modeles/m.bin'"
+        filter shouldContain ":language=fr:format=json:max_len=18:use_gpu=1:destination='D\\:/tmp/out.jsonl'"
+        filter shouldNotContain "\\\\"
+    }
+})

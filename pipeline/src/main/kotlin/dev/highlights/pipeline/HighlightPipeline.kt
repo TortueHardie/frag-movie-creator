@@ -148,6 +148,7 @@ class HighlightPipeline(
             grade = edit.grade.copy(lut = edit.grade.lut?.let { config.resolve(it).toString() }),
             story = story.copy(
                 music = story.music.copy(file = story.music.file?.let { config.resolve(it).toString() }),
+                captions = story.captions.copy(model = story.captions.model?.let { config.resolve(it).toString() }),
                 sfx = story.sfx.copy(
                     whooshFile = story.sfx.whooshFile?.let { config.resolve(it).toString() },
                     impactFile = story.sfx.impactFile?.let { config.resolve(it).toString() },
@@ -258,6 +259,7 @@ class HighlightPipeline(
                     audioBitrate = config.app.encoder.audioBitrate,
                     hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
                     audioLayout = profile.audio,
+                    captionCache = config.workDir.resolve("cache").resolve("captions"),
                 ),
                 progress,
             )

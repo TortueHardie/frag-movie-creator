@@ -23,6 +23,8 @@ import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.RenderRequest
 import dev.highlights.editing.SourceCutter
+import dev.highlights.editing.EditPlan
+import dev.highlights.editing.story.Caption
 import dev.highlights.editing.story.StoryPlan
 import dev.highlights.editing.story.StoryPlanner
 import dev.highlights.editing.story.StoryRenderBuilder
@@ -52,6 +54,8 @@ data class ExportRequest(
     val hwaccel: String? = null,
     /** Indices de pistes imposés par le profil ; vide = rôles déduits de la capture. */
     val audioLayout: AudioLayout = AudioLayout(),
+    /** Cache des transcriptions (sous-titres) ; null = pas de cache. */
+    val captionCache: Path? = null,
 )
 
 data class ExportResult(val videos: Map<OutputFormat, Path>, val report: Path, val duration: Duration, val encoder: String)
@@ -61,6 +65,8 @@ class Exporter(
     private val encoders: EncoderSelector,
     private val planner: EditPlanner,
 ) {
+    private val transcriber = CaptionTranscriber(ffmpeg)
+
     suspend fun export(session: Session, request: ExportRequest, progress: ProgressReporter): ExportResult =
         export(listOf(session), request, progress)
 
@@ -71,7 +77,18 @@ class Exporter(
         if (sessions.isEmpty()) throw HighlightsException("Aucune session à exporter")
         val plan = planner.plan(sessions, settings)
         // Montage « story » : les moments retenus sont redécoupés en plans (jump cuts, accroche, effets).
-        val story: StoryPlan? = if (settings.style == EditStyle.STORY) StoryPlanner.plan(plan, sessions) else null
+        val captionModel = settings.story.captions.takeIf { settings.style == EditStyle.STORY && it.enabled }?.model
+            ?.let { Path.of(it) }?.takeIf { it.exists() }
+        if (settings.style == EditStyle.STORY && settings.story.captions.enabled && settings.story.captions.model != null && captionModel == null) {
+            log.warn { "Modèle de transcription introuvable (${settings.story.captions.model}) : montage sans sous-titres" }
+        }
+        val captionWeight = if (captionModel != null) CAPTION_WEIGHT else 0.0
+        val story: StoryPlan? = if (settings.style == EditStyle.STORY) {
+            val shots = StoryPlanner.plan(plan, sessions)
+            if (captionModel == null) shots else StoryPlanner.withCaptions(shots, transcribe(plan, sessions, captionModel, request, progress.child("Sous-titres", captionWeight)))
+        } else {
+            null
+        }
         story?.let { log.info { "Montage story : ${plan.clips.size} moments, ${it.shots.size} plans, ${it.removed.inWholeMilliseconds / 1000.0} s de temps morts retirés" } }
         val duration = story?.outputDuration ?: plan.outputDuration
         val encoder = encoders.select()
@@ -96,7 +113,7 @@ class Exporter(
             val target = paths.videos.getValue(format)
             val temp = OutputNamer.tempFor(target)
             ensureNotSource(temp, sources)
-            val step = progress.child(format.label, (1.0 - CUT_WEIGHT) / settings.formats.size)
+            val step = progress.child(format.label, (1.0 - CUT_WEIGHT - captionWeight) / settings.formats.size)
 
             val filterScript = request.workDir.resolve("filters_${format.name.lowercase()}.txt")
             val render = if (story != null) {
@@ -161,6 +178,29 @@ class Exporter(
         paths.report.writeText(reportJson.encodeToString(ExportReport.serializer(), report))
         log.info { "Export terminé : ${done.joinToString()} + ${paths.report}" }
         return ExportResult(paths.videos, paths.report, duration, encoder.name)
+    }
+
+    /** Sous-titres de la voix de chaque moment monté, par capture (instants dans la source). */
+    private suspend fun transcribe(
+        plan: EditPlan,
+        sessions: List<Session>,
+        model: Path,
+        request: ExportRequest,
+        progress: ProgressReporter,
+    ): Map<Path, List<Caption>> {
+        val timelines = sessions.associate { it.media.path to it.timeline }
+        val settings = plan.settings.story.captions
+        val result = mutableMapOf<Path, MutableList<Caption>>()
+        plan.clips.forEachIndexed { i, clip ->
+            progress.update(i.toDouble() / plan.clips.size, "moment ${i + 1}/${plan.clips.size}")
+            result.getOrPut(clip.media.path) { mutableListOf() } += transcriber.transcribe(
+                clip.media, clip.range, timelines[clip.media.path], settings, model, request.audioLayout,
+                request.workDir.resolve("captions"), request.captionCache,
+            )
+        }
+        progress.complete()
+        log.info { "Sous-titres : ${result.values.sumOf { it.size }} sur ${plan.clips.size} moments" }
+        return result.mapValues { (_, list) -> list.sortedBy { it.range.start } }
     }
 
     /**
@@ -270,5 +310,6 @@ class Exporter(
     private companion object {
         /** Part de la progression rendue par la pré-découpe : rapide (copie de flux) face au rendu lui-même. */
         const val CUT_WEIGHT = 0.08
+        const val CAPTION_WEIGHT = 0.15
     }
 }

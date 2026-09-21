@@ -12,6 +12,7 @@ import dev.highlights.core.model.VideoStream
 import dev.highlights.editing.PlannedClip
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainInOrder
+import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
@@ -120,6 +121,16 @@ class StoryRenderBuilderTest : FunSpec({
         val graph = build().filterGraph
         graph shouldContain "[vcat]fade=t=out:st=21.000:d=0.600"
         graph shouldContain "afade=t=out:st=21.000:d=0.600"
+    }
+
+    test("sous-titres dessinés après le cadrage : ils ne suivent ni le zoom ni la secousse") {
+        val base = plan()
+        val captioned = base.copy(shots = base.shots.mapIndexed { i, s -> if (i == 2) s.copy(captions = listOf(Caption(TimeRange(1.seconds, 2.seconds), "vas-y"))) else s })
+        val line = build(captioned).lines().single { it.endsWith("[v2]") }
+        line.indexOf("drawtext") shouldBeGreaterThan line.indexOf("crop=")
+        line shouldContain "text='VAS-Y'"
+        // En vertical, le texte remonte (le bas de l'image est souvent couvert par l'interface de la plateforme).
+        build(captioned, OutputFormat.VERTICAL).lines().single { it.endsWith("[v2]") } shouldContain "y=h*0.660-text_h/2"
     }
 
     test("9:16 : même montage recadré") {

@@ -32,6 +32,7 @@ data class StorySettings(
     val transition: StoryTransition = StoryTransition(),
     val sfx: SfxSettings = SfxSettings(),
     val music: MusicBed = MusicBed(),
+    val captions: CaptionSettings = CaptionSettings(),
     /** Fondu au noir (image et son) sur la fin du montage. */
     val fadeOut: SerialDuration = 600.milliseconds,
 )
@@ -167,5 +168,39 @@ data class MusicBed(
 ) {
     init {
         require(volume in 0.0..2.0 && underVoice in 0.0..2.0) { "story.music : volumes entre 0 et 2" }
+    }
+}
+
+/**
+ * Sous-titres de la voix, transcrite en local par whisper.cpp (filtre `whisper` de FFmpeg) : quelques mots à la fois,
+ * qui apparaissent d'un coup de zoom, en gros, comme dans les vidéos YouTube. Sans modèle, pas de sous-titres.
+ */
+@Serializable
+data class CaptionSettings(
+    val enabled: Boolean = true,
+    /** Modèle whisper.cpp (ggml) ; chemin relatif au dossier de configuration. */
+    val model: String? = null,
+    /** Langue parlée ("auto" pour la détecter, au prix d'erreurs sur des extraits courts). */
+    val language: String = "fr",
+    /** Longueur maximale d'un sous-titre, en caractères : deux à quatre mots, lisibles d'un coup d'œil. */
+    val maxChars: Int = 18,
+    /** Piste transcrite : la voix du joueur (mic), à défaut le son complet. */
+    val role: AudioRole = AudioRole.MIC,
+    val font: String = "C:/Windows/Fonts/impact.ttf",
+    /** Taille du texte, en part de la hauteur de l'image. */
+    val size: Double = 0.075,
+    /** Position verticale du centre du texte (0 = haut, 1 = bas), en paysage et en vertical. */
+    val y: Double = 0.78,
+    val verticalY: Double = 0.66,
+    /** Apparition « pop » : le texte grossit jusqu'à sa taille en ce temps-là. */
+    val pop: SerialDuration = 120.milliseconds,
+    val uppercase: Boolean = true,
+    /** Transcription sur le GPU quand whisper.cpp le permet. */
+    val useGpu: Boolean = true,
+) {
+    init {
+        require(maxChars in 4..80) { "story.captions.maxChars doit être entre 4 et 80" }
+        require(size in 0.02..0.2) { "story.captions.size doit être entre 0,02 et 0,2" }
+        require(y in 0.0..1.0 && verticalY in 0.0..1.0) { "story.captions.y doit être entre 0 et 1" }
     }
 }
