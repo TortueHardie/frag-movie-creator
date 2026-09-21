@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.highlights.core.model.AudioTracks
+import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.aspectLabel
 import dev.highlights.core.serialization.toTimecode
@@ -220,6 +221,19 @@ fun SettingsSection(state: UiState, actions: UiActions) {
             ) {
                 Checkbox(checked = format in settings.formats, onCheckedChange = { actions.toggleFormat(format) })
                 Text(formatLabel(format, state.source?.media), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+
+        // Style
+        Spacer(Modifier.height(2.dp))
+        Text("Style du montage", style = MaterialTheme.typography.labelLarge)
+        listOf(
+            EditStyle.STORY to "Façon YouTube : temps morts coupés, accroche, effets",
+            EditStyle.SIMPLE to "Moments bout à bout",
+        ).forEach { (style, label) ->
+            Row(Modifier.fillMaxWidth().clickable { actions.setStyle(style) }, verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = settings.style == style, onClick = { actions.setStyle(style) })
+                Text(label)
             }
         }
 

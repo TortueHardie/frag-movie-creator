@@ -6,6 +6,7 @@ import androidx.compose.ui.unit.Density
 import dev.highlights.core.model.AudioStream
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
+import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.ScoredTimeline
 import dev.highlights.core.model.TimeRange
@@ -192,6 +193,7 @@ private object NoopActions : UiActions {
     override fun editProfile() = Unit
     override fun setProfile(id: String?) = Unit
     override fun toggleFormat(format: OutputFormat) = Unit
+    override fun setStyle(style: EditStyle) = Unit
     override fun setMomentMode(mode: MomentMode) = Unit
     override fun setTargetMode(mode: TargetMode) = Unit
     override fun setDurationText(text: String) = Unit

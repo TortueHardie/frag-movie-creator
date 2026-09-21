@@ -5,6 +5,7 @@ import dev.highlights.core.config.ConfigYaml
 import dev.highlights.core.ffmpeg.FfmpegException
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.MediaInfo
+import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.profile.GameProfile
 import dev.highlights.core.progress.ProgressReporter
@@ -57,6 +58,7 @@ interface UiActions {
 
     fun setProfile(id: String?)
     fun toggleFormat(format: OutputFormat)
+    fun setStyle(style: EditStyle)
     fun setMomentMode(mode: MomentMode)
     fun setTargetMode(mode: TargetMode)
     fun setDurationText(text: String)
@@ -251,6 +253,8 @@ class AppController(
         }
     }
 
+    override fun setStyle(style: EditStyle) = _state.update { s -> s.copy(settings = s.settings.copy(style = style)) }
+
     override fun toggleFormat(format: OutputFormat) = _state.update { s ->
         val formats = if (format in s.settings.formats) s.settings.formats - format else s.settings.formats + format
         s.copy(settings = s.settings.copy(formats = formats))
@@ -339,7 +343,7 @@ class AppController(
         val p = backend?.pipeline ?: return
         runTask("Export du montage") { progress ->
             saveNow(current)
-            val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir), progress)
+            val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style), progress)
             _state.update { it.copy(lastExport = result) }
         }
     }

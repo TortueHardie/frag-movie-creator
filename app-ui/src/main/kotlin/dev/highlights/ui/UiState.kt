@@ -4,6 +4,7 @@ import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
+import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SelectionTarget
 import dev.highlights.core.model.aspectLabel
@@ -58,6 +59,8 @@ data class SettingsState(
     /** null = profil détecté automatiquement d'après le chemin. */
     val profileId: String? = null,
     val formats: Set<OutputFormat> = setOf(OutputFormat.SOURCE),
+    /** story : montage façon YouTube (jump cuts, accroche, effets) ; simple : moments bout à bout. */
+    val style: EditStyle = EditStyle.STORY,
     val momentMode: MomentMode = MomentMode.BEST,
     val targetMode: TargetMode = TargetMode.DURATION,
     val durationText: String = "60s",
