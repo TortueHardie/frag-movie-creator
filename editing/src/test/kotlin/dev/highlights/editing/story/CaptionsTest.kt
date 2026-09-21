@@ -75,12 +75,45 @@ class CaptionsTest : FunSpec({
     }
 
     test("texte « pop » : taille qui grossit à l'apparition, affiché le temps du sous-titre") {
-        val text = Captions.drawText(Caption(ms(1200, 2000), "oulà !"), CaptionSettings(), 1080, 0.78)
+        val text = Captions.drawText(Caption(ms(1200, 2000), "oulà !"), CaptionSettings(), 1080, 0.78).single()
         text shouldContain "text='OULÀ !':expansion=none"
         text shouldContain "fontsize='81*(0.7+0.3*min(max((t-1.200)/0.120\\,0)\\,1))'"
+        text shouldContain "fontcolor=white"
         text shouldContain "enable='between(t\\,1.200\\,2.000)'"
-        text shouldContain "y=h*0.780-text_h/2"
+        // Centré sur la hauteur de ligne de la police : des mots dessinés à part gardent la même ligne de base.
+        text shouldContain "y=h*0.780-lh/2"
         text shouldContain "fontfile='C\\:/Windows/Fonts/impact.ttf'"
+    }
+
+    test("mots forts : chacun dessiné à sa place, en couleur, les autres en blanc") {
+        val settings = CaptionSettings(emphasis = listOf("gg", "let's go"))
+        val parts = Captions.drawText(Caption(ms(0, 1000), "GG, let’s go les gars"), settings, 1080, 0.78)
+        parts.map { it.substringAfter("text='").substringBefore("'") } shouldContainExactly listOf("GG,", "LET’S", "GO", "LES", "GARS")
+        parts.map { it.substringAfter("fontcolor=").substringBefore(":") } shouldContainExactly
+            listOf("0xFFD21F", "0xFFD21F", "0xFFD21F", "white", "white")
+        // Placés de gauche à droite autour du centre, à l'échelle de l'apparition.
+        parts.first() shouldContain "x='(w-"
+        parts[1] shouldContain ")/2+"
+    }
+
+    test("comparaison des mots forts sans casse, accents ni ponctuation") {
+        Captions.emphasized(listOf("TUÉ !", "par", "LUI"), listOf("tue")) shouldContainExactly listOf(true, false, false)
+        Captions.emphasized(listOf("GO", "LET'S"), listOf("let's go")) shouldContainExactly listOf(false, false)
+    }
+
+    test("phrase criée : toute en rouge, plus grosse, d'un seul bloc") {
+        val text = Captions.drawText(Caption(ms(0, 1000), "vas-y gg", loud = true), CaptionSettings(), 1080, 0.78).single()
+        text shouldContain "text='VAS-Y GG'"
+        text shouldContain "fontcolor=0xFF4538"
+        text shouldContain "fontsize='101*"
+    }
+
+    test("libellé d'événement : même apparition, puis s'efface sur sa fin") {
+        val text = Captions.drawLabel("Triplé", ms(2000, 3100), "C:/Windows/Fonts/impact.ttf", 0.09, "0xFFD21F", 1080, 0.2, 120.milliseconds)
+        text shouldContain "text='TRIPLÉ'"
+        text shouldContain "fontsize='97*"
+        text shouldContain "alpha='if(gt(t\\,2.850)\\,(3.100-t)/0.250\\,1)'"
+        text shouldContain "y=h*0.200-lh/2"
     }
 
     test("filtre de transcription : 16 kHz, chemins échappés, JSON par groupes de quelques mots") {

@@ -130,7 +130,7 @@ class StoryRenderBuilderTest : FunSpec({
         line.indexOf("drawtext") shouldBeGreaterThan line.indexOf("crop=")
         line shouldContain "text='VAS-Y'"
         // En vertical, le texte remonte (le bas de l'image est souvent couvert par l'interface de la plateforme).
-        build(captioned, OutputFormat.VERTICAL).lines().single { it.endsWith("[v2]") } shouldContain "y=h*0.660-text_h/2"
+        build(captioned, OutputFormat.VERTICAL).lines().single { it.endsWith("[v2]") } shouldContain "y=h*0.660-lh/2"
     }
 
     test("9:16 : même montage recadré") {

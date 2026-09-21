@@ -33,6 +33,7 @@ data class StorySettings(
     val sfx: SfxSettings = SfxSettings(),
     val music: MusicBed = MusicBed(),
     val captions: CaptionSettings = CaptionSettings(),
+    val labels: EventLabels = EventLabels(),
     /** Fondu au noir (image et son) sur la fin du montage. */
     val fadeOut: SerialDuration = 600.milliseconds,
 )
@@ -197,10 +198,52 @@ data class CaptionSettings(
     val uppercase: Boolean = true,
     /** Transcription sur le GPU quand whisper.cpp le permet. */
     val useGpu: Boolean = true,
+    /**
+     * Mots mis en couleur ([emphasisColor]) : exclamations, jurons, vocabulaire du jeu. Comparés sans casse, sans
+     * accents ni ponctuation ; une expression de plusieurs mots (« let's go ») colore tous ses mots.
+     */
+    val emphasis: List<String> = DEFAULT_EMPHASIS,
+    val emphasisColor: String = "0xFFD21F",
+    /** Phrase criée (recouvre un segment « shout ») : toute en [shoutColor], plus grosse de [shoutScale]. */
+    val shoutColor: String = "0xFF4538",
+    val shoutScale: Double = 1.25,
 ) {
     init {
         require(maxChars in 4..80) { "story.captions.maxChars doit être entre 4 et 80" }
         require(size in 0.02..0.2) { "story.captions.size doit être entre 0,02 et 0,2" }
         require(y in 0.0..1.0 && verticalY in 0.0..1.0) { "story.captions.y doit être entre 0 et 1" }
+        require(shoutScale in 1.0..2.0) { "story.captions.shoutScale doit être entre 1 et 2" }
+    }
+
+    companion object {
+        val DEFAULT_EMPHASIS = listOf(
+            "gg", "ace", "clutch", "one tap", "headshot", "let's go", "go go", "oh", "ah", "non", "quoi", "wow", "incroyable",
+            "putain", "merde", "bordel", "mort", "tué", "kill", "double", "triple", "spike", "ult", "ulti", "ez", "nice",
+        )
+    }
+}
+
+/**
+ * Libellés des séries de kills : « DOUBLÉ », « TRIPLÉ »… au kill qui complète la série, en haut de l'image. Des kills
+ * espacés de moins de [gap] forment une série, même si le montage en a coupé le début.
+ */
+@Serializable
+data class EventLabels(
+    val enabled: Boolean = true,
+    val event: String = "kill",
+    val gap: SerialDuration = 5.seconds,
+    /** Libellé du 2e, 3e… kill d'une série ; le dernier vaut pour les séries plus longues. */
+    val multiKill: List<String> = listOf("DOUBLÉ", "TRIPLÉ", "QUADRUPLÉ", "ACE"),
+    val color: String = "0xFFD21F",
+    val duration: SerialDuration = 1100.milliseconds,
+    /** Position verticale du centre du libellé, en paysage et en vertical. */
+    val y: Double = 0.2,
+    val verticalY: Double = 0.3,
+    /** Taille, en part de la hauteur de l'image. */
+    val size: Double = 0.09,
+) {
+    init {
+        require(y in 0.0..1.0 && verticalY in 0.0..1.0) { "story.labels.y doit être entre 0 et 1" }
+        require(size in 0.02..0.25) { "story.labels.size doit être entre 0,02 et 0,25" }
     }
 }

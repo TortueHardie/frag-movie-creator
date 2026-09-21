@@ -1,6 +1,7 @@
 package dev.highlights.editing.story
 
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.EventLabels
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.JumpCutSettings
 import dev.highlights.core.model.MediaInfo
@@ -44,6 +45,8 @@ data class StoryShot(
     val voice: List<TimeRange> = emptyList(),
     /** Sous-titres de la voix visibles dans le plan. */
     val captions: List<Caption> = emptyList(),
+    /** Libellés de séries (« DOUBLÉ »…) : instant d'apparition dans le plan et texte. */
+    val labels: List<Pair<Duration, String>> = emptyList(),
 ) {
     val length: Duration get() = range.length
 }
@@ -209,7 +212,27 @@ object StoryPlanner {
 
         val drops = listOf(clip.highlight.peak).filter { it in range }.map { it - range.start }
         val voice = merge(segments.mapNotNull { relative(it.range) })
-        return StoryShot(clip.media, range, clip.highlight, role, zoom, punchIns, shakes, drops, voice)
+        val labels = streakLabels(timeline, story.labels)
+            .filter { (at, _) -> at >= range.start && at < range.end - story.labels.duration / 2 }
+            .map { (at, text) -> at - range.start to text }
+        return StoryShot(clip.media, range, clip.highlight, role, zoom, punchIns, shakes, drops, voice, labels = labels)
+    }
+
+    /**
+     * Libellé de chaque kill qui prolonge une série (kills espacés de moins de [EventLabels.gap]) : « DOUBLÉ » au 2e,
+     * « TRIPLÉ » au 3e… Compté sur toute la partie, pas seulement sur ce que le montage montre : un triplé reste un
+     * triplé même si son premier kill a été coupé.
+     */
+    internal fun streakLabels(timeline: ScoredTimeline?, settings: EventLabels): List<Pair<Duration, String>> {
+        if (!settings.enabled || settings.multiKill.isEmpty() || timeline == null) return emptyList()
+        val kills = timeline.events.filter { it.kind == settings.event }.map { it.at }.sorted()
+        val labels = mutableListOf<Pair<Duration, String>>()
+        var streak = 0
+        kills.forEachIndexed { i, at ->
+            streak = if (i > 0 && at - kills[i - 1] <= settings.gap) streak + 1 else 1
+            if (streak >= 2) labels += at to settings.multiKill[minOf(streak - 2, settings.multiKill.lastIndex)]
+        }
+        return labels
     }
 
     /** [range] privé des intervalles [holes], dans l'ordre. */

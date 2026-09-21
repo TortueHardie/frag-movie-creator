@@ -170,6 +170,19 @@ class StoryPlannerTest : FunSpec({
         shot.voice shouldHaveSize 3
     }
 
+    test("séries de kills : DOUBLÉ au 2e, TRIPLÉ au 3e, la série se rompt au-delà de 5 s") {
+        val kills = listOf(10.0, 12.0, 16.5, 30.0, 31.0).map { TimelineEvent(sec(it), "kill", 1.0, "outplayed") }
+        val labels = StoryPlanner.streakLabels(timeline(60, loud = emptySet(), events = kills), EditSettings().story.labels)
+        labels shouldContainExactly listOf(12.seconds to "DOUBLÉ", sec(16.5) to "TRIPLÉ", 31.seconds to "DOUBLÉ")
+    }
+
+    test("libellé posé dans le plan qui montre le kill, même si le début de la série est coupé") {
+        val kills = listOf(8.0, 12.0, 15.0).map { TimelineEvent(sec(it), "kill", 1.0, "outplayed") }
+        val t = timeline(60, loud = (10..19).toSet(), events = kills)
+        val shot = storyPlan(session(t, highlight(TimeRange(10.seconds, 20.seconds), 13.seconds))).shots.single()
+        shot.labels shouldContainExactly listOf(2.seconds to "DOUBLÉ", 5.seconds to "TRIPLÉ")
+    }
+
     test("effets désactivés : ni punch-in ni secousse") {
         val t = timeline(
             60,

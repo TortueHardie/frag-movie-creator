@@ -60,7 +60,11 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
             log.warn(e) { "Transcription impossible de ${media.path.name} $range, montage sans sous-titres : ${e.message}" }
             return emptyList()
         }
-        return Captions.clean(Captions.parse(raw, range.start), segments)
+        // Une phrase criée (elle recouvre un cri détecté) s'affiche plus grosse, en couleur.
+        val shouts = timeline?.segments.orEmpty().filter { it.kind == "shout" }.map { it.range }
+        return Captions.clean(Captions.parse(raw, range.start), segments).map { c ->
+            if (shouts.any { it.isWithin(c.range) }) c.copy(loud = true) else c
+        }
     }
 
     private suspend fun rawTranscript(

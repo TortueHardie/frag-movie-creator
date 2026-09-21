@@ -7,13 +7,19 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import java.nio.file.Path
+import java.text.Normalizer
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
 /** Un sous-titre : quelques mots et l'intervalle où ils sont prononcés. */
-data class Caption(val range: TimeRange, val text: String)
+data class Caption(
+    val range: TimeRange,
+    val text: String,
+    /** Phrase criée : affichée plus grosse, en couleur. */
+    val loud: Boolean = false,
+)
 
 /**
  * Sous-titres de la voix : lecture de la transcription de whisper.cpp, nettoyage, et texte « pop » dans le rendu.
@@ -83,7 +89,7 @@ object Captions {
     fun inShot(captions: List<Caption>, range: TimeRange): List<Caption> = captions.mapNotNull { c ->
         val from = maxOf(c.range.start - LEAD, range.start)
         val to = minOf(c.range.end, range.end)
-        if (to - from < MIN_VISIBLE) null else Caption(TimeRange(from - range.start, to - range.start), c.text)
+        if (to - from < MIN_VISIBLE) null else c.copy(range = TimeRange(from - range.start, to - range.start))
     }.let { list ->
         // Deux sous-titres ne se chevauchent jamais à l'écran : le précédent s'efface quand le suivant arrive.
         list.mapIndexed { i, c ->
@@ -101,21 +107,92 @@ object Captions {
             ":max_len=${settings.maxChars}:use_gpu=${if (settings.useGpu) 1 else 0}:destination='${filterPath(destination)}'"
 
     /**
-     * Texte d'un sous-titre dans l'image : gros, blanc cerné de noir, qui grossit de 70 à 100 % de sa taille en
-     * [CaptionSettings.pop] à son apparition. [y] : position verticale du centre (part de la hauteur).
+     * Sous-titre dans l'image : gros, blanc cerné de noir, qui grossit de 70 à 100 % de sa taille en
+     * [CaptionSettings.pop] à son apparition. Une phrase criée passe toute en couleur, plus grosse ; sinon les mots
+     * forts ([CaptionSettings.emphasis]) sont colorés, chacun dessiné à sa place dans la ligne. [y] : position
+     * verticale du centre (part de la hauteur). Renvoie un filtre par morceau de texte.
      */
-    fun drawText(caption: Caption, settings: CaptionSettings, height: Int, y: Double): String {
-        val size = (settings.size * height).roundToInt().coerceAtLeast(8)
-        val border = (height * 0.006).roundToInt().coerceAtLeast(3)
-        val t0 = sec(caption.range.start)
-        val t1 = sec(caption.range.end)
-        val pop = String.format(Locale.ROOT, "%.3f", (settings.pop.inWholeMicroseconds / 1e6).coerceAtLeast(0.001))
-        val font = settings.font.replace("\\", "/").replace(":", "\\:")
-        val text = sanitize(caption.text, settings.uppercase)
-        return "drawtext=fontfile='$font':text='$text':expansion=none" +
-            ":fontsize='$size*(0.7+0.3*min(max((t-$t0)/$pop\\,0)\\,1))'" +
-            ":fontcolor=white:borderw=$border:bordercolor=black:shadowx=0:shadowy=${border / 2 + 1}:shadowcolor=black@0.6" +
-            ":x=(w-text_w)/2:y=h*${String.format(Locale.ROOT, "%.3f", y)}-text_h/2:enable='between(t\\,$t0\\,$t1)'"
+    fun drawText(caption: Caption, settings: CaptionSettings, height: Int, y: Double): List<String> {
+        val base = settings.size * height * (if (caption.loud) settings.shoutScale else 1.0)
+        val words = sanitize(caption.text, settings.uppercase).split(' ').filter { it.isNotEmpty() }
+        if (words.isEmpty()) return emptyList()
+        val t0 = caption.range.start
+        val t1 = caption.range.end
+        val style = TextStyle(settings.font, base, height, y, t0, t1, settings.pop)
+        if (caption.loud) return listOf(style.draw(words.joinToString(" "), settings.shoutColor))
+        val marked = emphasized(words, settings.emphasis)
+        if (marked.none { it }) return listOf(style.draw(words.joinToString(" "), "white"))
+
+        // Mots placés un à un : largeur de chaque mot et de l'espace, mesurées dans la police, à la taille finale.
+        val widths = words.map { TextMeasure.width(settings.font, base, it) }
+        val space = TextMeasure.width(settings.font, base, " ")
+        if (widths.any { it == null } || space == null) {
+            // Police illisible par Java : la phrase entière prend la couleur, faute de pouvoir placer les mots.
+            return listOf(style.draw(words.joinToString(" "), settings.emphasisColor))
+        }
+        val total = widths.sumOf { it!! } + space * (words.size - 1)
+        var offset = 0.0
+        return words.mapIndexed { i, word ->
+            val x = "(w-${num(total)}*${style.scale})/2+${num(offset)}*${style.scale}"
+            offset += widths[i]!! + space
+            style.draw(word, if (marked[i]) settings.emphasisColor else "white", x)
+        }
+    }
+
+    /** Libellé d'événement (« DOUBLÉ »…) : même apparition « pop », qui s'efface sur sa fin. */
+    fun drawLabel(text: String, at: TimeRange, font: String, size: Double, color: String, height: Int, y: Double, pop: Duration): String =
+        TextStyle(font, size * height, height, y, at.start, at.end, pop, fadeOut = 250.milliseconds).draw(sanitize(text, uppercase = true), color)
+
+    /** Pour chaque mot, vrai s'il appartient à une expression de [emphasis] (comparaison sans casse ni accents). */
+    internal fun emphasized(words: List<String>, emphasis: List<String>): List<Boolean> {
+        val normalized = words.map(::normalize)
+        val phrases = emphasis.map { e -> e.split(' ').map(::normalize).filter { it.isNotEmpty() } }.filter { it.isNotEmpty() }
+        val marked = BooleanArray(words.size)
+        for (phrase in phrases) {
+            for (i in 0..words.size - phrase.size) {
+                if (phrase.indices.all { normalized[i + it] == phrase[it] }) phrase.indices.forEach { marked[i + it] = true }
+            }
+        }
+        return marked.toList()
+    }
+
+    /** Mot comparable : minuscules, sans accents, apostrophe droite, sans ponctuation autour. */
+    private fun normalize(word: String): String =
+        Normalizer.normalize(word.lowercase(Locale.ROOT), Normalizer.Form.NFD).replace(Regex("\\p{M}"), "")
+            .replace('’', '\'').trim { !it.isLetterOrDigit() }
+
+    /** Apparence commune des textes : police, taille finale, position, apparition « pop » et, au besoin, effacement. */
+    private class TextStyle(
+        val font: String,
+        val size: Double,
+        val height: Int,
+        val y: Double,
+        val t0: Duration,
+        val t1: Duration,
+        pop: Duration,
+        val fadeOut: Duration = Duration.ZERO,
+    ) {
+        private val popSeconds = String.format(Locale.ROOT, "%.3f", (pop.inWholeMicroseconds / 1e6).coerceAtLeast(0.001))
+
+        /** Facteur d'échelle de l'apparition (0,7 → 1), à chaque image. */
+        val scale = "(0.7+0.3*min(max((t-${sec(t0)})/$popSeconds\\,0)\\,1))"
+
+        fun draw(text: String, color: String, x: String = "(w-text_w)/2"): String {
+            val px = size.roundToInt().coerceAtLeast(8)
+            val border = (height * 0.006).roundToInt().coerceAtLeast(3)
+            val fontFile = font.replace("\\", "/").replace(":", "\\:")
+            val alpha = if (fadeOut.isPositive() && t1 - t0 > fadeOut) {
+                val from = sec(t1 - fadeOut)
+                ":alpha='if(gt(t\\,$from)\\,(${sec(t1)}-t)/${String.format(Locale.ROOT, "%.3f", fadeOut.inWholeMicroseconds / 1e6)}\\,1)'"
+            } else {
+                ""
+            }
+            // Ligne alignée sur la hauteur de ligne de la police (lh), pas sur celle du texte : des mots dessinés
+            // séparément gardent la même ligne de base, qu'ils aient des jambages ou non.
+            return "drawtext=fontfile='$fontFile':text='$text':expansion=none:fontsize='$px*$scale'" +
+                ":fontcolor=$color:borderw=$border:bordercolor=black:shadowx=0:shadowy=${border / 2 + 1}:shadowcolor=black@0.6" +
+                ":x='$x':y=h*${String.format(Locale.ROOT, "%.3f", y)}-lh/2:enable='between(t\\,${sec(t0)}\\,${sec(t1)})'$alpha"
+        }
     }
 
     /**
@@ -128,6 +205,8 @@ object Captions {
     }
 
     private fun filterPath(path: Path) = path.toAbsolutePath().toString().replace("\\", "/").replace(":", "\\:")
+
+    private fun num(v: Double) = String.format(Locale.ROOT, "%.1f", v)
 
     private fun sec(d: Duration) = String.format(Locale.ROOT, "%.3f", d.inWholeMicroseconds / 1e6)
 }

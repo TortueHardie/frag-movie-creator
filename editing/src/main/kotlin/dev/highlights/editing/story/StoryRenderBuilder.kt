@@ -87,6 +87,12 @@ object StoryRenderBuilder {
             // Après le cadrage : le texte ne suit ni le zoom ni la secousse.
             val captionY = if (request.format == OutputFormat.VERTICAL) story.captions.verticalY else story.captions.y
             shot.captions.forEach { effects += Captions.drawText(it, story.captions, h, captionY) }
+            val labels = story.labels
+            val labelY = if (request.format == OutputFormat.VERTICAL) labels.verticalY else labels.y
+            shot.labels.forEach { (at, text) ->
+                val end = minOf(at + labels.duration, shot.length)
+                effects += Captions.drawLabel(text, TimeRange(at, end), story.captions.font, labels.size, labels.color, h, labelY, story.captions.pop)
+            }
             if (story.transition.flash && shot.role == ShotRole.OPENING && i > 0) {
                 effects += "fade=t=in:st=0:d=${sec(story.transition.flashDuration)}:color=white"
             }
