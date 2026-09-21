@@ -3,10 +3,13 @@ name: Installeur
 # Construit l'installeur Windows (MSI) et la version portable (ZIP) sur une machine neuve : FFmpeg est téléchargé par
 # le build, rien n'est supposé installé. Un tag « v1.2.3 » publie les deux fichiers dans une release GitHub, d'où
 # n'importe qui peut les télécharger.
+# Les machines Windows comptent double en minutes Actions : le build tourne sur master, sur les tags, sur les pull
+# requests, et à la demande (onglet Actions → « Exécuter le workflow ») plutôt qu'à chaque push de chaque branche.
 on:
   push:
-    branches: ['**']
+    branches: [master]
     tags: ['v*']
+  pull_request:
   workflow_dispatch:
 
 concurrency:
