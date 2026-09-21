@@ -97,13 +97,26 @@ jobs:
             Get-Content essai-installation.log -Tail 40 | ForEach-Object { Write-Host $_ }
             throw "Installation de $($msi.Name) : code $($p.ExitCode)"
           }
-          $entree = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
-            ForEach-Object { Get-ItemProperty $_.PSPath } |
-            Where-Object { $_.DisplayName -like 'Highlights*' }
-          if (@($entree).Count -ne 1) { throw "Entrées « Applications installées » : $(@($entree).Count) au lieu d'une" }
+          # L'entrée de désinstallation est cherchée dans les trois emplacements possibles : par utilisateur (HKCU)
+          # ou pour la machine (HKLM), et la clé n'existe pas forcément avant une première installation.
+          $entrees = @(
+            'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+            'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+            'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+          ) | Where-Object { Test-Path $_ } | ForEach-Object {
+            $ruche = $_
+            Get-ChildItem $ruche | ForEach-Object {
+              Get-ItemProperty $_.PSPath | Add-Member -NotePropertyName Ruche -NotePropertyValue $ruche -PassThru
+            }
+          } | Where-Object { $_.DisplayName -like 'Highlights*' }
+
+          $entrees = @($entrees)
+          if ($entrees.Count -ne 1) { throw "Entrées « Applications installées » : $($entrees.Count) au lieu d'une" }
+          $entree = $entrees[0]
           $dossier = if ($entree.InstallLocation) { $entree.InstallLocation } else { Join-Path $env:LOCALAPPDATA 'Highlights' }
           if (-not (Test-Path (Join-Path $dossier 'Highlights.exe'))) { throw "Highlights.exe absent de $dossier" }
           Write-Host "Installé dans $dossier, version $($entree.DisplayVersion)"
+          Write-Host "Enregistré dans $($entree.Ruche)"
 
           $p = Start-Process msiexec.exe -ArgumentList "/x $($entree.PSChildName) /qn" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Désinstallation : code $($p.ExitCode)" }
