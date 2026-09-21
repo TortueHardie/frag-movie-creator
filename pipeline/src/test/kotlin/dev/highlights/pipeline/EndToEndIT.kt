@@ -4,6 +4,7 @@ import dev.highlights.core.config.AppConfig
 import dev.highlights.core.config.EncoderSettings
 import dev.highlights.core.config.FfmpegSettings
 import dev.highlights.core.config.LoadedConfig
+import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SelectionTarget
 import dev.highlights.core.progress.ProgressReporter
@@ -87,7 +88,8 @@ class EndToEndIT : FunSpec({
         // Relecture : on décoche un segment et on relance uniquement l'export.
         val session = SessionStore.load(outcome.analysis.sessionFile)
         val edited = session.copy(highlights = session.highlights.mapIndexed { i, h -> if (i == 0) h.copy(enabled = false) else h })
-        val reexport = pipeline.export(edited, ExportOptions(formats = listOf(OutputFormat.SOURCE)), ProgressReporter.NONE)
+        // Montage simple : la durée est exactement celle du moment gardé (le style story en retirerait les temps morts).
+        val reexport = pipeline.export(edited, ExportOptions(formats = listOf(OutputFormat.SOURCE), style = EditStyle.SIMPLE), ProgressReporter.NONE)
         reexport.videos.getValue(OutputFormat.SOURCE).name.contains("_highlights_2") shouldBe true
         reexport.duration shouldBe highlights[1].range.length
 

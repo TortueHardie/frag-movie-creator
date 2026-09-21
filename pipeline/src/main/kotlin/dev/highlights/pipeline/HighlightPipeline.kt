@@ -10,6 +10,7 @@ import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.Hwaccel
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
@@ -71,6 +72,10 @@ data class AnalyzeOptions(
 data class ExportOptions(
     val formats: List<OutputFormat>? = null,
     val outputDir: Path? = null,
+    /** simple ou story (montage façon YouTube) ; null = réglage du profil. */
+    val style: EditStyle? = null,
+    /** Musique de fond du montage story ; null = réglage du profil. */
+    val music: Path? = null,
 )
 
 /** Surcharges ponctuelles des réglages de montage du profil (null = valeur du profil). */
@@ -137,8 +142,19 @@ class HighlightPipeline(
      * Réglages d'édition du profil, table d'étalonnage résolue depuis le dossier de configuration (comme les modèles
      * d'images du HUD) : le rendu ne connaît que des chemins absolus.
      */
-    private fun GameProfile.gradedEdit(): EditSettings =
-        edit.grade.lut?.let { edit.copy(grade = edit.grade.copy(lut = config.resolve(it).toString())) } ?: edit
+    private fun GameProfile.gradedEdit(): EditSettings {
+        val story = edit.story
+        return edit.copy(
+            grade = edit.grade.copy(lut = edit.grade.lut?.let { config.resolve(it).toString() }),
+            story = story.copy(
+                music = story.music.copy(file = story.music.file?.let { config.resolve(it).toString() }),
+                sfx = story.sfx.copy(
+                    whooshFile = story.sfx.whooshFile?.let { config.resolve(it).toString() },
+                    impactFile = story.sfx.impactFile?.let { config.resolve(it).toString() },
+                ),
+            ),
+        )
+    }
 
     suspend fun probe(file: Path): MediaInfo {
         validateInput(file)
@@ -226,7 +242,11 @@ class HighlightPipeline(
         if (sessions.isEmpty()) throw InputException("Aucune session à exporter")
         val profile = profiles.byId(sessions.first().profileId)
         val edit = profile.gradedEdit()
-        val settings: EditSettings = options.formats?.let { edit.copy(formats = it) } ?: edit
+        val settings: EditSettings = edit.copy(
+            formats = options.formats ?: edit.formats,
+            style = options.style ?: edit.style,
+            story = options.music?.let { edit.story.copy(music = edit.story.music.copy(file = it.toAbsolutePath().toString())) } ?: edit.story,
+        )
         return withJobDir { workDir ->
             exporter.export(
                 sessions,

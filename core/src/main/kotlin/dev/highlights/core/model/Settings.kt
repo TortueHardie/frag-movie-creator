@@ -41,6 +41,9 @@ data class SelectionTarget(val topN: Int? = null, val totalDuration: SerialDurat
 
 @Serializable
 data class EditSettings(
+    /** simple : les moments bout à bout ; story : montage façon vidéo YouTube (voir [StorySettings]). */
+    val style: EditStyle = EditStyle.SIMPLE,
+    val story: StorySettings = StorySettings(),
     val order: ClipOrder = ClipOrder.CHRONOLOGICAL,
     val transition: TransitionSettings = TransitionSettings(),
     /** Cible de normalisation loudnorm en LUFS. null = pas de normalisation. */

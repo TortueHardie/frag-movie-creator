@@ -10,6 +10,7 @@ import dev.highlights.core.ffmpeg.StdoutHandler
 import dev.highlights.core.model.AudioLayout
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.TimeRange
@@ -22,6 +23,10 @@ import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.RenderRequest
 import dev.highlights.editing.SourceCutter
+import dev.highlights.editing.story.StoryPlan
+import dev.highlights.editing.story.StoryPlanner
+import dev.highlights.editing.story.StoryRenderBuilder
+import dev.highlights.editing.story.StoryRenderRequest
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Path
 import java.time.Instant
@@ -65,6 +70,10 @@ class Exporter(
         if (settings.formats.isEmpty()) throw HighlightsException("Aucun format de sortie demandé")
         if (sessions.isEmpty()) throw HighlightsException("Aucune session à exporter")
         val plan = planner.plan(sessions, settings)
+        // Montage « story » : les moments retenus sont redécoupés en plans (jump cuts, accroche, effets).
+        val story: StoryPlan? = if (settings.style == EditStyle.STORY) StoryPlanner.plan(plan, sessions) else null
+        story?.let { log.info { "Montage story : ${plan.clips.size} moments, ${it.shots.size} plans, ${it.removed.inWholeMilliseconds / 1000.0} s de temps morts retirés" } }
+        val duration = story?.outputDuration ?: plan.outputDuration
         val encoder = encoders.select()
 
         request.outputDir.createDirectories()
@@ -76,7 +85,7 @@ class Exporter(
         // Découpe des extraits avant le rendu : une seule fois pour tous les formats. Voir SourceCuts.
         val cuts = SourceCutter.prepare(
             ffmpeg,
-            RenderCommandBuilder.sourceCuts(plan),
+            story?.let(StoryRenderBuilder::sourceCuts) ?: RenderCommandBuilder.sourceCuts(plan),
             request.workDir.resolve("cuts"),
             progress.child("Préparation des extraits", CUT_WEIGHT),
         )
@@ -89,21 +98,39 @@ class Exporter(
             ensureNotSource(temp, sources)
             val step = progress.child(format.label, (1.0 - CUT_WEIGHT) / settings.formats.size)
 
-            val render = RenderCommandBuilder.build(
-                RenderRequest(
-                    plan = plan,
-                    format = format,
-                    encoder = encoder,
-                    output = temp,
-                    filterScript = request.workDir.resolve("filters_${format.name.lowercase()}.txt"),
-                    audioBitrate = request.audioBitrate,
-                    hwaccel = request.hwaccel,
-                    cuts = cuts,
-                    audioLayout = request.audioLayout,
-                    filterScriptOption = filterScriptOption,
-                ),
-            )
-            request.workDir.resolve("filters_${format.name.lowercase()}.txt").writeText(render.filterGraph)
+            val filterScript = request.workDir.resolve("filters_${format.name.lowercase()}.txt")
+            val render = if (story != null) {
+                StoryRenderBuilder.build(
+                    StoryRenderRequest(
+                        plan = story,
+                        format = format,
+                        encoder = encoder,
+                        output = temp,
+                        filterScript = filterScript,
+                        audioBitrate = request.audioBitrate,
+                        hwaccel = request.hwaccel,
+                        cuts = cuts,
+                        audioLayout = request.audioLayout,
+                        filterScriptOption = filterScriptOption,
+                    ),
+                )
+            } else {
+                RenderCommandBuilder.build(
+                    RenderRequest(
+                        plan = plan,
+                        format = format,
+                        encoder = encoder,
+                        output = temp,
+                        filterScript = filterScript,
+                        audioBitrate = request.audioBitrate,
+                        hwaccel = request.hwaccel,
+                        cuts = cuts,
+                        audioLayout = request.audioLayout,
+                        filterScriptOption = filterScriptOption,
+                    ),
+                )
+            }
+            filterScript.writeText(render.filterGraph)
             log.info { "Rendu ${format.label} → $target (${plan.clips.size} clips, ${render.expectedDuration})" }
 
             try {
@@ -127,13 +154,13 @@ class Exporter(
             profile = sessions.first().profileId,
             encoder = encoder.name,
             outputs = paths.videos.map { (f, p) -> ReportOutput(f.label, p.toString()) },
-            totalDurationSeconds = plan.outputDuration.inWholeMilliseconds / 1000.0,
+            totalDurationSeconds = duration.inWholeMilliseconds / 1000.0,
             highlights = plan.clips.mapIndexed { i, c -> ReportHighlight.of(c.highlight, i + 1, multiple) },
             skippedHighlights = sessions.flatMap { s -> s.highlights.filterNot { it.enabled } }.map { ReportHighlight.of(it, null, multiple) },
         )
         paths.report.writeText(reportJson.encodeToString(ExportReport.serializer(), report))
         log.info { "Export terminé : ${done.joinToString()} + ${paths.report}" }
-        return ExportResult(paths.videos, paths.report, plan.outputDuration, encoder.name)
+        return ExportResult(paths.videos, paths.report, duration, encoder.name)
     }
 
     /**

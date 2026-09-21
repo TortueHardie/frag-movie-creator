@@ -139,6 +139,26 @@ Dans l'application :
 5. décocher les segments à retirer (le seuil et la durée se recalculent sans réanalyser) ;
 6. cliquer sur « Exporter le montage ».
 
+## Montage « story » (façon vidéo YouTube)
+
+Style par défaut des profils livrés (`edit.style: story`, ou `--style story|simple` sur `process` et `export`). Les
+meilleurs moments ne sont plus posés bout à bout : chacun est remonté comme le ferait un monteur YouTube.
+
+- **Jump cuts** : dans chaque moment, les passages creux (ni voix, ni rire, ni kill, score bas) de plus de 1,5 s sont
+  retirés, avec 300 ms de marge de chaque côté ; l'attente avant l'action est rognée. Une phrase n'est jamais coupée.
+- **Cadrage alterné** : un plan sur deux après un jump cut est 8 % plus serré, le saut se lit comme un changement de caméra.
+- **Accroche** : 3 s du meilleur moment ouvrent la vidéo, avant de reprendre dans l'ordre.
+- **Punch-in** sur les rires et les cris, **secousse** de l'image sur les kills et le pic de chaque moment.
+- **Transitions** : coupe franche soulignée d'un flash blanc et d'un whoosh ; impact sourd sous chaque secousse.
+  Les bruitages sont générés par FFmpeg (`story.sfx.whooshFile` / `impactFile` pour les remplacer par des fichiers).
+- **Musique de fond** facultative (`story.music.file` ou `--music`) : baissée sous la voix, coupée net sur le pic de
+  chaque moment puis relancée en fondu.
+- Son adouci à chaque coupe, fondu au noir final, normalisation EBU R128.
+
+```powershell
+& $app export output\sessions\partie.session.json --style story --music D:\Musique\fond.mp3 -f source,9:16
+```
+
 ## Montage « tous les kills » (style TikTok)
 
 Dans l'application : bouton **Montage kills** au-dessus de la liste des moments (après une analyse avec un profil qui

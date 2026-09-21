@@ -49,6 +49,18 @@ selection:
   target: { totalDuration: 60s }
 
 edit:
+  # story : montage façon YouTube (temps morts coupés en jump cuts, accroche du meilleur moment en ouverture,
+  # punch-in sur les rires et cris, secousse sur les kills, flash + whoosh entre les moments).
+  # simple : les moments bout à bout, séparés par un fondu.
+  style: story
+  story:
+    jumpCuts: { minGap: 1500ms, breath: 300ms, deadScore: 0.35, alternateZoom: 1.08 }
+    coldOpen: { enabled: true, length: 3s }
+    punchIn: { amount: 0.15, on: [laughter, shout] }
+    shake: { amplitude: 0.012, events: [kill] }
+    sfx: { enabled: true, whooshVolume: 0.35, impactVolume: 0.5 }
+    # Musique de fond facultative (chemin relatif au dossier de configuration), baissée sous la voix et coupée sur
+    # le pic de chaque moment : music: { file: musique/fond.mp3, volume: 0.25 }
   order: chronological
   transition: { type: fade, duration: 300ms }
   loudnessLufs: -14

@@ -18,6 +18,7 @@ import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.clikt.parameters.types.restrictTo
 import dev.highlights.core.model.AudioRole
 import dev.highlights.core.model.AudioTracks
+import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
@@ -52,6 +53,14 @@ private fun PipelineCommand.formatsOption() = option("-f", "--format", help = "F
     .convert { OutputFormat.parse(it) ?: throw BadParameterValue("format inconnu '$it' (source, 16:9 ou 9:16)") }
     .split(",")
 
+private fun PipelineCommand.styleOption() = option(
+    "--style",
+    help = "Montage : simple (moments bout à bout) ou story (façon YouTube : jump cuts, accroche, punch-in, secousses, bruitages)",
+).choice("simple" to EditStyle.SIMPLE, "story" to EditStyle.STORY)
+
+private fun PipelineCommand.musicOption() = option("--music", help = "Musique de fond du montage story (baissée sous la voix, coupée sur les pics)")
+    .path(mustExist = true, canBeDir = false)
+
 private fun PipelineCommand.targetOption() = mutuallyExclusiveOptions(
     option("--all", help = "Garder tous les moments retenus, sans limite").flag().convert { if (it) SelectionTarget(all = true) else null },
     option("--top", help = "Garder les N meilleurs moments").int().restrictTo(min = 1).convert { SelectionTarget(topN = it) },
@@ -68,6 +77,8 @@ class ProcessCommand : PipelineCommand("process") {
     private val target by targetOption()
     private val kills by option("--kills", help = "Un moment par kill (ou multi-kill) détecté, au lieu des meilleurs moments").flag()
     private val formats by formatsOption()
+    private val style by styleOption()
+    private val music by musicOption()
     private val out by option("-o", "--out", help = "Dossier de sortie").path(canBeFile = false)
 
     override fun help(context: Context) =
@@ -82,7 +93,7 @@ class ProcessCommand : PipelineCommand("process") {
                 pipeline.processAll(
                     files,
                     AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null),
-                    ExportOptions(formats, out),
+                    ExportOptions(formats, out, style, music),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -123,6 +134,8 @@ class ExportCommand : PipelineCommand("export") {
     private val sessionFiles by argument("SESSION", help = "Un ou plusieurs fichiers .session.json : plusieurs = un seul montage, parties dans l'ordre d'enregistrement")
         .path(mustExist = true, canBeDir = false).multiple(required = true)
     private val formats by formatsOption()
+    private val style by styleOption()
+    private val music by musicOption()
     private val out by option("-o", "--out").path(canBeFile = false)
 
     override fun help(context: Context) = "Exporte le montage à partir d'une session (segments enabled uniquement), sans réanalyser."
@@ -132,7 +145,7 @@ class ExportCommand : PipelineCommand("export") {
         val result = execute {
             val sessions = sessionFiles.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).export(sessions, ExportOptions(formats, out), ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).export(sessions, ExportOptions(formats, out, style, music), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
