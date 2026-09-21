@@ -435,6 +435,7 @@ class AppController(
                     text = montage?.text?.enabled ?: true,
                     balance = montage?.audio?.balance ?: 0.0,
                     gameAudio = montage?.audio?.game ?: GameAudio.FULL,
+                    reactions = montage?.reactions ?: false,
                 ),
             )
         }
@@ -475,6 +476,7 @@ class AppController(
                     text = montage.text,
                     audioBalance = montage.balance,
                     gameAudio = montage.gameAudio,
+                    reactions = montage.reactions,
                 ),
                 progress,
             )

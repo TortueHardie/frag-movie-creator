@@ -134,8 +134,9 @@ object MontagePlanner {
             val last = grouped.lastOrNull()
             if (last != null && k - last.last() <= settings.mergeGap) last += k else grouped += mutableListOf(k)
         }
-        val protectedSegments = timeline.segments.filter { it.kind in settings.keepWhole }.map { it.range }
-        val voice = timeline.segments.filter { it.kind in setOf("speech", "laughter", "shout") }.map { it.range }
+        // Sans mise en avant des réactions, la voix ne décide de rien : ni durée des plans, ni volume, ni débordement.
+        val protectedSegments = if (settings.reactions) timeline.segments.filter { it.kind in settings.keepWhole }.map { it.range } else emptyList()
+        val voice = if (settings.reactions) timeline.segments.filter { it.kind in setOf("speech", "laughter", "shout") }.map { it.range } else emptyList()
         grouped.map { ks ->
             val window = TimeRange(ks.first() - settings.preRoll, ks.last() + settings.postRoll)
             val indices = timeline.grid.let { g -> (0 until g.count).filter { g.rangeOf(it).isWithin(window) } }

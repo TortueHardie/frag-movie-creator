@@ -182,6 +182,8 @@ data class MontageUiState(
     /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */
     val balance: Double = 0.0,
     val gameAudio: GameAudio = GameAudio.FULL,
+    /** Voix et rires mis en avant ; sinon le micro reste au niveau du jeu et l'écran décide seul. */
+    val reactions: Boolean = false,
 ) {
     val maxDuration: Duration? get() = Durations.parseOrNull(maxDurationText)?.takeIf { it.isPositive() }
     val canCreate: Boolean get() = music != null && maxDuration != null && formats.isNotEmpty()

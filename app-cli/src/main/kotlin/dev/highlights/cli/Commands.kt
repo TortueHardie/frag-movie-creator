@@ -164,12 +164,13 @@ class MontageCommand : PipelineCommand("montage") {
         .convert { text ->
             text.replace(',', '.').toDoubleOrNull()?.takeIf { it in -1.0..1.0 } ?: throw BadParameterValue("équilibre invalide '$text' (entre -1 et 1)")
         }
+    private val reactions by option("--reactions", help = "Mettre en avant voix et rires : plans prolongés jusqu'à la fin de la phrase, micro monté, musique baissée dessous").flag()
     private val gameAudio by option("--game-audio", help = "Son du jeu : full (défaut) ou kills (le son du kill seul, musique baissée dessous)")
         .choice("full" to GameAudio.FULL, "kills" to GameAudio.KILLS)
     private val out by option("-o", "--out").path(canBeFile = false)
 
     override fun help(context: Context) =
-        "Montage de tous les kills calé sur une musique : coupes sur le beat, chaque kill sur un temps, zoom, flash, ralenti, textes, réactions conservées."
+        "Montage de tous les kills calé sur une musique : coupes sur le beat, chaque kill sur un temps, zoom, flash, ralenti, textes (--reactions pour mettre en avant voix et rires)."
 
     override fun run() {
         val progress = ConsoleProgress()
@@ -194,6 +195,7 @@ class MontageCommand : PipelineCommand("montage") {
                         text = if (noText) false else null,
                         audioBalance = balance,
                         gameAudio = gameAudio,
+                        reactions = if (reactions) true else null,
                     ),
                     ProgressTracker(listener = progress).root,
                 )

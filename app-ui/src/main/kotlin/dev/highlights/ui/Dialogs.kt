@@ -125,8 +125,8 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text(
-                    "Coupes et kills calés sur les temps de la musique, meilleur moment sur la partie la plus intense, " +
-                        "voix et rires jamais coupés.",
+                    "Coupes et kills calés sur les temps de la musique, meilleur moment sur la partie la plus intense. " +
+                        "C'est l'écran qui compte : le micro reste au niveau du jeu, sauf si tu mets les réactions en avant.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Palette.textMuted,
                 )
@@ -190,7 +190,12 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                             ) { Text(gameAudioLabel(mode)) }
                         }
                     }
-                    Text(gameAudioHint(montage.gameAudio), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                    Text(gameAudioHint(montage.gameAudio, montage.reactions), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                    if (montage.gameAudio == GameAudio.FULL) {
+                        MontageToggle("Mettre en avant les réactions (voix, rires)", montage.reactions) { v ->
+                            actions.updateMontage { it.copy(reactions = v) }
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Équilibre", modifier = Modifier.weight(1f))
                         Text(balanceLabel(montage.balance), color = Palette.accent)
@@ -232,8 +237,12 @@ internal fun gameAudioLabel(mode: GameAudio) = when (mode) {
     GameAudio.KILLS -> "Kills seulement"
 }
 
-internal fun gameAudioHint(mode: GameAudio) = when (mode) {
-    GameAudio.FULL -> "Son du jeu en continu, plus fort aux kills ; la musique baisse quand on parle ou qu'on rit."
+internal fun gameAudioHint(mode: GameAudio, reactions: Boolean = false) = when (mode) {
+    GameAudio.FULL -> if (reactions) {
+        "Son du jeu en continu, plus fort aux kills ; la voix est montée et la musique baisse quand on parle ou qu'on rit."
+    } else {
+        "Son du jeu en continu, plus fort aux kills ; le micro reste au niveau du jeu."
+    }
     GameAudio.KILLS -> "Seul le son du kill s'entend, et la musique baisse dessous pour le laisser passer."
 }
 

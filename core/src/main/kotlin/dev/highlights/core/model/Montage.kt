@@ -24,6 +24,12 @@ data class MontageSettings(
     val maxDuration: SerialDuration = 60.seconds,
     /** Segments à ne pas couper (réactions après le kill) : le clip s'étend sur le slot suivant s'il est libre. */
     val keepWhole: List<String> = listOf("laughter", "shout", "speech"),
+    /**
+     * Mettre en avant les réactions (voix, rires) : plan prolongé jusqu'à la fin d'une phrase ([keepWhole]), jeu et
+     * micro montés pendant qu'on parle, musique baissée dessous, son qui déborde sur le plan suivant pour finir la
+     * phrase. Désactivé par défaut : un frag movie montre l'écran, le micro reste au niveau du jeu.
+     */
+    val reactions: Boolean = false,
     val order: MontageOrder = MontageOrder.BUILD_UP,
     /**
      * Accroche : le deuxième meilleur groupe ouvre le montage (le meilleur reste pour la drop). Sans ça, les premières

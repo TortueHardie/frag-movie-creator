@@ -166,7 +166,7 @@ détecte les kills). En ligne de commande :
   trois meilleurs sont gardés quoi qu'il arrive). Les meilleurs groupes restants terminent naturellement le montage.
 - **Clips taillés pour la musique** : chaque clip est étendu ou coupé pour remplir exactement son plan ; le dernier kill
   tombe sur le temps le plus accentué du plan, le meilleur groupe (multi-kill) exactement sur la drop ; les multi-kills
-  et les réactions (voix, rires) fusionnent des plans voisins ; l'image est gelée si la vidéo manque. Quand il y a peu de
+  et, avec `--reactions`, les réactions (voix, rires) fusionnent des plans voisins ; l'image est gelée si la vidéo manque. Quand il y a peu de
   kills, les plans s'allongent plutôt que de laisser de la musique inutilisée.
 - **Chaque kill sur un temps** : dans un multi-kill, la lecture entre deux kills est accélérée ou ralentie de ±15 % au
   plus (speed ramp, `--no-ramp` pour désactiver) pour que chaque kill tombe sur un temps ; dans une suite de plans de
@@ -182,12 +182,14 @@ détecte les kills). En ligne de commande :
   `slowMotion.interpolate` calcule de vraies images intermédiaires au lieu de répéter celles de la source (mouvement
   fluide, rendu bien plus lent). Le flash blanc ne tombe qu'aux coupes fortes — nouvelle section, drop, multi-kill
   (`--flash-every-cut` pour toutes) ; `zoom.onEveryKill: false` réserve le zoom au kill calé sur le temps.
-- **Son** : musique au premier plan ; le jeu remonte sur les kills ; voix et rires restent audibles, et la musique baisse
-  pendant qu'on les entend. Pendant un ralenti, le son du jeu n'est **pas** étiré avec l'image (le timbre d'un tir s'y
+- **Son** : musique au premier plan ; le jeu remonte sur les kills. C'est l'écran qui compte : le micro reste au niveau
+  du jeu, sans rien décider du montage. Avec `--reactions` (`montage.reactions`, case « Mettre en avant les
+  réactions » du dialogue), voix et rires sont montés, la musique baisse pendant qu'on les entend et le plan dure
+  jusqu'à la fin de la phrase. Pendant un ralenti, le son du jeu n'est **pas** étiré avec l'image (le timbre d'un tir s'y
   déliterait) : il joue à sa vitesse puis s'efface, la musique porte la fin du plan (`audio.slowMotion` : `natural` par
   défaut, sinon `stretch` ou `mute`). Tous ces changements de volume montent et descendent en fondu (`audio.duckAttack`,
-  `audio.duckRelease`), sinon la marche s'entend plus que ce qu'elle met en avant ; le son d'un kill ou d'une phrase
-  déborde un peu sur le plan suivant (`audio.bleed`). L'équilibre jeu / musique se règle dans le dialogue du montage
+  `audio.duckRelease`), sinon la marche s'entend plus que ce qu'elle met en avant ; le son d'un kill (ou d'une phrase,
+  avec `--reactions`) déborde un peu sur le plan suivant (`audio.bleed`). L'équilibre jeu / musique se règle dans le dialogue du montage
   (`audio.balance`, `--balance`, de -1 à 1 : ±6 dB par cran, jeu et musique en sens opposés). En mode « kills
   seulement » (`audio.game: kills`, `--game-audio kills`), on n'entend du jeu que le son du kill — tir, notification —
   et la musique baisse dessous pour le laisser passer (`audio.musicUnderKill`).

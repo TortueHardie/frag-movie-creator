@@ -170,11 +170,18 @@ class MontagePlannerTest : FunSpec({
         clip.end shouldBe media.duration
     }
 
-    test("réaction qui déborde : le clip dure jusqu'à la fin de la phrase") {
-        val p = plan(listOf(100, 400, 700), speech = listOf(TimeRange(700.5.seconds, 705.seconds)))
+    test("réactions mises en avant : le clip dure jusqu'à la fin de la phrase") {
+        val p = plan(listOf(100, 400, 700), s = settings.copy(reactions = true), speech = listOf(TimeRange(700.5.seconds, 705.seconds)))
         check(p)
         val talk = p.clips.single { it.kills.first() == 700.seconds }
         (seconds(talk.end) >= 705.0) shouldBe true
+    }
+
+    test("par défaut la voix ne décide de rien : plans et son comme sans micro") {
+        val speech = listOf(TimeRange(700.5.seconds, 705.seconds))
+        val groups = MontagePlanner.groups(listOf(session(listOf(100, 400, 700), speech)), settings)
+        groups.all { it.voiceSegments.isEmpty() && it.protectedSegments.isEmpty() } shouldBe true
+        plan(listOf(100, 400, 700), speech = speech).clips.map { it.end } shouldBe plan(listOf(100, 400, 700)).clips.map { it.end }
     }
 
     /** Écart (s) entre un instant du montage et le temps musical le plus proche. */

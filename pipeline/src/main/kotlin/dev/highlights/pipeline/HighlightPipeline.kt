@@ -90,6 +90,8 @@ data class MontageOptions(
     /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */
     val audioBalance: Double? = null,
     val gameAudio: GameAudio? = null,
+    /** Mettre en avant voix et rires (plans prolongés, micro monté, musique baissée dessous). */
+    val reactions: Boolean? = null,
 )
 
 data class AnalysisOutcome(val session: Session, val sessionFile: Path, val profile: GameProfile)
@@ -322,6 +324,7 @@ class HighlightPipeline(
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),
             speedRamp = base.speedRamp.copy(enabled = options.speedRamp ?: base.speedRamp.enabled),
             text = base.text.copy(enabled = options.text ?: base.text.enabled),
+            reactions = options.reactions ?: base.reactions,
             audio = base.audio.copy(
                 balance = options.audioBalance ?: base.audio.balance,
                 game = options.gameAudio ?: base.audio.game,
