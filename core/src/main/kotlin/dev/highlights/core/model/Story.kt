@@ -137,8 +137,10 @@ data class StoryTransition(
 )
 
 /**
- * Bruitages générés par FFmpeg (aucun fichier à fournir) : whoosh aux changements de moment, impact sourd sous les
- * secousses. [whooshFile] / [impactFile] remplacent le son généré par un fichier (chemin relatif au dossier de configuration).
+ * Bruitages : whoosh aux changements de moment, impact sourd sous les secousses. Sans fichier, plusieurs variantes
+ * générées par FFmpeg servent à tour de rôle. Avec un dossier ([whooshDir], [impactDir]), chaque bruitage y est pris
+ * à son tour, dans un ordre mélangé : l'oreille repère vite un même son répété. [whooshFile] / [impactFile] imposent un
+ * seul fichier. Chemins relatifs au dossier de configuration.
  */
 @Serializable
 data class SfxSettings(
@@ -147,6 +149,8 @@ data class SfxSettings(
     val impactVolume: Double = 0.5,
     val whooshFile: String? = null,
     val impactFile: String? = null,
+    val whooshDir: String? = null,
+    val impactDir: String? = null,
 ) {
     init {
         require(whooshVolume in 0.0..2.0 && impactVolume in 0.0..2.0) { "story.sfx : volumes entre 0 et 2" }

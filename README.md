@@ -150,11 +150,16 @@ meilleurs moments ne sont plus posés bout à bout : chacun est remonté comme l
 - **Accroche** : 3 s du meilleur moment ouvrent la vidéo, avant de reprendre dans l'ordre.
 - **Punch-in** sur les rires et les cris, **secousse** de l'image sur les kills et le pic de chaque moment.
 - **Transitions** : coupe franche soulignée d'un flash blanc et d'un whoosh ; impact sourd sous chaque secousse.
-  Les bruitages sont générés par FFmpeg (`story.sfx.whooshFile` / `impactFile` pour les remplacer par des fichiers).
+  Plusieurs variantes générées par FFmpeg servent à tour de rôle ; un dossier de sons (`story.sfx.whooshDir` /
+  `impactDir`) les remplace, chaque son à son tour, dans un ordre mélangé mais stable d'un export à l'autre.
+- **Ralenti** sur le pic des moments forts (le meilleur, les séries de kills) : l'image ralentit, le son du jeu garde
+  sa vitesse puis s'efface.
+- **Libellés** « DOUBLÉ », « TRIPLÉ », « QUADRUPLÉ », « ACE » au kill qui prolonge une série (kills à moins de 5 s).
 - **Musique de fond** facultative (`story.music.file` ou `--music`) : baissée sous la voix, coupée net sur le pic de
   chaque moment puis relancée en fondu.
 - **Sous-titres de la voix** : le micro est transcrit en local par whisper.cpp (filtre `whisper` de FFmpeg), deux à
-  quatre mots à la fois, en gros, qui apparaissent d'un coup de zoom. Seul ce qui recouvre une prise de parole détectée
+  quatre mots à la fois, en gros, qui apparaissent d'un coup de zoom. Les mots forts (« GG », « ACE », jurons…,
+  `story.captions.emphasis`) passent en jaune, une phrase criée en rouge et plus grosse. Seul ce qui recouvre une prise de parole détectée
   est gardé (whisper invente du texte sur le silence). La transcription est mise en cache : un nouvel export des mêmes
   moments ne la refait pas. Il faut le modèle, trop lourd pour le dépôt et l'installeur :
   [`ggml-large-v3-turbo-q5_0.bin`](https://huggingface.co/ggerganov/whisper.cpp) (~574 Mo) dans `config/models/`

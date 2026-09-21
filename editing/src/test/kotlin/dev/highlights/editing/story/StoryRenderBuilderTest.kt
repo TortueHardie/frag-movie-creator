@@ -89,8 +89,9 @@ class StoryRenderBuilderTest : FunSpec({
         graph shouldContain "afade=t=in:d=0.015,afade=t=out:st=4.285:d=0.015"
         // Un whoosh à chaque nouveau moment (après l'accroche à 3 s, puis à 11,6 s), qui culmine 300 ms plus tard sur
         // la coupe ; un impact sous chaque secousse (1,8 s, puis 11,6 + 5 s).
-        graph shouldContain "anoisesrc="
-        graph shouldContain "asplit=2[whs0][whs1]"
+        // Deux whooshes, deux variantes différentes : jamais deux fois de suite le même son.
+        graph shouldContain "bandpass=f=1400:t=q:w=0.7,afade=t=in:d=0.3:curve=exp,afade=t=out:st=0.3:d=0.15,$FORMAT,volume=0.350,asplit=1[whs0]"
+        graph shouldContain "bandpass=f=2200:t=q:w=0.9,afade=t=in:d=0.28:curve=exp,afade=t=out:st=0.28:d=0.12,$FORMAT,volume=0.350,asplit=1[whs1]"
         graph shouldContain "[whs0]adelay=2700|2700[wh0]"
         graph shouldContain "[whs1]adelay=11300|11300[wh1]"
         graph shouldContain "aevalsrc="
@@ -98,6 +99,28 @@ class StoryRenderBuilderTest : FunSpec({
         graph shouldContain "[ims1]adelay=16600|16600[im1]"
         graph shouldContain "[acat][wh0][wh1][im0][im1]amix=inputs=5:normalize=0:duration=first"
         graph shouldContain "loudnorm=I=-14.0"
+    }
+
+    test("banque de bruitages : une entrée par fichier, chacun à son tour") {
+        val bank = SfxBank(whoosh = listOf("D:/sfx/w1.wav", "D:/sfx/w2.wav"), impact = listOf("D:/sfx/boom.wav"))
+        val cmd = StoryRenderBuilder.build(StoryRenderRequest(plan(), OutputFormat.SOURCE, encoder, Path("o.mp4"), Path("f.txt"), sfxBank = bank))
+        cmd.command.args.shouldContainInOrder("-i", "D:/sfx/w1.wav", "-i", "D:/sfx/w2.wav", "-i", "D:/sfx/boom.wav")
+        val graph = cmd.filterGraph
+        graph shouldContain "[4:a]asetpts=PTS-STARTPTS,atrim=duration=1.350,$FORMAT,volume=0.350,asplit=1[whs0]"
+        graph shouldContain "[5:a]asetpts=PTS-STARTPTS,atrim=duration=1.350,$FORMAT,volume=0.350,asplit=1[whs1]"
+        // Un seul impact disponible : il sert aux deux secousses.
+        graph shouldContain "[6:a]asetpts=PTS-STARTPTS,atrim=duration=1.800,$FORMAT,volume=0.500,asplit=2[ims0][ims1]"
+        graph shouldNotContain "anoisesrc"
+    }
+
+    test("dossier de bruitages : fichiers audio seulement, ordre mélangé mais stable") {
+        val dir = kotlin.io.path.createTempDirectory("sfx")
+        listOf("a.wav", "b.mp3", "c.ogg", "d.flac", "notes.txt").forEach { dir.resolve(it).toFile().writeText("") }
+        val first = SfxBank.list(dir)
+        first.map { Path(it).fileName.toString() }.sorted() shouldBe listOf("a.wav", "b.mp3", "c.ogg", "d.flac")
+        SfxBank.list(dir) shouldBe first
+        SfxBank.list(dir.resolve("absent")) shouldBe emptyList()
+        dir.toFile().deleteRecursively()
     }
 
     test("bruitages désactivés : le son du jeu seul") {
@@ -172,3 +195,5 @@ class StoryRenderBuilderTest : FunSpec({
 private fun dev.highlights.editing.RenderCommand.lines() = filterGraph.lines().map { it.removeSuffix(";") }
 
 private fun sec(s: Double) = (s * 1000).toLong().milliseconds
+
+private const val FORMAT = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"

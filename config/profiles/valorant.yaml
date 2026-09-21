@@ -71,7 +71,11 @@ edit:
     coldOpen: { enabled: true, length: 3s }
     punchIn: { amount: 0.15, on: [laughter, shout] }
     shake: { amplitude: 0.012, events: [kill] }
+    # Bruitages : variantes générées par défaut ; un dossier de sons (whooshDir, impactDir) les remplace, chacun à son tour.
     sfx: { enabled: true, whooshVolume: 0.35, impactVolume: 0.5 }
+    # Libellés DOUBLÉ / TRIPLÉ… sur les séries de kills, et ralenti sur le pic des moments forts.
+    labels: { enabled: true, multiKill: [DOUBLÉ, TRIPLÉ, QUADRUPLÉ, ACE] }
+    slowMo: { enabled: true, factor: 0.5, onlyStrong: true }
     # Sous-titres de la voix (micro), transcrite en local par whisper.cpp. Sans le modèle, le montage sort sans
     # sous-titres. Modèle : https://huggingface.co/ggerganov/whisper.cpp (ggml-large-v3-turbo-q5_0.bin, ~574 Mo).
     captions: { model: models/ggml-large-v3-turbo-q5_0.bin, language: fr, maxChars: 18 }

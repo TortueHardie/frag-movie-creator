@@ -152,6 +152,8 @@ class HighlightPipeline(
                 sfx = story.sfx.copy(
                     whooshFile = story.sfx.whooshFile?.let { config.resolve(it).toString() },
                     impactFile = story.sfx.impactFile?.let { config.resolve(it).toString() },
+                    whooshDir = story.sfx.whooshDir?.let { config.resolve(it).toString() },
+                    impactDir = story.sfx.impactDir?.let { config.resolve(it).toString() },
                 ),
             ),
         )

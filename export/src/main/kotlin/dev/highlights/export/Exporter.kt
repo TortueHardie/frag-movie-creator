@@ -28,6 +28,7 @@ import dev.highlights.editing.story.Caption
 import dev.highlights.editing.story.StoryPlan
 import dev.highlights.editing.story.StoryPlanner
 import dev.highlights.editing.story.StoryRenderBuilder
+import dev.highlights.editing.story.SfxBank
 import dev.highlights.editing.story.StoryRenderRequest
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Path
@@ -108,6 +109,8 @@ class Exporter(
         )
 
         val filterScriptOption = ffmpeg.filterScriptOption()
+        val sfx = settings.story.sfx
+        val sfxBank = SfxBank(SfxBank.list(sfx.whooshDir?.let { Path.of(it) }), SfxBank.list(sfx.impactDir?.let { Path.of(it) }))
         val done = mutableListOf<Path>()
         for (format in settings.formats) {
             val target = paths.videos.getValue(format)
@@ -129,6 +132,7 @@ class Exporter(
                         cuts = cuts,
                         audioLayout = request.audioLayout,
                         filterScriptOption = filterScriptOption,
+                        sfxBank = sfxBank,
                     ),
                 )
             } else {

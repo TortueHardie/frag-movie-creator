@@ -12,8 +12,11 @@ import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.SourceCut
 import dev.highlights.editing.SourceCuts
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Locale
+import kotlin.io.path.extension
+import kotlin.random.Random
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -28,7 +31,28 @@ data class StoryRenderRequest(
     val cuts: SourceCuts = SourceCuts.NONE,
     val audioLayout: AudioLayout = AudioLayout(),
     val filterScriptOption: String = FfmpegService.FILTER_COMPLEX_FROM_FILE,
+    /** Bruitages pris dans les dossiers du profil ; vide = fichier unique du profil, ou variantes générées. */
+    val sfxBank: SfxBank = SfxBank(),
 )
+
+/** Fichiers de bruitages disponibles, dans l'ordre où ils serviront. */
+data class SfxBank(val whoosh: List<String> = emptyList(), val impact: List<String> = emptyList()) {
+    companion object {
+        private val AUDIO = setOf("wav", "mp3", "ogg", "flac", "m4a", "aac", "opus")
+
+        /**
+         * Fichiers audio d'un dossier, dans un ordre mélangé mais toujours le même (graine fixe) : le montage change
+         * de son d'un bruitage à l'autre sans que deux exports des mêmes moments ne sonnent différemment.
+         */
+        fun list(dir: Path?): List<String> {
+            if (dir == null || !Files.isDirectory(dir)) return emptyList()
+            val files = Files.list(dir).use { s -> s.filter { Files.isRegularFile(it) && it.extension.lowercase() in AUDIO }.toList() }
+            return files.map { it.toString() }.sorted().shuffled(Random(SEED))
+        }
+
+        private const val SEED = 7L
+    }
+}
 
 /**
  * Graphe FFmpeg du montage « story » : une entrée par plan (seek rapide), cadrage fixe alterné, punch-in et secousses
@@ -70,8 +94,12 @@ object StoryRenderBuilder {
             return nextInput++
         }
         val sfx = story.sfx
-        val whooshInput = sfx.whooshFile?.takeIf { sfx.enabled }?.let { input("-i", it) }
-        val impactInput = sfx.impactFile?.takeIf { sfx.enabled }?.let { input("-i", it) }
+        // Bruitages fournis (dossier ou fichier) : une entrée par fichier ; sinon les variantes générées.
+        val bank = request.sfxBank
+        val whooshFiles = bank.whoosh.ifEmpty { listOfNotNull(sfx.whooshFile) }
+        val impactFiles = bank.impact.ifEmpty { listOfNotNull(sfx.impactFile) }
+        val whooshSources = if (!sfx.enabled) emptyList() else whooshFiles.map { "[${input("-i", it)}:a]" }.ifEmpty { WHOOSHES }
+        val impactSources = if (!sfx.enabled) emptyList() else impactFiles.map { "[${input("-i", it)}:a]" }.ifEmpty { IMPACTS }
         // La musique tourne en boucle : un montage plus long qu'elle n'y perd pas son fond sonore.
         val musicInput = story.music.file?.let { input("-stream_loop", "-1", "-i", it) }
 
@@ -121,8 +149,8 @@ object StoryRenderBuilder {
             val whooshes = shots.indices.filter { shots[it].role == ShotRole.OPENING && it > 0 }
                 .map { (offsets[it] - WHOOSH_PEAK).coerceAtLeast(Duration.ZERO) }
             val impacts = shots.indices.flatMap { i -> screen[i].shakes.map { offsets[i] + it } }
-            mixInputs += placeSfx(graph, "wh", whooshes, sfx.whooshVolume, whooshInput?.let { "[$it:a]" } ?: WHOOSH)
-            mixInputs += placeSfx(graph, "im", impacts, sfx.impactVolume, impactInput?.let { "[$it:a]" } ?: IMPACT)
+            mixInputs += placeSfx(graph, "wh", whooshes, sfx.whooshVolume, whooshSources, WHOOSH_LENGTH)
+            mixInputs += placeSfx(graph, "im", impacts, sfx.impactVolume, impactSources, IMPACT_LENGTH)
         }
 
         // --- musique de fond : baissée sous la voix, coupée sur le pic de chaque moment
@@ -157,23 +185,41 @@ object StoryRenderBuilder {
     fun sourceCuts(plan: StoryPlan): List<SourceCut> = plan.shots.map { SourceCut(it.media, it.range) }
 
     /** Whoosh : bruit rose filtré, qui enfle jusqu'à la coupe puis retombe vite. */
-    internal const val WHOOSH = "anoisesrc=d=0.45:c=pink:r=48000:a=0.8,bandpass=f=1400:t=q:w=0.7," +
+    /**
+     * Variantes générées, utilisées à tour de rôle quand aucun fichier n'est fourni : whooshes plus ou moins aigus et
+     * longs, impacts plus ou moins graves.
+     */
+    internal val WHOOSHES = listOf(
+        WHOOSH_SOURCE_1,
+        "anoisesrc=d=0.40:c=pink:r=48000:a=0.8,bandpass=f=2200:t=q:w=0.9,afade=t=in:d=0.28:curve=exp,afade=t=out:st=0.28:d=0.12",
+        "anoisesrc=d=0.50:c=brown:r=48000:a=0.9,bandpass=f=900:t=q:w=0.6,afade=t=in:d=0.32:curve=exp,afade=t=out:st=0.32:d=0.18",
+    )
+    internal val IMPACTS = listOf(
+        IMPACT_SOURCE_1,
+        "aevalsrc=exprs='sin(2*PI*(38+70*exp(-t*22))*t)*exp(-t*6)':s=48000:d=0.6",
+        "aevalsrc=exprs='sin(2*PI*(55+120*exp(-t*35))*t)*exp(-t*9)':s=48000:d=0.6",
+    )
+
+    internal const val WHOOSH_SOURCE_1 = "anoisesrc=d=0.45:c=pink:r=48000:a=0.8,bandpass=f=1400:t=q:w=0.7," +
         "afade=t=in:d=0.3:curve=exp,afade=t=out:st=0.3:d=0.15"
 
     /** Impact : une sinusoïde grave dont la hauteur plonge, qui s'éteint en un peu plus d'une demi-seconde. */
-    internal const val IMPACT = "aevalsrc=exprs='sin(2*PI*(45+90*exp(-t*28))*t)*exp(-t*7)':s=48000:d=0.6"
+    internal const val IMPACT_SOURCE_1 = "aevalsrc=exprs='sin(2*PI*(45+90*exp(-t*28))*t)*exp(-t*7)':s=48000:d=0.6"
 
     /**
      * Pose un bruitage à chaque instant de [at] et renvoie les labels à mixer. [source] est soit un label d'entrée
      * (fichier fourni), soit la description d'une source générée.
      */
-    private fun placeSfx(graph: MutableList<String>, prefix: String, at: List<Duration>, volume: Double, source: String): List<String> {
-        if (at.isEmpty() || volume <= 0.0) return emptyList()
-        val head = if (source.startsWith("[")) source else "$source,"
-        val chain = if (source.startsWith("[")) "${head}asetpts=PTS-STARTPTS," else head
-        val max = if (source == IMPACT) IMPACT_LENGTH else WHOOSH_LENGTH
-        val trim = if (source.startsWith("[")) "atrim=duration=${sec(max * 3)}," else ""
-        graph += "${chain}$trim$AUDIO_FORMAT,volume=${fmt(volume, 3)},asplit=${at.size}" + at.indices.joinToString("") { "[${prefix}s$it]" }
+    private fun placeSfx(graph: MutableList<String>, prefix: String, at: List<Duration>, volume: Double, sources: List<String>, maxLength: Duration): List<String> {
+        if (at.isEmpty() || volume <= 0.0 || sources.isEmpty()) return emptyList()
+        // Chaque source à son tour : deux bruitages voisins ne sont jamais le même son (dès qu'il y en a deux).
+        val uses = at.indices.groupBy { it % sources.size }
+        for ((j, placements) in uses) {
+            val source = sources[j]
+            val chain = if (source.startsWith("[")) "${source}asetpts=PTS-STARTPTS,atrim=duration=${sec(maxLength * 3)}," else "$source,"
+            graph += "$chain$AUDIO_FORMAT,volume=${fmt(volume, 3)},asplit=${placements.size}" +
+                placements.joinToString("") { "[${prefix}s$it]" }
+        }
         return at.mapIndexed { k, t ->
             val ms = t.inWholeMilliseconds
             graph += "[${prefix}s$k]adelay=$ms|$ms[${prefix}$k]"
