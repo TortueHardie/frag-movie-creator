@@ -26,7 +26,19 @@ carte graphique particulière ne sont nécessaires.
 L'installeur n'étant pas signé, Windows affiche « Windows a protégé votre ordinateur » : « Informations
 complémentaires », puis « Exécuter quand même ». (Signer demanderait un certificat payant.)
 
-Une nouvelle version remplace l'ancienne ; les profils modifiés dans `%APPDATA%\Highlights\config` sont conservés.
+**Mettre à jour** : lancer le MSI de la nouvelle version, rien d'autre. Il remplace l'installation existante au lieu de
+s'ajouter à côté : une seule entrée dans « Applications installées », une seule application dans le menu Démarrer.
+Relancer l'installeur d'une version déjà installée ne crée pas non plus de doublon. Les profils modifiés dans
+`%APPDATA%\Highlights\config` sont conservés ; les fichiers livrés qui n'ont pas été retouchés sont mis à jour.
+
+**Désinstaller** : Paramètres Windows → Applications → Applications installées → Highlights → Désinstaller (ou un
+clic droit sur l'application dans le menu Démarrer). L'application, FFmpeg livré avec elle et les raccourcis du bureau
+et du menu Démarrer sont retirés. Les montages déjà produits (`Vidéos\Highlights`) et la configuration
+(`%APPDATA%\Highlights`) restent en place : à supprimer à la main si vous n'en voulez plus.
+
+Ces trois parcours (installation, mise à jour, désinstallation) sont rejoués à chaque publication sur une machine
+Windows neuve par le workflow `.github/workflows/installeur-verif.yml`, qui vérifie l'état du registre, des fichiers et
+des raccourcis après chaque étape.
 
 ## Prérequis (développement)
 
@@ -55,8 +67,12 @@ Java, FFmpeg, le modèle YAMNet, les profils et les modèles d'images.
 
 **Publier une version** : augmenter `highlights.version` dans `gradle.properties`, puis pousser un tag `v<version>`
 (`git tag v1.2.0 && git push origin v1.2.0`). Le workflow `.github/workflows/installeur.yml` construit le MSI et le ZIP
-portable sur une machine Windows neuve, lance les tests avant de les assembler, et les publie dans une release GitHub.
-Chaque push construit aussi les deux fichiers, téléchargeables depuis l'onglet Actions.
+portable sur une machine Windows neuve, lance les tests, installe puis désinstalle le MSI produit avant de le publier
+dans une release GitHub. En parallèle, `installeur-verif.yml` rejoue le cycle complet : installation, mise à jour vers
+une version plus récente, réinstallation de la même version, désinstallation.
+
+Le numéro de version doit augmenter d'une release à l'autre : c'est lui qui déclenche le remplacement de l'ancienne
+installation (le code de mise à niveau, `upgradeUuid` dans `app-ui/build.gradle.kts`, ne doit lui jamais changer).
 
 - **Configuration** : au premier lancement, la config livrée est copiée dans `%APPDATA%\Highlights\config`, où les
   profils se modifient (puis « Recharger » dans l'application). Une mise à jour de l'application apporte les nouveaux

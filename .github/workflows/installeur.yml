@@ -85,6 +85,31 @@ jobs:
           Copy-Item app-ui\build\distributions\*-portable.zip installeur\
           Get-ChildItem installeur | ForEach-Object { "{0} : {1:N0} octets" -f $_.Name, $_.Length }
 
+      # L'installeur livré est installé puis désinstallé pour de vrai : on ne publie pas un MSI qui ne s'installe pas.
+      # Le cycle complet (mise à jour, réinstallation, raccourcis) est dans le workflow « Vérifier l'installeur ».
+      - name: Essai d'installation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-ChildItem installeur\*.msi | Select-Object -First 1
+          $p = Start-Process msiexec.exe -ArgumentList "/i `"$($msi.FullName)`" /qn /l*v essai-installation.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            Get-Content essai-installation.log -Tail 40 | ForEach-Object { Write-Host $_ }
+            throw "Installation de $($msi.Name) : code $($p.ExitCode)"
+          }
+          $entree = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
+            ForEach-Object { Get-ItemProperty $_.PSPath } |
+            Where-Object { $_.DisplayName -like 'Highlights*' }
+          if (@($entree).Count -ne 1) { throw "Entrées « Applications installées » : $(@($entree).Count) au lieu d'une" }
+          $dossier = if ($entree.InstallLocation) { $entree.InstallLocation } else { Join-Path $env:LOCALAPPDATA 'Highlights' }
+          if (-not (Test-Path (Join-Path $dossier 'Highlights.exe'))) { throw "Highlights.exe absent de $dossier" }
+          Write-Host "Installé dans $dossier, version $($entree.DisplayVersion)"
+
+          $p = Start-Process msiexec.exe -ArgumentList "/x $($entree.PSChildName) /qn" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Désinstallation : code $($p.ExitCode)" }
+          if (Test-Path (Join-Path $dossier 'Highlights.exe')) { throw "Fichiers encore présents après désinstallation" }
+          Write-Host "Installation puis désinstallation vérifiées"
+
       - uses: actions/upload-artifact@v4
         with:
           name: highlights-installeur
@@ -104,6 +129,10 @@ jobs:
 
           Windows affiche un avertissement SmartScreen (l'installeur n'est pas signé) : « Informations complémentaires »
           puis « Exécuter quand même ».
+
+          Mise à jour : lancer simplement le MSI de la nouvelle version, il remplace l'installation existante sans
+          créer de seconde entrée. Désinstallation : Paramètres Windows → Applications installées → Highlights.
+          Les montages et les profils modifiés sont conservés dans les deux cas.
 
           Highlights-$version-portable.zip est la même application sans installation : décompresser et lancer
           Highlights\Highlights.exe.
