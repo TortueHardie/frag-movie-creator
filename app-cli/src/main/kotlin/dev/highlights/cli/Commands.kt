@@ -37,6 +37,7 @@ import dev.highlights.montage.MontageReport
 import dev.highlights.montage.MontageScore
 import dev.highlights.montage.MusicAnalyzer
 import dev.highlights.core.profile.ProfileRepository
+import dev.highlights.pipeline.AnalysisOutcome
 import dev.highlights.pipeline.AnalyzeOptions
 import dev.highlights.pipeline.Diagnostics
 import dev.highlights.pipeline.ExportOptions
@@ -60,7 +61,8 @@ private fun PipelineCommand.targetOption() = mutuallyExclusiveOptions(
 )
 
 class ProcessCommand : PipelineCommand("process") {
-    private val file by argument(help = "Vidéo à traiter (mp4, mkv, mov, avi, flv, ts…)").path(mustExist = true, canBeDir = false)
+    private val files by argument("VIDEO", help = "Une ou plusieurs vidéos (mp4, mkv, mov, avi, flv, ts…) : plusieurs = un seul montage, parties dans l'ordre d'enregistrement")
+        .path(mustExist = true, canBeDir = false).multiple(required = true)
     private val profile by option("-p", "--profile", help = "Profil de jeu (sinon détecté d'après le chemin)")
     private val threshold by option("--threshold", help = "Seuil de score 0..1").double().restrictTo(0.0, 1.0)
     private val target by targetOption()
@@ -68,15 +70,17 @@ class ProcessCommand : PipelineCommand("process") {
     private val formats by formatsOption()
     private val out by option("-o", "--out", help = "Dossier de sortie").path(canBeFile = false)
 
-    override fun help(context: Context) = "Analyse une vidéo puis exporte le montage des meilleurs moments."
+    override fun help(context: Context) =
+        "Analyse une ou plusieurs vidéos puis exporte le montage des meilleurs moments. Avec plusieurs vidéos, la cible " +
+            "(--top, --duration) vaut pour l'ensemble et les moments suivent l'ordre dans lequel les parties ont été jouées."
 
     override fun run() {
         val progress = ConsoleProgress()
         val outcome = execute {
             val pipeline = Pipelines.create(env.config)
             try {
-                pipeline.process(
-                    file,
+                pipeline.processAll(
+                    files,
                     AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null),
                     ExportOptions(formats, out),
                     ProgressTracker(listener = progress).root,
@@ -85,14 +89,14 @@ class ProcessCommand : PipelineCommand("process") {
                 progress.finish()
             }
         }
-        printHighlights(outcome.analysis.session.highlights, outcome.analysis.session.warnings)
-        echo("Session : ${outcome.analysis.sessionFile}")
+        printAnalyses(outcome.analyses)
         outcome.export?.let(::printExport) ?: echo("Rien à exporter.")
     }
 }
 
 class AnalyzeCommand : PipelineCommand("analyze") {
-    private val file by argument(help = "Vidéo à analyser").path(mustExist = true, canBeDir = false)
+    private val files by argument("VIDEO", help = "Une ou plusieurs vidéos à analyser : plusieurs = cible commune, une session par vidéo")
+        .path(mustExist = true, canBeDir = false).multiple(required = true)
     private val profile by option("-p", "--profile")
     private val threshold by option("--threshold").double().restrictTo(0.0, 1.0)
     private val target by targetOption()
@@ -104,20 +108,20 @@ class AnalyzeCommand : PipelineCommand("analyze") {
 
     override fun run() {
         val progress = ConsoleProgress()
-        val outcome = execute {
+        val outcomes = execute {
             try {
-                Pipelines.create(env.config).analyze(file, AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, outputDir = out), ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).analyzeAll(files, AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, outputDir = out), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
         }
-        printHighlights(outcome.session.highlights, outcome.session.warnings)
-        echo("Session : ${outcome.sessionFile}")
+        printAnalyses(outcomes)
     }
 }
 
 class ExportCommand : PipelineCommand("export") {
-    private val sessionFile by argument("SESSION", help = "Fichier .session.json").path(mustExist = true, canBeDir = false)
+    private val sessionFiles by argument("SESSION", help = "Un ou plusieurs fichiers .session.json : plusieurs = un seul montage, parties dans l'ordre d'enregistrement")
+        .path(mustExist = true, canBeDir = false).multiple(required = true)
     private val formats by formatsOption()
     private val out by option("-o", "--out").path(canBeFile = false)
 
@@ -126,9 +130,9 @@ class ExportCommand : PipelineCommand("export") {
     override fun run() {
         val progress = ConsoleProgress()
         val result = execute {
-            val session = SessionStore.load(sessionFile)
+            val sessions = sessionFiles.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).export(session, ExportOptions(formats, out), ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).export(sessions, ExportOptions(formats, out), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
@@ -316,6 +320,15 @@ class EncodersCommand : PipelineCommand("encoders") {
             FfmpegEncoderSelector(Pipelines.ffmpeg(env.config), env.config.app.encoder).checkAll()
         }
         checks.forEach { echo("  ${if (it.usable) "OK " else "KO "} ${it.name}${it.reason?.let { r -> " : $r" } ?: ""}") }
+    }
+}
+
+/** Moments et session de chaque capture ; le nom de la capture en tête quand il y en a plusieurs. */
+private fun PipelineCommand.printAnalyses(outcomes: List<AnalysisOutcome>) {
+    outcomes.forEach { outcome ->
+        if (outcomes.size > 1) echo("== ${outcome.session.media.path.fileName}")
+        printHighlights(outcome.session.highlights, outcome.session.warnings)
+        echo("Session : ${outcome.sessionFile}")
     }
 }
 

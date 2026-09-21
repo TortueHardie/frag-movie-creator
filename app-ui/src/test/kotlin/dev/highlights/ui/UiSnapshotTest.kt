@@ -109,7 +109,7 @@ class UiSnapshotTest : FunSpec({
     test("analyse en cours") {
         val state = UiState(
             config = ready,
-            source = source,
+            sources = listOf(source),
             settings = settings,
             job = JobState("Analyse de ${media.path.fileName}", 0.43, "Analyse > game-audio", 37.seconds, 49.seconds),
         )
@@ -119,7 +119,7 @@ class UiSnapshotTest : FunSpec({
     test("relecture des segments et export terminé") {
         val state = UiState(
             config = ready,
-            source = source,
+            sources = listOf(source),
             settings = settings,
             session = SessionState(session, Path("D:/Highlights/sessions/x.session.json"), selectedId = "h003"),
             lastExport = ExportResult(
@@ -140,7 +140,7 @@ class UiSnapshotTest : FunSpec({
     test("réglages du montage kills") {
         val state = UiState(
             config = ready,
-            source = source,
+            sources = listOf(source),
             settings = settings,
             session = SessionState(session, Path("D:/Highlights/sessions/x.session.json"), selectedId = "h003"),
             montage = MontageUiState(music = Path("D:/Musique/phonk_128.mp3")),
@@ -148,10 +148,28 @@ class UiSnapshotTest : FunSpec({
         render("06_montage", state).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("plusieurs captures pour un seul montage") {
+        // Trois parties de la même soirée : la deuxième est sélectionnée, sa courbe est affichée.
+        val parts = listOf("18-4-11-925" to 0, "19-1-23-983" to 3, "20-12-2-114" to 6).mapIndexed { n, (stamp, from) ->
+            val m = media.copy(
+                path = Path("C:/Users/Colin/Videos/Overwolf/Outplayed/WARDOGS/WARDOGS_09-16-2026_$stamp.mp4"),
+                creationTime = Instant.parse("2026-09-16T1${6 + n}:04:11Z"),
+            )
+            session.copy(media = m, highlights = highlights.subList(from, from + 3).mapIndexed { i, h -> h.copy(id = "h%03d".format(i + 1), source = m.path) })
+        }
+        val state = UiState(
+            config = ready,
+            sources = parts.map { SourceInfo(it.media.path, it.media, "wardogs") },
+            settings = settings,
+            session = SessionState(parts.mapIndexed { i, s -> SessionEntry(s, Path("D:/Highlights/sessions/$i.session.json")) }, selectedId = "2-h002"),
+        )
+        render("07_plusieurs_videos", state).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("erreur FFmpeg") {
         val state = UiState(
             config = ready,
-            source = source,
+            sources = listOf(source),
             settings = settings,
             error = ErrorInfo(
                 "Export du montage : échec",
@@ -165,6 +183,8 @@ class UiSnapshotTest : FunSpec({
 
 private object NoopActions : UiActions {
     override fun chooseSource() = Unit
+    override fun addSources() = Unit
+    override fun removeSource(path: Path) = Unit
     override fun chooseSession() = Unit
     override fun dropFiles(paths: List<Path>) = Unit
     override fun reloadConfig() = Unit

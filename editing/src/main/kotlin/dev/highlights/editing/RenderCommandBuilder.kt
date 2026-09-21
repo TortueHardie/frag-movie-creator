@@ -62,9 +62,17 @@ object RenderCommandBuilder {
             args += inputArgs(request.hwaccel, input.start, clip.range.length, input.path)
         }
 
+        // Taille commune, prise sur le premier clip : les captures d'une autre taille ou d'un autre ratio (1440p, ultrawide)
+        // y sont ramenées avec des bandes noires, sinon la concaténation échouerait.
+        val (w, h) = outputSize(request.format, clips.first().media, settings)
         val graph = mutableListOf<String>()
         clips.forEachIndexed { i, clip ->
-            graph += videoChain(i, clip.media, request.format, settings, "v$i")
+            if (outputSize(request.format, clip.media, settings) == w to h) {
+                graph += videoChain(i, clip.media, request.format, settings, "v$i")
+            } else {
+                graph += videoChain(i, clip.media, request.format, settings, "g$i")
+                graph += "[g$i]scale=$w:$h:force_original_aspect_ratio=decrease:flags=lanczos,pad=$w:$h:(ow-iw)/2:(oh-ih)/2,setsar=1[v$i]"
+            }
             graph += audioChain(i, clip, settings, request.audioLayout)
         }
 

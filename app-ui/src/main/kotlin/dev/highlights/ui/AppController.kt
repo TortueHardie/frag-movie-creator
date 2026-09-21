@@ -4,6 +4,7 @@ import dev.highlights.core.HighlightsException
 import dev.highlights.core.config.ConfigYaml
 import dev.highlights.core.ffmpeg.FfmpegException
 import dev.highlights.core.model.GameAudio
+import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.profile.GameProfile
 import dev.highlights.core.progress.ProgressReporter
@@ -45,6 +46,9 @@ class Backend(val pipeline: HighlightPipeline, val configFile: Path)
 
 interface UiActions {
     fun chooseSource()
+    /** Ajoute des captures à celles déjà choisies : un seul montage pour toutes. */
+    fun addSources()
+    fun removeSource(path: Path)
     fun chooseSession()
     fun dropFiles(paths: List<Path>)
     fun reloadConfig()
@@ -123,7 +127,7 @@ class AppController(
                     s.copy(
                         config = ConfigStatus.Ready(b.configFile, p.profilesDir, p.profiles.all().map { ProfileInfo(it.id, it.displayName) }),
                         settings = s.settings.copy(outputDir = s.settings.outputDir ?: p.defaultOutputDir),
-                        source = s.source?.let { src -> src.copy(detectedProfileId = p.resolveProfile(src.path).id) },
+                        sources = s.sources.map { src -> src.copy(detectedProfileId = p.resolveProfile(src.path).id) },
                     )
                 }
             } catch (e: CancellationException) {
@@ -148,36 +152,54 @@ class AppController(
     // ---------------------------------------------------------------- source
 
     override fun chooseSource() {
-        platform.chooseVideo(state.value.source?.path?.parent)?.let(::selectSource)
+        platform.chooseVideos(state.value.source?.path?.parent).takeIf { it.isNotEmpty() }?.let(::selectSources)
+    }
+
+    override fun addSources() {
+        val added = platform.chooseVideos(state.value.sources.lastOrNull()?.path?.parent)
+        if (added.isNotEmpty()) selectSources(state.value.sources.map { it.path } + added)
+    }
+
+    override fun removeSource(path: Path) {
+        if (state.value.job != null) return
+        val remaining = state.value.sources.filterNot { it.path == path }
+        thumbnailJob?.cancel()
+        // L'analyse portait sur l'ensemble (cible partagée) : elle est à refaire.
+        _state.update { s -> s.copy(sources = remaining, session = null, lastExport = null) }
     }
 
     override fun chooseSession() {
         val dir = state.value.settings.outputDir?.resolve("sessions")
-        platform.chooseSession(dir)?.let(::openSession)
+        platform.chooseSessions(dir).takeIf { it.isNotEmpty() }?.let(::openSessions)
     }
 
     override fun dropFiles(paths: List<Path>) {
-        val file = paths.firstOrNull() ?: return
-        if (file.name.lowercase().endsWith(".json")) openSession(file) else selectSource(file)
+        if (paths.isEmpty()) return
+        val (sessions, videos) = paths.partition { it.name.lowercase().endsWith(".json") }
+        if (videos.isNotEmpty()) selectSources(videos) else openSessions(sessions)
     }
 
-    private fun selectSource(path: Path) {
+    /** Remplace les captures choisies ; elles sont rangées dans l'ordre où les parties ont été jouées. */
+    private fun selectSources(paths: List<Path>) {
         if (state.value.job != null) return
-        if (path.extension.lowercase() !in HighlightPipeline.SUPPORTED_EXTENSIONS) {
+        val unsupported = paths.filter { it.extension.lowercase() !in HighlightPipeline.SUPPORTED_EXTENSIONS }
+        if (unsupported.isNotEmpty()) {
             showError(
                 "Fichier non supporté",
-                "${path.name} n'est pas une vidéo (${HighlightPipeline.SUPPORTED_EXTENSIONS.sorted().joinToString()}).",
+                "${unsupported.joinToString { it.name }} : pas une vidéo (${HighlightPipeline.SUPPORTED_EXTENSIONS.sorted().joinToString()}).",
             )
             return
         }
         val p = backend?.pipeline ?: return showError("Configuration non chargée", "Attends la fin du chargement ou corrige la configuration.")
-        runTask("Lecture du fichier", cancellable = false) {
-            val media = p.probe(path)
-            val profile = p.resolveProfile(path)
+        val files = paths.map { it.toAbsolutePath().normalize() }.distinct()
+        runTask(if (files.size == 1) "Lecture du fichier" else "Lecture de ${files.size} fichiers", cancellable = false) {
+            val sources = files.map { path -> SourceInfo(path, p.probe(path), p.resolveProfile(path).id) }
+                .sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { it.media })
+            val profile = p.resolveProfile(sources.first().path)
             thumbnailJob?.cancel()
             _state.update { s ->
                 s.copy(
-                    source = SourceInfo(path, media, profile.id),
+                    sources = sources,
                     session = null,
                     lastExport = null,
                     settings = s.settings.withProfileDefaults(profile).copy(profileId = null),
@@ -186,24 +208,28 @@ class AppController(
         }
     }
 
-    private fun openSession(file: Path) {
-        if (state.value.job != null) return
+    /** Rouvre une ou plusieurs analyses enregistrées : plusieurs = un seul montage. */
+    private fun openSessions(files: List<Path>) {
+        if (state.value.job != null || files.isEmpty()) return
         val p = backend?.pipeline ?: return showError("Configuration non chargée", "Attends la fin du chargement ou corrige la configuration.")
-        runTask("Ouverture de la session", cancellable = false) {
-            val session = withContext(Dispatchers.IO) { SessionStore.load(file) }
-            val profile = p.profiles.byId(session.profileId)
+        runTask(if (files.size == 1) "Ouverture de la session" else "Ouverture de ${files.size} sessions", cancellable = false) {
+            val entries = withContext(Dispatchers.IO) { files.distinct().map { SessionEntry(SessionStore.load(it), it) } }
+                .sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { it.session.media })
+            val profile = p.profiles.byId(entries.first().session.profileId)
+            val opened = SessionState(entries)
             _state.update { s ->
                 s.copy(
-                    source = SourceInfo(session.media.path, session.media, p.resolveProfile(session.media.path).id),
-                    session = SessionState(session, file, session.highlights.firstOrNull()?.id),
+                    sources = entries.map { SourceInfo(it.session.media.path, it.session.media, p.resolveProfile(it.session.media.path).id) },
+                    session = opened.copy(selectedId = opened.segments.firstOrNull()?.key),
                     lastExport = null,
                     settings = s.settings.withProfileDefaults(profile).copy(profileId = profile.id),
                 )
             }
-            if (!session.media.path.exists()) {
-                showError("Vidéo source introuvable", "${session.media.path} n'existe plus : l'export et les aperçus seront impossibles.")
+            val missing = entries.map { it.session.media.path }.filterNot { it.exists() }
+            if (missing.isNotEmpty()) {
+                showError("Vidéo source introuvable", "${missing.joinToString()} n'existe plus : l'export et les aperçus seront impossibles.")
             }
-            loadThumbnails(session)
+            loadThumbnails()
         }
     }
 
@@ -220,7 +246,7 @@ class AppController(
         _state.update { s ->
             s.copy(
                 settings = s.settings.withProfileDefaults(profile).copy(profileId = id),
-                session = s.session?.let { it.copy(profileChanged = it.session.profileId != profile.id) },
+                session = s.session?.let { it.copy(profileChanged = it.sessions.any { session -> session.profileId != profile.id }) },
             )
         }
     }
@@ -254,28 +280,30 @@ class AppController(
         val target = s.settings.target ?: return
         val p = backend?.pipeline ?: return
         val reselected = try {
-            p.reselect(current.session, s.settings.threshold, target, s.settings.momentMode.requiredEvent)
+            p.reselectAll(current.sessions, s.settings.threshold, target, s.settings.momentMode.requiredEvent)
         } catch (e: HighlightsException) {
             return showError("Recalcul impossible", e.message ?: "")
         }
         _state.update { st ->
             val sel = st.session ?: return@update st
-            st.copy(session = sel.copy(session = reselected, selectedId = sel.selectedId?.takeIf { id -> reselected.highlights.any { it.id == id } }))
+            val updated = sel.copy(entries = sel.entries.zip(reselected) { e, session -> e.copy(session = session) })
+            st.copy(session = updated.copy(selectedId = sel.selectedId?.takeIf { key -> updated.segments.any { it.key == key } }))
         }
         scheduleSave()
-        loadThumbnails(reselected)
+        loadThumbnails()
     }
 
     // ---------------------------------------------------------------- traitements
 
     override fun analyze() {
         val s = state.value
-        val source = s.source ?: return
+        val sources = s.sources.takeIf { it.isNotEmpty() } ?: return
         val p = backend?.pipeline ?: return
         val target = s.settings.target ?: return showError("Réglage invalide", "La durée cible ou le nombre de moments n'est pas valide.")
-        runTask("Analyse de ${source.path.name}") { progress ->
-            val outcome = p.analyze(
-                source.path,
+        val title = if (sources.size == 1) "Analyse de ${sources.single().path.name}" else "Analyse de ${sources.size} vidéos"
+        runTask(title) { progress ->
+            val outcomes = p.analyzeAll(
+                sources.map { it.path },
                 AnalyzeOptions(
                     s.settings.profileId,
                     s.settings.threshold,
@@ -285,21 +313,23 @@ class AppController(
                 ),
                 progress,
             )
+            val analyzed = SessionState(outcomes.map { SessionEntry(it.session, it.sessionFile) })
             _state.update { st ->
                 st.copy(
-                    session = SessionState(outcome.session, outcome.sessionFile, outcome.session.highlights.firstOrNull()?.id),
+                    session = analyzed.copy(selectedId = analyzed.segments.firstOrNull()?.key),
                     lastExport = null,
                 )
             }
-            if (outcome.session.highlights.isEmpty()) {
+            if (analyzed.highlights.isEmpty()) {
                 val hint = if (s.settings.momentMode == MomentMode.KILLS) {
                     "Aucun kill détecté : ce profil n'a peut-être pas de détection de kills. Essaie « Les meilleurs moments »."
                 } else {
                     "Baisse le seuil pour retenir plus de moments."
                 }
-                showError("Aucun moment retenu", (outcome.session.warnings + hint).joinToString("\n"))
+                val warnings = outcomes.flatMap { o -> o.session.warnings.map { w -> if (outcomes.size > 1) "${o.session.media.path.name} : $w" else w } }
+                showError("Aucun moment retenu", (warnings + hint).joinToString("\n"))
             }
-            loadThumbnails(outcome.session)
+            loadThumbnails()
         }
     }
 
@@ -309,7 +339,7 @@ class AppController(
         val p = backend?.pipeline ?: return
         runTask("Export du montage") { progress ->
             saveNow(current)
-            val result = p.export(current.session, ExportOptions(s.settings.orderedFormats, s.settings.outputDir), progress)
+            val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir), progress)
             _state.update { it.copy(lastExport = result) }
         }
     }
@@ -323,27 +353,27 @@ class AppController(
         val jobs = listOfNotNull(mainJob, thumbnailJob, saveJob)
         jobs.forEach { it.cancel() }
         runBlocking { withTimeoutOrNull(3.seconds) { jobs.forEach { it.join() } } }
-        state.value.session?.let { runCatching { SessionStore.save(it.session, it.file) } }
+        state.value.session?.entries?.forEach { runCatching { SessionStore.save(it.session, it.file) } }
     }
 
     // ---------------------------------------------------------------- segments
 
-    override fun toggleSegment(id: String) = updateHighlights { h -> if (h.id == id) h.copy(enabled = !h.enabled) else h }
+    override fun toggleSegment(id: String) = updateSegments { s -> if (s.key == id) s.highlight.copy(enabled = !s.highlight.enabled) else s.highlight }
 
-    override fun setAllSegments(enabled: Boolean) = updateHighlights { it.copy(enabled = enabled) }
+    override fun setAllSegments(enabled: Boolean) = updateSegments { it.highlight.copy(enabled = enabled) }
 
     override fun selectSegment(id: String?) = _state.update { s -> s.copy(session = s.session?.copy(selectedId = id)) }
 
     override fun previewClip(id: String) {
         val s = state.value
         val current = s.session ?: return
-        val highlight = current.highlights.firstOrNull { it.id == id } ?: return
+        val segment = current.segments.firstOrNull { it.key == id } ?: return
         val p = backend?.pipeline ?: return
         if (id in s.busyClips) return
         _state.update { it.copy(busyClips = it.busyClips + id) }
         scope.launch {
             try {
-                val clip = withContext(Dispatchers.IO) { p.clipPreview(current.session, highlight) }
+                val clip = withContext(Dispatchers.IO) { p.clipPreview(current.entries[segment.entry].session, segment.highlight) }
                 platform.open(clip)
             } catch (e: CancellationException) {
                 throw e
@@ -358,7 +388,9 @@ class AppController(
     override fun previewVertical(id: String) {
         val s = state.value
         val current = s.session ?: return
-        val highlight = current.highlights.firstOrNull { it.id == id } ?: return
+        val segment = current.segments.firstOrNull { it.key == id } ?: return
+        val highlight = segment.highlight
+        val session = current.entries[segment.entry].session
         val p = backend?.pipeline ?: return
         if (s.busyVerticalPreview != null) return
         _state.update { it.copy(busyVerticalPreview = id) }
@@ -367,9 +399,10 @@ class AppController(
                 val image = withContext(Dispatchers.IO) {
                     // Relit les profils : les zones du HUD modifiées dans le YAML s'appliquent immédiatement.
                     p.reloadProfiles()
-                    p.preview(current.session.media.path, highlight.peak, current.session.profileId, listOf(OutputFormat.VERTICAL), p.previewDir).single()
+                    p.preview(session.media.path, highlight.peak, session.profileId, listOf(OutputFormat.VERTICAL), p.previewDir).single()
                 }
-                _state.update { it.copy(imagePreview = ImagePreview(image, "Aperçu 9:16 — ${highlight.id} au pic", highlight.id)) }
+                val where = if (current.multiple) " de ${session.media.path.name}" else ""
+                _state.update { it.copy(imagePreview = ImagePreview(image, "Aperçu 9:16 — ${highlight.id}$where au pic", id)) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -387,7 +420,7 @@ class AppController(
     override fun openMontage() {
         val s = state.value
         val p = backend?.pipeline ?: return
-        val profileId = s.session?.session?.profileId ?: return
+        val profileId = s.session?.sessions?.firstOrNull()?.profileId ?: return
         val montage = runCatching { p.profiles.byId(profileId).montage }.getOrNull()
         _state.update {
             it.copy(
@@ -428,7 +461,7 @@ class AppController(
         runTask("Montage kills sur ${music.name}") { progress ->
             saveNow(session)
             val result = p.killMontage(
-                listOf(session.session),
+                session.sessions,
                 music,
                 MontageOptions(
                     formats = OutputFormat.entries.filter { it in montage.formats },
@@ -458,13 +491,16 @@ class AppController(
 
     private fun currentProfileId(): String? {
         val s = state.value
-        return s.session?.session?.profileId ?: s.settings.profileId ?: s.source?.detectedProfileId
+        return s.session?.sessions?.firstOrNull()?.profileId ?: s.settings.profileId ?: s.source?.detectedProfileId
     }
 
-    private fun updateHighlights(change: (dev.highlights.core.model.Highlight) -> dev.highlights.core.model.Highlight) {
+    private fun updateSegments(change: (Segment) -> dev.highlights.core.model.Highlight) {
         _state.update { s ->
             val current = s.session ?: return@update s
-            s.copy(session = current.copy(session = current.session.copy(highlights = current.highlights.map(change))))
+            val entries = current.entries.mapIndexed { i, e ->
+                e.copy(session = e.session.copy(highlights = e.session.highlights.map { h -> change(Segment(current.keyOf(i, h), i, h)) }))
+            }
+            s.copy(session = current.copy(entries = entries))
         }
         scheduleSave()
     }
@@ -479,20 +515,26 @@ class AppController(
     }
 
     private suspend fun saveNow(session: SessionState) = withContext(Dispatchers.IO) {
-        runCatching { SessionStore.save(session.session, session.file) }
-            .onFailure { log.warn(it) { "Sauvegarde de la session impossible" } }
+        session.entries.forEach { e ->
+            runCatching { SessionStore.save(e.session, e.file) }
+                .onFailure { log.warn(it) { "Sauvegarde de la session ${e.file} impossible" } }
+        }
     }
 
-    private fun loadThumbnails(session: Session) {
+    /** Vignettes manquantes des segments affichés, toutes captures confondues. */
+    private fun loadThumbnails() {
         val p = backend?.pipeline ?: return
-        if (!session.media.path.exists()) return
+        val current = state.value.session ?: return
         thumbnailJob?.cancel()
         thumbnailJob = scope.launch {
-            for (h in session.highlights) {
-                val key = h.peak.inWholeMilliseconds
+            for (segment in current.segments) {
+                val h = segment.highlight
+                val media = current.entries[segment.entry].session.media
+                if (!media.path.exists()) continue
+                val key = SessionState.thumbnailKey(segment.entry, h)
                 if (state.value.session?.thumbnails?.containsKey(key) == true) continue
                 val thumb = try {
-                    withContext(Dispatchers.IO) { p.thumbnail(session.media, h.peak) }
+                    withContext(Dispatchers.IO) { p.thumbnail(media, h.peak) }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

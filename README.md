@@ -106,7 +106,13 @@ Rien à régler avant d'analyser une première capture : l'application s'adapte 
 - **Carte graphique** : AMD, NVIDIA, Intel et Apple sont essayés dans l'ordre, chacun par un vrai encodage de test, avec
   repli sur l'encodeur logiciel. Le décodage matériel est en `auto` et retombe en logiciel si le rendu échoue.
 - **Résolution et cadence** : le montage ne dépasse jamais celles de la capture (un enregistrement 720p à 30 img/s n'est
-  ni agrandi ni dupliqué), et un montage kills mélangeant plusieurs captures les ramène toutes au format de la première.
+  ni agrandi ni dupliqué), et un montage mélangeant plusieurs captures les ramène toutes au format de la première.
+- **Plusieurs captures, un seul montage** : toute une soirée d'un coup, une capture par partie. Chaque capture est
+  analysée et garde sa session ; la cible (`--top`, `--duration`) vaut pour l'ensemble, si bien que « les 8 meilleurs
+  moments » sont les 8 meilleurs de la soirée et non 8 par partie. Les meilleurs moments se suivent dans l'ordre où les
+  parties ont été jouées (date d'enregistrement de la capture, sinon date du fichier), quel que soit l'ordre dans lequel
+  les fichiers sont donnés. Le montage kills, lui, place les kills sur la musique sans tenir compte de la partie
+  d'origine (sauf avec `--chronological`).
 - **Micro absent, capture muette, OCR de Windows indisponible** : chaque signal manquant est signalé et ignoré, jamais
   bloquant.
 
@@ -126,7 +132,7 @@ Pour voir ce que ça donne sur une machine donnée :
 Via « Recharger », ou « Régénérer » dans l'aperçu 9:16.
 
 Dans l'application :
-1. choisir ou glisser une capture ;
+1. choisir ou glisser une ou plusieurs captures (« Ajouter des vidéos » pour compléter la liste) ;
 2. régler le profil, les formats, la durée et le seuil ;
 3. cliquer sur « Analyser » ;
 4. relire les segments : timeline, vignettes, « ▶ Revoir » ouvre un extrait dans le lecteur, « 9:16 » affiche l'aperçu vertical avec le HUD ;
@@ -243,8 +249,10 @@ $app = ".\app-cli\build\install\app\bin\app.bat"
 & $app music D:\Musique\son.mp3 --max 60s --clips 12         # tempo, sections, drop et grille de coupes d'un montage
 & $app process "D:\Videos\...\partie.mp4"         # analyse + montage
 & $app process partie.mp4 --profile valorant --duration 5m --format 16:9,9:16
+& $app process partie1.mp4 partie2.mp4 partie3.mp4 --top 10   # toute une soirée : un seul montage, parties dans l'ordre joué
 & $app analyze partie.mp4                         # analyse seule → output\sessions\partie.session.json
 & $app export output\sessions\partie.session.json # ré-export après avoir passé "enabled": false sur des segments
+& $app export output\sessions\partie1.session.json output\sessions\partie2.session.json   # ré-export de plusieurs parties
 ```
 
 Options globales : `--config <app.yaml>`, `-v` (logs détaillés : commandes FFmpeg et stderr).

@@ -96,6 +96,11 @@ data class AnalysisOutcome(val session: Session, val sessionFile: Path, val prof
 
 data class ProcessOutcome(val analysis: AnalysisOutcome, val export: ExportResult?)
 
+/** Analyse de plusieurs captures pour un seul montage : une session par capture, dans l'ordre d'enregistrement. */
+data class BatchOutcome(val analyses: List<AnalysisOutcome>, val export: ExportResult?) {
+    val sessions: List<Session> get() = analyses.map { it.session }
+}
+
 /** Point d'entrée du cœur, indépendant de toute interface (CLI, Compose, watch folder). */
 class HighlightPipeline(
     private val config: LoadedConfig,
@@ -138,7 +143,11 @@ class HighlightPipeline(
         return ffmpeg.probe(file)
     }
 
-    suspend fun analyze(file: Path, options: AnalyzeOptions, progress: ProgressReporter): AnalysisOutcome {
+    suspend fun analyze(file: Path, options: AnalyzeOptions, progress: ProgressReporter): AnalysisOutcome =
+        analyze(file, options, progress, file.nameWithoutExtension)
+
+    /** [sessionName] : nom du fichier de session, sans extension. */
+    private suspend fun analyze(file: Path, options: AnalyzeOptions, progress: ProgressReporter, sessionName: String): AnalysisOutcome {
         validateInput(file)
         val probeStep = progress.child("Lecture", 0.02)
         val media = ffmpeg.probe(file)
@@ -178,19 +187,47 @@ class HighlightPipeline(
             highlights = highlights,
             warnings = warnings.toList(),
         )
-        val sessionFile = (options.outputDir ?: config.outputDir).resolve("sessions").resolve("${media.path.nameWithoutExtension}.session.json")
+        val sessionFile = (options.outputDir ?: config.outputDir).resolve("sessions").resolve("$sessionName.session.json")
         SessionStore.save(session, sessionFile)
         log.info { "${highlights.size} moment(s) retenu(s), session : $sessionFile" }
         return AnalysisOutcome(session, sessionFile, profile)
     }
 
-    suspend fun export(session: Session, options: ExportOptions, progress: ProgressReporter): ExportResult {
-        val profile = profiles.byId(session.profileId)
+    /**
+     * Analyse plusieurs captures d'une même soirée pour en faire un seul montage. Chaque capture garde sa session ;
+     * la cible (top N, durée) vaut pour l'ensemble : les meilleurs moments de toutes les parties, pas de chacune.
+     * Les sessions sont rendues dans l'ordre d'enregistrement des captures.
+     */
+    suspend fun analyzeAll(files: List<Path>, options: AnalyzeOptions, progress: ProgressReporter): List<AnalysisOutcome> {
+        if (files.isEmpty()) throw InputException("Aucune vidéo à analyser")
+        files.forEach(::validateInput)
+        val distinct = files.map { it.toAbsolutePath().normalize() }.distinct()
+        // Deux captures du même nom (dossiers différents) ne doivent pas écrire la même session.
+        val names = distinct.map { it.nameWithoutExtension }
+        val outcomes = distinct.mapIndexed { i, file ->
+            val name = if (names.count { it == names[i] } > 1) "${file.parent?.fileName ?: "capture"}_${names[i]}_${i + 1}" else names[i]
+            analyze(file, options, progress.child("${file.fileName} (${i + 1}/${distinct.size})", 1.0 / distinct.size), name)
+        }.sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { it.session.media })
+        if (outcomes.size == 1) return outcomes
+        val reselected = reselectAll(outcomes.map { it.session }, options.threshold, options.target, options.requiredEvent)
+        return outcomes.zip(reselected) { outcome, session ->
+            SessionStore.save(session, outcome.sessionFile)
+            outcome.copy(session = session)
+        }.also { all -> log.info { "${all.sumOf { it.session.highlights.size }} moment(s) retenu(s) sur ${all.size} captures" } }
+    }
+
+    suspend fun export(session: Session, options: ExportOptions, progress: ProgressReporter): ExportResult =
+        export(listOf(session), options, progress)
+
+    /** Un seul montage des segments cochés de toutes les [sessions]. Réglages du profil de la première. */
+    suspend fun export(sessions: List<Session>, options: ExportOptions, progress: ProgressReporter): ExportResult {
+        if (sessions.isEmpty()) throw InputException("Aucune session à exporter")
+        val profile = profiles.byId(sessions.first().profileId)
         val edit = profile.gradedEdit()
         val settings: EditSettings = options.formats?.let { edit.copy(formats = it) } ?: edit
         return withJobDir { workDir ->
             exporter.export(
-                session,
+                sessions,
                 ExportRequest(
                     settings = settings,
                     outputDir = options.outputDir ?: config.outputDir,
@@ -231,6 +268,21 @@ class HighlightPipeline(
         }
         val fresh = scoring.select(session.timeline, policy, session.media.path)
         return session.copy(highlights = HighlightMerge.preserveDisabled(session.highlights, fresh))
+    }
+
+    /**
+     * [reselect] sur plusieurs captures à la fois : la cible est partagée entre elles. Seuil, marges et cible viennent
+     * du profil de la première session, comme pour l'export.
+     */
+    fun reselectAll(sessions: List<Session>, threshold: Double?, target: SelectionTarget?, requiredEvent: String? = null): List<Session> {
+        if (sessions.size <= 1) return sessions.map { reselect(it, threshold, target, requiredEvent) }
+        val policy = profiles.byId(sessions.first().profileId).selection.let { s ->
+            s.copy(threshold = threshold ?: s.threshold, target = target ?: s.target, requiredEvent = requiredEvent)
+        }
+        val fresh = scoring.selectAcross(sessions.map { it.timeline to it.media.path }, policy)
+        return sessions.zip(fresh) { session, highlights ->
+            session.copy(highlights = HighlightMerge.preserveDisabled(session.highlights, highlights))
+        }
     }
 
     /** Vignette JPEG d'un instant, mise en cache dans le dossier de travail. */
@@ -297,6 +349,14 @@ class HighlightPipeline(
                 progress.child("Rendu", 0.92),
             )
         }
+    }
+
+    /** [analyzeAll] puis un seul montage de toutes les captures. */
+    suspend fun processAll(files: List<Path>, analyze: AnalyzeOptions, export: ExportOptions, progress: ProgressReporter): BatchOutcome {
+        val analyses = analyzeAll(files, analyze.copy(outputDir = analyze.outputDir ?: export.outputDir), progress.child("", 0.6))
+        val sessions = analyses.map { it.session }
+        if (sessions.none { s -> s.highlights.any { it.enabled } }) return BatchOutcome(analyses, null)
+        return BatchOutcome(analyses, export(sessions, export, progress.child("Export", 0.4)))
     }
 
     suspend fun process(file: Path, analyze: AnalyzeOptions, export: ExportOptions, progress: ProgressReporter): ProcessOutcome {

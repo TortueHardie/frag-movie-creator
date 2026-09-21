@@ -302,7 +302,8 @@ object MontagePlanner {
             }
             MontageOrder.CHRONOLOGICAL -> {
                 val kept = groups.sortedByDescending { it.rank }.take(cells.size)
-                val ordered = kept.sortedWith(compareBy<KillGroup> { it.media.path.toString() }.thenBy { it.kills.first() })
+                // Les parties dans l'ordre où elles ont été jouées, pas dans celui des noms de fichiers.
+                val ordered = kept.sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { g: KillGroup -> g.media }.thenBy { it.kills.first() })
                 var i = 0
                 for (g in ordered) {
                     if (i >= cells.size) break

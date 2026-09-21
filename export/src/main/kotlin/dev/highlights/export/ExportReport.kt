@@ -9,7 +9,10 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class ExportReport(
     val generatedAt: String,
+    /** Première capture (la seule, le plus souvent). */
     val source: String,
+    /** Toutes les captures, quand le montage en réunit plusieurs. */
+    val sources: List<String> = emptyList(),
     val profile: String,
     val encoder: String,
     val outputs: List<ReportOutput>,
@@ -34,9 +37,11 @@ data class ReportHighlight(
     val durationSeconds: Double,
     val score: Double,
     val contributions: Map<String, Double>,
+    /** Capture d'où vient le moment, quand le montage en réunit plusieurs. */
+    val source: String? = null,
 ) {
     companion object {
-        fun of(h: Highlight, order: Int?) = ReportHighlight(
+        fun of(h: Highlight, order: Int?, withSource: Boolean = false) = ReportHighlight(
             id = h.id,
             order = order,
             start = h.range.start.toTimecode(),
@@ -47,6 +52,7 @@ data class ReportHighlight(
             durationSeconds = h.range.length.inWholeMilliseconds / 1000.0,
             score = h.score.roundTo(3),
             contributions = h.contributions.mapValues { it.value.roundTo(3) },
+            source = if (withSource) h.source.toString() else null,
         )
     }
 }

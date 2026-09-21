@@ -16,7 +16,8 @@ import kotlin.time.Duration
 
 data class UiState(
     val config: ConfigStatus = ConfigStatus.Loading,
-    val source: SourceInfo? = null,
+    /** Captures choisies, dans l'ordre d'enregistrement : plusieurs = un seul montage de toutes les parties. */
+    val sources: List<SourceInfo> = emptyList(),
     val settings: SettingsState = SettingsState(),
     val job: JobState? = null,
     val session: SessionState? = null,
@@ -31,7 +32,10 @@ data class UiState(
     /** Dernière musique choisie, proposée à la prochaine ouverture. */
     val lastMusic: Path? = null,
 ) {
-    val canAnalyze: Boolean get() = config is ConfigStatus.Ready && source != null && job == null
+    /** Première capture : celle qui décide du profil détecté et du ratio d'origine. */
+    val source: SourceInfo? get() = sources.firstOrNull()
+
+    val canAnalyze: Boolean get() = config is ConfigStatus.Ready && sources.isNotEmpty() && job == null
     val canExport: Boolean get() = session != null && job == null && session.enabledCount > 0 && settings.formats.isNotEmpty()
 }
 
@@ -85,24 +89,52 @@ data class JobState(
     val cancellable: Boolean = true,
 )
 
+/** Analyse d'une capture et fichier où elle est enregistrée. */
+data class SessionEntry(val session: Session, val file: Path)
+
+/**
+ * Un moment de la liste : [key] l'identifie parmi toutes les captures (les identifiants h001… recommencent à chaque
+ * capture), [entry] est l'index de sa capture dans [SessionState.entries].
+ */
+data class Segment(val key: String, val entry: Int, val highlight: Highlight)
+
 data class SessionState(
-    val session: Session,
-    val file: Path,
+    /** Une analyse par capture, dans l'ordre d'enregistrement. */
+    val entries: List<SessionEntry>,
+    /** Clé du segment sélectionné (voir [Segment.key]). */
     val selectedId: String? = null,
-    /** Vignettes par instant du pic (ms), pour survivre au recalcul des identifiants. */
-    val thumbnails: Map<Long, Path> = emptyMap(),
+    /** Vignettes par capture et instant du pic, pour survivre au recalcul des identifiants. */
+    val thumbnails: Map<String, Path> = emptyMap(),
     /** Le profil choisi a changé depuis l'analyse. */
     val profileChanged: Boolean = false,
 ) {
-    val highlights: List<Highlight> get() = session.highlights
+    constructor(session: Session, file: Path, selectedId: String? = null) : this(listOf(SessionEntry(session, file)), selectedId)
+
+    val sessions: List<Session> get() = entries.map { it.session }
+    val multiple: Boolean get() = entries.size > 1
+
+    /** Tous les moments, capture par capture : l'ordre du montage chronologique. */
+    val segments: List<Segment>
+        get() = entries.flatMapIndexed { i, e -> e.session.highlights.map { Segment(keyOf(i, it), i, it) } }
+    val highlights: List<Highlight> get() = sessions.flatMap { it.highlights }
     val enabledCount: Int get() = highlights.count { it.enabled }
     val enabledDuration: Duration get() = highlights.filter { it.enabled }.fold(Duration.ZERO) { acc, h -> acc + h.range.length }
-    val selected: Highlight? get() = highlights.firstOrNull { it.id == selectedId }
+    val selected: Segment? get() = segments.firstOrNull { it.key == selectedId }
 
-    fun thumbnailOf(h: Highlight): Path? = thumbnails[h.peak.inWholeMilliseconds]
+    /** Capture dont la courbe est affichée : celle du segment sélectionné, sinon la première. */
+    val shownEntry: Int get() = selected?.entry ?: 0
 
-    /** Nombre d'événements détectés dans la partie, par type. */
-    val eventCounts: Map<String, Int> get() = session.timeline.events.groupingBy { it.kind }.eachCount()
+    fun thumbnailOf(segment: Segment): Path? = thumbnails[thumbnailKey(segment.entry, segment.highlight)]
+
+    /** Clé d'un moment : son identifiant seul avec une capture, préfixé du numéro de la capture avec plusieurs. */
+    fun keyOf(entry: Int, h: Highlight): String = if (multiple) "${entry + 1}-${h.id}" else h.id
+
+    /** Nombre d'événements détectés dans les parties, par type. */
+    val eventCounts: Map<String, Int> get() = sessions.flatMap { it.timeline.events }.groupingBy { it.kind }.eachCount()
+
+    companion object {
+        fun thumbnailKey(entry: Int, h: Highlight): String = "$entry@${h.peak.inWholeMilliseconds}"
+    }
 }
 
 data class ErrorInfo(val title: String, val message: String, val details: List<String> = emptyList())

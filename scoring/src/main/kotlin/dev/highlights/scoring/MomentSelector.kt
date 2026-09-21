@@ -10,6 +10,13 @@ import kotlin.time.Duration
 fun interface MomentSelector {
     /** Retourne les moments retenus, dans l'ordre chronologique. */
     fun select(timeline: ScoredTimeline, policy: SelectionPolicy, source: Path): List<Highlight>
+
+    /**
+     * Sélection sur plusieurs captures à la fois : la cible (top N, durée) vaut pour l'ensemble, pas pour chacune.
+     * Retourne les moments de chaque capture, dans l'ordre de [inputs].
+     */
+    fun selectAcross(inputs: List<Pair<ScoredTimeline, Path>>, policy: SelectionPolicy): List<List<Highlight>> =
+        inputs.map { (timeline, source) -> select(timeline, policy, source) }
 }
 
 /**
@@ -21,12 +28,42 @@ fun interface MomentSelector {
  */
 object ThresholdMomentSelector : MomentSelector {
 
-    private data class Candidate(val range: TimeRange, val peakIndex: Int, val peak: Duration, val score: Double)
+    /** [input] : capture d'origine, quand la sélection porte sur plusieurs. */
+    private data class Candidate(val range: TimeRange, val peakIndex: Int, val peak: Duration, val score: Double, val input: Int = 0)
 
     /** Bonus de classement par événement supplémentaire dans un même moment (multi-kill). */
     private const val EXTRA_EVENT_RANK_BONUS = 0.25
 
-    override fun select(timeline: ScoredTimeline, policy: SelectionPolicy, source: Path): List<Highlight> {
+    override fun select(timeline: ScoredTimeline, policy: SelectionPolicy, source: Path): List<Highlight> =
+        selectAcross(listOf(timeline to source), policy).single()
+
+    /**
+     * Les candidats de toutes les captures sont classés ensemble : « les 8 meilleurs moments » sont les 8 meilleurs de
+     * la soirée, pas 8 par partie. Les scores sont normalisés capture par capture ; ils restent comparables tant que
+     * les parties viennent du même jeu, avec le même profil.
+     */
+    override fun selectAcross(inputs: List<Pair<ScoredTimeline, Path>>, policy: SelectionPolicy): List<List<Highlight>> {
+        val candidates = inputs.flatMapIndexed { i, (timeline, _) -> candidates(timeline, policy).map { it.copy(input = i) } }
+        val chosen = applyTarget(candidates, policy) { inputs[it.input].first }
+        return inputs.mapIndexed { i, (timeline, source) ->
+            chosen.filter { it.input == i }
+                .sortedBy { it.range.start }
+                .mapIndexed { n, c ->
+                    Highlight(
+                        id = "h%03d".format(n + 1),
+                        source = source,
+                        range = c.range,
+                        peak = c.peak,
+                        score = c.score,
+                        contributions = timeline.contributions.mapValues { (_, values) -> values[c.peakIndex] },
+                        events = eventsIn(timeline, c.range),
+                    )
+                }
+        }
+    }
+
+    /** Étapes 1 à 3 : les moments possibles d'une capture, avant la cible. */
+    private fun candidates(timeline: ScoredTimeline, policy: SelectionPolicy): List<Candidate> {
         val grid = timeline.grid
         val scores = timeline.total
         val bounds = TimeRange(Duration.ZERO, grid.total)
@@ -58,20 +95,7 @@ object ThresholdMomentSelector : MomentSelector {
                 merged += c
             }
         }
-
-        return applyTarget(merged, policy, timeline)
-            .sortedBy { it.range.start }
-            .mapIndexed { n, c ->
-                Highlight(
-                    id = "h%03d".format(n + 1),
-                    source = source,
-                    range = c.range,
-                    peak = c.peak,
-                    score = c.score,
-                    contributions = timeline.contributions.mapValues { (_, values) -> values[c.peakIndex] },
-                    events = eventsIn(timeline, c.range),
-                )
-            }
+        return merged
     }
 
     private fun thresholdGroups(timeline: ScoredTimeline, policy: SelectionPolicy): List<Pair<TimeRange, Int>> {
@@ -112,9 +136,9 @@ object ThresholdMomentSelector : MomentSelector {
         }
     }
 
-    private fun applyTarget(candidates: List<Candidate>, policy: SelectionPolicy, timeline: ScoredTimeline): List<Candidate> {
-        fun rank(c: Candidate) = c.score + EXTRA_EVENT_RANK_BONUS * (eventsIn(timeline, c.range).values.sum() - 1).coerceAtLeast(0)
-        val byRank = candidates.sortedWith(compareByDescending<Candidate> { rank(it) }.thenBy { it.range.start })
+    private fun applyTarget(candidates: List<Candidate>, policy: SelectionPolicy, timelineOf: (Candidate) -> ScoredTimeline): List<Candidate> {
+        fun rank(c: Candidate) = c.score + EXTRA_EVENT_RANK_BONUS * (eventsIn(timelineOf(c), c.range).values.sum() - 1).coerceAtLeast(0)
+        val byRank = candidates.sortedWith(compareByDescending<Candidate> { rank(it) }.thenBy { it.input }.thenBy { it.range.start })
         if (policy.target.all) return byRank
         policy.target.topN?.let { return byRank.take(it) }
 
@@ -129,7 +153,7 @@ object ThresholdMomentSelector : MomentSelector {
             } else {
                 val trimmed = c.copy(range = placeAroundPeak(remaining, c.peak, policy, c.range))
                 // Un moment rogné au point de couper une phrase ou un rire est écarté : on essaie les suivants.
-                if (SegmentExtension.cutsSegment(trimmed.range, timeline, policy)) continue
+                if (SegmentExtension.cutsSegment(trimmed.range, timelineOf(c), policy)) continue
                 trimmed
             }
             chosen += clip

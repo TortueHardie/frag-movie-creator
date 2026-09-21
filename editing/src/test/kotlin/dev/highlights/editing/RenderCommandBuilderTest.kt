@@ -233,6 +233,48 @@ class RenderCommandBuilderTest : FunSpec({
         chain.single() shouldContain "setsar=1,eq=saturation=1.200:contrast=1.000,format=yuv420p"
     }
 
+    test("plusieurs captures : les parties dans l'ordre où elles ont été jouées, pas dans celui des fichiers") {
+        fun capture(name: String, recorded: String, width: Int) = media.copy(
+            path = Path("D:/captures/$name.mp4"),
+            creationTime = Instant.parse(recorded),
+            video = VideoStream(0, "h264", width, 1080, 60.0),
+        )
+        fun session(m: MediaInfo, vararg starts: Int) = Session(
+            createdAt = Instant.EPOCH,
+            media = m,
+            profileId = "lol",
+            timeline = ScoredTimeline(WindowGrid(1.seconds, 1.seconds, 1.seconds), listOf(0.0), emptyMap()),
+            highlights = starts.mapIndexed { i, s -> Highlight("h00${i + 1}", m.path, TimeRange(s.seconds, (s + 10).seconds), s.seconds, 0.5) },
+        )
+        // « z » a été jouée en premier malgré son nom, en ultrawide.
+        val late = session(capture("a", "2026-09-20T22:00:00Z", 1920), 300, 30)
+        val early = session(capture("z", "2026-09-20T20:00:00Z", 2560), 600)
+
+        val plan = DefaultEditPlanner.plan(listOf(late, early), EditSettings(transition = TransitionSettings(TransitionType.CUT)))
+        plan.clips.map { it.media.path.fileName.toString() to it.range.start.inWholeSeconds } shouldBe
+            listOf("z.mp4" to 600L, "a.mp4" to 30L, "a.mp4" to 300L)
+
+        // Taille commune, celle du premier clip : la capture 16:9 y est ramenée avec des bandes noires.
+        val graph = RenderCommandBuilder.build(request(plan, OutputFormat.SOURCE)).filterGraph
+        graph shouldContain "[g1]scale=2560:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=2560:1080:(ow-iw)/2:(oh-ih)/2,setsar=1[v1]"
+        graph shouldNotContain "[g0]"
+    }
+
+    test("plusieurs captures : cadence et hauteur plafonnées par la plus grande des sources") {
+        val small = media.copy(path = Path("D:/captures/720.mp4"), video = VideoStream(0, "h264", 1280, 720, 30.0))
+        val big = media.copy(path = Path("D:/captures/1080.mp4"), video = VideoStream(0, "h264", 1920, 1080, 60.0))
+        fun session(m: MediaInfo) = Session(
+            createdAt = Instant.EPOCH,
+            media = m,
+            profileId = "lol",
+            timeline = ScoredTimeline(WindowGrid(1.seconds, 1.seconds, 1.seconds), listOf(0.0), emptyMap()),
+            highlights = listOf(Highlight("h001", m.path, TimeRange(10.seconds, 20.seconds), 15.seconds, 0.5)),
+        )
+        val settings = DefaultEditPlanner.plan(listOf(session(small), session(big)), EditSettings(fps = 60, sourceHeight = 1440)).settings
+        settings.fps shouldBe 60
+        settings.sourceHeight shouldBe 1080
+    }
+
     test("9:16 recadré sur une zone, borné à l'image") {
         // Zone étroite collée au bord droit : la boîte est limitée à la largeur de la zone puis recalée dans l'image.
         val box = RenderCommandBuilder.cropBox(1920, 1080, 9.0 / 16, CropRegion(0.9, 0.0, 0.1, 1.0))

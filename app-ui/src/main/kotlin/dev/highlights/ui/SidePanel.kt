@@ -41,7 +41,11 @@ import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.aspectLabel
 import dev.highlights.core.serialization.toTimecode
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.io.path.name
+import kotlin.time.Duration
 
 @Composable
 fun AppHeader(config: ConfigStatus, actions: UiActions) {
@@ -79,7 +83,7 @@ fun AppHeader(config: ConfigStatus, actions: UiActions) {
 @Composable
 fun SourceSection(state: UiState, actions: UiActions) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionTitle("Capture")
+        SectionTitle(if (state.sources.size > 1) "Captures (${state.sources.size})" else "Capture")
         val source = state.source
         if (source == null) {
             Surface(
@@ -89,12 +93,18 @@ fun SourceSection(state: UiState, actions: UiActions) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Glisse une vidéo ou une session ici", color = Palette.textMuted, style = MaterialTheme.typography.bodyMedium)
+                    Text("Glisse une ou plusieurs vidéos (ou sessions) ici", color = Palette.textMuted, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = actions::chooseSource, enabled = state.job == null && state.config is ConfigStatus.Ready) {
-                        Text("Choisir une vidéo…")
+                        Text("Choisir des vidéos…")
                     }
                 }
+            }
+        } else if (state.sources.size > 1) {
+            SourceList(state, actions)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = actions::addSources, enabled = state.job == null) { Text("Ajouter") }
+                OutlinedButton(onClick = actions::chooseSource, enabled = state.job == null) { Text("Changer") }
             }
         } else {
             val media = source.media
@@ -122,6 +132,7 @@ fun SourceSection(state: UiState, actions: UiActions) {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = actions::chooseSource, enabled = state.job == null) { Text("Changer de vidéo") }
+                OutlinedButton(onClick = actions::addSources, enabled = state.job == null) { Text("Ajouter des vidéos") }
             }
         }
         TextButton(onClick = actions::chooseSession, enabled = state.job == null && state.config is ConfigStatus.Ready) {
@@ -129,6 +140,43 @@ fun SourceSection(state: UiState, actions: UiActions) {
         }
     }
 }
+
+/**
+ * Captures d'un montage à plusieurs vidéos, dans l'ordre où les parties ont été jouées : c'est l'ordre des moments
+ * dans le montage chronologique.
+ */
+@Composable
+private fun SourceList(state: UiState, actions: UiActions) {
+    Surface(shape = RoundedCornerShape(10.dp), color = Palette.background, border = BorderStroke(1.dp, Palette.outline)) {
+        Column(Modifier.fillMaxWidth().padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 4.dp)) {
+            state.sources.forEachIndexed { i, source ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${i + 1}.", style = MaterialTheme.typography.labelLarge, color = Palette.accent)
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(source.path.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val recorded = source.media.recordedAt?.let { RECORDED.format(it.atZone(ZoneId.systemDefault())) }
+                        Text(
+                            listOfNotNull(recorded, source.media.duration.toTimecode().substringBefore('.')).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Palette.textMuted,
+                        )
+                    }
+                    TextButton(onClick = { actions.removeSource(source.path) }, enabled = state.job == null) { Text("Retirer") }
+                }
+            }
+            val total = state.sources.fold(Duration.ZERO) { acc, s -> acc + s.media.duration }
+            Text(
+                "${total.toTimecode().substringBefore('.')} au total · rangées par date d'enregistrement",
+                style = MaterialTheme.typography.bodySmall,
+                color = Palette.textMuted,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+private val RECORDED: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM HH:mm", Locale.FRENCH)
 
 @Composable
 fun SettingsSection(state: UiState, actions: UiActions) {
@@ -187,7 +235,12 @@ fun SettingsSection(state: UiState, actions: UiActions) {
         state.session?.let { session ->
             val counts = session.eventCounts
             Text(
-                if (counts.isEmpty()) "Aucun événement détecté dans cette partie." else "Dans la partie : ${eventsLabel(counts)}",
+                when {
+                    counts.isEmpty() && session.multiple -> "Aucun événement détecté dans ces parties."
+                    counts.isEmpty() -> "Aucun événement détecté dans cette partie."
+                    session.multiple -> "Dans les ${session.entries.size} parties : ${eventsLabel(counts)}"
+                    else -> "Dans la partie : ${eventsLabel(counts)}"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = Palette.textMuted,
             )

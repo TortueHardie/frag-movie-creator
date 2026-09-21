@@ -30,7 +30,6 @@ import java.time.ZoneId
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
-import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.moveTo
 import kotlin.io.path.nameWithoutExtension
 import kotlin.io.path.writeText
@@ -57,15 +56,20 @@ class Exporter(
     private val encoders: EncoderSelector,
     private val planner: EditPlanner,
 ) {
-    suspend fun export(session: Session, request: ExportRequest, progress: ProgressReporter): ExportResult {
+    suspend fun export(session: Session, request: ExportRequest, progress: ProgressReporter): ExportResult =
+        export(listOf(session), request, progress)
+
+    /** Un seul montage pour toutes les [sessions] (une par capture). */
+    suspend fun export(sessions: List<Session>, request: ExportRequest, progress: ProgressReporter): ExportResult {
         val settings = request.settings
         if (settings.formats.isEmpty()) throw HighlightsException("Aucun format de sortie demandé")
-        val plan = planner.plan(session, settings)
+        if (sessions.isEmpty()) throw HighlightsException("Aucune session à exporter")
+        val plan = planner.plan(sessions, settings)
         val encoder = encoders.select()
 
         request.outputDir.createDirectories()
         request.workDir.createDirectories()
-        val paths = OutputNamer.reserve(request.outputDir, request.gameName, recordingDate(session), settings.formats)
+        val paths = OutputNamer.reserve(request.outputDir, request.gameName, recordingDate(sessions), settings.formats)
         val sources = plan.clips.map { it.media.path }.toSet()
         paths.all.forEach { ensureNotSource(it, sources) }
 
@@ -115,15 +119,17 @@ class Exporter(
             step.complete()
         }
 
+        val multiple = sessions.size > 1
         val report = ExportReport(
             generatedAt = Instant.now().toString(),
-            source = session.media.path.toString(),
-            profile = session.profileId,
+            source = sessions.first().media.path.toString(),
+            sources = if (multiple) sessions.map { it.media.path.toString() } else emptyList(),
+            profile = sessions.first().profileId,
             encoder = encoder.name,
             outputs = paths.videos.map { (f, p) -> ReportOutput(f.label, p.toString()) },
             totalDurationSeconds = plan.outputDuration.inWholeMilliseconds / 1000.0,
-            highlights = plan.clips.mapIndexed { i, c -> ReportHighlight.of(c.highlight, i + 1) },
-            skippedHighlights = session.highlights.filterNot { it.enabled }.map { ReportHighlight.of(it, null) },
+            highlights = plan.clips.mapIndexed { i, c -> ReportHighlight.of(c.highlight, i + 1, multiple) },
+            skippedHighlights = sessions.flatMap { s -> s.highlights.filterNot { it.enabled } }.map { ReportHighlight.of(it, null, multiple) },
         )
         paths.report.writeText(reportJson.encodeToString(ExportReport.serializer(), report))
         log.info { "Export terminé : ${done.joinToString()} + ${paths.report}" }
@@ -220,10 +226,9 @@ class Exporter(
         return output
     }
 
-    private fun recordingDate(session: Session): LocalDate {
-        val instant = session.media.creationTime
-            ?: runCatching { session.media.path.getLastModifiedTime().toInstant() }.getOrNull()
-            ?: session.createdAt
+    /** Date de la première partie enregistrée : c'est elle qui nomme le montage. */
+    private fun recordingDate(sessions: List<Session>): LocalDate {
+        val instant = sessions.mapNotNull { it.media.recordedAt }.minOrNull() ?: sessions.minOf { it.createdAt }
         return instant.atZone(ZoneId.systemDefault()).toLocalDate()
     }
 

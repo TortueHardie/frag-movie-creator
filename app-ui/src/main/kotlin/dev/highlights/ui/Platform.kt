@@ -15,9 +15,10 @@ private val log = KotlinLogging.logger {}
 
 /** Interactions avec le système (boîtes de dialogue, ouverture de fichiers), remplaçables en test. */
 interface Platform {
-    fun chooseVideo(initialDir: Path?): Path?
+    /** Une ou plusieurs captures (sélection multiple) ; liste vide si annulé. */
+    fun chooseVideos(initialDir: Path?): List<Path>
     fun chooseAudio(initialDir: Path?): Path?
-    fun chooseSession(initialDir: Path?): Path?
+    fun chooseSessions(initialDir: Path?): List<Path>
     fun chooseDirectory(initialDir: Path?): Path?
     fun open(path: Path)
     fun reveal(path: Path)
@@ -29,8 +30,8 @@ class DesktopPlatform(private val owner: () -> Frame?) : Platform {
         runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
     }
 
-    override fun chooseVideo(initialDir: Path?): Path? =
-        fileDialog("Choisir une capture", initialDir) { name ->
+    override fun chooseVideos(initialDir: Path?): List<Path> =
+        filesDialog("Choisir une ou plusieurs captures", initialDir) { name ->
             name.lowercase().substringAfterLast('.', "") in HighlightPipeline.SUPPORTED_EXTENSIONS
         }
 
@@ -39,8 +40,8 @@ class DesktopPlatform(private val owner: () -> Frame?) : Platform {
             name.lowercase().let { n -> listOf(".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".opus").any { n.endsWith(it) } }
         }
 
-    override fun chooseSession(initialDir: Path?): Path? =
-        fileDialog("Ouvrir une session", initialDir) { it.lowercase().endsWith(".session.json") }
+    override fun chooseSessions(initialDir: Path?): List<Path> =
+        filesDialog("Ouvrir une ou plusieurs sessions", initialDir) { it.lowercase().endsWith(".session.json") }
 
     override fun chooseDirectory(initialDir: Path?): Path? {
         val chooser = JFileChooser(initialDir?.takeIf { it.isDirectory() }?.toFile()).apply {
@@ -77,5 +78,16 @@ class DesktopPlatform(private val owner: () -> Frame?) : Platform {
         }
         val file = dialog.file ?: return null
         return File(dialog.directory, file).toPath()
+    }
+
+    /** Sélection multiple (Ctrl / Maj + clic dans la boîte de dialogue de Windows). */
+    private fun filesDialog(title: String, initialDir: Path?, accept: (String) -> Boolean): List<Path> {
+        val dialog = FileDialog(owner(), title, FileDialog.LOAD).apply {
+            initialDir?.takeIf { it.isDirectory() }?.let { directory = it.toString() }
+            setFilenameFilter { _, name -> accept(name) }
+            isMultipleMode = true
+            isVisible = true
+        }
+        return dialog.files.map { it.toPath() }
     }
 }

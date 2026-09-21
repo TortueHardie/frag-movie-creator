@@ -93,7 +93,7 @@ fun App(state: UiState, actions: UiActions) {
                 Modifier.fillMaxSize().background(Palette.background.copy(alpha = 0.85f)).border(BorderStroke(3.dp, Palette.accent)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("Dépose la vidéo (ou la session) ici", style = MaterialTheme.typography.titleLarge, color = Palette.accent)
+                Text("Dépose les vidéos (ou les sessions) ici", style = MaterialTheme.typography.titleLarge, color = Palette.accent)
             }
         }
         }
@@ -110,7 +110,8 @@ private fun EmptyState(state: UiState) {
             Spacer(Modifier.height(8.dp))
             val hint = when {
                 state.config is ConfigStatus.Failed -> "Corrige la configuration à gauche pour commencer."
-                state.source == null -> "Choisis une capture (ou glisse-la dans la fenêtre), puis lance l'analyse."
+                state.source == null -> "Choisis une ou plusieurs captures (ou glisse-les dans la fenêtre), puis lance l'analyse. " +
+                    "Plusieurs captures donnent un seul montage, dans l'ordre où les parties ont été jouées."
                 else -> "Vérifie les réglages puis clique sur « Analyser »."
             }
             Text(

@@ -89,7 +89,7 @@ class AppControllerIT : FunSpec({
             result.videos.keys shouldBe setOf(OutputFormat.SOURCE, OutputFormat.VERTICAL)
             result.videos.values.all { it.exists() } shouldBe true
             // La session enregistrée garde le segment décoché.
-            SessionStore.load(session.file).highlights.first { it.id == "h001" }.enabled shouldBe false
+            SessionStore.load(session.entries.single().file).highlights.first { it.id == "h001" }.enabled shouldBe false
 
             controller.previewVertical("h002")
             val preview = await("aperçu 9:16") { it.imagePreview != null }
@@ -110,9 +110,9 @@ class AppControllerIT : FunSpec({
 
 private class RecordingPlatform : Platform {
     val opened: MutableList<Path> = Collections.synchronizedList(mutableListOf())
-    override fun chooseVideo(initialDir: Path?): Path? = null
+    override fun chooseVideos(initialDir: Path?): List<Path> = emptyList()
     override fun chooseAudio(initialDir: Path?): Path? = null
-    override fun chooseSession(initialDir: Path?): Path? = null
+    override fun chooseSessions(initialDir: Path?): List<Path> = emptyList()
     override fun chooseDirectory(initialDir: Path?): Path? = null
     override fun open(path: Path) { opened.add(path) }
     override fun reveal(path: Path) = Unit

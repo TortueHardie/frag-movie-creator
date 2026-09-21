@@ -18,14 +18,15 @@ object TestMedia {
     fun requireFfmpeg(): ProcessFfmpegService = ffmpeg ?: error("ffmpeg introuvable : test d'intégration impossible")
 
     /**
-     * Vidéo 640x360 à 30 fps. Chaque piste audio est un bruit de fond faible avec des salves fortes aux intervalles donnés (secondes).
+     * Vidéo 640x360 (ou [size]) à 30 fps. Chaque piste audio est un bruit de fond faible avec des salves fortes aux intervalles donnés (secondes).
      */
     suspend fun generate(
         output: Path,
         durationSeconds: Int = 60,
+        size: String = "640x360",
         audioTracks: List<AudioTrackSpec> = listOf(AudioTrackSpec("Game", bursts = listOf(15.0..17.0, 42.0..44.0))),
     ): Path {
-        val args = mutableListOf("-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=$durationSeconds")
+        val args = mutableListOf("-y", "-f", "lavfi", "-i", "testsrc2=s=$size:r=30:d=$durationSeconds")
         audioTracks.forEach { track ->
             val loud = track.bursts.joinToString("+") { "between(t\\,${it.start}\\,${it.endInclusive})" }.ifEmpty { "0" }
             val expr = "0.8*sin(2*PI*${track.frequency}*t)*($loud)+0.01*sin(2*PI*120*t)"

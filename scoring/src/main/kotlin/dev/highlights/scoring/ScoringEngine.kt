@@ -35,4 +35,7 @@ class ScoringEngine(
 
     fun select(timeline: ScoredTimeline, policy: SelectionPolicy, source: Path): List<Highlight> =
         selector.select(timeline, policy, source)
+
+    fun selectAcross(inputs: List<Pair<ScoredTimeline, Path>>, policy: SelectionPolicy): List<List<Highlight>> =
+        selector.selectAcross(inputs, policy)
 }

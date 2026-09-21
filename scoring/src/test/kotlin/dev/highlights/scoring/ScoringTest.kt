@@ -120,6 +120,33 @@ class MomentSelectorTest : FunSpec({
         ThresholdMomentSelector.select(timeline(60), base, source).shouldBeEmpty()
     }
 
+    test("plusieurs captures : la cible vaut pour l'ensemble, chaque capture garde ses moments") {
+        val first = timeline(300, 20..20 to 0.6, 100..100 to 0.9)
+        val second = timeline(300, 50..50 to 0.8, 200..200 to 0.7)
+        val (a, b) = ThresholdMomentSelector.selectAcross(
+            listOf(first to Path("a.mp4"), second to Path("b.mp4")),
+            base.copy(target = SelectionTarget(topN = 2)),
+        )
+        // Les deux meilleurs de la soirée : 0,9 dans la première partie, 0,8 dans la seconde.
+        a.map { it.score } shouldBe listOf(0.9)
+        b.map { it.score } shouldBe listOf(0.8)
+        b.single().source shouldBe Path("b.mp4")
+        // Les identifiants recommencent à chaque capture, comme pour une analyse seule.
+        (a + b).map { it.id } shouldBe listOf("h001", "h001")
+    }
+
+    test("plusieurs captures : la durée cible se partage entre elles") {
+        val first = timeline(300, 100..109 to 0.9)
+        val second = timeline(300, 200..209 to 0.8)
+        val (a, b) = ThresholdMomentSelector.selectAcross(
+            listOf(first to Path("a.mp4"), second to Path("b.mp4")),
+            base.copy(target = SelectionTarget(totalDuration = 20.seconds)),
+        )
+        // 15 s pour le meilleur moment, les 5 s restantes pour le suivant, rogné autour de son pic.
+        a.single().range.length shouldBe 15.seconds
+        b.single().range.length shouldBe 5.seconds
+    }
+
     test("contributions relevées au pic") {
         val h = ThresholdMomentSelector.select(timeline(60, 20..20 to 0.9), base, source).single()
         h.contributions.getValue("audio") shouldBe 0.9

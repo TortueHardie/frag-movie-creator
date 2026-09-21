@@ -4,6 +4,8 @@ import dev.highlights.core.serialization.SerialDuration
 import dev.highlights.core.serialization.SerialInstant
 import dev.highlights.core.serialization.SerialPath
 import kotlinx.serialization.Serializable
+import java.time.Instant
+import kotlin.io.path.getLastModifiedTime
 import kotlin.time.Duration
 
 @Serializable
@@ -17,6 +19,19 @@ data class MediaInfo(
     val audio: List<AudioStream> = emptyList(),
 ) {
     val bounds: TimeRange get() = TimeRange(Duration.ZERO, duration)
+
+    /** Moment de l'enregistrement : date de création inscrite dans la capture, sinon date de modification du fichier. */
+    val recordedAt: Instant?
+        get() = creationTime ?: runCatching { path.getLastModifiedTime().toInstant() }.getOrNull()
+
+    companion object {
+        /**
+         * Ordre des parties jouées : par date d'enregistrement, puis par nom (captures numérotées). Un montage de
+         * plusieurs captures les enchaîne dans cet ordre, quel que soit celui dans lequel elles ont été choisies.
+         */
+        val RECORDING_ORDER: Comparator<MediaInfo> =
+            compareBy<MediaInfo, Instant?>(nullsLast()) { it.recordedAt }.thenBy { it.path.toString() }
+    }
 }
 
 @Serializable

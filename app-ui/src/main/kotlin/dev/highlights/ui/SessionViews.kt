@@ -57,7 +57,6 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.aspectLabel
 import dev.highlights.core.serialization.toShortText
 import dev.highlights.core.serialization.toTimecode
@@ -108,7 +107,7 @@ fun SessionHeader(state: UiState, session: SessionState, actions: UiActions) {
     val target = state.settings.target
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text("Moments détectés", style = MaterialTheme.typography.titleLarge)
+            Text(if (session.multiple) "Moments détectés · ${session.entries.size} vidéos" else "Moments détectés", style = MaterialTheme.typography.titleLarge)
             val targetText = when {
                 target?.totalDuration != null -> "cible ${target.totalDuration!!.toShortText()}"
                 target?.all == true -> "tout garder"
@@ -133,19 +132,34 @@ fun SessionHeader(state: UiState, session: SessionState, actions: UiActions) {
 
 @Composable
 fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
-    val timeline = session.session.timeline
+    // Avec plusieurs captures, la courbe est celle de la capture du segment sélectionné.
+    val entry = session.shownEntry
+    val timeline = session.entries[entry].session.timeline
     val total = timeline.grid.total
-    val highlights = session.highlights
+    val segments = session.segments.filter { it.entry == entry }
+    val highlights = segments.map { it.highlight }
     val measurer = rememberTextMeasurer()
     val labelStyle = TextStyle(color = Palette.textMuted, fontSize = 11.sp)
 
     Surface(shape = RoundedCornerShape(10.dp), color = Palette.surface, border = BorderStroke(1.dp, Palette.outline)) {
+      Column {
+        if (session.multiple) {
+            Text(
+                "Vidéo ${entry + 1} / ${session.entries.size} · ${session.entries[entry].session.media.path.name}",
+                style = MaterialTheme.typography.labelMedium,
+                color = Palette.textMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 8.dp),
+            )
+        }
         Canvas(
             Modifier.fillMaxWidth().height(150.dp).padding(horizontal = 14.dp, vertical = 10.dp).pointerInput(highlights, total) {
                 detectTapGestures { offset ->
                     if (!total.isPositive() || size.width == 0) return@detectTapGestures
                     val t = total * (offset.x / size.width).toDouble()
-                    val hit = highlights.minByOrNull { h ->
+                    val hit = segments.minByOrNull { s ->
+                        val h = s.highlight
                         when {
                             t < h.range.start -> h.range.start - t
                             t > h.range.end -> t - h.range.end
@@ -153,7 +167,7 @@ fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
                         }
                     }
                     val tolerance = total * (8.0 / size.width)
-                    if (hit != null && t >= hit.range.start - tolerance && t <= hit.range.end + tolerance) actions.selectSegment(hit.id)
+                    if (hit != null && t >= hit.highlight.range.start - tolerance && t <= hit.highlight.range.end + tolerance) actions.selectSegment(hit.key)
                 }
             },
         ) {
@@ -162,7 +176,8 @@ fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
             fun x(d: Duration) = if (total.isPositive()) (d / total).toFloat() * size.width else 0f
 
             // Segments : bande sur toute la hauteur + repère plein en haut, visible même pour 10 s sur 1 h
-            highlights.forEach { h ->
+            segments.forEach { s ->
+                val h = s.highlight
                 val x0 = x(h.range.start)
                 val w = (x(h.range.end) - x0).coerceAtLeast(4f)
                 drawRect(
@@ -175,7 +190,7 @@ fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
                     topLeft = Offset(x0, 0f),
                     size = Size(w, 6f),
                 )
-                if (h.id == session.selectedId) {
+                if (s.key == session.selectedId) {
                     drawRect(Palette.accent, Offset(x0, 0f), Size(w, plotBottom), style = Stroke(width = 2f))
                 }
             }
@@ -238,40 +253,74 @@ fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
                 tick += step
             }
         }
+      }
     }
 }
 
 @Composable
 fun SegmentList(session: SessionState, state: UiState, actions: UiActions, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
-    val selectedIndex = session.highlights.indexOfFirst { it.id == session.selectedId }
+    val segments = session.segments
+    // Avec plusieurs captures, chacune a son titre dans la liste : il compte dans la position à atteindre.
+    val selectedIndex = segments.indexOfFirst { it.key == session.selectedId }.let { i ->
+        if (i < 0 || !session.multiple) i else i + segments[i].entry + 1
+    }
     LaunchedEffect(session.selectedId) {
         if (selectedIndex >= 0) listState.animateScrollToItem(selectedIndex)
     }
-    if (session.highlights.isEmpty()) {
+    if (segments.isEmpty()) {
         Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text("Aucun moment au-dessus du seuil : baisse-le à gauche.", color = Palette.textMuted)
         }
         return
     }
     LazyColumn(modifier.fillMaxWidth(), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(session.highlights, key = { it.id }) { h ->
-            SegmentRow(
-                highlight = h,
-                selected = h.id == session.selectedId,
-                thumbnail = session.thumbnailOf(h),
-                clipBusy = h.id in state.busyClips,
-                verticalBusy = state.busyVerticalPreview == h.id,
-                verticalAvailable = state.busyVerticalPreview == null,
-                actions = actions,
-            )
+        session.entries.forEachIndexed { i, entry ->
+            val own = segments.filter { it.entry == i }
+            if (session.multiple) {
+                item(key = "video-$i") { VideoHeader(i, entry, own) }
+            }
+            items(own, key = { it.key }) { s ->
+                SegmentRow(
+                    segment = s,
+                    selected = s.key == session.selectedId,
+                    thumbnail = session.thumbnailOf(s),
+                    clipBusy = s.key in state.busyClips,
+                    verticalBusy = state.busyVerticalPreview == s.key,
+                    verticalAvailable = state.busyVerticalPreview == null,
+                    actions = actions,
+                )
+            }
         }
+    }
+}
+
+/** Titre d'une capture dans la liste : son rang dans la soirée, son nom et ce qu'elle apporte au montage. */
+@Composable
+private fun VideoHeader(index: Int, entry: SessionEntry, segments: List<Segment>) {
+    val enabled = segments.map { it.highlight }.filter { it.enabled }
+    val duration = enabled.fold(Duration.ZERO) { acc, h -> acc + h.range.length }
+    Row(Modifier.fillMaxWidth().padding(top = if (index == 0) 0.dp else 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("${index + 1}.", style = MaterialTheme.typography.titleSmall, color = Palette.accent)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            entry.session.media.path.name,
+            style = MaterialTheme.typography.titleSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            if (segments.isEmpty()) "aucun moment retenu" else "${enabled.size} / ${segments.size} cochés · ${duration.toShortText()}",
+            style = MaterialTheme.typography.bodySmall,
+            color = Palette.textMuted,
+        )
     }
 }
 
 @Composable
 private fun SegmentRow(
-    highlight: Highlight,
+    segment: Segment,
     selected: Boolean,
     thumbnail: java.nio.file.Path?,
     clipBusy: Boolean,
@@ -279,14 +328,15 @@ private fun SegmentRow(
     verticalAvailable: Boolean,
     actions: UiActions,
 ) {
+    val highlight = segment.highlight
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = if (selected) Palette.surfaceHigh else Palette.surface,
         border = BorderStroke(1.dp, if (selected) Palette.accent else Palette.outline),
-        modifier = Modifier.fillMaxWidth().clickable { actions.selectSegment(highlight.id) },
+        modifier = Modifier.fillMaxWidth().clickable { actions.selectSegment(segment.key) },
     ) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = highlight.enabled, onCheckedChange = { actions.toggleSegment(highlight.id) })
+            Checkbox(checked = highlight.enabled, onCheckedChange = { actions.toggleSegment(segment.key) })
             Spacer(Modifier.width(6.dp))
             Thumbnail(thumbnail, highlight.enabled)
             Spacer(Modifier.width(14.dp))
@@ -321,11 +371,11 @@ private fun SegmentRow(
                 }
             }
             Spacer(Modifier.width(10.dp))
-            OutlinedButton(onClick = { actions.previewClip(highlight.id) }, enabled = !clipBusy) {
+            OutlinedButton(onClick = { actions.previewClip(segment.key) }, enabled = !clipBusy) {
                 Text(if (clipBusy) "Préparation…" else "▶ Revoir")
             }
             Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = { actions.previewVertical(highlight.id) }, enabled = verticalAvailable) {
+            OutlinedButton(onClick = { actions.previewVertical(segment.key) }, enabled = verticalAvailable) {
                 Text(if (verticalBusy) "…" else "9:16")
             }
         }
@@ -372,8 +422,9 @@ fun ExportBar(state: UiState, session: SessionState, actions: UiActions) {
                             else -> it.label
                         }
                     }.ifEmpty { "aucun format coché" }
+                    val videos = if (session.multiple) " · ${session.entries.size} vidéos dans l'ordre où elles ont été jouées" else ""
                     Text(
-                        "${session.enabledCount} segment(s) · ${session.enabledDuration.toShortText()} · $formats",
+                        "${session.enabledCount} segment(s) · ${session.enabledDuration.toShortText()} · $formats$videos",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Palette.textMuted,
                     )
