@@ -92,6 +92,25 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $msi = Get-ChildItem installeur\*.msi | Select-Object -First 1
+
+          # Propriétés déclarées par le paquet : portée d'installation et code de mise à niveau (celui qui fait qu'une
+          # nouvelle version remplace l'ancienne au lieu de s'installer à côté).
+          $installateur = New-Object -ComObject WindowsInstaller.Installer
+          $base = $installateur.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installateur, @($msi.FullName, 0))
+          $vue = $base.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $base, @('SELECT Property, Value FROM Property'))
+          $vue.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $vue, $null) | Out-Null
+          $proprietes = @{}
+          while ($true) {
+            $ligne = $vue.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $vue, $null)
+            if (-not $ligne) { break }
+            $nom = $ligne.GetType().InvokeMember('StringData', 'GetProperty', $null, $ligne, 1)
+            $proprietes[$nom] = $ligne.GetType().InvokeMember('StringData', 'GetProperty', $null, $ligne, 2)
+          }
+          $parMachine = $proprietes['ALLUSERS'] -eq '1'
+          $portee = if ($parMachine) { 'pour toute la machine (droits administrateur requis)' } else { "dans le profil de l'utilisateur (aucun droit administrateur)" }
+          Write-Host "Portée déclarée : $portee (ALLUSERS='$($proprietes['ALLUSERS'])', MSIINSTALLPERUSER='$($proprietes['MSIINSTALLPERUSER'])')"
+          Write-Host "Version : $($proprietes['ProductVersion']), code de mise à niveau : $($proprietes['UpgradeCode'])"
+          if (-not $proprietes['UpgradeCode']) { throw "Aucun code de mise à niveau : une nouvelle version s'installerait à côté de l'ancienne" }
           $p = Start-Process msiexec.exe -ArgumentList "/i `"$($msi.FullName)`" /qn /l*v essai-installation.log" -Wait -PassThru
           if ($p.ExitCode -ne 0) {
             Get-Content essai-installation.log -Tail 40 | ForEach-Object { Write-Host $_ }
@@ -115,11 +134,12 @@ jobs:
           $entree = $entrees[0]
           $dossier = if ($entree.InstallLocation) { $entree.InstallLocation } else { Join-Path $env:LOCALAPPDATA 'Highlights' }
           if (-not (Test-Path (Join-Path $dossier 'Highlights.exe'))) { throw "Highlights.exe absent de $dossier" }
-          Write-Host "Installé dans $dossier, version $($entree.DisplayVersion)"
-          Write-Host "Enregistré dans $($entree.Ruche)"
-          $portee = if ($entree.Ruche -like 'HKCU*') { 'par utilisateur (aucun droit administrateur)' } else { 'pour toute la machine (droits administrateur requis)' }
-          Add-Content -Path $env:GITHUB_ENV -Value "INSTALLEUR_RESUME=$($msi.Name) → $dossier, portée : $portee"
-          "### Installeur`n- fichier : $($msi.Name)`n- dossier : $dossier`n- portée : $portee" |
+          # L'installation silencieuse depuis un shell déjà élevé inscrit l'entrée côté machine même pour un paquet
+          # par utilisateur : c'est la portée déclarée ci-dessus qui fait foi, pas la ruche trouvée ici.
+          Write-Host "Installé dans $dossier, version $($entree.DisplayVersion), entrée dans $($entree.Ruche)"
+          $resume = "$($msi.Name) → $dossier, version $($proprietes['ProductVersion']), $portee"
+          Add-Content -Path $env:GITHUB_ENV -Value "INSTALLEUR_RESUME=$resume"
+          "### Installeur`n- fichier : $($msi.Name)`n- dossier : $dossier`n- portée : $portee`n- code de mise à niveau : $($proprietes['UpgradeCode'])" |
             Add-Content -Path $env:GITHUB_STEP_SUMMARY
 
           $p = Start-Process msiexec.exe -ArgumentList "/x $($entree.PSChildName) /qn" -Wait -PassThru
