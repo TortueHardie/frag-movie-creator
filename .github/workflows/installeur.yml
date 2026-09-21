@@ -9,7 +9,9 @@ on:
   push:
     branches: [master]
     tags: ['v*']
+    paths-ignore: ['**.md']
   pull_request:
+    paths-ignore: ['**.md']
   workflow_dispatch:
 
 concurrency:
