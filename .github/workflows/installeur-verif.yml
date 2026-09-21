@@ -6,7 +6,6 @@ name: Vérifier l'installeur
 on:
   workflow_dispatch:
   push:
-    branches: ['claude/**']
     tags: ['v*']
 
 concurrency:
