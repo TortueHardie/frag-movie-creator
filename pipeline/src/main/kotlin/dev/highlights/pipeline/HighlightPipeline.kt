@@ -11,6 +11,7 @@ import dev.highlights.core.ffmpeg.Hwaccel
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
@@ -86,6 +87,9 @@ data class MontageOptions(
     val slowMotion: Boolean? = null,
     val speedRamp: Boolean? = null,
     val text: Boolean? = null,
+    /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */
+    val audioBalance: Double? = null,
+    val gameAudio: GameAudio? = null,
 )
 
 data class AnalysisOutcome(val session: Session, val sessionFile: Path, val profile: GameProfile)
@@ -266,6 +270,10 @@ class HighlightPipeline(
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),
             speedRamp = base.speedRamp.copy(enabled = options.speedRamp ?: base.speedRamp.enabled),
             text = base.text.copy(enabled = options.text ?: base.text.enabled),
+            audio = base.audio.copy(
+                balance = options.audioBalance ?: base.audio.balance,
+                game = options.gameAudio ?: base.audio.game,
+            ),
         )
         val analysisStep = progress.child("Musique", 0.08)
         val analysis = MusicAnalyzer.analyze(ffmpeg, music)

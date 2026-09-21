@@ -1,6 +1,7 @@
 package dev.highlights.ui
 
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
@@ -146,6 +147,9 @@ data class MontageUiState(
     val flash: Boolean = true,
     val slowMotion: Boolean = true,
     val text: Boolean = true,
+    /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */
+    val balance: Double = 0.0,
+    val gameAudio: GameAudio = GameAudio.FULL,
 ) {
     val maxDuration: Duration? get() = Durations.parseOrNull(maxDurationText)?.takeIf { it.isPositive() }
     val canCreate: Boolean get() = music != null && maxDuration != null && formats.isNotEmpty()

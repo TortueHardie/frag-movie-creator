@@ -7,6 +7,7 @@ import dev.highlights.core.model.AudioLayout
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.MontageAudio
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SlowAudio
@@ -46,13 +47,22 @@ data class MontageRenderRequest(
  * horodatages, zoom « punch » et textes aux kills, flash blanc à chaque coupe, image gelée si la source ne couvre pas
  * le slot, concaténation vidéo et fondu au noir final ; le son du jeu de chaque clip est posé à son décalage et mixé
  * (il peut déborder un peu sur le plan suivant pour finir un kill ou une phrase), puis mixé avec la musique (jeu au
- * premier plan pendant les kills et les réactions, musique baissée sous la voix). Les frontières suivent les temps réels
+ * premier plan pendant les kills et les réactions, musique baissée sous la voix ; ou, en mode « kills », le son du
+ * kill seul avec la musique baissée dessous), dans le rapport choisi par `audio.balance`. Les frontières suivent les temps réels
  * de la musique, arrondis à l'image.
  */
 object MontageRenderBuilder {
     private val KILL_AUDIO_BEFORE = 150.milliseconds
     private val KILL_AUDIO_AFTER = 600.milliseconds
     private val TEXT_DURATION = 900.milliseconds
+
+    /**
+     * Découpe le son en trames de 64 échantillons (1,3 ms) avant une enveloppe de volume : `volume` n'évalue son
+     * expression qu'une fois par trame, et sur les trames de 1024 échantillons d'un AAC une rampe de 80 ms devient un
+     * escalier de 4 marches, qui claque à chaque kill quand le jeu part du silence ou que la musique plonge dessous.
+     * `p=0` : la dernière trame n'est pas complétée de silence, la durée ne bouge pas.
+     */
+    private const val GAIN_FRAMES = "asetnsamples=n=64:p=0"
 
     fun build(request: MontageRenderRequest): RenderCommand {
         val plan = request.plan
@@ -180,8 +190,18 @@ object MontageRenderBuilder {
                 val e = minOf(seg.end, clip.end + bleeds[i])
                 if (e > s) TimeRange(clip.toOutput(s) + lead, clip.toOutput(e) + lead) else null
             }
-            voice.forEach { musicDuck += TimeRange(offsets[i] + it.start, minOf(offsets[i] + it.end, total)) }
-            val volume = volumeExpression(audio.gameVolume, audio.killVolume, audio.voiceVolume, outKills, voice, audio.duckAttack, audio.duckRelease)
+            val g = audio.gameGain
+            val volume = when (audio.game) {
+                GameAudio.FULL -> {
+                    voice.forEach { musicDuck += TimeRange(offsets[i] + it.start, minOf(offsets[i] + it.end, total)) }
+                    volumeExpression(audio.gameVolume * g, audio.killVolume * g, audio.voiceVolume * g, outKills, voice, audio.duckAttack, audio.duckRelease)
+                }
+                // Seul le kill s'entend : la musique lui laisse la place le temps du tir et de la notification.
+                GameAudio.KILLS -> {
+                    outKills.forEach { musicDuck += TimeRange(offsets[i] + killWindow(it).start, minOf(offsets[i] + killWindow(it).end, total)) }
+                    volumeExpression(0.0, audio.killVolume * g, 0.0, outKills, emptyList(), audio.duckAttack, audio.duckRelease)
+                }
+            }
             val format = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
             val delay = if (clip.padBefore.isPositive()) "adelay=${clip.padBefore.inWholeMilliseconds}|${clip.padBefore.inWholeMilliseconds}," else ""
             val bleed = bleeds[i]
@@ -198,9 +218,9 @@ object MontageRenderBuilder {
                     graph += "[x${i}s$p]atrim=start=${sec(part.from)}:end=$to,asetpts=PTS-STARTPTS" +
                         slowAudio(part, extra, audio) + "[x${i}p$p]"
                 }
-                graph += parts.indices.joinToString("") { "[x${i}p$it]" } + "concat=n=${parts.size}:v=0:a=1,${delay}volume='$volume':eval=frame,$tail$cut,$place[a$i]"
+                graph += parts.indices.joinToString("") { "[x${i}p$it]" } + "concat=n=${parts.size}:v=0:a=1,${delay}$GAIN_FRAMES,volume='$volume':eval=frame,$tail$cut,$place[a$i]"
             } else {
-                graph += "${source}asetpts=PTS-STARTPTS,$format,${delay}volume='$volume':eval=frame,$tail$cut,$place[a$i]"
+                graph += "${source}asetpts=PTS-STARTPTS,$format,${delay}$GAIN_FRAMES,volume='$volume':eval=frame,$tail$cut,$place[a$i]"
             }
         }
 
@@ -213,15 +233,16 @@ object MontageRenderBuilder {
             "amix=inputs=${clips.size}:normalize=0:duration=longest,apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[game]"
 
         // Ducking progressif : une marche de volume sous la voix s'entend plus que la voix elle-même.
+        val music = audio.musicVolume * audio.musicGain
         val duck = if (musicDuck.isEmpty()) {
-            num(audio.musicVolume)
+            num(music)
         } else {
             val env = musicDuck.map { envelope(it, audio.duckAttack, audio.duckRelease) }.reduce { a, b -> "max($a\\,$b)" }
-            val depth = audio.musicVolume * (1 - audio.musicUnderVoice)
-            "${num(audio.musicVolume)}-${num(depth)}*($env)"
+            val under = if (audio.game == GameAudio.KILLS) audio.musicUnderKill else audio.musicUnderVoice
+            "${num(music)}-${num(music * (1 - under))}*($env)"
         }
         graph += "[$musicInput:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo," +
-            "volume='$duck':eval=frame,afade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
+            "$GAIN_FRAMES,volume='$duck':eval=frame,afade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
         graph += "[game][music]amix=inputs=2:normalize=0:duration=first,loudnorm=I=${num(audio.loudnessLufs)}:TP=-1.5:LRA=11,aresample=48000[aout]"
 
         args += listOf(request.filterScriptOption, request.filterScript.toString(), "-map", "[vout]", "-map", "[aout]")
@@ -376,6 +397,9 @@ object MontageRenderBuilder {
         return "$up*$down"
     }
 
+    /** Fenêtre sonore d'un kill : le tir juste avant, l'impact et la notification juste après. */
+    private fun killWindow(k: Duration) = TimeRange((k - KILL_AUDIO_BEFORE).coerceAtLeast(Duration.ZERO), k + KILL_AUDIO_AFTER)
+
     /** Volume du jeu : base faible, fort autour des kills, voix et rires bien audibles, sans marche entre les niveaux. */
     internal fun volumeExpression(
         base: Double,
@@ -387,10 +411,7 @@ object MontageRenderBuilder {
         release: Duration,
     ): String {
         val terms = mutableListOf(num(base))
-        kills.forEach { k ->
-            val range = TimeRange((k - KILL_AUDIO_BEFORE).coerceAtLeast(Duration.ZERO), k + KILL_AUDIO_AFTER)
-            terms += "(${num(base)}+${num(kill - base)}*${envelope(range, attack, release)})"
-        }
+        kills.forEach { k -> terms += "(${num(base)}+${num(kill - base)}*${envelope(killWindow(k), attack, release)})" }
         voiceRanges.forEach { r -> terms += "(${num(base)}+${num(voice - base)}*${envelope(r, attack, release)})" }
         return terms.reduce { acc, term -> "max($acc\\,$term)" }
     }

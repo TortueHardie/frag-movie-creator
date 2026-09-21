@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.rememberDialogState
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.OutputFormat
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
@@ -177,6 +179,35 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     MontageToggle("Ralenti sur le kill", montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
                     MontageToggle("Textes DOUBLÉ / TRIPLÉ", montage.text) { v -> actions.updateMontage { it.copy(text = v) } }
                 }
+
+                DialogGroup("Son") {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        GameAudio.entries.forEachIndexed { i, mode ->
+                            SegmentedButton(
+                                selected = montage.gameAudio == mode,
+                                onClick = { actions.updateMontage { it.copy(gameAudio = mode) } },
+                                shape = SegmentedButtonDefaults.itemShape(i, GameAudio.entries.size),
+                            ) { Text(gameAudioLabel(mode)) }
+                        }
+                    }
+                    Text(gameAudioHint(montage.gameAudio), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Équilibre", modifier = Modifier.weight(1f))
+                        Text(balanceLabel(montage.balance), color = Palette.accent)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Musique", style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                        Slider(
+                            value = montage.balance.toFloat(),
+                            onValueChange = { v -> actions.updateMontage { it.copy(balance = v.toDouble()) } },
+                            valueRange = -1f..1f,
+                            // Crans de 0,25 : 1,5 dB de chaque côté, assez fin sans devenir un réglage au hasard.
+                            steps = 7,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text("Jeu", style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                    }
+                }
             }
         },
         confirmButton = { Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text("Créer le montage") } },
@@ -195,6 +226,28 @@ internal fun densityHint(density: EffectDensity) = when (density) {
     EffectDensity.BALANCED -> "Une emphase par plan : ralenti sur les moments forts, zoom sur les autres."
     EffectDensity.HEAVY -> "Tous les effets sur tous les plans : l'image finit par être surchargée."
 }
+
+internal fun gameAudioLabel(mode: GameAudio) = when (mode) {
+    GameAudio.FULL -> "Tout le jeu"
+    GameAudio.KILLS -> "Kills seulement"
+}
+
+internal fun gameAudioHint(mode: GameAudio) = when (mode) {
+    GameAudio.FULL -> "Son du jeu en continu, plus fort aux kills ; la musique baisse quand on parle ou qu'on rit."
+    GameAudio.KILLS -> "Seul le son du kill s'entend, et la musique baisse dessous pour le laisser passer."
+}
+
+/** Écart entre jeu et musique, en dB : chaque côté bouge de 6 dB par cran de 1, en sens opposés. */
+internal fun balanceLabel(balance: Double): String {
+    val db = Math.round(balance * 12 * 2) / 2.0
+    return when {
+        db == 0.0 -> "Neutre"
+        db > 0 -> "Jeu +%s dB".format(fmtDb(db))
+        else -> "Musique +%s dB".format(fmtDb(-db))
+    }
+}
+
+private fun fmtDb(db: Double) = if (db % 1.0 == 0.0) "%.0f".format(db) else "%.1f".format(db)
 
 /** Un bloc du dialogue : un intitulé discret et ses réglages, séparés du bloc suivant. */
 @Composable

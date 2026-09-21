@@ -198,17 +198,34 @@ data class TextEffect(
     val killCounter: Boolean = false,
 )
 
+/** Ce qu'on entend du son du jeu dans le montage. */
+@Serializable
+enum class GameAudio {
+    /** Tout le son du jeu, plus fort aux kills et pendant les réactions ; la musique baisse sous la voix. */
+    @SerialName("full") FULL,
+    /** Le son du kill seul (tir, notification) : le reste du jeu et les voix se taisent, la musique baisse sous chaque kill. */
+    @SerialName("kills") KILLS,
+}
+
 @Serializable
 data class MontageAudio(
+    /**
+     * Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). Chaque cran de 1 monte le jeu de 6 dB et baisse
+     * la musique d'autant ; le volume global est ensuite ramené à [loudnessLufs], seul le rapport entre les deux change.
+     */
+    val balance: Double = 0.0,
+    val game: GameAudio = GameAudio.FULL,
     val musicVolume: Double = 1.0,
     /** Son du jeu (et voix) hors kills et réactions. */
-    val gameVolume: Double = 0.3,
+    val gameVolume: Double = 0.5,
     /** Son du jeu autour d'un kill (tir, impact). */
     val killVolume: Double = 1.0,
     /** Voix et rires : bien audibles. */
     val voiceVolume: Double = 1.0,
     /** Volume de la musique pendant une réaction (ducking). */
     val musicUnderVoice: Double = 0.45,
+    /** Volume de la musique autour d'un kill, en mode [GameAudio.KILLS] : assez bas pour que le son du kill passe devant. */
+    val musicUnderKill: Double = 0.3,
     /** Ce que devient le son du jeu pendant un ralenti. */
     val slowMotion: SlowAudio = SlowAudio.NATURAL,
     /** Disparition du son du jeu quand il a fini de jouer avant la fin du ralenti (mode `natural`). */
@@ -220,4 +237,13 @@ data class MontageAudio(
     /** Le son du jeu peut déborder d'autant sur le plan suivant pour finir un kill ou une phrase (fondu). */
     val bleed: SerialDuration = 300.milliseconds,
     val loudnessLufs: Double = -14.0,
-)
+) {
+    init {
+        require(balance in -1.0..1.0) { "montage.audio.balance doit être entre -1 et 1" }
+        require(musicUnderKill in 0.0..1.0) { "montage.audio.musicUnderKill doit être entre 0 et 1" }
+    }
+
+    /** Gains appliqués au jeu et à la musique pour [balance] : ±6 dB par cran, en sens opposés. */
+    val gameGain: Double get() = Math.pow(2.0, balance)
+    val musicGain: Double get() = Math.pow(2.0, -balance)
+}

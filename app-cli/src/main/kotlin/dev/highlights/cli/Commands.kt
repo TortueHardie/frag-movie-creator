@@ -19,6 +19,7 @@ import com.github.ajalt.clikt.parameters.types.restrictTo
 import dev.highlights.core.model.AudioRole
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
@@ -155,6 +156,12 @@ class MontageCommand : PipelineCommand("montage") {
     private val noSlowmo by option("--no-slowmo", help = "Sans ralenti").flag()
     private val noRamp by option("--no-ramp", help = "Sans rampe de vitesse entre les kills d'un multi-kill").flag()
     private val noText by option("--no-text", help = "Sans textes (DOUBLÉ, TRIPLÉ…)").flag()
+    private val balance by option("--balance", help = "Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant) ; ±6 dB par cran")
+        .convert { text ->
+            text.replace(',', '.').toDoubleOrNull()?.takeIf { it in -1.0..1.0 } ?: throw BadParameterValue("équilibre invalide '$text' (entre -1 et 1)")
+        }
+    private val gameAudio by option("--game-audio", help = "Son du jeu : full (défaut) ou kills (le son du kill seul, musique baissée dessous)")
+        .choice("full" to GameAudio.FULL, "kills" to GameAudio.KILLS)
     private val out by option("-o", "--out").path(canBeFile = false)
 
     override fun help(context: Context) =
@@ -181,6 +188,8 @@ class MontageCommand : PipelineCommand("montage") {
                         slowMotion = if (noSlowmo) false else null,
                         speedRamp = if (noRamp) false else null,
                         text = if (noText) false else null,
+                        audioBalance = balance,
+                        gameAudio = gameAudio,
                     ),
                     ProgressTracker(listener = progress).root,
                 )

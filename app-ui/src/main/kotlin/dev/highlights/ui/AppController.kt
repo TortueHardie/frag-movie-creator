@@ -3,6 +3,7 @@ package dev.highlights.ui
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.config.ConfigYaml
 import dev.highlights.core.ffmpeg.FfmpegException
+import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.profile.GameProfile
 import dev.highlights.core.progress.ProgressReporter
@@ -399,6 +400,8 @@ class AppController(
                     flash = montage?.flash?.enabled ?: true,
                     slowMotion = montage?.slowMotion?.enabled ?: true,
                     text = montage?.text?.enabled ?: true,
+                    balance = montage?.audio?.balance ?: 0.0,
+                    gameAudio = montage?.audio?.game ?: GameAudio.FULL,
                 ),
             )
         }
@@ -437,6 +440,8 @@ class AppController(
                     flash = montage.flash,
                     slowMotion = montage.slowMotion,
                     text = montage.text,
+                    audioBalance = montage.balance,
+                    gameAudio = montage.gameAudio,
                 ),
                 progress,
             )

@@ -4,6 +4,7 @@ import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.model.AudioStream
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.OutputFormat
@@ -109,6 +110,30 @@ class MontageRenderBuilderTest : FunSpec({
         val cmd = build(p)
         val frames = Math.round(p.duration.inWholeMicroseconds * 60 / 1_000_000.0)
         (cmd.expectedDuration.inWholeMicroseconds * 60 / 1_000_000.0) shouldBe frames.toDouble()
+    }
+
+    test("équilibre : le jeu monte et la musique baisse d'autant") {
+        val g = build(plan(settings.copy(audio = settings.audio.copy(balance = 1.0)))).filterGraph
+        // Jeu ×2 (base 0,5 → 1, kill 1 → 2), musique ×0,5, ducking sous la voix toujours proportionnel.
+        g shouldContain "volume='max(1.0000\\,(1.0000+1.0000*"
+        g shouldContain "volume='0.5000-0.2750*(min(max((t-"
+    }
+
+    test("son du kill seul : le reste du jeu se tait et la musique baisse sous chaque kill") {
+        val kills = settings.copy(audio = settings.audio.copy(game = GameAudio.KILLS))
+        val g = build(plan(kills)).filterGraph
+        g shouldContain "volume='max(0.0000\\,(0.0000+1.0000*"
+        // Musique à 0,3 sous le kill, plus sous la voix (qu'on n'entend plus).
+        g shouldContain "volume='1.0000-0.7000*(max(max(min(max((t-"
+        g shouldNotContain "-0.5500*("
+    }
+
+    test("enveloppes de volume évaluées sur des trames courtes : pas d'escalier audible") {
+        val g = build(plan()).filterGraph
+        // Chaque volume variable (jeu de chaque clip, musique) est précédé du découpage en trames de 64 échantillons.
+        val envelopes = Regex("volume='[^']*':eval=frame").findAll(g).count()
+        Regex("asetnsamples=n=64:p=0,volume='[^']*':eval=frame").findAll(g).count() shouldBe envelopes
+        envelopes shouldBe 3
     }
 
     test("effets désactivables") {
