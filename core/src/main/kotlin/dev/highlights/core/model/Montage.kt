@@ -48,6 +48,13 @@ data class MontageSettings(
     val minScore: Double = 0.0,
     /** Quantité d'effets : au rythme normal, un plan reçoit un ralenti ou un zoom, jamais les deux. */
     val effectDensity: EffectDensity = EffectDensity.BALANCED,
+    /**
+     * Plusieurs plans sont essayés (échelle de la grille, place de la drop) et seul le mieux noté par le scoreur est
+     * rendu. Le calcul d'un plan ne coûte rien face au rendu : autant en comparer une dizaine.
+     */
+    val variants: Boolean = true,
+    val shotAlign: ShotAlign = ShotAlign(),
+    val killStyle: KillStyle = KillStyle(),
     val cuts: CutSettings = CutSettings(),
     val zoom: ZoomEffect = ZoomEffect(),
     val flash: FlashEffect = FlashEffect(),
@@ -93,6 +100,74 @@ data class CutSettings(
         require(maxBeats in 4..64) { "montage.cuts.maxBeats doit être entre 4 et 64" }
         require(dropPosition in 0.0..1.0) { "montage.cuts.dropPosition doit être entre 0 et 1" }
         require(preBeatFrames in 0..4) { "montage.cuts.preBeatFrames doit être entre 0 et 4" }
+    }
+}
+
+/**
+ * Recalage de chaque kill sur le son du tir. L'instant d'un kill vient d'une notification (killfeed, journal lu par OCR,
+ * événement d'Outplayed) dont le retard sur le tir varie d'un kill à l'autre ; [MontageSettings.killOffset] n'en corrige
+ * que la moyenne. On cherche donc, dans le son du jeu autour de cet instant, l'attaque la plus nette : c'est elle que le
+ * spectateur entend tomber sur le temps.
+ */
+@Serializable
+data class ShotAlign(
+    val enabled: Boolean = true,
+    /** Recherche avant l'instant annoncé : le tir précède la notification. */
+    val before: SerialDuration = 300.milliseconds,
+    /**
+     * Après l'instant annoncé, juste la marge d'imprécision de l'annonce : un son qui suit la notification est celui
+     * d'après le kill (tir dans le vide, pivot vers la cible suivante), jamais le tir qui tue.
+     */
+    val after: SerialDuration = 50.milliseconds,
+    /** Montée d'énergie minimale (dB) d'une attaque pour y voir un tir ; en dessous, l'instant annoncé est gardé. */
+    val minRiseDb: Double = 9.0,
+) {
+    init {
+        require(minRiseDb > 0) { "montage.shotAlign.minRiseDb doit être positif" }
+    }
+}
+
+/**
+ * Ce qui rend un kill spectaculaire au-delà du nombre : tir à la tête, flick (visée qui balaie l'écran puis s'arrête sur
+ * la cible), kills enchaînés très vite. Les bonus s'ajoutent au rang d'un groupe, dont 1 vaut un kill de plus : un
+ * one-tap en flick passe devant un double kill ordinaire, et décroche la drop.
+ */
+@Serializable
+data class KillStyle(
+    /** Événement émis par le détecteur pour un tir à la tête (VALORANT via Outplayed). Vide : pas de recherche. */
+    val headshotEvent: String = "headshot",
+    val headshotBonus: Double = 0.3,
+    /** Mesure de la rotation de la caméra juste avant le kill (décodage d'une demi-seconde d'image par kill). */
+    val flick: Boolean = true,
+    /** Vitesse de balayage (largeurs d'écran par seconde) en dessous de laquelle ce n'est pas un flick… */
+    val flickFrom: Double = 1.5,
+    /** … et au-dessus de laquelle c'en est un franc. */
+    val flickTo: Double = 5.0,
+    val flickBonus: Double = 0.8,
+    /** Kill qui suit le précédent de moins que ça : enchaînement. */
+    val quickGap: SerialDuration = 1.seconds,
+    val quickBonus: Double = 0.3,
+) {
+    init {
+        require(flickTo > flickFrom) { "montage.killStyle.flickTo doit dépasser flickFrom" }
+    }
+}
+
+/**
+ * Coupure de la musique juste avant la drop : le son du jeu reste seul un instant, puis la drop repart sur le meilleur
+ * kill. L'attente rend la drop plus forte que n'importe quel effet.
+ */
+@Serializable
+data class DropBreak(
+    val enabled: Boolean = true,
+    /** Longueur de la coupure, en temps de la musique (0,5 = une croche). */
+    val beats: Double = 1.0,
+    /** Volume de la musique pendant la coupure (0 = silence). */
+    val musicLevel: Double = 0.0,
+) {
+    init {
+        require(beats in 0.25..4.0) { "montage.audio.dropBreak.beats doit être entre 0,25 et 4" }
+        require(musicLevel in 0.0..1.0) { "montage.audio.dropBreak.musicLevel doit être entre 0 et 1" }
     }
 }
 
@@ -188,7 +263,15 @@ data class SlowMotionEffect(
  * chaque kill tombe sur un temps (le dernier y est déjà). Au-delà de [maxChange], la vitesse reste à 1.
  */
 @Serializable
-data class SpeedRampEffect(val enabled: Boolean = true, val maxChange: Double = 0.15) {
+data class SpeedRampEffect(
+    val enabled: Boolean = true,
+    val maxChange: Double = 0.15,
+    /**
+     * Les kills d'un multi-kill peuvent aussi tomber sur une frappe forte entre deux temps (caisse claire, contretemps),
+     * et la frappe la plus marquée à portée est préférée à la plus proche.
+     */
+    val onHits: Boolean = true,
+) {
     init {
         require(maxChange in 0.0..0.5) { "speedRamp.maxChange doit être entre 0 et 0,5" }
     }
@@ -242,6 +325,7 @@ data class MontageAudio(
     val duckRelease: SerialDuration = 220.milliseconds,
     /** Le son du jeu peut déborder d'autant sur le plan suivant pour finir un kill ou une phrase (fondu). */
     val bleed: SerialDuration = 300.milliseconds,
+    val dropBreak: DropBreak = DropBreak(),
     val loudnessLufs: Double = -14.0,
 ) {
     init {

@@ -70,6 +70,11 @@ object MontageScorer {
         val anchorGaps = plan.clips.mapIndexed { i, c -> toBeat(offsets[i] + c.toOutput(c.anchor)) }
         val allGaps = plan.clips.flatMapIndexed { i, c -> c.outputKills().map { toBeat(offsets[i] + it) } }
         val sync = anchorGaps.map(::onBeat).average()
+        // Les kills intermédiaires d'un multi-kill peuvent aussi viser un contretemps marqué : une frappe compte autant.
+        val hits = music.hits(plan.startBeat, plan.endBeat).map { it.at }
+        val hitGaps = plan.clips.flatMapIndexed { i, c ->
+            c.outputKills().map { k -> hits.minOf { (it - (plan.musicStart + offsets[i] + k)).absoluteValue } }
+        }
 
         // --- accentuation : tomber sur une attaque forte, mieux encore sur un premier temps de mesure.
         val accent = plan.clips.map { c ->
@@ -145,6 +150,7 @@ object MontageScorer {
                 "ancreEcartMoyenMs" to anchorGaps.map { it.inWholeMicroseconds / 1000.0 }.average().roundTo(1),
                 "ancreEcartMaxMs" to (anchorGaps.maxOfOrNull { it.inWholeMicroseconds / 1000.0 } ?: 0.0).roundTo(1),
                 "killsSurLeTemps" to (allGaps.count { it <= ON_BEAT }.toDouble() / allGaps.size.coerceAtLeast(1)).roundTo(3),
+                "killsSurUneFrappe" to (hitGaps.count { it <= ON_BEAT }.toDouble() / hitGaps.size.coerceAtLeast(1)).roundTo(3),
                 "emphasesParPlan" to emphases.average().roundTo(3),
                 "flashParCoupe" to flashRate.roundTo(3),
                 "voisinsSemblables" to similar.toDouble(),

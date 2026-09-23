@@ -2,6 +2,7 @@ package dev.highlights.montage
 
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.KillStyle
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.MontageSettings
@@ -25,9 +26,28 @@ data class KillGroup(
     val protectedSegments: List<TimeRange>,
     /** Réactions audibles (voix, rires) à mettre en avant au mixage, dans la vidéo source. */
     val voiceSegments: List<TimeRange>,
+    /** Ce qu'on sait de chaque kill (même ordre que [kills]) ; vide : rien de particulier. */
+    val traits: List<KillTraits> = emptyList(),
+    /** Bonus de spectacle des kills (tête, flick, enchaînement), en kills : voir [KillStyle]. */
+    val style: Double = 0.0,
 ) {
-    val rank: Double get() = kills.size + score / 10
+    val rank: Double get() = kills.size + score / 10 + style
     val span: Duration get() = kills.last() - kills.first()
+
+    fun traitsOf(kill: Duration): KillTraits = traits.getOrNull(kills.indexOf(kill)) ?: KillTraits.NONE
+}
+
+/**
+ * Particularités d'un kill : tir à la tête (événement du jeu), [flick] de 0 (visée posée) à 1 (balayage franc juste
+ * avant le kill), [shift] : correction appliquée à son instant par le recalage sur le son du tir.
+ */
+data class KillTraits(val headshot: Boolean = false, val flick: Double = 0.0, val shift: Duration = Duration.ZERO) {
+    companion object {
+        val NONE = KillTraits()
+
+        /** Flick assez net pour faire d'un plan un plan fort (ralenti, pour qu'on le voie). */
+        const val STRONG_FLICK = 0.5
+    }
 }
 
 /** Origine d'un changement de vitesse : ralenti du kill d'ancrage, ou rampe qui ramène un kill sur un temps. */
@@ -63,6 +83,8 @@ data class MontageClip(
     val sourceLength: Duration get() = end - start
     /** Kills visibles dans l'extrait (les premiers d'un multi-kill peuvent être coupés quand le slot est court). */
     val kills: List<Duration> get() = group.kills.filter { it >= start && it <= end }
+    /** Un kill visible est un flick franc. */
+    val flick: Boolean get() = kills.any { group.traitsOf(it).flick >= KillTraits.STRONG_FLICK }
     val rank: Double get() = group.rank
     /** Paliers du ralenti du kill d'ancrage : décélération avant le kill, puis vitesse pleine du ralenti. */
     val slowSteps: List<SpeedSegment> get() = speeds.filter { it.kind == SpeedKind.SLOW }
@@ -87,10 +109,20 @@ data class MontageClip(
     fun outputKills(): List<Duration> = kills.map(::toOutput)
 }
 
+/** Variante d'un plan : échelle de grille imposée (null : choisie par [CutGrid.select]) et décalage de la place de la drop. */
+data class PlanVariant(val scale: Double? = null, val dropShift: Double = 0.0) {
+    override fun toString() = "grille ×${scale?.let { "%.0f".format(it) } ?: "auto"}, drop ${"%+.2f".format(dropShift)}"
+
+    companion object {
+        val BASE = PlanVariant()
+    }
+}
+
 data class MontagePlan(
     val clips: List<MontageClip>,
     val music: MusicAnalysis,
     val settings: MontageSettings,
+    val variant: PlanVariant = PlanVariant.BASE,
 ) {
     init {
         require(clips.isNotEmpty()) { "montage vide" }
@@ -124,11 +156,39 @@ object MontagePlanner {
     /** Recul d'importance d'un slot dont un voisin porte déjà un clip qui se ressemble. */
     private const val MONOTONY_PENALTY = 0.5
 
+    /** Écart maximal entre un kill et l'événement « tir à la tête » qui l'accompagne. */
+    private val HEADSHOT_MATCH = 250.milliseconds
+
+    /**
+     * Prix d'un changement de vitesse dans une rampe, en force de frappe : 10 % de vitesse en plus ou en moins valent
+     * 0,3 d'accent. Une frappe franchement plus forte justifie d'aller la chercher un peu plus loin.
+     */
+    private const val RAMP_COST = 3.0
+
+    /** Un contretemps vaut un peu moins qu'un temps de même force : le temps reste le repère du spectateur. */
+    private const val OFF_BEAT_DISCOUNT = 0.85
+
+    /**
+     * Variantes : écarts essayés sur la place de la drop, et part minimale des clips du plan de base qu'une variante
+     * doit garder (une grille plus lâche serait sinon mieux notée en se contentant de moins de clips).
+     */
+    private val DROP_SHIFTS = listOf(-0.15, 0.0, 0.15)
+    private val SCALES = listOf(1.0, 2.0, 4.0, 8.0)
+    private const val MIN_CLIP_SHARE = 0.85
+
+    /** Gain de note en dessous duquel le plan de base est gardé : on ne change pas pour du bruit. */
+    private const val MIN_GAIN = 0.005
+
     /** Regroupe les kills de chaque session (multi-kills) avec leurs segments de réaction. */
     fun groups(sessions: List<Session>, settings: MontageSettings): List<KillGroup> = sessions.flatMap { session ->
         val timeline = session.timeline
         val bounds = session.media.bounds
         val kills = timeline.events.filter { it.kind == settings.killEvent }.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
+        // Tirs à la tête : l'événement du jeu tombe au même instant que le kill (même retard de notification).
+        val style = settings.killStyle
+        val headshots = if (style.headshotEvent.isEmpty()) emptyList()
+        else timeline.events.filter { it.kind == style.headshotEvent }.map { it.at + settings.killOffset }
+        fun headshot(k: Duration) = headshots.any { (it - k).absoluteValue <= HEADSHOT_MATCH }
         val grouped = mutableListOf<MutableList<Duration>>()
         for (k in kills) {
             val last = grouped.lastOrNull()
@@ -140,17 +200,58 @@ object MontagePlanner {
         grouped.map { ks ->
             val window = TimeRange(ks.first() - settings.preRoll, ks.last() + settings.postRoll)
             val indices = timeline.grid.let { g -> (0 until g.count).filter { g.rangeOf(it).isWithin(window) } }
+            val traits = ks.map { KillTraits(headshot = headshot(it)) }
             KillGroup(
                 media = session.media,
                 kills = ks,
                 score = indices.maxOfOrNull { timeline.total[it] } ?: 0.0,
                 protectedSegments = protectedSegments.filter { it.isWithin(window, settings.postRoll * 4) },
                 voiceSegments = voice.filter { it.isWithin(window, settings.postRoll * 4) },
+                traits = traits,
+                style = style(ks, traits, style),
             )
         }
     }
 
-    fun plan(all: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings): MontagePlan {
+    /** Bonus de spectacle d'un groupe, en kills : tirs à la tête, flicks, kills enchaînés. */
+    fun style(kills: List<Duration>, traits: List<KillTraits>, style: KillStyle): Double =
+        traits.sumOf { (if (it.headshot) style.headshotBonus else 0.0) + style.flickBonus * it.flick } +
+            style.quickBonus * kills.zipWithNext().count { (a, b) -> b - a <= style.quickGap }
+
+    /** Même groupe, kills recalés et particularités mises à jour (voir [KillInspector]) ; le bonus est recalculé. */
+    fun withTraits(group: KillGroup, kills: List<Duration>, traits: List<KillTraits>, style: KillStyle): KillGroup {
+        val sorted = kills.zip(traits).sortedBy { it.first }
+        return group.copy(kills = sorted.map { it.first }, traits = sorted.map { it.second }, style = style(sorted.map { it.first }, sorted.map { it.second }, style))
+    }
+
+    /**
+     * Meilleur plan parmi des variantes (échelle de la grille, place de la drop), d'après [MontageScorer]. Sans
+     * [MontageSettings.variants], le plan de base. Une variante doit garder presque tous les clips du plan de base et le
+     * battre nettement : sinon le plan de base, dont les choix sont les plus prévisibles, reste.
+     */
+    fun best(all: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings): MontagePlan {
+        val base = plan(all, music, settings)
+        if (!settings.variants) return base
+        val baseScore = MontageScorer.score(base).total
+        val minClips = ceil(base.clips.size * MIN_CLIP_SHARE).toInt()
+        val candidates = SCALES.flatMap { scale -> DROP_SHIFTS.map { PlanVariant(scale, it) } }.mapNotNull { variant ->
+            runCatching { plan(all, music, settings, variant) }.getOrNull()
+                ?.takeIf { it.clips.size >= minClips }
+                ?.let { it to MontageScorer.score(it).total }
+        }
+        val (winner, score) = candidates.maxByOrNull { it.second } ?: return base
+        if (score < baseScore + MIN_GAIN) {
+            log.info { "Variantes : ${candidates.size} essayées, plan de base gardé (note ${"%.3f".format(baseScore)})" }
+            return base
+        }
+        log.info {
+            "Variantes : ${candidates.size} essayées, retenue ${winner.variant} (note ${"%.3f".format(score)} contre ${"%.3f".format(baseScore)}, " +
+                "${winner.clips.size} clips contre ${base.clips.size})"
+        }
+        return winner
+    }
+
+    fun plan(all: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings, variant: PlanVariant = PlanVariant.BASE): MontagePlan {
         if (all.isEmpty()) throw HighlightsException("Aucun kill à monter : lance l'analyse avec un profil qui détecte les kills")
         // Plancher de qualité : mieux vaut un montage plus court qu'un plan sans intérêt. Les meilleurs passent toujours.
         val groups = if (settings.minScore > 0.0) {
@@ -160,14 +261,14 @@ object MontagePlanner {
         } else {
             all
         }
-        val cuts = settings.cuts
+        val cuts = settings.cuts.let { it.copy(dropPosition = (it.dropPosition + variant.dropShift).coerceIn(0.0, 1.0)) }
         val period = music.beatPeriod
         val minLeadBeats = beatsCeil(cuts.minLead, period).coerceAtLeast(1)
         val minTailBeats = beatsCeil(cuts.minTail, period).coerceAtLeast(1)
         val minBeats = maxOf(2, minLeadBeats + minTailBeats)
 
         // Grille : plus grossière quand il y a moins de clips que de plans dans la durée demandée.
-        val (scale, _, window) = CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size)
+        val (scale, _, window) = CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size, variant.scale?.let(::listOf))
         if (window.isEmpty()) throw HighlightsException("Musique trop courte pour un seul clip (${music.duration.inWholeSeconds} s)")
 
         val cells = assign(window, groups, music, settings, minLeadBeats, minTailBeats)
@@ -177,17 +278,19 @@ object MontagePlanner {
             // Le plan sans ralenti d'abord : c'est lui qui dit combien de kills seront réellement à l'écran, donc si le
             // plan mérite le ralenti. Un multi-kill dont tout le début serait coupé n'en est pas un pour le spectateur.
             val plain = clipFor(cell, music, settings, minLeadBeats, minTailBeats, offset, allowSlow = false)
-            if (allowsSlow(settings, i, cell.first, plain.kills.size)) {
+            if (allowsSlow(settings, i, cell.first, plain.kills.size, plain.flick)) {
                 clipFor(cell, music, settings, minLeadBeats, minTailBeats, offset, allowSlow = true)
             } else {
                 plain
             }
         }
-        log.info {
+        // Les variantes essayées par [best] ne méritent pas une ligne chacune : seul le plan de base est détaillé.
+        val describe = {
             "Grille ×${"%.0f".format(scale)} : ${window.size} slots, ${clips.size} clips, ${clips.sumOf { it.beats }} temps, " +
                 clips.joinToString(" ") { "${it.beats}${if (it.slot.dropBeat != null) "*" else ""}" }
         }
-        return MontagePlan(clips, music, settings)
+        if (variant == PlanVariant.BASE) log.info(describe) else log.debug(describe)
+        return MontagePlan(clips, music, settings, variant)
     }
 
     private class Cell(var startBeat: Int, var endBeat: Int, val section: Int, val dropBeat: Int?) {
@@ -336,17 +439,18 @@ object MontagePlanner {
     }
 
     /**
-     * Plan « fort » : celui de la drop, un multi-kill, ou l'accroche qui ouvre le montage. Ce sont les seuls à mériter
-     * un ralenti au rythme normal ; les autres reçoivent un zoom, et jamais les deux.
+     * Plan « fort » : celui de la drop, un multi-kill, un flick, ou l'accroche qui ouvre le montage. Ce sont les seuls
+     * à mériter un ralenti au rythme normal ; les autres reçoivent un zoom, et jamais les deux. Un flick passe trop vite
+     * pour être vu à vitesse normale : c'est le plan qui a le plus besoin du ralenti.
      */
-    internal fun isStrong(index: Int, slot: CutSlot, visibleKills: Int): Boolean =
-        slot.dropBeat != null || visibleKills > 1 || index == 0
+    internal fun isStrong(index: Int, slot: CutSlot, visibleKills: Int, flick: Boolean = false): Boolean =
+        slot.dropBeat != null || visibleKills > 1 || index == 0 || flick
 
     /** Le plan a-t-il droit au ralenti, vu la quantité d'effets demandée ? */
-    internal fun allowsSlow(settings: MontageSettings, index: Int, slot: CutSlot, visibleKills: Int): Boolean =
+    internal fun allowsSlow(settings: MontageSettings, index: Int, slot: CutSlot, visibleKills: Int, flick: Boolean = false): Boolean =
         when (settings.effectDensity) {
             EffectDensity.SOBER -> slot.dropBeat != null
-            EffectDensity.BALANCED -> isStrong(index, slot, visibleKills)
+            EffectDensity.BALANCED -> isStrong(index, slot, visibleKills, flick)
             EffectDensity.HEAVY -> true
         }
 
@@ -463,15 +567,23 @@ object MontagePlanner {
                 val wanted = segEndOut - gap
                 var out = wanted
                 if (gap >= MIN_RAMP_GAP) {
-                    val target = slotStart + wanted
-                    val nearest = (slot.startBeat..anchorBeat).minByOrNull { abs((music.beatTime(it) - target).inWholeMicroseconds) }
-                    val onBeat = nearest?.let { music.beatTime(it) - slotStart }
-                    if (onBeat != null && onBeat >= cuts.minLead / 2 && onBeat < segEndOut) {
-                        val factor = gap / (segEndOut - onBeat)
-                        if (abs(factor - 1) <= ramp.maxChange) {
-                            if (abs(factor - 1) > 1e-3) speeds += SpeedSegment(TimeRange(k, segEnd), factor)
-                            out = onBeat
-                        }
+                    // Frappes à portée d'une rampe : la plus forte, au moindre changement de vitesse. Sans les
+                    // contretemps, simplement le temps le plus proche.
+                    val hits = if (ramp.onHits) music.hits(slot.startBeat, anchorBeat)
+                    else music.hits(slot.startBeat, anchorBeat).filter { it.onBeat }
+                    val best = hits.mapNotNull { hit ->
+                        val at = hit.at - slotStart
+                        if (at < cuts.minLead / 2 || at >= segEndOut) return@mapNotNull null
+                        val factor = gap / (segEndOut - at)
+                        if (abs(factor - 1) > ramp.maxChange) return@mapNotNull null
+                        val value = if (ramp.onHits) hit.strength * (if (hit.onBeat) 1.0 else OFF_BEAT_DISCOUNT) - RAMP_COST * abs(factor - 1)
+                        else -abs(factor - 1)
+                        Triple(at, factor, value)
+                    }.maxByOrNull { it.third }
+                    if (best != null) {
+                        val (at, factor) = best
+                        if (abs(factor - 1) > 1e-3) speeds += SpeedSegment(TimeRange(k, segEnd), factor)
+                        out = at
                     }
                 }
                 nextKill = k

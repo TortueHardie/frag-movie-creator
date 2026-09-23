@@ -2,6 +2,7 @@ package dev.highlights.montage
 
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.model.AudioStream
+import dev.highlights.core.model.DropBreak
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
@@ -11,6 +12,7 @@ import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SlowAudio
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.VideoStream
+import dev.highlights.core.serialization.Durations
 import dev.highlights.editing.CutInput
 import dev.highlights.editing.SourceCuts
 import io.kotest.core.spec.style.FunSpec
@@ -101,7 +103,7 @@ class MontageRenderBuilderTest : FunSpec({
         g shouldContain "amix=inputs=2:normalize=0:duration=first"
         g shouldContain "[vcat]fade=t=out"
         // La musique baisse progressivement pendant la réaction du premier clip.
-        g shouldContain "volume='1.0000-0.5500*(min(max((t-"
+        g shouldContain "volume='(1.0000-0.5500*(min(max((t-"
         cmd.command.args.count { it == "-i" } shouldBe 3
     }
 
@@ -116,7 +118,7 @@ class MontageRenderBuilderTest : FunSpec({
         val g = build(plan(settings.copy(audio = settings.audio.copy(balance = 1.0)))).filterGraph
         // Jeu ×2 (base 0,5 → 1, kill 1 → 2), musique ×0,5, ducking sous la voix toujours proportionnel.
         g shouldContain "volume='max(1.0000\\,(1.0000+1.0000*"
-        g shouldContain "volume='0.5000-0.2750*(min(max((t-"
+        g shouldContain "volume='(0.5000-0.2750*(min(max((t-"
     }
 
     test("son du kill seul : le reste du jeu se tait et la musique baisse sous chaque kill") {
@@ -124,7 +126,7 @@ class MontageRenderBuilderTest : FunSpec({
         val g = build(plan(kills)).filterGraph
         g shouldContain "volume='max(0.0000\\,(0.0000+1.0000*"
         // Musique à 0,3 sous le kill, plus sous la voix (qu'on n'entend plus).
-        g shouldContain "volume='1.0000-0.7000*(max(max(min(max((t-"
+        g shouldContain "volume='(1.0000-0.7000*(max(max(min(max((t-"
         g shouldNotContain "-0.5500*("
     }
 
@@ -289,4 +291,33 @@ class MontageRenderBuilderTest : FunSpec({
         build(plan(settings.copy(text = settings.text.copy(killCounter = true)))).filterGraph shouldContain "text='KILL 3'"
     }
 
+    test("coupure avant la drop : la musique se tait un temps puis revient d'un coup sur la drop") {
+        val p = plan()
+        val drop = p.dropAt!!
+        MontageRenderBuilder.dropBreak(p) shouldBe TimeRange(drop - 500.milliseconds, drop)
+        val g = build(p).filterGraph
+        val music = g.lines().single { it.endsWith("[music];") }
+        val start = Durations.ffmpegSeconds(drop - 525.milliseconds)
+        val end = Durations.ffmpegSeconds(drop)
+        music shouldContain "*(1-1.0000*(min(max((t-$start)/0.0250\\,0)\\,1)*min(max(($end-t)/0.0010\\,0)\\,1)))"
+
+        // Musique seulement baissée, sur une croche.
+        val half = settings.copy(audio = settings.audio.copy(dropBreak = DropBreak(beats = 0.5, musicLevel = 0.3)))
+        MontageRenderBuilder.dropBreak(plan(half)) shouldBe TimeRange(drop - 250.milliseconds, drop)
+        build(plan(half)).filterGraph shouldContain "*(1-0.7000*("
+
+        val off = settings.copy(audio = settings.audio.copy(dropBreak = DropBreak(enabled = false)))
+        MontageRenderBuilder.dropBreak(plan(off)) shouldBe null
+        build(plan(off)).filterGraph shouldNotContain "*(1-1.0000*("
+    }
+
+    test("coupure avant la drop : rien quand la drop ouvre presque le montage") {
+        val p = plan()
+        // Drop un temps après le début : on n'a pas encore entendu la musique, il n'y a rien à couper.
+        val early = p.copy(music = p.music.copy(dropBeat = p.startBeat + 1))
+        early.dropAt shouldBe 500.milliseconds
+        MontageRenderBuilder.dropBreak(early) shouldBe null
+        // Drop hors du montage.
+        MontageRenderBuilder.dropBreak(p.copy(music = p.music.copy(dropBeat = p.endBeat + 8))) shouldBe null
+    }
 })

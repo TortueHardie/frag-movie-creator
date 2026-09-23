@@ -141,4 +141,32 @@ class MusicAnalyzerTest : FunSpec({
             (beatIndex % 4) shouldBe 0
         }
     }
+
+    test("contretemps : une caisse claire entre les temps devient une frappe, pas le charleston") {
+        val sr = MusicAnalyzer.SAMPLE_RATE
+        val plain = beatLoop(120.0, 30)
+        val snare = plain.copyOf()
+        val random = Random(5)
+        var t = 0.25 + 0.25
+        while (t < 30) {
+            val start = (t * sr).toInt()
+            for (i in 0 until (0.06 * sr).toInt()) {
+                if (start + i >= snare.size) break
+                snare[start + i] += ((random.nextDouble() * 2 - 1) * 0.3 * exp(-i / (0.02 * sr))).toFloat()
+            }
+            // Un contretemps sur deux : le tempo reste celui de la grosse caisse.
+            t += 1.0
+        }
+        val withSnare = MusicAnalyzer.analyzeSamples(snare)
+        val withHats = MusicAnalyzer.analyzeSamples(plain)
+        withSnare.bpm shouldBe (120.0 plusOrMinus 1.0)
+        fun strongHalves(a: MusicAnalysis) = a.beats.indices.count(a::isHalfHit)
+        // Le charleston est une attaque nette, mais bien moins marquée que les temps : pas une frappe.
+        (strongHalves(withHats) <= 2) shouldBe true
+        // Un temps sur deux porte une caisse claire en son milieu.
+        (strongHalves(withSnare) >= withSnare.beats.size / 3) shouldBe true
+        val hits = withSnare.hits(8, 24)
+        hits.count { !it.onBeat } shouldBeGreaterThan 4
+        hits.zipWithNext().forEach { (a, b) -> (a.at < b.at) shouldBe true }
+    }
 })
