@@ -21,9 +21,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.FileTime
+import java.time.Instant
 import java.util.Collections
 import kotlin.io.path.Path
 import kotlin.io.path.exists
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /** Parcours complet de l'interface sans fenêtre : config → vidéo → analyse → recalcul → export → aperçus. */
@@ -52,7 +55,7 @@ class AppControllerIT : FunSpec({
         )
         val platform = RecordingPlatform()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val controller = AppController(scope, platform) {
+        val controller = AppController(scope, platform, WatchPrefsStore(root.resolve("watch.json"))) {
             Backend(Pipelines.create(config, TestMedia.requireFfmpeg()), Path("app.yaml"))
         }
         suspend fun await(what: String, predicate: (UiState) -> Boolean): UiState =
@@ -106,6 +109,102 @@ class AppControllerIT : FunSpec({
             scope.cancel()
         }
     }
+
+    test("dossier surveillé : nouvelle capture analysée en fond, retrouvée après redémarrage").config(
+        enabledIf = { TestMedia.available },
+        timeout = 5.seconds * 60,
+    ) {
+        val root = tempdir().toPath()
+        val watched = Files.createDirectories(root.resolve("Outplayed"))
+        val config = LoadedConfig(
+            app = AppConfig(
+                ffmpeg = FfmpegSettings(hwaccelDecode = null),
+                outputDir = root.resolve("out").toString(),
+                profilesDir = Path("../config/profiles").toAbsolutePath().toString(),
+                workDir = root.resolve("work").toString(),
+            ),
+            baseDir = Path("../config").toAbsolutePath().normalize(),
+            source = null,
+        )
+        // Capture déjà là avant la surveillance : elle n'est pas analysée d'office.
+        val old = TestMedia.generate(Files.createDirectories(watched.resolve("League of Legends")).resolve("ancienne.mp4"), durationSeconds = 20)
+        Files.setLastModifiedTime(old, FileTime.from(Instant.now().minusSeconds(3600)))
+        val prefs = WatchPrefsStore(root.resolve("watch.json"))
+        val ffmpeg = TestMedia.requireFfmpeg()
+
+        fun start(scope: CoroutineScope, platform: Platform) =
+            AppController(scope, platform, prefs, watchInterval = 200.milliseconds, watchSettle = 1.seconds) {
+                Backend(Pipelines.create(config, ffmpeg), Path("app.yaml"))
+            }
+
+        val platform = RecordingPlatform().apply { directory = watched }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val controller = start(scope, platform)
+        suspend fun await(what: String, predicate: (UiState) -> Boolean): UiState =
+            withTimeout(120.seconds) { controller.state.first { s -> s.error?.let { error("$what : ${it.title} — ${it.message}") }; predicate(s) } }
+        val fresh: Path
+        try {
+            await("config") { it.config is ConfigStatus.Ready }
+            controller.chooseWatchFolder()
+            await("surveillance") { it.watch.folder == watched.toAbsolutePath().normalize() }
+
+            // L'enregistreur dépose une nouvelle partie (générée à côté puis déplacée, comme un fichier terminé).
+            val made = TestMedia.generate(
+                root.resolve("partie.mp4"),
+                durationSeconds = 40,
+                audioTracks = listOf(TestMedia.AudioTrackSpec("Game", bursts = listOf(10.0..12.0, 28.0..30.0))),
+            )
+            val arrived = Files.move(made, watched.resolve("League of Legends").resolve("partie.mp4"))
+            Files.setLastModifiedTime(arrived, FileTime.from(Instant.now()))
+            val analyzed = await("analyse en fond") { it.library.size == 1 && it.watch.current == null && it.watch.fresh.isNotEmpty() }
+            val item = analyzed.library.single()
+            item.source shouldBe arrived.toAbsolutePath().normalize()
+            item.profileId shouldBe "lol"
+            fresh = item.sessionFile
+            (analyzed.watch.fresh == setOf(fresh)) shouldBe true
+            analyzed.watch.lastError.shouldBeNull()
+
+            // Cocher puis décocher une analyse de la liste.
+            controller.toggleLibraryItem(fresh)
+            await("cochée") { it.librarySelection == setOf(fresh) }
+            controller.toggleLibraryItem(fresh)
+            await("décochée") { it.librarySelection.isEmpty() }
+            controller.toggleLibraryItem(fresh)
+            controller.openLibrarySelection()
+            val opened = await("réouverture") { it.session != null && it.job == null }
+            opened.session!!.highlights.isNotEmpty() shouldBe true
+            opened.watch.fresh.isEmpty() shouldBe true
+            opened.librarySelection.isEmpty() shouldBe true
+            opened.watch.pending.isEmpty() shouldBe true
+
+            // Revenir à la liste puis rechoisir la vidéo : l'analyse est reprise, pas refaite.
+            controller.showLibrary()
+            await("liste") { it.session == null && it.sources.isEmpty() }
+            controller.dropFiles(listOf(arrived))
+            await("déjà analysée") { it.source?.alreadyAnalyzed == true && it.job == null }
+            controller.analyze()
+            await("reprise") { it.session != null && it.job == null }
+            // La capture ancienne n'a jamais été analysée.
+            controller.state.value.library.map { it.source.fileName.toString() } shouldBe listOf("partie.mp4")
+        } finally {
+            controller.shutdown()
+            scope.cancel()
+        }
+
+        // Relance de l'application : dossier et analyses sont retrouvés.
+        val scope2 = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val restarted = start(scope2, RecordingPlatform())
+        try {
+            val back = withTimeout(60.seconds) { restarted.state.first { it.library.size == 1 && it.watch.folder != null } }
+            back.watch.folder shouldBe watched.toAbsolutePath().normalize()
+            back.library.single().sessionFile shouldBe fresh
+            restarted.stopWatching()
+            prefs.load().shouldBeNull()
+        } finally {
+            restarted.shutdown()
+            scope2.cancel()
+        }
+    }
 })
 
 private class RecordingPlatform : Platform {
@@ -113,7 +212,8 @@ private class RecordingPlatform : Platform {
     override fun chooseVideos(initialDir: Path?): List<Path> = emptyList()
     override fun chooseAudio(initialDir: Path?): Path? = null
     override fun chooseSessions(initialDir: Path?): List<Path> = emptyList()
-    override fun chooseDirectory(initialDir: Path?): Path? = null
+    var directory: Path? = null
+    override fun chooseDirectory(initialDir: Path?, title: String): Path? = directory
     override fun open(path: Path) { opened.add(path) }
     override fun reveal(path: Path) = Unit
     override fun edit(path: Path) = Unit

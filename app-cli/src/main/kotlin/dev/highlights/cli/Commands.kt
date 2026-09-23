@@ -76,6 +76,7 @@ class ProcessCommand : PipelineCommand("process") {
     private val threshold by option("--threshold", help = "Seuil de score 0..1").double().restrictTo(0.0, 1.0)
     private val target by targetOption()
     private val kills by option("--kills", help = "Un moment par kill (ou multi-kill) détecté, au lieu des meilleurs moments").flag()
+    private val reanalyze by option("--reanalyze", help = "Tout recalculer, même pour une capture déjà analysée").flag()
     private val formats by formatsOption()
     private val style by styleOption()
     private val music by musicOption()
@@ -92,7 +93,7 @@ class ProcessCommand : PipelineCommand("process") {
             try {
                 pipeline.processAll(
                     files,
-                    AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null),
+                    AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, reuse = !reanalyze),
                     ExportOptions(formats, out, style, music),
                     ProgressTracker(listener = progress).root,
                 )
@@ -112,6 +113,7 @@ class AnalyzeCommand : PipelineCommand("analyze") {
     private val threshold by option("--threshold").double().restrictTo(0.0, 1.0)
     private val target by targetOption()
     private val kills by option("--kills", help = "Un moment par kill (ou multi-kill) détecté").flag()
+    private val reanalyze by option("--reanalyze", help = "Tout recalculer, même pour une capture déjà analysée").flag()
     private val out by option("-o", "--out", help = "Dossier de sortie (la session va dans <out>/sessions)").path(canBeFile = false)
 
     override fun help(context: Context) =
@@ -121,7 +123,7 @@ class AnalyzeCommand : PipelineCommand("analyze") {
         val progress = ConsoleProgress()
         val outcomes = execute {
             try {
-                Pipelines.create(env.config).analyzeAll(files, AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, outputDir = out), ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).analyzeAll(files, AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, outputDir = out, reuse = !reanalyze), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
@@ -342,6 +344,7 @@ class EncodersCommand : PipelineCommand("encoders") {
 private fun PipelineCommand.printAnalyses(outcomes: List<AnalysisOutcome>) {
     outcomes.forEach { outcome ->
         if (outcomes.size > 1) echo("== ${outcome.session.media.path.fileName}")
+        if (outcome.reused) echo("Déjà analysée : analyse reprise (--reanalyze pour tout recalculer).")
         printHighlights(outcome.session.highlights, outcome.session.warnings)
         echo("Session : ${outcome.sessionFile}")
     }

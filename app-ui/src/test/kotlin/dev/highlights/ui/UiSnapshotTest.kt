@@ -107,6 +107,32 @@ class UiSnapshotTest : FunSpec({
         render("01_accueil", UiState(config = ready, settings = settings)).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("analyses enregistrées et dossier surveillé") {
+        val sessions = Path("D:/Highlights/sessions")
+        val outplayed = Path("C:/Users/Colin/Videos/Overwolf/Outplayed")
+        val library = listOf(
+            LibraryItem(outplayed.resolve("League of Legends/LoL_09-23-2026_21-40.mp4"), sessions.resolve("LoL_09-23-2026_21-40.session.json"), "lol", Instant.parse("2026-09-23T20:25:00Z"), Instant.parse("2026-09-23T19:40:00Z"), 31.minutes, mapOf("kill" to 7, "death" to 3), true),
+            LibraryItem(outplayed.resolve("League of Legends/LoL_09-23-2026_20-55.mp4"), sessions.resolve("LoL_09-23-2026_20-55.session.json"), "lol", Instant.parse("2026-09-23T19:36:00Z"), Instant.parse("2026-09-23T18:55:00Z"), 28.minutes, mapOf("kill" to 4, "assist" to 9), true),
+            LibraryItem(media.path, sessions.resolve("WARDOGS.session.json"), "wardogs", Instant.parse("2026-09-16T18:10:00Z"), Instant.parse("2026-09-16T17:01:00Z"), media.duration, mapOf("kill" to 12), true),
+            LibraryItem(Path("E:/OBS/valorant_old.mkv"), sessions.resolve("valorant_old.session.json"), "valorant", Instant.parse("2026-09-02T21:00:00Z"), null, 42.minutes, emptyMap(), false),
+        )
+        val state = UiState(
+            config = ready,
+            settings = settings,
+            library = library,
+            librarySelection = setOf(library[0].sessionFile, library[1].sessionFile),
+            watch = WatchState(
+                folder = outplayed,
+                current = outplayed.resolve("League of Legends/LoL_09-23-2026_22-20.mp4"),
+                fraction = 0.42,
+                pending = listOf(outplayed.resolve("VALORANT/Valorant_09-23-2026_22-50.mp4")),
+                fresh = setOf(library[0].sessionFile),
+            ),
+        )
+        render("08_bibliotheque", state).fileSize() shouldBeGreaterThan 0L
+        render("09_bibliotheque_vide", UiState(config = ready, settings = settings)).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("analyse en cours") {
         val state = UiState(
             config = ready,
@@ -184,6 +210,12 @@ class UiSnapshotTest : FunSpec({
 
 private object NoopActions : UiActions {
     override fun chooseSource() = Unit
+    override fun showLibrary() = Unit
+    override fun openLibraryItem(sessionFile: Path) = Unit
+    override fun toggleLibraryItem(sessionFile: Path) = Unit
+    override fun openLibrarySelection() = Unit
+    override fun chooseWatchFolder() = Unit
+    override fun stopWatching() = Unit
     override fun addSources() = Unit
     override fun removeSource(path: Path) = Unit
     override fun chooseSession() = Unit

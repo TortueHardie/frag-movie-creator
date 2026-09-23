@@ -13,6 +13,18 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
   captures venues de sessions ou de jeux différents. Neutre tant qu'on n'y touche pas.
 - **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
 - **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Wardogs, et un profil par défaut.
+- **Mémoire des analyses** : une capture déjà analysée n'est pas réanalysée. La rechoisir (application ou ligne de
+  commande) reprend son analyse instantanément, moments décochés compris ; seule la sélection (seuil, cible) est
+  recalculée. Elle est refaite d'office si le fichier change ou si les détecteurs, fenêtres ou pistes audio de son
+  profil changent (retoucher la sélection ou le montage du profil ne la refait pas). Forcer : « Réanalyser » sur une
+  analyse ouverte, ou `--reanalyze`. L'index est `sessions/library.json` dans le dossier de sortie de `app.yaml`.
+- **Analyses enregistrées** : quand aucune analyse n'est ouverte, l'application liste celles déjà faites ; un clic en
+  rouvre une, plusieurs cochées s'ouvrent ensemble pour un seul montage (toute une soirée).
+- **Dossier surveillé** : dans l'application, « Surveiller un dossier… » (celui d'Outplayed, d'OBS…, sous-dossiers
+  compris). Chaque nouvelle capture y est analysée en fond une fois son enregistrement terminé (fichier inchangé
+  depuis 15 s), puis apparaît dans la liste marquée « nouveau » ; l'export reste à lancer soi-même. Les captures déjà
+  présentes quand le dossier est choisi ne sont pas analysées d'office, celles arrivées pendant que l'application était
+  fermée le sont à la relance. Le dossier est retenu d'un lancement à l'autre (`~/.highlights/watch.json`).
 
 ## Installer l'application (Windows)
 

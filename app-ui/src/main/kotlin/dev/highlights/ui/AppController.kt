@@ -15,6 +15,7 @@ import dev.highlights.core.session.SessionStore
 import dev.highlights.pipeline.AnalyzeOptions
 import dev.highlights.pipeline.ConfigLocator
 import dev.highlights.pipeline.ExportOptions
+import dev.highlights.pipeline.FolderWatcher
 import dev.highlights.pipeline.HighlightPipeline
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
@@ -33,10 +34,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.file.Path
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.exists
 import kotlin.io.path.extension
 import kotlin.io.path.name
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -84,6 +87,14 @@ interface UiActions {
     fun updateMontage(change: (MontageUiState) -> MontageUiState)
     fun createMontage()
 
+    /** Ferme l'analyse ouverte (elle reste enregistrée) et revient à la liste des analyses. */
+    fun showLibrary()
+    fun openLibraryItem(sessionFile: Path)
+    fun toggleLibraryItem(sessionFile: Path)
+    fun openLibrarySelection()
+    fun chooseWatchFolder()
+    fun stopWatching()
+
     fun open(path: Path)
     fun reveal(path: Path)
     fun dismissError()
@@ -97,6 +108,10 @@ interface UiActions {
 class AppController(
     private val scope: CoroutineScope,
     private val platform: Platform,
+    private val watchPrefs: WatchPrefsStore = WatchPrefsStore(WatchPrefsStore.DEFAULT_FILE),
+    /** Intervalle entre deux passages sur le dossier surveillé, et temps sans écriture avant qu'une capture soit prise. */
+    private val watchInterval: Duration = 5.seconds,
+    private val watchSettle: Duration = 15.seconds,
     private val backendFactory: () -> Backend = {
         val file = ConfigLocator.locate()
         val config = ConfigYaml.load(file)
@@ -111,6 +126,7 @@ class AppController(
     private var mainJob: Job? = null
     private var thumbnailJob: Job? = null
     private var saveJob: Job? = null
+    private var watchJob: Job? = null
 
     init {
         reloadConfig()
@@ -132,6 +148,8 @@ class AppController(
                         sources = s.sources.map { src -> src.copy(detectedProfileId = p.resolveProfile(src.path).id) },
                     )
                 }
+                refreshLibrary()
+                if (watchJob == null) watchPrefs.load()?.let { startWatching(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -195,7 +213,7 @@ class AppController(
         val p = backend?.pipeline ?: return showError("Configuration non chargée", "Attends la fin du chargement ou corrige la configuration.")
         val files = paths.map { it.toAbsolutePath().normalize() }.distinct()
         runTask(if (files.size == 1) "Lecture du fichier" else "Lecture de ${files.size} fichiers", cancellable = false) {
-            val sources = files.map { path -> SourceInfo(path, p.probe(path), p.resolveProfile(path).id) }
+            val sources = files.map { path -> SourceInfo(path, p.probe(path), p.resolveProfile(path).id, p.library.contains(path)) }
                 .sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { it.media })
             val profile = p.resolveProfile(sources.first().path)
             thumbnailJob?.cancel()
@@ -227,6 +245,8 @@ class AppController(
                     settings = s.settings.withProfileDefaults(profile).copy(profileId = profile.id),
                 )
             }
+            val openedFiles = files.map { it.toAbsolutePath().normalize() }.toSet()
+            _state.update { s -> s.copy(watch = s.watch.copy(fresh = s.watch.fresh - openedFiles), librarySelection = emptySet()) }
             val missing = entries.map { it.session.media.path }.filterNot { it.exists() }
             if (missing.isNotEmpty()) {
                 showError("Vidéo source introuvable", "${missing.joinToString()} n'existe plus : l'export et les aperçus seront impossibles.")
@@ -314,9 +334,12 @@ class AppController(
                     target,
                     requiredEvent = s.settings.momentMode.requiredEvent,
                     outputDir = s.settings.outputDir,
+                    // « Réanalyser » une analyse ouverte recalcule tout ; sinon une capture déjà analysée est reprise.
+                    reuse = s.session == null,
                 ),
                 progress,
             )
+            refreshLibrary()
             val analyzed = SessionState(outcomes.map { SessionEntry(it.session, it.sessionFile) })
             _state.update { st ->
                 st.copy(
@@ -354,7 +377,7 @@ class AppController(
 
     /** Annule les traitements en cours avant de quitter (tue les process FFmpeg). */
     fun shutdown() {
-        val jobs = listOfNotNull(mainJob, thumbnailJob, saveJob)
+        val jobs = listOfNotNull(mainJob, thumbnailJob, saveJob, watchJob)
         jobs.forEach { it.cancel() }
         runBlocking { withTimeoutOrNull(3.seconds) { jobs.forEach { it.join() } } }
         state.value.session?.entries?.forEach { runCatching { SessionStore.save(it.session, it.file) } }
@@ -485,6 +508,110 @@ class AppController(
                 progress,
             )
             _state.update { it.copy(lastExport = result) }
+        }
+    }
+
+    // ---------------------------------------------------------------- analyses enregistrées
+
+    override fun showLibrary() {
+        if (state.value.job != null) return
+        state.value.session?.let { current -> scope.launch { saveNow(current) } }
+        thumbnailJob?.cancel()
+        _state.update { it.copy(sources = emptyList(), session = null, lastExport = null) }
+        refreshLibrary()
+    }
+
+    override fun openLibraryItem(sessionFile: Path) = openSessions(listOf(sessionFile))
+
+    override fun toggleLibraryItem(sessionFile: Path) = _state.update { s ->
+        s.copy(librarySelection = if (sessionFile in s.librarySelection) s.librarySelection - setOf(sessionFile) else s.librarySelection + setOf(sessionFile))
+    }
+
+    override fun openLibrarySelection() {
+        val s = state.value
+        openSessions(s.library.map { it.sessionFile }.filter { it in s.librarySelection })
+    }
+
+    private fun refreshLibrary() {
+        val p = backend?.pipeline ?: return
+        scope.launch(Dispatchers.IO) {
+            val items = p.library.entries().map { e ->
+                LibraryItem(e.source, e.sessionFile, e.profileId, e.analyzedAt, e.recordedAt, e.duration, e.events, e.source.exists())
+            }
+            _state.update { s ->
+                s.copy(library = items, librarySelection = s.librarySelection.filterTo(mutableSetOf()) { f -> items.any { it.sessionFile == f } })
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- dossier surveillé
+
+    override fun chooseWatchFolder() {
+        val initial = state.value.watch.folder ?: state.value.source?.path?.parent
+        val folder = platform.chooseDirectory(initial, "Dossier où arrivent les captures") ?: return
+        // Les captures déjà présentes ne sont pas analysées d'office : seulement celles qui arrivent à partir de maintenant.
+        val prefs = WatchPrefs(folder.toAbsolutePath().normalize(), Instant.now())
+        watchPrefs.save(prefs)
+        startWatching(prefs)
+    }
+
+    override fun stopWatching() {
+        watchJob?.cancel()
+        watchJob = null
+        watchPrefs.save(null)
+        _state.update { it.copy(watch = WatchState(fresh = it.watch.fresh)) }
+    }
+
+    /**
+     * Passe régulièrement sur le dossier et analyse en fond chaque nouvelle capture terminée, une à la fois et jamais
+     * pendant un traitement lancé à la main. Seulement l'analyse : l'export se fait ensuite depuis la liste.
+     */
+    private fun startWatching(prefs: WatchPrefs) {
+        watchJob?.cancel()
+        val watcher = FolderWatcher(prefs.folder, prefs.since, watchSettle)
+        _state.update { it.copy(watch = WatchState(folder = prefs.folder, fresh = it.watch.fresh)) }
+        log.info { "Surveillance de ${prefs.folder} (captures depuis ${prefs.since})" }
+        watchJob = scope.launch(Dispatchers.IO) {
+            while (true) {
+                backend?.pipeline?.let { p ->
+                    val found = watcher.poll { file -> p.library.contains(file) || file in state.value.watch.pending }
+                    if (found.isNotEmpty()) {
+                        log.info { "Nouvelle(s) capture(s) : ${found.joinToString { it.name }}" }
+                        _state.update { it.copy(watch = it.watch.copy(pending = it.watch.pending + found)) }
+                    }
+                    while (state.value.watch.pending.isNotEmpty()) {
+                        while (mainJob?.isActive == true) delay(1.seconds)
+                        analyzeInBackground(p, state.value.watch.pending.first())
+                    }
+                }
+                delay(watchInterval)
+            }
+        }
+    }
+
+    private suspend fun analyzeInBackground(p: HighlightPipeline, file: Path) {
+        _state.update { it.copy(watch = it.watch.copy(current = file, fraction = 0.0, pending = it.watch.pending - setOf(file))) }
+        val lastUpdate = AtomicLong(0)
+        val tracker = ProgressTracker { snap ->
+            val now = System.currentTimeMillis()
+            if (now - lastUpdate.getAndUpdate { prev -> if (now - prev >= 250) now else prev } >= 250) {
+                _state.update { s -> s.copy(watch = s.watch.copy(fraction = snap.fraction)) }
+            }
+        }
+        try {
+            val outcome = p.analyze(file, AnalyzeOptions(outputDir = state.value.settings.outputDir), tracker.root)
+            val sessionFile = outcome.sessionFile.toAbsolutePath().normalize()
+            _state.update { s -> s.copy(watch = s.watch.copy(fresh = s.watch.fresh + setOf(sessionFile), lastError = null)) }
+            refreshLibrary()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // En fond, pas de boîte de dialogue : l'échec est signalé au-dessus de la liste, et la capture n'est pas
+            // retentée tant qu'elle ne change pas.
+            log.error(e) { "Analyse en fond de $file impossible" }
+            _state.update { s -> s.copy(watch = s.watch.copy(lastError = "${file.name} : ${e.message ?: e}")) }
+        } finally {
+            _state.update { s -> s.copy(watch = s.watch.copy(current = null, fraction = 0.0)) }
         }
     }
 

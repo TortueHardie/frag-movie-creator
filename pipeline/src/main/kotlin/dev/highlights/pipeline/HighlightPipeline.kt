@@ -67,6 +67,8 @@ data class AnalyzeOptions(
     val requiredEvent: String? = null,
     /** Dossier où écrire la session (sous-dossier sessions). null = outputDir de la config. */
     val outputDir: Path? = null,
+    /** Reprendre l'analyse déjà faite d'une capture inchangée (voir [AnalysisLibrary]) ; false = tout recalculer. */
+    val reuse: Boolean = true,
 )
 
 data class ExportOptions(
@@ -99,7 +101,8 @@ data class MontageOptions(
     val reactions: Boolean? = null,
 )
 
-data class AnalysisOutcome(val session: Session, val sessionFile: Path, val profile: GameProfile)
+/** [reused] : analyse reprise de la mémoire, sans recalcul. */
+data class AnalysisOutcome(val session: Session, val sessionFile: Path, val profile: GameProfile, val reused: Boolean = false)
 
 data class ProcessOutcome(val analysis: AnalysisOutcome, val export: ExportResult?)
 
@@ -129,6 +132,9 @@ class HighlightPipeline(
     val previewDir: Path get() = config.workDir.resolve("cache").resolve("previews")
 
     val profilesDir: Path get() = config.profilesDir
+
+    /** Analyses déjà faites : une capture inchangée n'est pas réanalysée. */
+    val library = AnalysisLibrary(config.outputDir.resolve("sessions").resolve("library.json"))
 
     /** Relit les profils sur disque (après modification d'un YAML). */
     fun reloadProfiles() {
@@ -170,13 +176,19 @@ class HighlightPipeline(
     /** [sessionName] : nom du fichier de session, sans extension. */
     private suspend fun analyze(file: Path, options: AnalyzeOptions, progress: ProgressReporter, sessionName: String): AnalysisOutcome {
         validateInput(file)
+        val profileForFile = profiles.resolve(file, options.profileId)
+        val fingerprint = AnalysisLibrary.fingerprint(profileForFile)
+        val stamp = AnalysisLibrary.stamp(file)
+        if (options.reuse) {
+            library.find(file, profileForFile.id, fingerprint)?.let { entry -> reuse(entry, profileForFile, options, progress)?.let { return it } }
+        }
         val probeStep = progress.child("Lecture", 0.02)
         val media = ffmpeg.probe(file)
         probeStep.complete()
         if (media.video == null) throw InputException("$file ne contient pas de flux vidéo")
         if (!media.duration.isPositive()) throw InputException("$file a une durée nulle")
 
-        val profile = profiles.resolve(file, options.profileId)
+        val profile = profileForFile
         val selection = profile.selection.let { s ->
             s.copy(threshold = options.threshold ?: s.threshold, target = options.target ?: s.target, requiredEvent = options.requiredEvent)
         }
@@ -211,7 +223,30 @@ class HighlightPipeline(
         val sessionFile = (options.outputDir ?: config.outputDir).resolve("sessions").resolve("$sessionName.session.json")
         SessionStore.save(session, sessionFile)
         log.info { "${highlights.size} moment(s) retenu(s), session : $sessionFile" }
-        return AnalysisOutcome(session, sessionFile, profile)
+        val outcome = AnalysisOutcome(session, sessionFile, profile)
+        // Empreinte prise avant l'analyse : une capture encore en cours d'écriture ne passe pas pour analysée en entier.
+        if (stamp != null && AnalysisLibrary.stamp(file) == stamp) library.record(libraryEntry(outcome, fingerprint, stamp))
+        return outcome
+    }
+
+    /**
+     * Reprend une analyse de la mémoire : la timeline est gardée, seule la sélection est recalculée avec les réglages
+     * demandés (les moments décochés le restent). null si la session n'est plus lisible : on réanalyse alors.
+     */
+    private fun reuse(entry: LibraryEntry, profile: GameProfile, options: AnalyzeOptions, progress: ProgressReporter): AnalysisOutcome? {
+        val stored = try {
+            SessionStore.load(entry.sessionFile)
+        } catch (e: HighlightsException) {
+            log.warn { "Analyse enregistrée illisible, nouvelle analyse : ${e.message}" }
+            return null
+        }
+        // Deux captures du même nom dans des dossiers différents écrivent la même session : celle-ci a pu être remplacée.
+        if (stored.media.path.toAbsolutePath().normalize() != entry.source || stored.profileId != entry.profileId) return null
+        val session = reselect(stored, options.threshold, options.target, options.requiredEvent)
+        SessionStore.save(session, entry.sessionFile)
+        progress.child("Analyse reprise", 1.0).complete()
+        log.info { "${entry.source} déjà analysé le ${entry.analyzedAt} : analyse reprise (${entry.sessionFile})" }
+        return AnalysisOutcome(session, entry.sessionFile, profile, reused = true)
     }
 
     /**
