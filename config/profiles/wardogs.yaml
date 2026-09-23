@@ -158,7 +158,10 @@ edit:
   # simple : les moments bout à bout, séparés par un fondu.
   style: story
   story:
-    jumpCuts: { minGap: 1500ms, breath: 300ms, deadScore: 0.35, alternateZoom: 1.08 }
+    # Rythme Wardogs : longues parties, beaucoup de déplacements et d'attente. Scènes courtes (moins de 8 s d'écart),
+    # temps morts coupés dès 1,2 s, et un seuil de creux plus haut : ce qui n'est pas de l'action saute.
+    scenes: { gap: 8s, maxLength: 30s }
+    jumpCuts: { minGap: 1200ms, breath: 250ms, deadScore: 0.45, alternateZoom: 1.08 }
     coldOpen: { enabled: true, length: 3s }
     punchIn: { amount: 0.15, on: [laughter, shout] }
     shake: { amplitude: 0.012, events: [kill] }

@@ -67,7 +67,7 @@ class StoryPlannerTest : FunSpec({
         // Action de 10 à 14 s, attente de 14 à 20 s, action de 20 à 24 s.
         val t = timeline(60, loud = (10..13).toSet() + (20..23).toSet())
         val range = TimeRange(10.seconds, 24.seconds)
-        val pieces = StoryPlanner.liveRanges(range, highlight(range, 12.seconds), t, cuts)
+        val pieces = StoryPlanner.liveRanges(range, listOf(12.seconds), t, cuts)
         pieces shouldContainExactly listOf(
             TimeRange(10.seconds, sec(14.3)),
             TimeRange(sec(19.7), 24.seconds),
@@ -81,7 +81,7 @@ class StoryPlannerTest : FunSpec({
             segments = listOf(TimelineSegment(TimeRange(sec(15.5), sec(18.5)), "speech", 1.0, "voice")),
         )
         val range = TimeRange(10.seconds, 24.seconds)
-        StoryPlanner.liveRanges(range, highlight(range, 12.seconds), t, cuts) shouldContainExactly listOf(
+        StoryPlanner.liveRanges(range, listOf(12.seconds), t, cuts) shouldContainExactly listOf(
             TimeRange(10.seconds, sec(14.3)),
             TimeRange(sec(15.2), sec(18.8)),
             TimeRange(sec(19.7), 24.seconds),
@@ -91,14 +91,14 @@ class StoryPlannerTest : FunSpec({
     test("un creux trop court pour valoir une coupe est gardé") {
         val t = timeline(60, loud = (10..13).toSet() + (15..20).toSet())
         val range = TimeRange(10.seconds, 21.seconds)
-        StoryPlanner.liveRanges(range, highlight(range, 12.seconds), t, cuts) shouldContainExactly listOf(range)
+        StoryPlanner.liveRanges(range, listOf(12.seconds), t, cuts) shouldContainExactly listOf(range)
     }
 
     test("l'attente avant l'action est rognée au début du moment") {
         val t = timeline(60, loud = (16..19).toSet())
         val range = TimeRange(10.seconds, 20.seconds)
         // Le pic retient 1,5 s avant lui (15,5 s), puis la marge : départ à 15,2 s.
-        StoryPlanner.liveRanges(range, highlight(range, 17.seconds), t, cuts) shouldContainExactly listOf(TimeRange(sec(15.2), 20.seconds))
+        StoryPlanner.liveRanges(range, listOf(17.seconds), t, cuts) shouldContainExactly listOf(TimeRange(sec(15.2), 20.seconds))
     }
 
     test("un kill dans le creux le retient, marge comprise") {
@@ -108,7 +108,7 @@ class StoryPlannerTest : FunSpec({
             events = listOf(TimelineEvent(19.seconds, "kill", 1.0, "outplayed")),
         )
         val range = TimeRange(10.seconds, 28.seconds)
-        StoryPlanner.liveRanges(range, highlight(range, 12.seconds), t, cuts) shouldContainExactly listOf(
+        StoryPlanner.liveRanges(range, listOf(12.seconds), t, cuts) shouldContainExactly listOf(
             TimeRange(10.seconds, sec(14.3)),
             TimeRange(sec(17.2), sec(20.8)),
             TimeRange(sec(23.7), 28.seconds),
@@ -118,7 +118,7 @@ class StoryPlannerTest : FunSpec({
     test("jump cuts désactivés : le moment reste d'un seul tenant") {
         val t = timeline(60, loud = (10..13).toSet() + (20..23).toSet())
         val range = TimeRange(10.seconds, 24.seconds)
-        StoryPlanner.liveRanges(range, highlight(range, 12.seconds), t, cuts.copy(enabled = false)) shouldContainExactly listOf(range)
+        StoryPlanner.liveRanges(range, listOf(12.seconds), t, cuts.copy(enabled = false)) shouldContainExactly listOf(range)
     }
 
     test("accroche du meilleur moment, puis les moments dans l'ordre, flash à chaque nouveau moment") {
@@ -205,6 +205,35 @@ class StoryPlannerTest : FunSpec({
         val t = timeline(60, loud = (10..19).toSet(), events = kills)
         val shot = storyPlan(session(t, highlight(TimeRange(10.seconds, 20.seconds), 13.seconds))).shots.single()
         shot.labels shouldContainExactly listOf(2.seconds to "DOUBLÉ", 5.seconds to "TRIPLÉ")
+    }
+
+    test("scène : deux moments proches d'un même round montés d'un seul tenant, sans flash entre eux") {
+        // Deux kills à 10 s d'écart, action entre les deux calme : une seule scène, le creux devient un jump cut.
+        val t = timeline(120, loud = (10..15).toSet() + (25..30).toSet())
+        val a = highlight(TimeRange(10.seconds, 16.seconds), 12.seconds, score = 0.7, id = "h1")
+        val b = highlight(TimeRange(25.seconds, 31.seconds), 27.seconds, score = 0.6, id = "h2")
+        val base = EditSettings(style = EditStyle.STORY)
+        val settings = base.copy(story = base.story.copy(coldOpen = base.story.coldOpen.copy(enabled = false)))
+        val plan = storyPlan(session(t, a, b), settings)
+        plan.shots.map { it.role } shouldContainExactly listOf(ShotRole.OPENING, ShotRole.JUMP)
+        plan.scenes shouldContainExactly listOf(TimeRange(10.seconds, 31.seconds))
+        // Les deux pics secouent l'image, mais un seul ralenti par scène, sur le meilleur moment.
+        plan.shots.flatMap { s -> s.shakes.map { it + s.range.start } } shouldContainExactly listOf(12.seconds, 27.seconds)
+        plan.shots.count { it.slow != null } shouldBe 1
+        plan.shots.single { it.slow != null }.range.start shouldBe 10.seconds
+    }
+
+    test("scène : écart trop grand, scène trop longue ou autre capture : moments séparés") {
+        fun clip(start: Int, end: Int, path: String = "D:/captures/partie.mp4") = dev.highlights.editing.PlannedClip(
+            Highlight("h$start", Path(path), TimeRange(start.seconds, end.seconds), (start + 1).seconds, 0.5),
+            media.copy(path = Path(path)),
+        )
+        val scenes = dev.highlights.core.model.SceneSettings(gap = 12.seconds, maxLength = 45.seconds)
+        StoryPlanner.scenes(listOf(clip(10, 16), clip(25, 31)), scenes).map { it.clips.size } shouldContainExactly listOf(2)
+        StoryPlanner.scenes(listOf(clip(10, 16), clip(30, 36)), scenes).map { it.clips.size } shouldContainExactly listOf(1, 1)
+        StoryPlanner.scenes(listOf(clip(10, 30), clip(35, 60)), scenes).map { it.clips.size } shouldContainExactly listOf(1, 1)
+        StoryPlanner.scenes(listOf(clip(10, 16), clip(20, 26, "D:/captures/autre.mp4")), scenes).map { it.clips.size } shouldContainExactly listOf(1, 1)
+        StoryPlanner.scenes(listOf(clip(10, 16), clip(20, 26)), scenes.copy(gap = kotlin.time.Duration.ZERO)).map { it.clips.size } shouldContainExactly listOf(1, 1)
     }
 
     test("effets désactivés : ni punch-in ni secousse") {

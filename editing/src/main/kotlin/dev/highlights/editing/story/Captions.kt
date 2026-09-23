@@ -9,6 +9,7 @@ import kotlinx.serialization.json.long
 import java.nio.file.Path
 import java.text.Normalizer
 import java.util.Locale
+import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -47,6 +48,13 @@ object Captions {
     /** Le texte apparaît un peu avant le mot : l'œil lit avant que l'oreille n'entende. */
     private val LEAD = 100.milliseconds
 
+    /** Part de la largeur de l'image qu'un texte peut occuper, bordure comprise. */
+    private const val MAX_WIDTH = 0.9
+
+    /** Temps de lecture d'un sous-titre : une base, plus un temps par caractère. */
+    private val MIN_READ = 400.milliseconds
+    private val PER_CHAR = 45.milliseconds
+
     /** Sous-titre coupé par un plan au point d'être visible moins longtemps que ça : pas affiché. */
     private val MIN_VISIBLE = 250.milliseconds
 
@@ -73,16 +81,35 @@ object Captions {
         if (text.none { it.isLetterOrDigit() }) return@mapNotNull null
         if (speech.isEmpty()) return@mapNotNull c.copy(text = text)
         val around = speech.map { TimeRange((it.start - SPEECH_SLACK).coerceAtLeast(Duration.ZERO), it.end + SPEECH_SLACK) }
+        // whisper rend souvent des segments de durée nulle : le recouvrement se mesure alors sur un minimum de durée à
+        // partir de leur début, sans quoi un segment vide ne recouvrirait jamais rien (ou passerait sans rien recouvrir).
+        val probe = TimeRange(c.range.start, maxOf(c.range.end, c.range.start + MIN_OVERLAP))
         val overlaps = around.mapNotNull { s ->
-            val from = maxOf(s.start, c.range.start)
-            val to = minOf(s.end, c.range.end)
+            val from = maxOf(s.start, probe.start)
+            val to = minOf(s.end, probe.end)
             if (to > from) TimeRange(from, to) else null
         }
         val total = overlaps.fold(Duration.ZERO) { acc, r -> acc + r.length }
-        if (total < minOf(MIN_OVERLAP, c.range.length * 0.4)) return@mapNotNull null
+        if (overlaps.isEmpty() || total < minOf(MIN_OVERLAP, probe.length * 0.4)) return@mapNotNull null
         // whisper fait souvent commencer un segment dès la fin du précédent : on le cale sur le début de la parole.
         val start = maxOf(c.range.start, overlaps.first().start - LEAD)
         Caption(TimeRange(start, maxOf(start, c.range.end)), text)
+    }
+
+    /**
+     * Laisse à chaque sous-titre le temps d'être lu : whisper donne souvent des segments très courts, voire de durée
+     * nulle, et parfois deux segments consécutifs au même instant. Les sous-titres sont donc posés l'un après l'autre :
+     * chacun commence au plus tôt quand le précédent a fini, et dure au moins [MIN_READ] plus un temps par caractère
+     * (à peu près le temps de prononcer la phrase, si bien que le décalage ne s'accumule pas).
+     */
+    fun readable(captions: List<Caption>): List<Caption> {
+        var cursor = Duration.ZERO
+        return captions.sortedBy { it.range.start }.map { c ->
+            val start = maxOf(c.range.start, cursor)
+            val end = maxOf(c.range.end, start + MIN_READ + PER_CHAR * c.text.length)
+            cursor = end
+            c.copy(range = TimeRange(start, end))
+        }
     }
 
     /** Sous-titres visibles dans le plan [range], relatifs à son début. */
@@ -104,18 +131,21 @@ object Captions {
      */
     fun transcriptionFilter(model: Path, destination: Path, settings: CaptionSettings): String =
         "aresample=16000,whisper=model='${filterPath(model)}':language=${settings.language}:format=json" +
-            ":max_len=${settings.maxChars}:use_gpu=${if (settings.useGpu) 1 else 0}:destination='${filterPath(destination)}'"
+            ":max_len=${settings.maxChars}:queue=${String.format(Locale.ROOT, "%.0f", settings.queue.inWholeMilliseconds / 1000.0)}" +
+            ":use_gpu=${if (settings.useGpu) 1 else 0}:destination='${filterPath(destination)}'"
 
     /**
      * Sous-titre dans l'image : gros, blanc cerné de noir, qui grossit de 70 à 100 % de sa taille en
      * [CaptionSettings.pop] à son apparition. Une phrase criée passe toute en couleur, plus grosse ; sinon les mots
      * forts ([CaptionSettings.emphasis]) sont colorés, chacun dessiné à sa place dans la ligne. [y] : position
-     * verticale du centre (part de la hauteur). Renvoie un filtre par morceau de texte.
+     * verticale du centre (part de la hauteur). Une phrase trop large pour l'image ([width]) est réduite jusqu'à y
+     * tenir : en 9:16, dix-huit caractères à la taille nominale débordent. Renvoie un filtre par morceau de texte.
      */
-    fun drawText(caption: Caption, settings: CaptionSettings, height: Int, y: Double): List<String> {
-        val base = settings.size * height * (if (caption.loud) settings.shoutScale else 1.0)
+    fun drawText(caption: Caption, settings: CaptionSettings, width: Int, height: Int, y: Double): List<String> {
         val words = sanitize(caption.text, settings.uppercase).split(' ').filter { it.isNotEmpty() }
         if (words.isEmpty()) return emptyList()
+        val nominal = settings.size * height * (if (caption.loud) settings.shoutScale else 1.0)
+        val base = fit(settings.font, nominal, words.joinToString(" "), width)
         val t0 = caption.range.start
         val t1 = caption.range.end
         val style = TextStyle(settings.font, base, height, y, t0, t1, settings.pop)
@@ -140,8 +170,21 @@ object Captions {
     }
 
     /** Libellé d'événement (« DOUBLÉ »…) : même apparition « pop », qui s'efface sur sa fin. */
-    fun drawLabel(text: String, at: TimeRange, font: String, size: Double, color: String, height: Int, y: Double, pop: Duration): String =
-        TextStyle(font, size * height, height, y, at.start, at.end, pop, fadeOut = 250.milliseconds).draw(sanitize(text, uppercase = true), color)
+    fun drawLabel(text: String, at: TimeRange, font: String, size: Double, color: String, width: Int, height: Int, y: Double, pop: Duration): String {
+        val label = sanitize(text, uppercase = true)
+        return TextStyle(font, fit(font, size * height, label, width), height, y, at.start, at.end, pop, fadeOut = 250.milliseconds).draw(label, color)
+    }
+
+    /**
+     * Taille à laquelle [text] tient dans [MAX_WIDTH] de l'image : la taille voulue si elle tient déjà, sinon réduite
+     * d'autant. Sans police lisible par Java, la largeur est estimée (Impact : environ un demi-corps par caractère).
+     */
+    internal fun fit(font: String, size: Double, text: String, width: Int): Double {
+        val measured = TextMeasure.width(font, size, text) ?: (size * 0.55 * text.length)
+        val room = width * MAX_WIDTH
+        // Arrondi vers le bas : la taille finale est entière, un arrondi au plus proche ferait redéborder de quelques pixels.
+        return if (measured <= room) size else floor(size * room / measured)
+    }
 
     /** Pour chaque mot, vrai s'il appartient à une expression de [emphasis] (comparaison sans casse ni accents). */
     internal fun emphasized(words: List<String>, emphasis: List<String>): List<Boolean> {

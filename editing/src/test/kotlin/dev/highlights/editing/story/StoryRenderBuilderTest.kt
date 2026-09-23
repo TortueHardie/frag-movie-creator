@@ -79,6 +79,12 @@ class StoryRenderBuilderTest : FunSpec({
         line shouldContain "\\,0\\,iw-1920)'"
     }
 
+    test("chaque plan remis à des pixels carrés avant concat : le zoom arrondi fausse sinon le SAR") {
+        val lines = build().lines().filter { Regex("""\[v\d+]$""").containsMatchIn(it) }
+        lines.size shouldBe 4
+        lines.forEach { it shouldContain "setsar=1,format=yuv420p,settb=AVTB[v" }
+    }
+
     test("plan en plein cadre sans effet : aucune mise à l'échelle superflue") {
         val line = build().lines().single { it.endsWith("[v1]") }
         line shouldNotContain "eval=frame"

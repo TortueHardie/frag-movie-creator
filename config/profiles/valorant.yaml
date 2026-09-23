@@ -67,7 +67,10 @@ edit:
   # simple : les moments bout à bout, séparés par un fondu.
   style: story
   story:
-    jumpCuts: { minGap: 1500ms, breath: 300ms, deadScore: 0.35, alternateZoom: 1.08 }
+    # Rythme VALORANT : rounds courts et denses. Les kills d'un même round forment une seule scène (moins de 20 s
+    # d'écart), sans flash entre eux ; on ne coupe que les vraies pauses (plus de 2,5 s), l'action est déjà rapide.
+    scenes: { gap: 20s, maxLength: 45s }
+    jumpCuts: { minGap: 2500ms, breath: 300ms, deadScore: 0.3, alternateZoom: 1.08 }
     coldOpen: { enabled: true, length: 3s }
     punchIn: { amount: 0.15, on: [laughter, shout] }
     shake: { amplitude: 0.012, events: [kill] }

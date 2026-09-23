@@ -53,6 +53,8 @@ edit:
   # simple : les moments bout à bout, séparés par un fondu.
   style: story
   story:
+    # Moments séparés de moins de 12 s : une seule scène, sans flash entre eux.
+    scenes: { gap: 12s, maxLength: 45s }
     jumpCuts: { minGap: 1500ms, breath: 300ms, deadScore: 0.35, alternateZoom: 1.08 }
     coldOpen: { enabled: true, length: 3s }
     punchIn: { amount: 0.15, on: [laughter, shout] }

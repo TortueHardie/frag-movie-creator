@@ -13,6 +13,17 @@ import dev.highlights.core.model.TimelineEvent
 import dev.highlights.core.model.TimelineSegment
 import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.testing.TestMedia
+import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.Highlight
+import dev.highlights.editing.PlannedClip
+import dev.highlights.editing.story.ShotRole
+import dev.highlights.editing.story.StoryPlan
+import dev.highlights.editing.story.StoryRenderBuilder
+import dev.highlights.editing.story.StoryRenderRequest
+import dev.highlights.editing.story.StoryShot
+import dev.highlights.ffmpeg.FfmpegEncoderSelector
+import kotlin.io.path.writeText
+import kotlin.time.Duration
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.engine.spec.tempdir
 import io.kotest.matchers.doubles.plusOrMinus
@@ -80,6 +91,42 @@ class StoryEditIT : FunSpec({
         vertical.video?.width shouldBe 1080
         vertical.video?.height shouldBe 1920
         (vertical.duration.inWholeMilliseconds / 1000.0) shouldBe (export.duration.inWholeMilliseconds / 1000.0 plusOrMinus 0.3)
+    }
+})
+
+/**
+ * Régression : un plan zoomé dès sa première image (cadrage alterné d'un jump cut) sortait avec des pixels non carrés
+ * (le zoom arrondit largeur et hauteur séparément), et concat refusait tout le montage. Le premier test ne le voyait
+ * pas : la vidéo de test n'a pas de jump cut.
+ */
+class StoryZoomIT : FunSpec({
+    test("plans zoomés et secoués dès la première image, de tailles de source différentes : le rendu passe").config(
+        enabledIf = { TestMedia.available },
+        timeout = 5.seconds * 60,
+    ) {
+        val root = tempdir().toPath()
+        val ffmpeg = TestMedia.requireFfmpeg()
+        // Ultrawide, comme la capture où le problème est apparu.
+        val source = TestMedia.generate(root.resolve("partie.mp4"), durationSeconds = 20, size = "860x360")
+        val media = ffmpeg.probe(source)
+        val h = Highlight("h1", source, TimeRange(2.seconds, 12.seconds), 5.seconds, 0.8)
+        val settings = EditSettings(style = EditStyle.STORY, fps = 30)
+        val plan = StoryPlan(
+            shots = listOf(
+                StoryShot(media, TimeRange(2.seconds, 5.seconds), h, ShotRole.OPENING, zoom = 1.08),
+                StoryShot(media, TimeRange(7.seconds, 10.seconds), h, ShotRole.JUMP, zoom = 1.08, shakes = listOf(Duration.ZERO)),
+                StoryShot(media, TimeRange(10.seconds, 12.seconds), h, ShotRole.JUMP, punchIns = listOf(TimeRange(Duration.ZERO, 1.seconds))),
+            ),
+            moments = listOf(PlannedClip(h, media)),
+            settings = settings,
+        )
+        val encoder = FfmpegEncoderSelector(ffmpeg, EncoderSettings(preference = listOf("libx264"))).select()
+        val out = root.resolve("story.mp4")
+        val script = root.resolve("filters.txt")
+        val render = StoryRenderBuilder.build(StoryRenderRequest(plan, OutputFormat.SOURCE, encoder, out, script, filterScriptOption = ffmpeg.filterScriptOption()))
+        script.writeText(render.filterGraph)
+        ffmpeg.run(render.command)
+        (ffmpeg.probe(out).duration.inWholeMilliseconds / 1000.0) shouldBe (8.0 plusOrMinus 0.3)
     }
 })
 

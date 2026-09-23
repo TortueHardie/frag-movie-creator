@@ -35,6 +35,7 @@ data class StorySettings(
     val captions: CaptionSettings = CaptionSettings(),
     val labels: EventLabels = EventLabels(),
     val slowMo: StorySlowMo = StorySlowMo(),
+    val scenes: SceneSettings = SceneSettings(),
     /** Fondu au noir (image et son) sur la fin du montage. */
     val fadeOut: SerialDuration = 600.milliseconds,
 )
@@ -204,6 +205,11 @@ data class CaptionSettings(
     /** Transcription sur le GPU quand whisper.cpp le permet. */
     val useGpu: Boolean = true,
     /**
+     * Longueur des tranches d'audio transcrites d'un bloc. FFmpeg découpe par défaut en tranches de 3 s, qui coupent les
+     * phrases : whisper se trompe de mots et invente du texte aux coupures. 20 s est la valeur que conseille FFmpeg.
+     */
+    val queue: SerialDuration = 20.seconds,
+    /**
      * Mots mis en couleur ([emphasisColor]) : exclamations, jurons, vocabulaire du jeu. Comparés sans casse, sans
      * accents ni ponctuation ; une expression de plusieurs mots (« let's go ») colore tous ses mots.
      */
@@ -272,3 +278,17 @@ data class StorySlowMo(
         require(factor in 0.25..1.0) { "story.slowMo.factor doit être entre 0,25 et 1" }
     }
 }
+
+/**
+ * Scènes : des moments proches d'une même capture racontent une seule histoire (un round de VALORANT, un combat de
+ * Wardogs). Ils sont montés d'un seul tenant, sans flash ni whoosh entre eux : ce qui les sépare est retiré en jump cuts
+ * s'il est creux, gardé s'il fait avancer l'action. Le rythme dépend du jeu : rounds courts et denses d'un côté,
+ * longues parties aux temps morts nombreux de l'autre.
+ */
+@Serializable
+data class SceneSettings(
+    /** Moments séparés de moins que ça : une seule scène. Zéro = chaque moment est une scène. */
+    val gap: SerialDuration = 12.seconds,
+    /** Longueur maximale d'une scène dans la source (avant jump cuts). */
+    val maxLength: SerialDuration = 45.seconds,
+)

@@ -5,6 +5,7 @@ import dev.highlights.core.model.EventLabels
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.JumpCutSettings
 import dev.highlights.core.model.MediaInfo
+import dev.highlights.core.model.SceneSettings
 import dev.highlights.core.model.ScoredTimeline
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.session.Session
@@ -76,6 +77,8 @@ data class StoryPlan(
     /** Moments montés, dans l'ordre du récit (sans l'accroche). */
     val moments: List<PlannedClip>,
     val settings: EditSettings,
+    /** Étendue de chaque scène dans la source, avant jump cuts (voir [SceneSettings]). */
+    val scenes: List<TimeRange> = moments.map { it.range },
 ) {
     init {
         require(shots.isNotEmpty()) { "montage vide" }
@@ -86,9 +89,9 @@ data class StoryPlan(
     /** Début de chaque plan dans le montage. */
     fun offsets(): List<Duration> = shots.runningFold(Duration.ZERO) { acc, s -> acc + s.outputLength }.dropLast(1)
 
-    /** Temps retiré par les jump cuts, sur l'ensemble des moments. */
+    /** Temps retiré par les jump cuts, sur l'ensemble des scènes. */
     val removed: Duration
-        get() = moments.fold(Duration.ZERO) { acc, m -> acc + m.range.length } -
+        get() = scenes.fold(Duration.ZERO) { acc, r -> acc + r.length } -
             shots.filter { it.role != ShotRole.COLD_OPEN }.fold(Duration.ZERO) { acc, s -> acc + s.length }
 }
 
@@ -114,21 +117,51 @@ object StoryPlanner {
         if (coldOpen.enabled && moments.size >= coldOpen.minMoments) {
             val best = moments.maxBy { it.highlight.score }
             val range = teaser(best, coldOpen.length, coldOpen.beforePeak)
-            shots += decorate(best, range, ShotRole.COLD_OPEN, 1.0, timelines[best.media.path], settings)
+            shots += decorate(best.highlight, best.media, range, ShotRole.COLD_OPEN, 1.0, timelines[best.media.path], settings, listOf(best.highlight.peak), null)
         }
         val bestId = moments.maxByOrNull { it.highlight.score }?.highlight
-        for (clip in moments) {
-            val timeline = timelines[clip.media.path]
-            // Moment fort : le meilleur, ou une série de kills. C'est lui qui mérite le ralenti.
-            val strong = clip.highlight == bestId || streakLabels(timeline, story.labels).any { (at, _) -> at in clip.range }
-            val pieces = if (timeline == null) listOf(clip.range) else liveRanges(clip.range, clip.highlight, timeline, story.jumpCuts)
+        val scenes = scenes(moments, story.scenes)
+        for (scene in scenes) {
+            val timeline = timelines[scene.media.path]
+            // Moment fort : le meilleur, ou une série de kills. C'est son pic qui reçoit le ralenti, un seul par scène.
+            val streaks = streakLabels(timeline, story.labels).map { it.first }
+            val strong = scene.clips.firstOrNull { it.highlight == bestId } ?: scene.clips.firstOrNull { c -> streaks.any { it in c.range } }
+            val slowAt = (strong ?: scene.best.takeIf { !story.slowMo.onlyStrong })?.highlight?.peak
+            val pieces = if (timeline == null) listOf(scene.range) else liveRanges(scene.range, scene.peaks, timeline, story.jumpCuts)
             pieces.forEachIndexed { k, range ->
                 val role = if (k == 0) ShotRole.OPENING else ShotRole.JUMP
                 val zoom = if (k % 2 == 1) story.jumpCuts.alternateZoom else 1.0
-                shots += decorate(clip, range, role, zoom, timeline, settings, strong)
+                shots += decorate(scene.best.highlight, scene.media, range, role, zoom, timeline, settings, scene.peaks, slowAt)
             }
         }
-        return StoryPlan(shots, moments, settings)
+        return StoryPlan(shots, moments, settings, scenes.map { it.range })
+    }
+
+    /** Moments proches d'une même capture, montés d'un seul tenant (voir [SceneSettings]). */
+    internal class Scene(val clips: List<PlannedClip>) {
+        val media: MediaInfo get() = clips.first().media
+        val range: TimeRange get() = TimeRange(clips.minOf { it.range.start }, clips.maxOf { it.range.end })
+        val best: PlannedClip get() = clips.maxBy { it.highlight.score }
+        val peaks: List<Duration> get() = clips.map { it.highlight.peak }
+    }
+
+    /**
+     * Regroupe en scènes les moments consécutifs d'une même capture séparés de moins de [SceneSettings.gap], sans
+     * dépasser [SceneSettings.maxLength] : dans un jeu à rounds courts, les kills d'un même round font une seule
+     * histoire, pas trois moments séparés par un flash.
+     */
+    internal fun scenes(moments: List<PlannedClip>, settings: SceneSettings): List<Scene> {
+        val groups = mutableListOf<MutableList<PlannedClip>>()
+        for (clip in moments) {
+            val group = groups.lastOrNull()
+            val joins = group != null && settings.gap.isPositive() &&
+                group.last().media.path == clip.media.path &&
+                clip.range.start >= group.last().range.start &&
+                clip.range.start - group.maxOf { it.range.end } <= settings.gap &&
+                clip.range.end - group.first().range.start <= settings.maxLength
+            if (joins) group!! += clip else groups += mutableListOf(clip)
+        }
+        return groups.map { Scene(it) }
     }
 
     /**
@@ -148,7 +181,7 @@ object StoryPlanner {
      * qu'il arrive. Un creux d'au moins [JumpCutSettings.minGap] est retiré, à [JumpCutSettings.breath] près de
      * chaque côté ; au début et à la fin du moment, il est rogné. Un plan trop court est recollé à son voisin.
      */
-    internal fun liveRanges(range: TimeRange, highlight: Highlight, timeline: ScoredTimeline, settings: JumpCutSettings): List<TimeRange> {
+    internal fun liveRanges(range: TimeRange, peaks: List<Duration>, timeline: ScoredTimeline, settings: JumpCutSettings): List<TimeRange> {
         if (!settings.enabled) return listOf(range)
         val grid = timeline.grid
         if (grid.count == 0) return listOf(range)
@@ -169,7 +202,7 @@ object StoryPlanner {
         val guard = settings.eventGuard
         val keepers = timeline.segments.map { it.range } +
             timeline.events.map { TimeRange(it.at - guard, it.at + guard) } +
-            TimeRange(highlight.peak - guard, highlight.peak + guard)
+            peaks.map { TimeRange(it - guard, it + guard) }
 
         val dead = mutableListOf<TimeRange>()
         for ((slot, score) in slots) {
@@ -205,15 +238,20 @@ object StoryPlanner {
         return if (kept < settings.minShot) listOf(range) else pieces
     }
 
-    /** Effets du plan [range] : punch-in sur les réactions, secousses sur les impacts, voix et pics pour la musique. */
+    /**
+     * Effets du plan [range] : punch-in sur les réactions, secousses sur les impacts et les [peaks], voix et pics pour
+     * la musique, ralenti sur [slowAt] s'il tombe dans le plan.
+     */
     private fun decorate(
-        clip: PlannedClip,
+        highlight: Highlight,
+        media: MediaInfo,
         range: TimeRange,
         role: ShotRole,
         zoom: Double,
         timeline: ScoredTimeline?,
         settings: EditSettings,
-        strong: Boolean = false,
+        peaks: List<Duration>,
+        slowAt: Duration?,
     ): StoryShot {
         val story = settings.story
         fun relative(r: TimeRange): TimeRange? {
@@ -232,7 +270,7 @@ object StoryPlanner {
         val shake = story.shake
         val impacts = if (shake.enabled && shake.amplitude > 0) {
             val events = timeline?.events.orEmpty().filter { it.kind in shake.events }.map { it.at }
-            (events + listOfNotNull(clip.highlight.peak.takeIf { shake.onPeak }))
+            (events + (if (shake.onPeak) peaks else emptyList()))
                 .filter { it >= range.start && it < range.end - shake.duration / 2 }
                 .sorted()
         } else {
@@ -241,22 +279,22 @@ object StoryPlanner {
         val shakes = mutableListOf<Duration>()
         for (t in impacts) if (shakes.isEmpty() || t - range.start - shakes.last() >= SHAKE_SPACING) shakes += t - range.start
 
-        val drops = listOf(clip.highlight.peak).filter { it in range }.map { it - range.start }
+        val drops = peaks.filter { it in range }.map { it - range.start }
         val voice = merge(segments.mapNotNull { relative(it.range) })
         val labels = streakLabels(timeline, story.labels)
             .filter { (at, _) -> at >= range.start && at < range.end - story.labels.duration / 2 }
             .map { (at, text) -> at - range.start to text }
         // Ralenti sur le pic, dans le plan qui le montre ; jamais dans l'accroche, qui doit rester vive.
         val slowMo = story.slowMo
-        val peak = clip.highlight.peak
-        val slow = if (slowMo.enabled && slowMo.factor < 1.0 && role != ShotRole.COLD_OPEN && (strong || !slowMo.onlyStrong) && peak in range) {
+        val peak = slowAt
+        val slow = if (peak != null && slowMo.enabled && slowMo.factor < 1.0 && role != ShotRole.COLD_OPEN && peak in range) {
             TimeRange((peak - slowMo.before).coerceAtLeast(range.start) - range.start, (peak + slowMo.after).coerceAtMost(range.end) - range.start)
                 .takeIf { it.length.isPositive() }
         } else {
             null
         }
         return StoryShot(
-            clip.media, range, clip.highlight, role, zoom, punchIns, shakes, drops, voice,
+            media, range, highlight, role, zoom, punchIns, shakes, drops, voice,
             labels = labels, slow = slow, slowFactor = if (slow != null) slowMo.factor else 1.0,
         )
     }

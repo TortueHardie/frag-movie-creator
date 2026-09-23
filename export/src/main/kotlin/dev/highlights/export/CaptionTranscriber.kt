@@ -24,6 +24,8 @@ import kotlin.io.path.moveTo
 import kotlin.io.path.name
 import kotlin.io.path.readLines
 import kotlin.io.path.writeText
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 private val log = KotlinLogging.logger {}
 
@@ -35,6 +37,9 @@ private val log = KotlinLogging.logger {}
 class CaptionTranscriber(private val ffmpeg: FfmpegService) {
     /** Types de segments qui signalent une voix : ce qui n'en recouvre aucun est une hallucination. */
     private val voiceKinds = setOf("speech", "laughter", "shout")
+
+    /** Audio lu en plus de chaque côté du moment : une phrase commencée juste avant n'est pas coupée, et whisper a du contexte. */
+    private val context = 2.seconds
 
     suspend fun transcribe(
         media: MediaInfo,
@@ -52,8 +57,9 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         // L'analyse a cherché la voix et n'en a pas trouvé ici : rien à transcrire (et rien à inventer pour whisper).
         if (segments.isNotEmpty() && segments.none { it.isWithin(range) }) return emptyList()
 
+        val padded = TimeRange((range.start - context).coerceAtLeast(Duration.ZERO), (range.end + context).coerceAtMost(media.duration))
         val raw = try {
-            rawTranscript(media, range, audio, settings, model, workDir, cacheDir)
+            rawTranscript(media, padded, audio, settings, model, workDir, cacheDir)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -62,7 +68,7 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         }
         // Une phrase criée (elle recouvre un cri détecté) s'affiche plus grosse, en couleur.
         val shouts = timeline?.segments.orEmpty().filter { it.kind == "shout" }.map { it.range }
-        return Captions.clean(Captions.parse(raw, range.start), segments).map { c ->
+        return Captions.readable(Captions.clean(Captions.parse(raw, padded.start), segments)).map { c ->
             if (shouts.any { it.isWithin(c.range) }) c.copy(loud = true) else c
         }
     }
@@ -112,7 +118,7 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         val modelSize = runCatching { model.fileSize() }.getOrDefault(0L)
         val text = listOf(
             media.path.toAbsolutePath(), media.sizeBytes, range.start.inWholeMilliseconds, range.end.inWholeMilliseconds,
-            audio, model.name, modelSize, settings.language, settings.maxChars,
+            audio, model.name, modelSize, settings.language, settings.maxChars, settings.queue.inWholeMilliseconds,
         ).joinToString("|")
         return MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).take(12).joinToString("") { "%02x".format(it) }
     }

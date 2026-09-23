@@ -170,6 +170,9 @@ object MontageRenderBuilder {
             effects += "tpad=stop_mode=clone:stop_duration=${sec(clip.padAfter + 500.milliseconds)}"
             effects += "trim=duration=${sec(length)}"
             effects += "setpts=PTS-STARTPTS"
+            // Le zoom arrondit largeur et hauteur séparément : `scale` modifie alors la forme des pixels (SAR), que
+            // concat refuse si elle diffère d'un plan à l'autre.
+            effects += "setsar=1"
             effects += "format=yuv420p"
             effects += "settb=AVTB"
             graph += "[$base]${effects.joinToString(",")}[v$i]"
