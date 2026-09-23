@@ -56,6 +56,8 @@ data class MontageReport(
     val clips: List<MontageReportClip>,
     /** Note du montage : ce que le moteur prétend faire, mesuré. Voir [MontageScorer]. */
     val score: MontageScore? = null,
+    /** Variante de plan retenue (voir [MontagePlanner.best]). */
+    val variant: String? = null,
 )
 
 /** Section de la musique couverte par le montage (instants dans le montage). */
@@ -85,6 +87,12 @@ data class MontageReportClip(
     val speedRamped: Boolean = false,
     /** Image gelée (secondes) faute de source avant / après. */
     val frozenSeconds: Double = 0.0,
+    /** Kills visibles tirés à la tête. */
+    val headshots: Int = 0,
+    /** Un kill visible est un flick franc (ralenti mérité). */
+    val flick: Boolean = false,
+    /** Correction de chaque kill visible par le recalage sur le son du tir (ms, négatif : le tir précède la notification). */
+    val shotShiftMs: List<Long> = emptyList(),
 )
 
 class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoders: EncoderSelector) {
@@ -161,12 +169,16 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             },
             outputs = paths.videos.values.map { it.toString() },
             score = MontageScorer.score(plan),
+            variant = plan.variant.toString(),
             clips = plan.clips.zip(plan.clipOffsets()).map { (c, offset) ->
                 MontageReportClip(
                     c.group.media.path.toString(), c.start.toTimecode(), c.end.toTimecode(), c.kills.map { it.toTimecode() },
                     c.outputKills().map { ((offset + it).inWholeMilliseconds / 1000.0).roundTo(3) }, c.beats,
                     anchorBeat = c.beatsPre, onDrop = c.slot.dropBeat != null, slowMotion = c.slow != null, speedRamped = c.ramps.isNotEmpty(),
                     frozenSeconds = ((c.padBefore + c.padAfter).inWholeMilliseconds / 1000.0).roundTo(3),
+                    headshots = c.kills.count { c.group.traitsOf(it).headshot },
+                    flick = c.flick,
+                    shotShiftMs = c.kills.map { c.group.traitsOf(it).shift.inWholeMilliseconds },
                 )
             },
         )

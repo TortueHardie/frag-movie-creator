@@ -81,6 +81,11 @@ data class MusicSection(
     operator fun contains(beat: Int): Boolean = beat in startBeat until endBeat
 }
 
+/** Frappe de la musique : un temps ([beat] entier) ou un contretemps ([beat] en ,5), de force [strength] (0..1). */
+data class MusicHit(val at: Duration, val strength: Double, val beat: Double) {
+    val onBeat: Boolean get() = beat % 1.0 == 0.0
+}
+
 /**
  * Structure rythmique et musicale d'un morceau.
  * [beats] : instants des temps ; [downbeatPhase] : indice modulo 4 des premiers temps de mesure ;
@@ -97,9 +102,29 @@ data class MusicAnalysis(
     val beatAccent: DoubleArray,
     val sections: List<MusicSection>,
     val dropBeat: Int,
+    /** Force de l'attaque au milieu de chaque temps (contretemps), sur la même échelle que [beatAccent]. Vide : inconnue. */
+    val halfAccent: DoubleArray = DoubleArray(0),
 ) {
     /** Période moyenne (régression sur les temps détectés) : sert à extrapoler au-delà des temps détectés. */
     val beatPeriod: Duration get() = (60.0 / bpm).seconds
+
+    /**
+     * Frappes sur lesquelles un kill peut tomber de [from] à [to] inclus : chaque temps, plus les contretemps aussi
+     * marqués que les temps qui les entourent (une caisse claire, pas un charleston qui ne fait que remplir la mesure).
+     */
+    fun hits(from: Int, to: Int): List<MusicHit> = buildList {
+        for (b in from..to) {
+            add(MusicHit(beatTime(b), beatAccent.getOrElse(b) { 0.0 }, b.toDouble()))
+            if (b < to && isHalfHit(b)) add(MusicHit((beatTime(b) + beatTime(b + 1)) / 2, halfAccent[b], b + 0.5))
+        }
+    }
+
+    /** Le contretemps qui suit le temps [beat] est-il une frappe ? */
+    fun isHalfHit(beat: Int): Boolean {
+        val half = halfAccent.getOrElse(beat) { 0.0 }
+        val around = minOf(beatAccent.getOrElse(beat) { 0.0 }, beatAccent.getOrElse(beat + 1) { 0.0 })
+        return half >= MIN_HALF_ACCENT && half >= HALF_HIT_RATIO * around
+    }
 
     fun isDownbeat(beat: Int): Boolean = ((beat - downbeatPhase) % 4 + 4) % 4 == 0
 
@@ -113,6 +138,12 @@ data class MusicAnalysis(
     fun sectionIndexAt(beat: Int): Int = sections.indexOfLast { beat >= it.startBeat }.coerceAtLeast(0)
 
     fun sectionAt(beat: Int): MusicSection = sections[sectionIndexAt(beat)]
+
+    companion object {
+        /** Attaque minimale d'un contretemps, et part de l'attaque des temps voisins qu'il doit atteindre. */
+        const val MIN_HALF_ACCENT = 0.5
+        const val HALF_HIT_RATIO = 0.95
+    }
 }
 
 object MusicAnalyzer {
@@ -208,6 +239,12 @@ object MusicAnalyzer {
         val rawAccent = DoubleArray(n) { i -> (maxOf(0, frameOf[i] - 2)..minOf(onset.lastIndex, frameOf[i] + 2)).maxOf { onset[it] } }
         val accentScale = percentile(rawAccent, 0.95).takeIf { it > 1e-9 } ?: 1.0
         val accent = DoubleArray(n) { (rawAccent[it] / accentScale).coerceIn(0.0, 1.0) }
+        // Contretemps : même mesure d'attaque au milieu de chaque temps, rapportée à l'échelle des temps.
+        val halfAccent = DoubleArray(n) { i ->
+            val mid = (frameOf[i] + frameOf[i + 1]) / 2
+            if (mid - 2 > onset.lastIndex) 0.0
+            else ((maxOf(0, mid - 2)..minOf(onset.lastIndex, mid + 2)).maxOf { onset[it] } / accentScale).coerceIn(0.0, 1.0)
+        }
         val low = DoubleArray(n) { i -> (frameOf[i]..minOf(frameOf[i] + 2, spec.frames - 1)).sumOf { spec.lowEnergy[it] } }
         val novelty = DoubleArray(n) { i -> if (i == 0) 0.0 else 1 - cosine(beatMel[i], beatMel[i - 1]) }
 
@@ -224,7 +261,7 @@ object MusicAnalyzer {
         log.info {
             "Structure : " + sections.joinToString(" ") { "${it.kind.name.lowercase()}(${it.beats}t, ${"%.2f".format(it.intensity)})" }
         }
-        return MusicAnalysis(file, duration, bpm, beats, phase, energy, accent, sections, drop)
+        return MusicAnalysis(file, duration, bpm, beats, phase, energy, accent, sections, drop, halfAccent)
     }
 
     // ------------------------------------------------------------------ spectre

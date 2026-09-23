@@ -48,13 +48,16 @@ data class MontageRenderRequest(
  * le slot, concaténation vidéo et fondu au noir final ; le son du jeu de chaque clip est posé à son décalage et mixé
  * (il peut déborder un peu sur le plan suivant pour finir un kill ou une phrase), puis mixé avec la musique (jeu au
  * premier plan pendant les kills et les réactions, musique baissée sous la voix ; ou, en mode « kills », le son du
- * kill seul avec la musique baissée dessous), dans le rapport choisi par `audio.balance`. Les frontières suivent les temps réels
- * de la musique, arrondis à l'image.
+ * kill seul avec la musique baissée dessous), dans le rapport choisi par `audio.balance` ; la musique se tait un instant
+ * juste avant la drop (`audio.dropBreak`). Les frontières suivent les temps réels de la musique, arrondis à l'image.
  */
 object MontageRenderBuilder {
     private val KILL_AUDIO_BEFORE = 150.milliseconds
     private val KILL_AUDIO_AFTER = 600.milliseconds
     private val TEXT_DURATION = 900.milliseconds
+
+    /** Effacement de la musique à l'entrée de la coupure avant la drop : assez court pour sonner comme une coupe, sans clic. */
+    private val DROP_BREAK_FADE = 25.milliseconds
 
     /**
      * Découpe le son en trames de 64 échantillons (1,3 ms) avant une enveloppe de volume : `volume` n'évalue son
@@ -240,6 +243,11 @@ object MontageRenderBuilder {
             val env = musicDuck.map { envelope(it, audio.duckAttack, audio.duckRelease) }.reduce { a, b -> "max($a\\,$b)" }
             val under = if (audio.game == GameAudio.KILLS) audio.musicUnderKill else audio.musicUnderVoice
             "${num(music)}-${num(music * (1 - under))}*($env)"
+        }.let { level ->
+            // Coupure avant la drop : la musique s'efface en quelques millisecondes, puis revient d'un coup sur la drop.
+            val cut = dropBreak(plan) ?: return@let level
+            val gate = envelope(TimeRange(cut.start, cut.end - 1.milliseconds), DROP_BREAK_FADE, 1.milliseconds)
+            "($level)*(1-${num(1 - audio.dropBreak.musicLevel)}*($gate))"
         }
         graph += "[$musicInput:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo," +
             "$GAIN_FRAMES,volume='$duck':eval=frame,afade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
@@ -289,6 +297,19 @@ object MontageRenderBuilder {
             EffectDensity.BALANCED -> clip.slow == null
             EffectDensity.HEAVY -> true
         }
+    }
+
+    /**
+     * Coupure de la musique juste avant la drop (instants du montage), ou null : drop hors du montage, ou trop proche
+     * de son début pour qu'on ait entendu la musique avant de la couper.
+     */
+    internal fun dropBreak(plan: MontagePlan): TimeRange? {
+        val settings = plan.settings.audio.dropBreak
+        val drop = plan.dropAt ?: return null
+        if (!settings.enabled) return null
+        val start = drop - plan.period * settings.beats
+        if (start < plan.period * 2) return null
+        return TimeRange(start, drop)
     }
 
     /** Intervalle lu dans la source pour un clip, débordement sonore compris. */

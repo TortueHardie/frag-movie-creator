@@ -368,4 +368,100 @@ class MontagePlannerTest : FunSpec({
         multi.kills.last() shouldBe 108.seconds
     }
 
+    test("tirs à la tête : repérés par leur événement et comptés dans le rang") {
+        val s = session(listOf(100, 400)).let {
+            it.copy(timeline = it.timeline.copy(events = it.timeline.events + TimelineEvent(400.1.seconds, "headshot", 1.0, "n")))
+        }
+        val groups = MontagePlanner.groups(listOf(s), settings)
+        groups.map { it.traits.single().headshot } shouldBe listOf(false, true)
+        groups[1].style shouldBe (settings.killStyle.headshotBonus plusOrMinus 1e-9)
+        (groups[1].rank > groups[0].rank) shouldBe true
+    }
+
+    test("kills enchaînés : bonus par kill qui suit le précédent de près") {
+        val group = MontagePlanner.groups(listOf(session(listOf(100))), settings).single()
+        val quick = MontagePlanner.withTraits(group, listOf(100.seconds, 100.6.seconds, 103.seconds), List(3) { KillTraits() }, settings.killStyle)
+        quick.style shouldBe (settings.killStyle.quickBonus plusOrMinus 1e-9)
+    }
+
+    test("un one-tap en flick passe devant un double kill ordinaire et décroche la drop") {
+        val m = music()
+        val double = MontagePlanner.groups(listOf(session(listOf(100, 102))), settings).single()
+        val others = MontagePlanner.groups(listOf(session(listOf(500, 800))), settings)
+        val single = others.first()
+        val flick = MontagePlanner.withTraits(single, single.kills, listOf(KillTraits(headshot = true, flick = 1.0)), settings.killStyle)
+        (flick.rank > double.rank) shouldBe true
+        val p = MontagePlanner.plan(listOf(double, flick, others.last()), m, settings)
+        check(p)
+        p.clips.single { it.slot.dropBeat != null }.group shouldBe flick
+    }
+
+    test("flick : le plan a droit au ralenti même hors drop, accroche et multi-kill") {
+        // Sans bonus, le flick ne change pas la place des groupes : seul le ralenti diffère.
+        val s = settings.copy(killStyle = settings.killStyle.copy(flickBonus = 0.0))
+        val groups = MontagePlanner.groups(listOf(session(listOf(100, 400, 700))), s)
+        val before = MontagePlanner.plan(groups, music(), s)
+        val ordinary = before.clips.withIndex().first { (i, c) -> i > 0 && c.slot.dropBeat == null && c.kills.size == 1 }
+        ordinary.value.slow shouldBe null
+        val flicky = groups.map { g ->
+            if (g == ordinary.value.group) MontagePlanner.withTraits(g, g.kills, listOf(KillTraits(flick = 0.8)), s.killStyle) else g
+        }
+        val after = MontagePlanner.plan(flicky, music(), s)
+        check(after)
+        val clip = after.clips[ordinary.index]
+        clip.flick shouldBe true
+        (clip.slow != null) shouldBe true
+    }
+
+    test("frappes : un kill d'un multi-kill vise le contretemps marqué plutôt que le temps faible") {
+        val n = 240
+        val m = music().copy(halfAccent = DoubleArray(n) { 0.9 })
+        // Kills à 1,3 s d'écart : le contretemps (2,5 temps avant la drop) ne demande que 4 % de vitesse, le temps le
+        // plus proche (3 temps avant, un temps faible) 13 %.
+        val s = settings.copy(slowMotion = settings.slowMotion.copy(enabled = false))
+        val session = session(emptyList()).let {
+            it.copy(timeline = it.timeline.copy(events = listOf(100.seconds, 101.3.seconds).map { t -> TimelineEvent(t, "kill", 1.0, "n") }))
+        }
+        fun beatPosition(p: MontagePlan): Double {
+            val clip = p.clips.single()
+            val at = seconds(p.musicStart + p.clipOffsets().single() + clip.toOutput(100.seconds))
+            return at / 0.5
+        }
+        val onHits = MontagePlanner.plan(MontagePlanner.groups(listOf(session), s), m, s)
+        check(onHits)
+        (beatPosition(onHits) % 1.0) shouldBe (0.5 plusOrMinus 1e-3)
+        val beatsOnly = s.copy(speedRamp = SpeedRampEffect(onHits = false))
+        val plain = MontagePlanner.plan(MontagePlanner.groups(listOf(session), beatsOnly), m, beatsOnly)
+        val position = beatPosition(plain)
+        (position - Math.round(position)) shouldBe (0.0 plusOrMinus 1e-3)
+    }
+
+    test("variantes : le plan retenu est au moins aussi bien noté que le plan de base, sans perdre de clips") {
+        val m = music()
+        val groups = MontagePlanner.groups(listOf(session(manyKills)), settings)
+        val base = MontagePlanner.plan(groups, m, settings)
+        val best = MontagePlanner.best(groups, m, settings)
+        check(best)
+        (MontageScorer.score(best).total >= MontageScorer.score(base).total) shouldBe true
+        (best.clips.size >= kotlin.math.ceil(base.clips.size * 0.85)) shouldBe true
+        val off = MontagePlanner.best(groups, m, settings.copy(variants = false))
+        off.variant shouldBe PlanVariant.BASE
+        off.clips shouldBe base.clips
+    }
+
+    test("variante imposée : échelle de grille et place de la drop") {
+        val m = music()
+        val groups = MontagePlanner.groups(listOf(session(manyKills)), settings)
+        val coarse = MontagePlanner.plan(groups, m, settings, PlanVariant(scale = 4.0))
+        check(coarse)
+        coarse.variant.scale shouldBe 4.0
+        // Grille ×4 : des plans plus longs qu'avec la grille ×1.
+        val fine = MontagePlanner.plan(groups, m, settings, PlanVariant(scale = 1.0))
+        (coarse.clips.map { it.beats }.average() > fine.clips.map { it.beats }.average()) shouldBe true
+        // La drop avancée dans le montage : elle tombe plus tôt, en part de sa durée.
+        val early = MontagePlanner.plan(groups, m, settings, PlanVariant(dropShift = -0.3))
+        val late = MontagePlanner.plan(groups, m, settings, PlanVariant(dropShift = 0.3))
+        (early.dropAt!! / early.duration < late.dropAt!! / late.duration) shouldBe true
+    }
+
 })

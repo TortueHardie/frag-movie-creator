@@ -201,7 +201,19 @@ détecte les kills). En ligne de commande :
   kills, les plans s'allongent plutôt que de laisser de la musique inutilisée.
 - **Chaque kill sur un temps** : dans un multi-kill, la lecture entre deux kills est accélérée ou ralentie de ±15 % au
   plus (speed ramp, `--no-ramp` pour désactiver) pour que chaque kill tombe sur un temps ; dans une suite de plans de
-  même longueur, le kill tombe toujours au même endroit du plan (élan).
+  même longueur, le kill tombe toujours au même endroit du plan (élan). Les kills intermédiaires visent la **frappe** la
+  plus marquée à portée, pas seulement le temps le plus proche : un contretemps aussi fort que les temps qui l'entourent
+  (caisse claire, clap) compte comme une frappe, un charleston non (`speedRamp.onHits`).
+- **Kill recalé sur le tir** (`shotAlign`) : l'instant d'un kill vient d'une notification dont le retard sur le tir
+  varie d'un kill à l'autre (`killOffset` n'en corrige que la moyenne). Avant le montage, le son du jeu est lu autour de
+  chaque kill (300 ms avant, 50 ms après : le tir qui tue précède toujours sa notification) et le kill est recalé sur l'attaque la plus nette : c'est le tir qu'on entend
+  tomber sur le temps. Sans attaque nette (`minRiseDb`), l'instant annoncé est gardé.
+- **Kills spectaculaires** (`killStyle`) : tir à la tête (événement `headshot` d'Outplayed), **flick** (la vue balaie
+  l'écran puis s'arrête sur la cible, mesuré sur une demi-seconde d'image autour du kill) et kills enchaînés à moins
+  d'une seconde ajoutent un bonus au rang d'un groupe : un one-tap en flick passe devant un double kill ordinaire et
+  décroche la drop. Un flick est aussi un plan fort : il reçoit le ralenti, sinon il passe trop vite pour être vu.
+- **Variantes** (`variants`) : une douzaine de plans sont calculés (échelle de la grille, place de la drop) et seul le
+  mieux noté est rendu, à condition de garder presque tous les clips du plan de base et de le battre nettement.
 - **Accroche** : le meilleur groupe après celui de la drop ouvre le montage (`--no-hook`) : c'est dans les premières
   secondes que le spectateur décide de rester.
 - **Une emphase par plan** (`effectDensity`, `--effects sober|balanced|heavy`) : au rythme normal, un plan reçoit un
@@ -223,7 +235,9 @@ détecte les kills). En ligne de commande :
   avec `--reactions`) déborde un peu sur le plan suivant (`audio.bleed`). L'équilibre jeu / musique se règle dans le dialogue du montage
   (`audio.balance`, `--balance`, de -1 à 1 : ±6 dB par cran, jeu et musique en sens opposés). En mode « kills
   seulement » (`audio.game: kills`, `--game-audio kills`), on n'entend du jeu que le son du kill — tir, notification —
-  et la musique baisse dessous pour le laisser passer (`audio.musicUnderKill`).
+  et la musique baisse dessous pour le laisser passer (`audio.musicUnderKill`). Juste avant la drop, la musique se tait
+  un temps (`audio.dropBreak` : `beats`, `musicLevel`) : le jeu reste seul un instant, puis la drop repart d'un coup sur
+  le meilleur kill.
 - **Note du montage** : chaque rapport porte une note qui mesure ce que le moteur prétend faire — kills sur un temps,
   temps accentués, sobriété des effets, variété des clips, durée occupée, plans plus courts dans les sections intenses,
   absence d'image gelée. Elle ne dit pas si un montage est beau ; elle sert à comparer deux versions du moteur sans les

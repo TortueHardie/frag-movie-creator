@@ -149,13 +149,13 @@ object CutGrid {
 
     /**
      * Choisit l'échelle de la grille (×1, ×2, ×4, ×8) d'après le nombre de clips disponibles : on cherche à utiliser tous
-     * les clips (coupes plus rapides) sans laisser trop de musique inutilisée (plans plus longs).
+     * les clips (coupes plus rapides) sans laisser trop de musique inutilisée (plans plus longs). [scales] restreint les
+     * échelles essayées (variantes de plan).
      */
-    fun select(music: MusicAnalysis, cuts: CutSettings, minBeats: Int, maxDuration: Duration, clipCount: Int): Selection {
+    fun select(music: MusicAnalysis, cuts: CutSettings, minBeats: Int, maxDuration: Duration, clipCount: Int, scales: List<Double>? = null): Selection {
         var best: Selection? = null
         var bestScore = Double.NEGATIVE_INFINITY
-        var scale = 1.0
-        while (scale <= 8) {
+        for (scale in scales ?: listOf(1.0, 2.0, 4.0, 8.0)) {
             val slots = build(music, cuts, minBeats, scale)
             val window = window(slots, music, maxDuration, clipCount, cuts.dropPosition)
             if (window.isNotEmpty()) {
@@ -166,7 +166,6 @@ object CutGrid {
                     best = Selection(scale, slots, window)
                 }
             }
-            scale *= 2
         }
         return best ?: Selection(1.0, emptyList(), emptyList())
     }

@@ -30,6 +30,7 @@ import dev.highlights.core.video.FrameSampler
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
+import dev.highlights.montage.KillInspector
 import dev.highlights.montage.KillMontageExporter
 import dev.highlights.montage.MontageExportRequest
 import dev.highlights.montage.MontagePlanner
@@ -354,10 +355,11 @@ class HighlightPipeline(
                 game = options.gameAudio ?: base.audio.game,
             ),
         )
-        val analysisStep = progress.child("Musique", 0.08)
+        val analysisStep = progress.child("Musique", 0.06)
         val analysis = MusicAnalyzer.analyze(ffmpeg, music)
         analysisStep.complete()
-        val plan = MontagePlanner.plan(MontagePlanner.groups(sessions, settings), analysis, settings)
+        val groups = KillInspector(ffmpeg).inspect(MontagePlanner.groups(sessions, settings), settings, profile.audio, progress.child("Kills", 0.06))
+        val plan = MontagePlanner.best(groups, analysis, settings)
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(analysis.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
         return withJobDir { workDir ->
             montageExporter.export(
@@ -373,7 +375,7 @@ class HighlightPipeline(
                     hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
                     audioLayout = profile.audio,
                 ),
-                progress.child("Rendu", 0.92),
+                progress.child("Rendu", 0.88),
             )
         }
     }
