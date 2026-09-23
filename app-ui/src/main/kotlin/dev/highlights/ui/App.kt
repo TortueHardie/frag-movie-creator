@@ -36,7 +36,6 @@ import androidx.compose.ui.draganddrop.DragData
 import androidx.compose.ui.draganddrop.dragData
 import java.net.URI
 import java.nio.file.Path
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
@@ -79,7 +78,7 @@ fun App(state: UiState, actions: UiActions) {
                 state.job?.let { JobCard(it, actions) }
                 val session = state.session
                 if (session == null) {
-                    if (state.job == null) EmptyState(state)
+                    if (state.job == null) LibraryView(state, actions, Modifier.weight(1f))
                 } else {
                     SessionHeader(state, session, actions)
                     TimelineCard(session, state.settings.threshold, actions)
@@ -99,28 +98,6 @@ fun App(state: UiState, actions: UiActions) {
         }
         state.montage?.let { MontageDialog(it, state, actions) }
         state.error?.let { ErrorDialog(it, actions) }
-    }
-}
-
-@Composable
-private fun EmptyState(state: UiState) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Aucune analyse", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(8.dp))
-            val hint = when {
-                state.config is ConfigStatus.Failed -> "Corrige la configuration à gauche pour commencer."
-                state.source == null -> "Choisis une ou plusieurs captures (ou glisse-les dans la fenêtre), puis lance l'analyse. " +
-                    "Plusieurs captures donnent un seul montage, dans l'ordre où les parties ont été jouées."
-                else -> "Vérifie les réglages puis clique sur « Analyser »."
-            }
-            Text(
-                hint,
-                color = Palette.textMuted,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.width(420.dp),
-            )
-        }
     }
 }
 

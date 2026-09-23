@@ -12,6 +12,7 @@ import dev.highlights.core.serialization.Durations
 import dev.highlights.core.session.Session
 import dev.highlights.export.ExportResult
 import java.nio.file.Path
+import java.time.Instant
 import kotlin.math.roundToInt
 import kotlin.time.Duration
 
@@ -32,6 +33,11 @@ data class UiState(
     val montage: MontageUiState? = null,
     /** Dernière musique choisie, proposée à la prochaine ouverture. */
     val lastMusic: Path? = null,
+    /** Analyses déjà faites, la plus récente d'abord. */
+    val library: List<LibraryItem> = emptyList(),
+    /** Analyses cochées dans la liste, à ouvrir ensemble pour un seul montage (fichiers de session). */
+    val librarySelection: Set<Path> = emptySet(),
+    val watch: WatchState = WatchState(),
 ) {
     /** Première capture : celle qui décide du profil détecté et du ratio d'origine. */
     val source: SourceInfo? get() = sources.firstOrNull()
@@ -48,7 +54,33 @@ sealed interface ConfigStatus {
 
 data class ProfileInfo(val id: String, val displayName: String)
 
-data class SourceInfo(val path: Path, val media: MediaInfo, val detectedProfileId: String)
+/** [alreadyAnalyzed] : l'analyse de cette capture est en mémoire et sera reprise sans recalcul. */
+data class SourceInfo(val path: Path, val media: MediaInfo, val detectedProfileId: String, val alreadyAnalyzed: Boolean = false)
+
+/** Une analyse enregistrée, telle que la liste l'affiche. */
+data class LibraryItem(
+    val source: Path,
+    val sessionFile: Path,
+    val profileId: String,
+    val analyzedAt: Instant,
+    val recordedAt: Instant?,
+    val duration: Duration,
+    val events: Map<String, Int>,
+    /** La vidéo est encore là (sinon l'analyse se rouvre, mais sans export ni aperçu). */
+    val sourceExists: Boolean,
+)
+
+/** Dossier où l'enregistreur dépose les parties : chaque nouvelle capture y est analysée en fond. */
+data class WatchState(
+    val folder: Path? = null,
+    /** Capture en cours d'analyse en fond, et avancement. */
+    val current: Path? = null,
+    val fraction: Double = 0.0,
+    val pending: List<Path> = emptyList(),
+    /** Analyses faites en fond et pas encore ouvertes (fichiers de session). */
+    val fresh: Set<Path> = emptySet(),
+    val lastError: String? = null,
+)
 
 enum class TargetMode { DURATION, TOP_N, ALL }
 

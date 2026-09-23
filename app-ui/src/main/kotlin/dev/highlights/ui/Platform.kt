@@ -19,7 +19,7 @@ interface Platform {
     fun chooseVideos(initialDir: Path?): List<Path>
     fun chooseAudio(initialDir: Path?): Path?
     fun chooseSessions(initialDir: Path?): List<Path>
-    fun chooseDirectory(initialDir: Path?): Path?
+    fun chooseDirectory(initialDir: Path?, title: String = "Dossier de sortie"): Path?
     fun open(path: Path)
     fun reveal(path: Path)
     fun edit(path: Path)
@@ -43,9 +43,9 @@ class DesktopPlatform(private val owner: () -> Frame?) : Platform {
     override fun chooseSessions(initialDir: Path?): List<Path> =
         filesDialog("Ouvrir une ou plusieurs sessions", initialDir) { it.lowercase().endsWith(".session.json") }
 
-    override fun chooseDirectory(initialDir: Path?): Path? {
+    override fun chooseDirectory(initialDir: Path?, title: String): Path? {
         val chooser = JFileChooser(initialDir?.takeIf { it.isDirectory() }?.toFile()).apply {
-            dialogTitle = "Dossier de sortie"
+            dialogTitle = title
             fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
             isAcceptAllFileFilterUsed = false
         }

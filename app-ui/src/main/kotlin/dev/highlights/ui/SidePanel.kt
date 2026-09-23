@@ -129,6 +129,9 @@ fun SourceSection(state: UiState, actions: UiActions) {
                         AudioTracks.of(media.audio).shortLabel(),
                     ).joinToString(" · ")
                     Text(line, style = MaterialTheme.typography.bodySmall)
+                    if (source.alreadyAnalyzed && state.session == null) {
+                        Text("Déjà analysée : l'analyse sera reprise sans recalcul.", style = MaterialTheme.typography.bodySmall, color = Palette.success)
+                    }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -136,8 +139,13 @@ fun SourceSection(state: UiState, actions: UiActions) {
                 OutlinedButton(onClick = actions::addSources, enabled = state.job == null) { Text("Ajouter des vidéos") }
             }
         }
-        TextButton(onClick = actions::chooseSession, enabled = state.job == null && state.config is ConfigStatus.Ready) {
-            Text("Ouvrir une analyse enregistrée…")
+        Row {
+            if (state.source != null) {
+                TextButton(onClick = actions::showLibrary, enabled = state.job == null) { Text("Analyses enregistrées") }
+            }
+            TextButton(onClick = actions::chooseSession, enabled = state.job == null && state.config is ConfigStatus.Ready) {
+                Text("Ouvrir un fichier de session…")
+            }
         }
     }
 }
