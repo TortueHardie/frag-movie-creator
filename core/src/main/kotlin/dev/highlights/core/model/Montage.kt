@@ -129,8 +129,12 @@ data class ShotAlign(
 
 /**
  * Ce qui rend un kill spectaculaire au-delà du nombre : tir à la tête, flick (visée qui balaie l'écran puis s'arrête sur
- * la cible), kills enchaînés très vite. Les bonus s'ajoutent au rang d'un groupe, dont 1 vaut un kill de plus : un
- * one-tap en flick passe devant un double kill ordinaire, et décroche la drop.
+ * la cible), kills enchaînés très vite, ace, clutch. Les bonus s'ajoutent au rang d'un groupe, dont 1 vaut un kill de
+ * plus : un one-tap en flick passe devant un double kill ordinaire, et décroche la drop. Un kill aussitôt suivi de sa
+ * propre mort recule.
+ *
+ * Le jeu ne dit ni où commence un round ni combien d'alliés sont encore en vie : les rounds sont déduits des kills et
+ * des morts du joueur. Une mort clôt son round ; un silence de plus de [roundGap] (phase d'achat) aussi.
  */
 @Serializable
 data class KillStyle(
@@ -147,9 +151,29 @@ data class KillStyle(
     /** Kill qui suit le précédent de moins que ça : enchaînement. */
     val quickGap: SerialDuration = 1.seconds,
     val quickBonus: Double = 0.3,
+    /** Événement émis pour une mort du joueur (VALORANT via Outplayed). Vide : ni mort, ni round, ni ace, ni clutch. */
+    val deathEvent: String = "death",
+    /** Mort qui suit le dernier kill d'un groupe de moins que ça : le kill est aussitôt payé, le groupe recule. */
+    val deathGap: SerialDuration = 3.seconds,
+    val deathPenalty: Double = 0.5,
+    /** Silence (ni kill ni mort) au-delà duquel un nouveau round commence : plus court que la phase d'achat. */
+    val roundGap: SerialDuration = 40.seconds,
+    /** Kills d'un même round qui font un ace ; le bonus va au groupe du dernier kill du round. */
+    val aceKills: Int = 5,
+    val aceBonus: Double = 1.5,
+    /**
+     * Clutch : round survécu, fini sur un groupe d'au moins [clutchKills] kills. Sans le nombre d'alliés en vie, c'est
+     * l'approche la plus proche : le joueur termine le round seul face aux derniers adversaires.
+     */
+    val clutchKills: Int = 2,
+    val clutchBonus: Double = 0.5,
 ) {
     init {
         require(flickTo > flickFrom) { "montage.killStyle.flickTo doit dépasser flickFrom" }
+        require(deathPenalty >= 0) { "montage.killStyle.deathPenalty ne peut pas être négatif" }
+        require(roundGap.isPositive()) { "montage.killStyle.roundGap doit être positif" }
+        require(aceKills >= 2) { "montage.killStyle.aceKills doit valoir au moins 2" }
+        require(clutchKills >= 1) { "montage.killStyle.clutchKills doit valoir au moins 1" }
     }
 }
 

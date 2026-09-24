@@ -28,7 +28,9 @@ data class KillGroup(
     val voiceSegments: List<TimeRange>,
     /** Ce qu'on sait de chaque kill (même ordre que [kills]) ; vide : rien de particulier. */
     val traits: List<KillTraits> = emptyList(),
-    /** Bonus de spectacle des kills (tête, flick, enchaînement), en kills : voir [KillStyle]. */
+    /** Ce que le round dit du groupe : kill aussitôt payé, ace, clutch. */
+    val outcome: RoundOutcome = RoundOutcome.NONE,
+    /** Bonus de spectacle des kills (tête, flick, enchaînement, ace, clutch, mort), en kills : voir [KillStyle]. */
     val style: Double = 0.0,
 ) {
     val rank: Double get() = kills.size + score / 10 + style
@@ -47,6 +49,16 @@ data class KillTraits(val headshot: Boolean = false, val flick: Double = 0.0, va
 
         /** Flick assez net pour faire d'un plan un plan fort (ralenti, pour qu'on le voie). */
         const val STRONG_FLICK = 0.5
+    }
+}
+
+/**
+ * Place d'un groupe dans son round : [traded], le joueur meurt juste après son dernier kill ; [ace], le groupe finit un
+ * round d'au moins [KillStyle.aceKills] kills ; [clutch], il finit un round survécu (voir [KillStyle.clutchKills]).
+ */
+data class RoundOutcome(val traded: Boolean = false, val ace: Boolean = false, val clutch: Boolean = false) {
+    companion object {
+        val NONE = RoundOutcome()
     }
 }
 
@@ -189,15 +201,28 @@ object MontagePlanner {
         val headshots = if (style.headshotEvent.isEmpty()) emptyList()
         else timeline.events.filter { it.kind == style.headshotEvent }.map { it.at + settings.killOffset }
         fun headshot(k: Duration) = headshots.any { (it - k).absoluteValue <= HEADSHOT_MATCH }
+        val deaths = if (style.deathEvent.isEmpty()) emptyList()
+        else timeline.events.filter { it.kind == style.deathEvent }.map { it.at + settings.killOffset }.sorted()
+        val rounds = rounds(kills, deaths, style.roundGap)
+        val roundOf = rounds.flatMapIndexed { i, r -> r.kills.map { it to i } }.toMap()
+        // Un groupe ne déborde jamais sur le round suivant : une mort entre deux kills les sépare.
         val grouped = mutableListOf<MutableList<Duration>>()
         for (k in kills) {
             val last = grouped.lastOrNull()
-            if (last != null && k - last.last() <= settings.mergeGap) last += k else grouped += mutableListOf(k)
+            if (last != null && k - last.last() <= settings.mergeGap && roundOf[k] == roundOf[last.last()]) last += k else grouped += mutableListOf(k)
+        }
+        // Sans aucune mort annoncée, on ne sait pas si le joueur survit : ni round survécu, ni clutch, ni ace à déduire.
+        val outcomes = grouped.map { if (deaths.isEmpty()) RoundOutcome.NONE else outcome(it, deaths, rounds, style) }
+        if (outcomes.any { it != RoundOutcome.NONE }) {
+            log.info {
+                "${session.media.path.fileName} : ${rounds.size} round(s) déduit(s), ${outcomes.count { it.ace }} ace(s), " +
+                    "${outcomes.count { it.clutch }} clutch(s), ${outcomes.count { it.traded }} kill(s) aussitôt payé(s)"
+            }
         }
         // Sans mise en avant des réactions, la voix ne décide de rien : ni durée des plans, ni volume, ni débordement.
         val protectedSegments = if (settings.reactions) timeline.segments.filter { it.kind in settings.keepWhole }.map { it.range } else emptyList()
         val voice = if (settings.reactions) timeline.segments.filter { it.kind in setOf("speech", "laughter", "shout") }.map { it.range } else emptyList()
-        grouped.map { ks ->
+        grouped.mapIndexed { i, ks ->
             val window = TimeRange(ks.first() - settings.preRoll, ks.last() + settings.postRoll)
             val indices = timeline.grid.let { g -> (0 until g.count).filter { g.rangeOf(it).isWithin(window) } }
             val traits = ks.map { KillTraits(headshot = headshot(it)) }
@@ -208,20 +233,66 @@ object MontagePlanner {
                 protectedSegments = protectedSegments.filter { it.isWithin(window, settings.postRoll * 4) },
                 voiceSegments = voice.filter { it.isWithin(window, settings.postRoll * 4) },
                 traits = traits,
-                style = style(ks, traits, style),
+                outcome = outcomes[i],
+                style = style(ks, traits, outcomes[i], style),
             )
         }
     }
 
-    /** Bonus de spectacle d'un groupe, en kills : tirs à la tête, flicks, kills enchaînés. */
-    fun style(kills: List<Duration>, traits: List<KillTraits>, style: KillStyle): Double =
+    /** Round déduit des événements du joueur : ses kills, et s'il y est mort. */
+    internal data class Round(val kills: List<Duration>, val died: Boolean)
+
+    /**
+     * Découpe les kills et les morts en rounds : une mort clôt le sien, un silence de plus de [gap] aussi. Les kills
+     * d'avant la première mort et d'après la dernière forment leurs propres rounds, survécus.
+     */
+    internal fun rounds(kills: List<Duration>, deaths: List<Duration>, gap: Duration): List<Round> {
+        val events = (kills.map { it to false } + deaths.map { it to true }).sortedBy { it.first }
+        val rounds = mutableListOf<Round>()
+        var current = mutableListOf<Duration>()
+        var previous: Duration? = null
+        for ((at, death) in events) {
+            if (previous != null && at - previous > gap && current.isNotEmpty()) {
+                rounds += Round(current, died = false)
+                current = mutableListOf()
+            }
+            if (death) {
+                // Une mort sans kill dans son round ne dit rien d'un groupe : inutile de la garder.
+                if (current.isNotEmpty()) rounds += Round(current, died = true)
+                current = mutableListOf()
+            } else {
+                current += at
+            }
+            previous = at
+        }
+        if (current.isNotEmpty()) rounds += Round(current, died = false)
+        return rounds
+    }
+
+    /** Ce que le round dit d'un groupe : mort juste après, ace ou clutch s'il en porte le dernier kill. */
+    internal fun outcome(group: List<Duration>, deaths: List<Duration>, rounds: List<Round>, style: KillStyle): RoundOutcome {
+        val last = group.last()
+        val traded = deaths.any { it >= last && it - last <= style.deathGap }
+        val round = rounds.firstOrNull { last in it.kills } ?: return RoundOutcome(traded = traded)
+        val closes = round.kills.last() == last
+        return RoundOutcome(
+            traded = traded,
+            ace = closes && round.kills.size >= style.aceKills,
+            clutch = closes && !round.died && group.size >= style.clutchKills,
+        )
+    }
+
+    /** Bonus de spectacle d'un groupe, en kills : tirs à la tête, flicks, kills enchaînés, ace, clutch ; une mort aussitôt après le coûte. */
+    fun style(kills: List<Duration>, traits: List<KillTraits>, outcome: RoundOutcome, style: KillStyle): Double =
         traits.sumOf { (if (it.headshot) style.headshotBonus else 0.0) + style.flickBonus * it.flick } +
-            style.quickBonus * kills.zipWithNext().count { (a, b) -> b - a <= style.quickGap }
+            style.quickBonus * kills.zipWithNext().count { (a, b) -> b - a <= style.quickGap } +
+            (if (outcome.ace) style.aceBonus else 0.0) + (if (outcome.clutch) style.clutchBonus else 0.0) -
+            (if (outcome.traded) style.deathPenalty else 0.0)
 
     /** Même groupe, kills recalés et particularités mises à jour (voir [KillInspector]) ; le bonus est recalculé. */
     fun withTraits(group: KillGroup, kills: List<Duration>, traits: List<KillTraits>, style: KillStyle): KillGroup {
         val sorted = kills.zip(traits).sortedBy { it.first }
-        return group.copy(kills = sorted.map { it.first }, traits = sorted.map { it.second }, style = style(sorted.map { it.first }, sorted.map { it.second }, style))
+        return group.copy(kills = sorted.map { it.first }, traits = sorted.map { it.second }, style = style(sorted.map { it.first }, sorted.map { it.second }, group.outcome, style))
     }
 
     /**

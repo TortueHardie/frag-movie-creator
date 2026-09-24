@@ -2,14 +2,13 @@
 
 Pistes pour le montage « tous les kills », dans l'ordre où on compte les traiter.
 
-## 1. Mieux classer les kills
+## 1. Mieux classer les kills (fait)
 
-Un kill suivi de sa propre mort recule dans le classement ; les aces et les clutchs montent.
+Un kill suivi de sa propre mort recule dans le classement ; les aces et les clutchs montent. Voir `RoundOutcome` et
+`MontagePlanner.rounds` ; réglages dans `KillStyle` (`deathPenalty`, `aceBonus`, `clutchBonus`, `roundGap`).
 
-- Les morts sont déjà lues par `outplayed-events` (type `death`), mais `MontagePlanner.groups` ne s'en sert pas.
-- Le bonus de spectacle d'un groupe se calcule dans `MontagePlanner.style` (tête, flick, enchaînement) : c'est là que
-  la pénalité de mort et le bonus ace / clutch trouvent leur place, avec leurs réglages dans `KillStyle`.
-- Reste à définir ce qu'on reconnaît comme un clutch sans connaître le nombre d'alliés en vie.
+- Reste ouvert : le clutch est déduit (round survécu, fini sur un multi-kill) faute de connaître le nombre d'alliés en
+  vie. À affiner si une source donne les rounds ou l'état de l'équipe.
 
 ## 2. Transitions dans le sens du mouvement
 

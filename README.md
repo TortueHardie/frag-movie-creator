@@ -224,6 +224,12 @@ détecte les kills). En ligne de commande :
   l'écran puis s'arrête sur la cible, mesuré sur une demi-seconde d'image autour du kill) et kills enchaînés à moins
   d'une seconde ajoutent un bonus au rang d'un groupe : un one-tap en flick passe devant un double kill ordinaire et
   décroche la drop. Un flick est aussi un plan fort : il reçoit le ralenti, sinon il passe trop vite pour être vu.
+- **Kills dans leur round** (`killStyle`, avec les morts d'Outplayed) : un kill suivi de sa propre mort dans les 3 s
+  recule (`deathPenalty`) ; le groupe qui finit un round de 5 kills monte nettement (**ace**, `aceBonus`) ; celui qui
+  finit un round survécu sur au moins deux kills monte aussi (**clutch**, `clutchBonus`). Le jeu ne donne ni les rounds
+  ni le nombre d'alliés en vie : une mort clôt le round du joueur, un silence de plus de 40 s aussi (`roundGap`, plus
+  court que la phase d'achat), et le clutch reste une approximation. Une mort sépare toujours deux kills rapprochés en
+  deux clips. Sans aucune mort annoncée (capture hors Outplayed, `deathEvent` vide), rien de tout ça ne s'applique.
 - **Variantes** (`variants`) : une douzaine de plans sont calculés (échelle de la grille, place de la drop) et seul le
   mieux noté est rendu, à condition de garder presque tous les clips du plan de base et de le battre nettement.
 - **Accroche** : le meilleur groupe après celui de la drop ouvre le montage (`--no-hook`) : c'est dans les premières

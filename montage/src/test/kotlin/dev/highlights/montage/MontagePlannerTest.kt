@@ -378,6 +378,67 @@ class MontagePlannerTest : FunSpec({
         (groups[1].rank > groups[0].rank) shouldBe true
     }
 
+    fun withDeaths(s: Session, deaths: List<Double>) =
+        s.copy(timeline = s.timeline.copy(events = (s.timeline.events + deaths.map { TimelineEvent(it.seconds, "death", 1.0, "n") }).sortedBy { it.at }))
+
+    test("rounds : une mort clôt le sien, un long silence aussi") {
+        val kills = listOf(100, 110, 200, 205, 400).map { it.seconds }
+        val rounds = MontagePlanner.rounds(kills, listOf(112.seconds, 600.seconds), 40.seconds)
+        rounds.map { r -> r.kills.map { it.inWholeSeconds } to r.died } shouldBe listOf(
+            listOf(100L, 110L) to true,
+            listOf(200L, 205L) to false,
+            listOf(400L) to false,
+        )
+    }
+
+    test("un kill aussitôt suivi de sa propre mort recule") {
+        val groups = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 400)), listOf(101.5))), settings)
+        groups.map { it.outcome.traded } shouldBe listOf(true, false)
+        groups[0].style shouldBe (-settings.killStyle.deathPenalty plusOrMinus 1e-9)
+        (groups[0].rank < groups[1].rank) shouldBe true
+    }
+
+    test("une mort qui tombe bien plus tard ne coûte rien") {
+        val group = MontagePlanner.groups(listOf(withDeaths(session(listOf(100)), listOf(110.0))), settings).single()
+        group.outcome shouldBe RoundOutcome.NONE
+    }
+
+    test("ace : le groupe qui finit un round de cinq kills monte devant les autres") {
+        // Cinq kills espacés de 10 s : cinq groupes, un seul round (pas de mort, pas de silence de 40 s).
+        val groups = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 110, 120, 130, 140, 400)), listOf(145.0))), settings)
+        groups.map { it.outcome.ace } shouldBe listOf(false, false, false, false, true, false)
+        groups.maxBy { it.rank } shouldBe groups[4]
+        // Le joueur meurt au milieu : deux rounds, pas d'ace.
+        val split = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 110, 120, 130, 140)), listOf(125.0))), settings)
+        split.none { it.outcome.ace } shouldBe true
+    }
+
+    test("clutch : un round survécu fini sur un multi-kill monte, pas s'il meurt ensuite") {
+        val survived = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 130, 132)), listOf(300.0))), settings)
+        survived.map { it.outcome.clutch } shouldBe listOf(false, true)
+        survived[1].style shouldBe (settings.killStyle.clutchBonus plusOrMinus 1e-9)
+        val died = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 130, 132)), listOf(133.0))), settings)
+        died.map { it.outcome } shouldBe listOf(RoundOutcome.NONE, RoundOutcome(traded = true))
+    }
+
+    test("une mort sépare deux kills rapprochés en deux groupes") {
+        val groups = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 103)), listOf(101.0))), settings)
+        groups.map { g -> g.kills.map { it.inWholeSeconds } } shouldBe listOf(listOf(100L), listOf(103L))
+    }
+
+    test("sans événement de mort : ni round, ni ace, ni clutch") {
+        val off = settings.copy(killStyle = settings.killStyle.copy(deathEvent = ""))
+        val groups = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 110, 120, 130, 140)), listOf(141.0))), off)
+        groups.all { it.outcome == RoundOutcome.NONE } shouldBe true
+    }
+
+    test("le bilan du round survit au recalage des kills") {
+        val group = MontagePlanner.groups(listOf(withDeaths(session(listOf(100)), listOf(101.0))), settings).single()
+        val inspected = MontagePlanner.withTraits(group, listOf(99.8.seconds), listOf(KillTraits(headshot = true)), settings.killStyle)
+        inspected.outcome.traded shouldBe true
+        inspected.style shouldBe (settings.killStyle.headshotBonus - settings.killStyle.deathPenalty plusOrMinus 1e-9)
+    }
+
     test("kills enchaînés : bonus par kill qui suit le précédent de près") {
         val group = MontagePlanner.groups(listOf(session(listOf(100))), settings).single()
         val quick = MontagePlanner.withTraits(group, listOf(100.seconds, 100.6.seconds, 103.seconds), List(3) { KillTraits() }, settings.killStyle)
