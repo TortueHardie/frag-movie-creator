@@ -18,23 +18,27 @@ garde le sens du balayage dans `KillTraits.direction` ; `MontageRenderBuilder.wh
 
 - Piste : un bruitage de souffle (whoosh) sur la coupe renforcerait l'effet.
 
-## 3. Raccords visée sur visée (fait, 4 coupes sur 18 sur le dernier montage)
+## 3. Raccords sur la pose de l'arme (fait)
 
-Sur les parties WARDOGS, les rechargements et changements d'arme n'apparaissent presque jamais autour des kills : le
-geste qui revient, c'est la visée (le joueur épaule avant le kill et baisse son arme 0 à 0,5 s après). Le plan sortant
-s'arrête donc avant qu'il ne baisse son arme, le plan entrant commence quand il a déjà épaulé, et le viseur reste au
-centre par-dessus la coupe. Voir `MatchCutter` et `ScopeCuts` ; réglages dans `montage.matchCut`.
+Les rechargements et changements d'arme n'apparaissent presque jamais autour des kills : ce qui revient, c'est la pose
+de l'arme. Une coupe se raccorde quand les deux plans la tiennent : l'arme reste en place, le décor change. Voir
+`MatchCutter` et `ScopeCuts` ; réglages dans `montage.matchCut`.
 
-- Un kill tiré à la hanche est écarté (symétrie du bas de la zone, `minSymmetry`) : 5 sur 5 écartés, 1 kill visé sur
-  14 écarté à tort (décor très dissymétrique derrière l'arme).
-- La visée est mesurée avant la planification (`MatchCutter.inspect`) : quand deux plans voisins visent, le kill peut
-  changer de temps dans son plan pour qu'il reste moins à ralentir (`MontagePlanner.aimFit`), plan par plan, si la note
-  du montage n'y perd pas plus que les raccords gagnés ne valent (`MATCH_VALUE`, 0,005 par raccord). Sur le dernier
-  montage : 4 raccords au lieu de 3, note inchangée ; 6 sans arbitrage, mais premier kill à 2,7 s au lieu de 1,6 s et
-  plus long passage sans kill de 7,6 s au lieu de 6 s.
-- Limite restante : la fin du plan sortant. Le joueur baisse son arme 0 à 0,5 s après le kill ; il faudrait des plans
-  plus courts après le kill, ce qui allonge l'attente avant le kill suivant.
-- Piste : l'ordre des clips est fixé avant les raccords ; le choisir aussi pour rapprocher les clips qui se raccordent.
+- WARDOGS (`pose: aim`) : la visée, le viseur au centre. Kill à la hanche écarté (symétrie, `minSymmetry`) : 5 sur 5
+  écartés, 1 kill visé sur 14 écarté à tort. La symétrie est aussi vérifiée image par image : caméra immobile, le décor
+  ressemblait encore à la visée alors que le joueur avait incliné son arme. Dernier montage : 5 raccords sur 18, note
+  0,908 (0,910 sans raccord), tous vérifiés à l'image.
+- VALORANT (`pose: rest`, profil `valorant.yaml`) : l'arme au repos à la hanche, zone serrée sur l'arme et comparée en
+  entier. Dernier montage : 8 raccords sur 19, note inchangée ; 7 bons (pistolet sur pistolet, fusil sur fusil), 1
+  mauvais : une capacité (les mains) raccordée à un couteau, ressemblance 0,62, plus que des raccords justes (0,53 à
+  0,57) : aucun seuil ne l'écarte.
+- La pose est mesurée avant la planification (`MatchCutter.inspect`). Les groupes d'importance voisine échangent leurs
+  places pour mettre côte à côte ceux qui se raccordent (`MontagePlanner.pairUp`, hors drop et accroche), puis le kill
+  peut changer de temps dans son plan (`MontagePlanner.aimFit`) si la note n'y perd pas plus que les raccords ne valent
+  (`MATCH_VALUE`, 0,005 par raccord).
+- Limite : la fin du plan sortant. Le joueur baisse son arme (ou rejoue une capacité) 0 à 0,8 s après le kill ; il
+  faudrait des plans plus courts après le kill, ce qui allonge l'attente avant le kill suivant.
+- Piste : reconnaître l'arme en main (pas une capacité ni un couteau) pour écarter les faux raccords de VALORANT.
 
 ## 4. Scoreur sensible aux temps morts (fait)
 

@@ -95,3 +95,14 @@ edit:
 montage:
   # Les instants des kills sont déjà corrigés du retard d'Outplayed (offsets de game-events) : rien à compenser.
   killOffset: 0ms
+  # Raccords sur la pose de l'arme : dans VALORANT, on tire à la hanche, l'arme immobile en bas à droite. Une coupe
+  # se raccorde quand les deux plans tiennent la même arme de la même façon : elle reste en place, le décor change.
+  # Zone serrée sur l'arme (mesurée en 16:9), comparée en entier : au kill, l'arme tremble sous le recul et ce sont
+  # ses pixels, pas ceux du décor, qu'il faut garder. Pas de symétrie attendue (ce n'est pas une visée). Poses
+  # semblables exigées : 0,7 à 0,8 entre deux pistolets, 0,5 à 0,7 entre deux fusils, 0,3 au plus sinon.
+  matchCut:
+    region: { x: 0.634, y: 0.60, width: 0.363, height: 0.40 }
+    pose: rest
+    stillShare: 1.0
+    minSymmetry: -1.0
+    minPoseMatch: 0.5

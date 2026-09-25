@@ -296,6 +296,17 @@ data class WhipPanEffect(
 }
 
 /**
+ * Pose de l'arme qu'on raccorde d'un plan à l'autre. [AIM] : la visée, tenue jusqu'au kill et juste après, comparée à
+ * l'image du kill (WARDOGS). [REST] : l'arme au repos, comparée à l'image médiane autour du kill ; au moment du kill
+ * elle tremble sous le recul, le plan commence et finit donc dans le repos le plus proche (VALORANT).
+ */
+@Serializable
+enum class PoseKind {
+    @SerialName("aim") AIM,
+    @SerialName("rest") REST,
+}
+
+/**
  * Raccord visée sur visée : juste avant un kill, le joueur vise, et le viseur occupe le centre de l'écran. À chaque
  * coupe, le plan sortant s'arrête avant que le joueur ne baisse son arme, et le plan entrant commence quand il a déjà
  * épaulé : le viseur reste au centre par-dessus la coupe. Ces deux portions sont ralenties pour garder la durée de leur
@@ -305,6 +316,8 @@ data class WhipPanEffect(
 @Serializable
 data class MatchCut(
     val enabled: Boolean = true,
+    /** Pose qui se raccorde : la visée du kill (le viseur au centre), ou l'arme au repos (tir à la hanche). */
+    val pose: PoseKind = PoseKind.AIM,
     /**
      * Zone du viseur et du haut de l'arme en visée, mesurée sur une capture 16:9 et accrochée au centre (elle est
      * ramenée au format de chaque capture) : le jeu place l'arme par rapport au centre de l'écran, pas au bord.
@@ -323,6 +336,12 @@ data class MatchCut(
      */
     val minSymmetry: Double = 0.15,
     /**
+     * Ressemblance minimale (-1..1) des poses de part et d'autre d'une coupe, sur les pixels de l'arme : même arme,
+     * tenue de la même façon. -1 : toute pose tenue se raccorde (en visée, le viseur au centre suffit, même si la lunette
+     * change) ; à la hanche, un pistolet après un fusil ne se raccorde pas.
+     */
+    val minPoseMatch: Double = -1.0,
+    /**
      * Vitesse minimale des portions ralenties pour tenir dans la visée (0,3 = trois fois plus lent). Le joueur baisse
      * son arme 0 à 0,5 s après le kill, alors que le plan dure encore plus d'une seconde : la fin se ralentit beaucoup.
      */
@@ -333,6 +352,7 @@ data class MatchCut(
         require(reference.inWholeMilliseconds in 100..1000) { "montage.matchCut.reference doit être entre 100 et 1000 ms" }
         require(stillShare > 0.0 && stillShare <= 1.0) { "montage.matchCut.stillShare doit être entre 0 et 1" }
         require(minSymmetry in -1.0..1.0) { "montage.matchCut.minSymmetry doit être entre -1 et 1" }
+        require(minPoseMatch in -1.0..1.0) { "montage.matchCut.minPoseMatch doit être entre -1 et 1" }
         require(minSpeed in 0.25..1.0) { "montage.matchCut.minSpeed doit être entre 0,25 et 1" }
     }
 }

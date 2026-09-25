@@ -2,6 +2,7 @@ package dev.highlights.montage
 
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageSettings
+import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.VideoStream
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.doubles.plusOrMinus
@@ -19,14 +20,14 @@ class MatchCutterTest : FunSpec({
     /**
      * Images de la zone du viseur : le décor change à chaque image (la vue suit la cible) ; sur les images [aiming],
      * l'arme (un motif fixe, symétrique comme une arme vue de derrière) est posée par-dessus, au centre et jusqu'en bas
-     * de la zone ; décalée de [shift] pixels à droite pour un tir à la hanche.
+     * de la zone ; décalée de [shift] pixels à droite pour un tir à la hanche. [weapon] choisit l'arme, [scene] le décor.
      */
-    fun frames(count: Int, aiming: IntRange, shift: Int = 0): List<FloatArray> {
+    fun frames(count: Int, aiming: IntRange, shift: Int = 0, weapon: Int = 99, scene: Int = 0): List<FloatArray> {
         val s = 20
-        val half = Random(99).let { r -> FloatArray(s * size / 2) { r.nextInt(256).toFloat() } }
+        val half = Random(weapon).let { r -> FloatArray(s * size / 2) { r.nextInt(256).toFloat() } }
         val o = (size - s) / 2
         return List(count) { j ->
-            val random = Random(j)
+            val random = Random(j + 1000 * scene)
             FloatArray(size * size) { random.nextInt(256).toFloat() }.also { img ->
                 if (j in aiming) for (y in size / 3 until size) for (x in 0 until s) {
                     val col = if (x < s / 2) x else s - 1 - x
@@ -38,11 +39,12 @@ class MatchCutterTest : FunSpec({
     }
 
     val settings = MontageSettings(killOffset = Duration.ZERO)
+    val media = MediaInfo(Path("partie.mp4"), 1, 30.minutes, video = VideoStream(0, "h264", 1920, 1080, 60.0))
     val scope = settings.matchCut
 
     test("visée avant le kill : elle commence quand le viseur se pose") {
         val f = frames(40, 12..39)
-        val curve = ScopeCuts.aimCurve(f, killIndex = 36, reference = 12, stillShare = scope.stillShare, minSymmetry = scope.minSymmetry)!!
+        val curve = ScopeCuts.aimCurve(f, killIndex = 36, reference = 12, stillShare = scope.stillShare, minSymmetry = scope.minSymmetry)!!.curve
         ScopeCuts.aimStart(curve, 36, scope.minSimilarity) shouldBe 12
     }
 
@@ -50,7 +52,7 @@ class MatchCutterTest : FunSpec({
         val f = frames(40, 0..24).toMutableList()
         // Flamme du tir juste après le kill : une image brouillée au milieu de la visée.
         f[16] = frames(1, IntRange.EMPTY).single()
-        val curve = ScopeCuts.aimCurve(f, killIndex = 15, reference = 12, stillShare = scope.stillShare, minSymmetry = scope.minSymmetry)!!
+        val curve = ScopeCuts.aimCurve(f, killIndex = 15, reference = 12, stillShare = scope.stillShare, minSymmetry = scope.minSymmetry)!!.curve
         ScopeCuts.aimEnd(curve, 15, scope.minSimilarity) shouldBe 24
     }
 
@@ -59,14 +61,47 @@ class MatchCutterTest : FunSpec({
         ScopeCuts.aimCurve(f, killIndex = 20, reference = 12, stillShare = scope.stillShare, minSymmetry = scope.minSymmetry) shouldBe null
     }
 
+    test("arme à la hanche : même arme d'un clip à l'autre, poses semblables ; autre arme, poses différentes") {
+        fun pose(weapon: Int, scene: Int) =
+            ScopeCuts.aimCurve(frames(40, 0..39, shift = 16, weapon = weapon, scene = scene), 20, 12, scope.stillShare, minSymmetry = -1.0)!!.pose
+        val a = pose(99, 1)
+        val same = pose(99, 2)
+        val other = pose(7, 3)
+        (ScopeCuts.similarity(a, same) > 0.7) shouldBe true
+        (ScopeCuts.similarity(a, other) < 0.3) shouldBe true
+        val hip = scope.copy(minSymmetry = -1.0, minPoseMatch = 0.7)
+        fun group(p: Pose) = KillGroup(media, listOf(100.seconds), 1.0, emptyList(), emptyList(), aim = Aim(TimeRange(99.seconds, 100.seconds), TimeRange(100.seconds, 101.seconds), p, p))
+        ScopeCuts.compatible(group(a), group(same), hip) shouldBe true
+        ScopeCuts.compatible(group(a), group(other), hip) shouldBe false
+        // Sans exigence sur la pose (visée), toute pose tenue se raccorde.
+        ScopeCuts.compatible(group(a), group(other), scope) shouldBe true
+    }
+
+    test("arme au repos : la fenêtre du début s'arrête où le recul commence") {
+        // Arme au repos à la hanche, puis secouée par le tir sur les 8 images qui précèdent le kill.
+        val rest = frames(40, 0..39, shift = 16, scene = 4)
+        val shaking = frames(40, 0..39, shift = 10, scene = 5)
+        val f = rest.take(32) + shaking.drop(32)
+        val held = ScopeCuts.restCurve(f, stillShare = 0.3, killIndex = 31, reference = 12, threshold = scope.minSimilarity)!!
+        val runs = ScopeCuts.runs(held.curve, scope.minSimilarity)
+        runs.last().last shouldBe 31
+        (runs.last().first <= 2) shouldBe true
+    }
+
+    test("arme au repos : pas d'arme en main au kill, pas de repos") {
+        // Le sol seul, presque uniforme ; l'arme n'apparaît qu'au moment du kill : la médiane ne montre que le sol.
+        val weapon = frames(10, 0..9, shift = 16, scene = 6)
+        val floor = List(30) { j -> Random(j).let { r -> FloatArray(size * size) { 100f + r.nextInt(4) } } }
+        ScopeCuts.restCurve(floor + weapon, stillShare = 1.0, killIndex = 40, reference = 8, threshold = scope.minSimilarity) shouldBe null
+    }
+
     test("pas de visée au moment du kill : rien à raccorder") {
         val f = frames(40, IntRange.EMPTY)
-        val curve = ScopeCuts.aimCurve(f, killIndex = 20, reference = 12, stillShare = scope.stillShare, minSymmetry = -1.0)!!
+        val curve = ScopeCuts.aimCurve(f, killIndex = 20, reference = 12, stillShare = scope.stillShare, minSymmetry = -1.0)!!.curve
         ScopeCuts.aimStart(curve, 20, scope.minSimilarity) shouldBe null
         ScopeCuts.aimEnd(curve, 20, scope.minSimilarity) shouldBe null
     }
 
-    val media = MediaInfo(Path("partie.mp4"), 1, 30.minutes, video = VideoStream(0, "h264", 1920, 1080, 60.0))
     val music = MusicAnalysis(
         Path("musique.wav"), 120.seconds, 120.0, List(240) { (it * 0.5).seconds }, 0, DoubleArray(240) { 1.0 }, DoubleArray(240) { 0.8 },
         listOf(MusicSection(0, 96, -14.0, 0.4), MusicSection(96, 240, -8.0, 1.0)), 96,
@@ -102,13 +137,15 @@ class MatchCutterTest : FunSpec({
         // Visée sur les trois quarts de la portion : un ralenti de ×0,6 à ×0,75, dans la limite de ×0,5.
         val aimEnd = out.anchor + (out.end - out.anchor) * 0.75
         val aimStart = into.kills.first() - (into.kills.first() - into.start) * 0.75
-        val cut = ScopeCuts.cut(out, into, aimEnd, aimStart, scope)!!
+        val tail = TimeRange(out.anchor, aimEnd)
+        val head = TimeRange(aimStart, into.kills.first())
+        val cut = ScopeCuts.cut(out, into, tail, head, scope)!!
         cut.end shouldBe aimEnd
         cut.into.start shouldBe aimStart
-        ScopeCuts.cut(out, into, null, aimStart, scope) shouldBe null
-        ScopeCuts.cut(out, into, aimEnd, null, scope) shouldBe null
+        ScopeCuts.cut(out, into, null, head, scope) shouldBe null
+        ScopeCuts.cut(out, into, tail, null, scope) shouldBe null
         // Visée trop courte : il faudrait ralentir le début bien au-delà de ×0,5.
-        ScopeCuts.cut(out, into, aimEnd, into.kills.first() - 210.milliseconds, scope) shouldBe null
+        ScopeCuts.cut(out, into, tail, TimeRange(into.kills.first() - 210.milliseconds, into.kills.first()), scope) shouldBe null
     }
 
     test("pas de place : image gelée au bord ou kill collé à la coupe") {
@@ -121,7 +158,12 @@ class MatchCutterTest : FunSpec({
 
     // Le joueur épaule 0,6 s avant son premier kill et baisse son arme 0,35 s après le dernier : trop peu pour la fin
     // d'un plan placé sans tenir compte de la visée.
-    fun aimed(g: KillGroup) = g.copy(aim = Aim(start = g.kills.first() - 600.milliseconds, end = g.kills.last() + 350.milliseconds))
+    fun aimed(g: KillGroup) = g.copy(
+        aim = Aim(
+            head = TimeRange(g.kills.first() - 600.milliseconds, g.kills.first()),
+            tail = TimeRange(g.kills.last(), g.kills.last() + 350.milliseconds),
+        ),
+    )
     val groups = plan.clips.map { it.group }.distinct()
 
     test("planification : le kill est placé pour que le plan tienne dans la visée") {
@@ -132,9 +174,9 @@ class MatchCutterTest : FunSpec({
         val free = MontagePlanner.clipFor(slot to group, music, settings, 2, 1)
         (post(free) > 600.milliseconds) shouldBe true
         (pre(free) > 1200.milliseconds) shouldBe true
-        val tail = MontagePlanner.clipFor(slot to group, music, settings, 2, 1, aim = MontagePlanner.AimFit(maxPost = 600.milliseconds))
+        val tail = MontagePlanner.clipFor(slot to group, music, settings, 2, 1, aim = MontagePlanner.AimFit(post = Duration.ZERO..600.milliseconds))
         (post(tail) <= 600.milliseconds) shouldBe true
-        val head = MontagePlanner.clipFor(slot to group, music, settings, 2, 1, aim = MontagePlanner.AimFit(maxPre = 1200.milliseconds))
+        val head = MontagePlanner.clipFor(slot to group, music, settings, 2, 1, aim = MontagePlanner.AimFit(pre = Duration.ZERO..1200.milliseconds))
         (pre(head) <= 1200.milliseconds) shouldBe true
     }
 

@@ -68,10 +68,12 @@ enum class FlickDirection {
 }
 
 /**
- * Visée autour d'un groupe, dans la source : [start], le joueur vise déjà depuis cet instant jusqu'au premier kill ;
- * [end], il vise encore jusqu'à cet instant après le dernier. Null : il ne vise pas (tir à la hanche) ou on ne sait pas.
+ * Pose de l'arme autour d'un groupe, dans la source (voir [MatchCut]) : [head], les instants où le plan peut commencer
+ * avant le premier kill en montrant la pose ; [tail], ceux où il peut finir après le dernier. La pose est la visée du
+ * kill, tenue jusqu'à lui, ou l'arme au repos selon le jeu. [headPose]/[tailPose] : cette pose, pour la comparer à
+ * celle du plan voisin. Null : pas de pose tenue de ce côté, ou on ne sait pas.
  */
-data class Aim(val start: Duration? = null, val end: Duration? = null) {
+data class Aim(val head: TimeRange? = null, val tail: TimeRange? = null, val headPose: Pose? = null, val tailPose: Pose? = null) {
     companion object {
         val NONE = Aim()
     }
@@ -231,6 +233,12 @@ object MontagePlanner {
      * (un kill qui arrive un peu plus tard, un passage sans kill un peu plus long) pour en gagner un.
      */
     private const val MATCH_VALUE = 0.005
+
+    /**
+     * Écart d'importance ([KillGroup.rank], en kills) en deçà duquel deux groupes peuvent échanger leurs places pour se
+     * raccorder : un kill de plus, c'est une autre place dans la montée en puissance.
+     */
+    private const val ORDER_TOLERANCE = 0.5
 
     /** Gain de note en dessous duquel le plan de base est gardé : on ne change pas pour du bruit. */
     private const val MIN_GAIN = 0.005
@@ -504,11 +512,11 @@ object MontagePlanner {
     }
 
     /**
-     * Durées de sortie au plus, avant le kill d'ancrage ([maxPre]) et après ([maxPost]), pour que le début et la fin du
-     * plan tiennent dans la visée au ralenti permis ([MatchCut.minSpeed]) : le raccord visée sur visée avec le plan
+     * Durées de sortie avant le kill d'ancrage ([pre]) et après ([post]) pour que le début et la fin du plan tombent dans
+     * leur fenêtre de pose aux vitesses permises ([MatchCut.minSpeed]..[ScopeCuts.MAX_SPEED]) : le raccord avec le plan
      * précédent, ou le suivant, devient possible. Null : pas de raccord à chercher de ce côté.
      */
-    internal data class AimFit(val maxPre: Duration? = null, val maxPost: Duration? = null) {
+    internal data class AimFit(val pre: ClosedRange<Duration>? = null, val post: ClosedRange<Duration>? = null) {
         companion object {
             val NONE = AimFit()
         }
@@ -523,10 +531,15 @@ object MontagePlanner {
         if (!scope.enabled) return AimFit.NONE
         val first = group.kills.first()
         val last = group.kills.last()
-        val pre = group.aim.start?.takeIf { previous?.aim?.end != null && first - it >= ScopeCuts.MIN_AIM_BEFORE }
-            ?.let { group.span + (first - it) / scope.minSpeed }
-        val post = group.aim.end?.takeIf { next?.aim?.start != null && it - last >= ScopeCuts.MIN_AIM_AFTER }
-            ?.let { (it - last) / scope.minSpeed }
+        // Source avant le kill (ou après) que le plan peut montrer : de quoi calculer la sortie aux deux vitesses extrêmes.
+        val pre = group.aim.head?.takeIf { previous != null && ScopeCuts.compatible(previous, group, scope) }
+            ?.let { h -> (first - h.start) to (first - minOf(h.end, first - ScopeCuts.MIN_AIM_BEFORE)) }
+            ?.takeIf { (far, near) -> near <= far }
+            ?.let { (far, near) -> (group.span + near / ScopeCuts.MAX_SPEED)..(group.span + far / scope.minSpeed) }
+        val post = group.aim.tail?.takeIf { next != null && ScopeCuts.compatible(group, next, scope) }
+            ?.let { t -> (maxOf(t.start, last + ScopeCuts.MIN_AIM_AFTER) - last) to (t.end - last) }
+            ?.takeIf { (near, far) -> near <= far }
+            ?.let { (near, far) -> (near / ScopeCuts.MAX_SPEED)..(far / scope.minSpeed) }
         return AimFit(pre, post)
     }
 
@@ -640,6 +653,7 @@ object MontagePlanner {
                 for (g in remaining) {
                     place(bestFree(g) ?: break, g)
                 }
+                pairUp(cells.filter { it.group != null }, settings, ::need)
             }
             MontageOrder.CHRONOLOGICAL -> {
                 val kept = groups.sortedByDescending { it.rank }.take(cells.size)
@@ -673,6 +687,57 @@ object MontagePlanner {
         }
         if (cells.isEmpty() || cells.any { it.group == null }) throw HighlightsException("Aucun clip ne tient dans la musique")
         return cells.map { it.toSlot() to it.group!! }
+    }
+
+    /**
+     * Rapproche les groupes qui se raccordent (voir [ScopeCuts.compatible]) : échange deux groupes de place tant que cela
+     * met plus de plans raccordables côte à côte. Seuls s'échangent des groupes d'importance voisine ([ORDER_TOLERANCE],
+     * la montée en puissance tient), hors drop et accroche, sans qu'aucun ne perde la place dont il a besoin, et sans
+     * mettre côte à côte deux plans du même moment d'une partie.
+     */
+    private fun pairUp(cells: List<Cell>, settings: MontageSettings, need: (KillGroup) -> Int) {
+        val scope = settings.matchCut
+        if (!scope.enabled || cells.size < 3) return
+        val groups = cells.map { it.group!! }
+        val compatible = Array(groups.size) { a -> BooleanArray(groups.size) { b -> a != b && ScopeCuts.compatible(groups[a], groups[b], scope) } }
+        if (compatible.none { row -> row.any { it } }) return
+        // Place de chaque groupe (indice dans [groups]) le long du montage.
+        val order = groups.indices.toMutableList()
+        fun links() = order.zipWithNext().count { (a, b) -> compatible[a][b] }
+        fun similar(a: Int, b: Int) = settings.varietyGap.isPositive() && groups[a].media.path == groups[b].media.path &&
+            (groups[a].kills.first() - groups[b].kills.first()).absoluteValue < settings.varietyGap
+        fun monotony() = order.zipWithNext().count { (a, b) -> similar(a, b) }
+        val fixed = cells.indices.filter { it == 0 || cells[it].dropBeat != null }.toSet()
+        val before = links()
+        while (true) {
+            val current = links()
+            val alike = monotony()
+            var best: Pair<Int, Int>? = null
+            var bestLinks = current
+            for (i in cells.indices) for (j in i + 1 until cells.size) {
+                if (i in fixed || j in fixed) continue
+                val a = order[i]
+                val b = order[j]
+                if (abs(groups[a].rank - groups[b].rank) > ORDER_TOLERANCE) continue
+                // Un groupe ne perd pas de place à l'échange : le nouveau slot le contient, ou n'est pas plus court que l'ancien.
+                if (!(need(groups[a]) <= cells[j].beats || cells[j].beats >= cells[i].beats)) continue
+                if (!(need(groups[b]) <= cells[i].beats || cells[i].beats >= cells[j].beats)) continue
+                order[i] = b
+                order[j] = a
+                val l = links()
+                if (l > bestLinks && monotony() <= alike) {
+                    best = i to j
+                    bestLinks = l
+                }
+                order[i] = a
+                order[j] = b
+            }
+            val (i, j) = best ?: break
+            order[i] = order[j].also { order[j] = order[i] }
+        }
+        if (links() == before) return
+        order.forEachIndexed { i, g -> cells[i].group = groups[g] }
+        log.debug { "Ordre des plans : ${links()} coupe(s) raccordable(s) côte à côte au lieu de $before" }
     }
 
     /**
@@ -740,8 +805,8 @@ object MontagePlanner {
         fun matches(b: Int): Double {
             if (!fits(b)) return 0.0
             val at = music.beatTime(b)
-            return (if (aim.maxPre != null && at - slotStart <= aim.maxPre) MATCH_BONUS else 0.0) +
-                (if (aim.maxPost != null && slotEnd - at <= aim.maxPost) MATCH_BONUS else 0.0)
+            return (if (aim.pre != null && at - slotStart in aim.pre) MATCH_BONUS else 0.0) +
+                (if (aim.post != null && slotEnd - at in aim.post) MATCH_BONUS else 0.0)
         }
         val bestMatch = candidates.maxOfOrNull(::matches) ?: 0.0
         val anchorBeat = when {

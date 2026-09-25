@@ -236,17 +236,24 @@ détecte les kills). En ligne de commande :
   le plan sortant file dans le sens où la vue tournait, flouté par la vitesse, et le suivant arrive en continuant le
   même mouvement (200 ms en tout, `duration` ; flou `blur`). Le whip remplace le flash sur cette coupe ; sans flick de
   part et d'autre, la coupe reste franche. Désactivable par une case de la fenêtre de montage ou `--no-whip`.
-- **Raccords visée sur visée** (`matchCut`) : autour d'un kill, le joueur vise, le viseur au centre de l'écran. À
-  chaque coupe, le plan sortant s'arrête avant que le joueur ne baisse son arme et le plan entrant commence quand il a
-  déjà épaulé : le viseur reste au centre par-dessus la coupe. La visée se lit dans une zone centrale (`region`) : elle
-  dure tant que le centre ressemble à ce qu'il était juste avant le kill (`minSimilarity`), en ne comparant que les
-  pixels immobiles à ce moment-là, l'arme et pas le décor qui défile. Un kill tiré à la hanche ne se raccorde pas : en
-  visée, l'arme descend au centre, symétrique (`minSymmetry`). Les deux portions sont ralenties pour garder la durée
-  de leur slot (jusqu'à ×0,3, `minSpeed`) : les kills restent sur leur temps. La visée est mesurée avant la
-  planification : quand deux plans voisins visent, le kill peut être placé sur un autre temps de son plan pour laisser
-  moins de temps à ralentir, si la note du montage n'y perd pas plus que les raccords gagnés ne valent (un kill qui
-  arrive plus tard, un passage sans kill plus long). Une coupe raccordée n'a ni flash ni whip. Le journal donne, coupe par coupe, la visée trouvée de part et d'autre et le ralenti appliqué. Désactivable par
-  une case de la fenêtre de montage ou `--no-match-cut`.
+- **Raccords sur la pose de l'arme** (`matchCut`) : la même pose de l'arme de part et d'autre d'une coupe, l'arme reste
+  en place et seul le décor change. Deux poses selon le jeu (`pose`) :
+  - `aim` (défaut, WARDOGS) : la visée. Le plan sortant s'arrête avant que le joueur ne baisse son arme, l'entrant
+    commence quand il a déjà épaulé, le viseur reste au centre. La visée dure tant que le centre de l'écran (`region`)
+    ressemble à ce qu'il était juste avant le kill (`minSimilarity`), sur ses pixels immobiles (`stillShare`), et que
+    l'arme descend au centre, symétrique (`minSymmetry`) : un kill à la hanche, une arme inclinée ne comptent pas.
+  - `rest` (VALORANT) : l'arme au repos, à la hanche. Au kill, elle tremble sous le recul : le plan commence et finit
+    dans le repos le plus proche, là où la zone de l'arme ressemble à son image médiane. Le repos doit ressembler au
+    moment du tir (sinon l'arme n'était pas en main : capacité, changement d'arme).
+
+  Les deux poses doivent se ressembler (`minPoseMatch` : même arme tenue de la même façon ; -1 en visée, où le viseur au
+  centre suffit). Les portions déplacées sont ralenties (jusqu'à ×0,3, `minSpeed`) ou un peu accélérées (×1,25) pour
+  garder la durée de leur slot : les kills restent sur leur temps. La pose est mesurée avant la planification : les
+  groupes d'importance voisine échangent leurs places pour mettre côte à côte ceux qui se raccordent (hors drop et
+  accroche), et un kill peut changer de temps dans son plan pour qu'il reste moins à ralentir, si la note du montage
+  n'y perd pas plus que les raccords gagnés ne valent. Une coupe raccordée n'a ni flash ni whip. Le journal donne, coupe
+  par coupe, les fenêtres de pose, la ressemblance des poses et la vitesse appliquée. Désactivable par une case de la
+  fenêtre de montage ou `--no-match-cut`.
 - **Kills dans leur round** (`killStyle`, avec les morts d'Outplayed) : un kill suivi de sa propre mort dans les 3 s
   recule (`deathPenalty`) ; le groupe qui finit un round de 5 kills monte nettement (**ace**, `aceBonus`) ; celui qui
   finit un round survécu sur au moins deux kills monte aussi (**clutch**, `clutchBonus`). Le jeu ne donne ni les rounds
