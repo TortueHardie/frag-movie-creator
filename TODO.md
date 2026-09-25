@@ -29,16 +29,18 @@ de l'arme. Une coupe se raccorde quand les deux plans la tiennent : l'arme reste
   ressemblait encore à la visée alors que le joueur avait incliné son arme. Dernier montage : 5 raccords sur 18, note
   0,908 (0,910 sans raccord), tous vérifiés à l'image.
 - VALORANT (`pose: rest`, profil `valorant.yaml`) : l'arme au repos à la hanche, zone serrée sur l'arme et comparée en
-  entier. Dernier montage : 8 raccords sur 19, note inchangée ; 7 bons (pistolet sur pistolet, fusil sur fusil), 1
-  mauvais : une capacité (les mains) raccordée à un couteau, ressemblance 0,62, plus que des raccords justes (0,53 à
-  0,57) : aucun seuil ne l'écarte.
+  entier. Une capacité (les mains) se raccordait à un couteau, ressemblance 0,62, plus que des raccords justes (0,53 à
+  0,57) : l'arme en main se lit désormais dans le HUD (icône du chargeur, 0,86 à 1 avec une arme, 0,68 au plus sans).
+  Dernier montage : 6 raccords sur 19, tous justes (fusil sur fusil, une fois la même arme), note inchangée.
 - La pose est mesurée avant la planification (`MatchCutter.inspect`). Les groupes d'importance voisine échangent leurs
   places pour mettre côte à côte ceux qui se raccordent (`MontagePlanner.pairUp`, hors drop et accroche), puis le kill
   peut changer de temps dans son plan (`MontagePlanner.aimFit`) si la note n'y perd pas plus que les raccords ne valent
   (`MATCH_VALUE`, 0,005 par raccord).
 - Limite : la fin du plan sortant. Le joueur baisse son arme (ou rejoue une capacité) 0 à 0,8 s après le kill ; il
   faudrait des plans plus courts après le kill, ce qui allonge l'attente avant le kill suivant.
-- Piste : reconnaître l'arme en main (pas une capacité ni un couteau) pour écarter les faux raccords de VALORANT.
+- L'échange de places cherchait un échange à la fois et s'arrêtait vite (5 à 6 coupes raccordables côte à côte) : il
+  essaie aussi les paires d'échanges quand aucun n'aide seul.
+- Piste : l'icône du chargeur est mesurée sur des captures 21:9 ; à vérifier sur une capture 16:9.
 
 ## 4. Scoreur sensible aux temps morts (fait)
 

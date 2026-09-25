@@ -393,7 +393,10 @@ class HighlightPipeline(
                 onEveryCut = options.flashEveryCut ?: base.flash.onEveryCut,
             ),
             whip = base.whip.copy(enabled = options.whip ?: base.whip.enabled),
-            matchCut = base.matchCut.copy(enabled = options.matchCut ?: base.matchCut.enabled),
+            matchCut = base.matchCut.copy(
+                enabled = options.matchCut ?: base.matchCut.enabled,
+                weapon = base.matchCut.weapon?.let { it.copy(template = config.resolve(it.template).toString()) },
+            ),
             // Sans événement de mort, ni round, ni ace, ni clutch, ni pénalité : le classement redevient celui d'avant.
             killStyle = if (options.rounds == false) base.killStyle.copy(deathEvent = "") else base.killStyle,
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),

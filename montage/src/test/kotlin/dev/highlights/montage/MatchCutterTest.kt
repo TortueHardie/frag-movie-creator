@@ -95,6 +95,31 @@ class MatchCutterTest : FunSpec({
         ScopeCuts.restCurve(floor + weapon, stillShare = 1.0, killIndex = 40, reference = 8, threshold = scope.minSimilarity) shouldBe null
     }
 
+    test("arme en main : le repère du HUD est trouvé où qu'il soit dans la zone, et seulement s'il y est") {
+        // Repère : trois barres claires sur fond sombre, comme l'icône du chargeur de VALORANT.
+        val tw = 12
+        val th = 10
+        val icon = FloatArray(tw * th) { i -> if ((i % tw) % 4 == 1 && i / tw in 1..8) 230f else 40f }
+        val template = WeaponTemplate(tw, th, icon)
+        val zw = 40
+        val zh = 24
+        fun zone(withIcon: Boolean, x0: Int = 17, y0: Int = 9) = Random(3).let { r ->
+            FloatArray(zw * zh) { 60f + r.nextInt(30) }.also { z ->
+                if (withIcon) for (y in 0 until th) for (x in 0 until tw) z[(y0 + y) * zw + x0 + x] = icon[y * tw + x]
+            }
+        }
+        (template.score(zone(true), zw, zh) > 0.95) shouldBe true
+        (template.score(zone(true, x0 = 3, y0 = 2), zw, zh) > 0.95) shouldBe true
+        (template.score(zone(false), zw, zh) < 0.6) shouldBe true
+    }
+
+    test("arme en main : une image sans arme ne compte pas dans la pose") {
+        val held = HeldPose(DoubleArray(6) { 0.9 }, Pose(DoubleArray(4), BooleanArray(4) { true }))
+        val armed = booleanArrayOf(true, true, false, true, true)
+        ScopeCuts.disarm(held, armed).curve.toList() shouldBe listOf(0.9, 0.9, -1.0, 0.9, 0.9, -1.0)
+        ScopeCuts.disarm(held, null).curve.toList() shouldBe held.curve.toList()
+    }
+
     test("pas de visée au moment du kill : rien à raccorder") {
         val f = frames(40, IntRange.EMPTY)
         val curve = ScopeCuts.aimCurve(f, killIndex = 20, reference = 12, stillShare = scope.stillShare, minSymmetry = -1.0)!!.curve

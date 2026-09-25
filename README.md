@@ -246,11 +246,15 @@ détecte les kills). En ligne de commande :
     dans le repos le plus proche, là où la zone de l'arme ressemble à son image médiane. Le repos doit ressembler au
     moment du tir (sinon l'arme n'était pas en main : capacité, changement d'arme).
 
+  Arme en main (`weapon`, facultatif) : un repère du HUD qui n'apparaît qu'avec une arme à feu (VALORANT : l'icône du
+  chargeur, `config/templates/valorant/ammo_icon.png`). Une image sans lui ne compte pas dans la pose : une capacité
+  ou un couteau tenus au même endroit qu'une arme ne se raccordent plus.
+
   Les deux poses doivent se ressembler (`minPoseMatch` : même arme tenue de la même façon ; -1 en visée, où le viseur au
   centre suffit). Les portions déplacées sont ralenties (jusqu'à ×0,3, `minSpeed`) ou un peu accélérées (×1,25) pour
   garder la durée de leur slot : les kills restent sur leur temps. La pose est mesurée avant la planification : les
   groupes d'importance voisine échangent leurs places pour mettre côte à côte ceux qui se raccordent (hors drop et
-  accroche), et un kill peut changer de temps dans son plan pour qu'il reste moins à ralentir, si la note du montage
+  accroche ; un échange à la fois, ou deux quand aucun n'aide seul), et un kill peut changer de temps dans son plan pour qu'il reste moins à ralentir, si la note du montage
   n'y perd pas plus que les raccords gagnés ne valent. Une coupe raccordée n'a ni flash ni whip. Le journal donne, coupe
   par coupe, les fenêtres de pose, la ressemblance des poses et la vitesse appliquée. Désactivable par une case de la
   fenêtre de montage ou `--no-match-cut`.
