@@ -385,6 +385,7 @@ internal fun readReport(file: Path): MontageReport =
 private fun criteria(s: MontageScore): List<Pair<String, Double?>> = listOf(
     "sync" to s.sync, "accent" to s.accent, "sobriete" to s.restraint, "variete" to s.variety,
     "duree" to s.fill, "rythme" to s.pacing, "source" to s.coverage,
+    "ouverture" to s.opening, "trou" to s.lull, "action" to s.action,
 )
 
 private fun cell(v: Double?) = if (v == null) "%8s".format("-") else "%8.3f".format(v)

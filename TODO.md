@@ -30,13 +30,14 @@ par-dessus la coupe. Voir `MatchCutter` et `MatchCuts` ; réglages dans `montage
   de chaque coupe est écrite au journal).
 - Piste : l'ordre des clips est fixé avant les raccords ; le choisir aussi pour rapprocher les clips qui se raccordent.
 
-## 4. Scoreur sensible aux temps morts
+## 4. Scoreur sensible aux temps morts (fait)
 
-- Délai avant le premier kill.
-- Plus long passage sans kill.
-- Part de chaque plan passée hors de l'action.
+Trois critères de `MontageScorer` : `opening` (délai avant le premier kill), `lull` (plus long passage sans kill, fin
+comprise) et `action` (part de chaque plan hors de l'action). Ils comptent dans le choix des variantes du plan, et
+`highlights score` les affiche (`ouverture`, `trou`, `action`).
 
-À ajouter comme critères de `MontageScorer`, à côté de `sync`, `variety`, `coverage`…
+- Constat : quatre kills sur une minute de musique laissent des trous de plus de 10 s, le critère `lull` tombe à 0.
+  C'est l'étirement que le point 5 doit corriger.
 
 ## 5. Longueur du montage adaptée au nombre de kills
 

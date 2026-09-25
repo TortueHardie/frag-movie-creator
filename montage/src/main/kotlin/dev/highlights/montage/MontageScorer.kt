@@ -1,10 +1,12 @@
 package dev.highlights.montage
 
+import dev.highlights.core.model.TimeRange
 import dev.highlights.core.serialization.roundTo
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Note d'un montage, calculée sur son plan. Elle ne dit pas si un montage est beau : elle mesure ce que le moteur
@@ -31,6 +33,15 @@ data class MontageScore(
     val pacing: Double?,
     /** Absence d'image gelée faute de source. */
     val coverage: Double,
+    /**
+     * Le premier kill arrive vite : c'est dans les premières secondes que le spectateur décide de rester. Les trois
+     * critères de temps morts sont null dans les rapports écrits avant qu'ils existent.
+     */
+    val opening: Double? = null,
+    /** Aucun long passage sans kill, fin du montage comprise. */
+    val lull: Double? = null,
+    /** Chaque plan est occupé par l'action (la mise en place, le kill, sa suite) plutôt que par l'attente. */
+    val action: Double? = null,
     val details: Map<String, Double> = emptyMap(),
 )
 
@@ -48,10 +59,27 @@ object MontageScorer {
     /** Part des coupes qui peuvent porter un flash sans que l'effet se banalise. */
     private const val FLASH_BUDGET = 0.4
 
+    /** Premier kill : sans reproche jusqu'ici, nul au-delà de [OPENING_BAD]. */
+    private val OPENING_GOOD = 2.seconds
+    private val OPENING_BAD = 6.seconds
+
+    /** Plus long passage sans kill : un plan calme de la grille dure 4 s, au-delà de [LULL_BAD] le montage s'arrête. */
+    private val LULL_GOOD = 4.seconds
+    private val LULL_BAD = 10.seconds
+
+    /** Action autour d'un kill, en temps du montage : la mise en place qui y mène, puis l'impact et la notification. */
+    private val ACTION_BEFORE = 1500.milliseconds
+    private val ACTION_AFTER = 1.seconds
+
     private val WEIGHTS = mapOf(
         "sync" to 0.25, "restraint" to 0.20, "variety" to 0.15,
         "accent" to 0.10, "fill" to 0.10, "pacing" to 0.10, "coverage" to 0.10,
+        "opening" to 0.10, "lull" to 0.10, "action" to 0.10,
     )
+
+    /** 1 jusqu'à [good], 0 à partir de [bad], linéaire entre les deux. */
+    private fun falloff(value: Duration, good: Duration, bad: Duration): Double =
+        1.0 - ((value - good) / (bad - good)).coerceIn(0.0, 1.0)
 
     fun score(plan: MontagePlan): MontageScore {
         val music = plan.music
@@ -128,11 +156,30 @@ object MontageScorer {
         val frozen = plan.clips.fold(Duration.ZERO) { acc, c -> acc + c.padBefore + c.padAfter }
         val coverage = (1.0 - frozen / plan.duration).coerceIn(0.0, 1.0)
 
+        // --- temps morts : où tombent les kills dans le montage, et ce qui les sépare.
+        val killTimes = plan.clips.flatMapIndexed { i, c -> c.outputKills().map { offsets[i] + it } }.sorted()
+        val firstKill = killTimes.firstOrNull() ?: plan.duration
+        val opening = falloff(firstKill, OPENING_GOOD, OPENING_BAD)
+        // Du premier kill à la fin : l'attente d'avant le premier est déjà l'affaire de l'ouverture.
+        val longestLull = (killTimes + plan.duration).zipWithNext { a, b -> b - a }.maxOrNull() ?: plan.duration
+        val lull = falloff(longestLull, LULL_GOOD, LULL_BAD)
+        // Part de chaque plan hors de l'action : ni près d'un kill, ni pendant une réaction qu'on a voulu garder.
+        val idle = plan.clips.mapIndexed { i, c ->
+            val start = offsets[i]
+            val end = start + c.outputLength
+            val busy = killTimes.map { TimeRange(it - ACTION_BEFORE, it + ACTION_AFTER) } +
+                c.group.protectedSegments.filter { it.end > c.start && it.start < c.end }
+                    .map { TimeRange(start + c.toOutput(maxOf(it.start, c.start)), start + c.toOutput(minOf(it.end, c.end))) }
+            1.0 - covered(busy, start, end) / (end - start)
+        }
+        val action = 1.0 - idle.average()
+
         // Un critère qu'on ne peut pas mesurer sort de la moyenne au lieu d'y entrer à 1 : sinon le total grimperait
         // justement sur les montages où l'on en sait le moins.
         val parts = mapOf(
             "sync" to sync, "accent" to accent, "restraint" to restraint,
             "variety" to variety, "fill" to fill, "pacing" to pacing, "coverage" to coverage,
+            "opening" to opening, "lull" to lull, "action" to action,
         ).filterValues { it != null }.mapValues { it.value!! }
         val weight = WEIGHTS.filterKeys { it in parts }.values.sum()
         val total = parts.entries.sumOf { (k, v) -> WEIGHTS.getValue(k) * v } / weight
@@ -145,6 +192,9 @@ object MontageScorer {
             fill = fill.roundTo(3),
             pacing = pacing?.roundTo(3),
             coverage = coverage.roundTo(3),
+            opening = opening.roundTo(3),
+            lull = lull.roundTo(3),
+            action = action.roundTo(3),
             details = mapOf(
                 "clips" to plan.clips.size.toDouble(),
                 "ancreEcartMoyenMs" to anchorGaps.map { it.inWholeMicroseconds / 1000.0 }.average().roundTo(1),
@@ -155,7 +205,26 @@ object MontageScorer {
                 "flashParCoupe" to flashRate.roundTo(3),
                 "voisinsSemblables" to similar.toDouble(),
                 "gelSecondes" to (frozen.inWholeMilliseconds / 1000.0).roundTo(2),
+                "premierKillSecondes" to (firstKill.inWholeMilliseconds / 1000.0).roundTo(2),
+                "plusLongTrouSecondes" to (longestLull.inWholeMilliseconds / 1000.0).roundTo(2),
+                "horsActionParPlan" to idle.average().roundTo(3),
+                "horsActionMax" to (idle.maxOrNull() ?: 0.0).roundTo(3),
             ),
         )
+    }
+
+    /** Durée de [start, end] couverte par au moins un des intervalles. */
+    private fun covered(ranges: List<TimeRange>, start: Duration, end: Duration): Duration {
+        var total = Duration.ZERO
+        var reach = start
+        for (r in ranges.sortedBy { it.start }) {
+            val from = maxOf(r.start, reach)
+            val to = minOf(r.end, end)
+            if (to > from) {
+                total += to - from
+                reach = to
+            }
+        }
+        return total
     }
 }

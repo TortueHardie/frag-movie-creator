@@ -272,7 +272,10 @@ détecte les kills). En ligne de commande :
   le meilleur kill.
 - **Note du montage** : chaque rapport porte une note qui mesure ce que le moteur prétend faire — kills sur un temps,
   temps accentués, sobriété des effets, variété des clips, durée occupée, plans plus courts dans les sections intenses,
-  absence d'image gelée. Elle ne dit pas si un montage est beau ; elle sert à comparer deux versions du moteur sans les
+  absence d'image gelée, et trois mesures des temps morts : délai avant le premier kill (sans reproche jusqu'à 2 s,
+  nul à 6 s), plus long passage sans kill (4 s, puis nul à 10 s) et part de chaque plan passée hors de l'action (loin
+  de tout kill et de toute réaction gardée). Ces mesures pèsent aussi dans le choix entre les variantes du plan. Elle
+  ne dit pas si un montage est beau ; elle sert à comparer deux versions du moteur sans les
   regarder l'une après l'autre. Un critère qu'on ne peut pas mesurer sur un montage donné (`-` à l'affichage) sort de la
   moyenne au lieu d'y entrer à 1.
 
