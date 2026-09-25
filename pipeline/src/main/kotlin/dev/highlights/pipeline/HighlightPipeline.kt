@@ -412,7 +412,7 @@ class HighlightPipeline(
             ),
         )
         val analysisStep = progress.child("Musique", 0.06)
-        val analysis = MusicAnalyzer.analyze(ffmpeg, music)
+        val analysis = MusicAnalyzer.analyze(ffmpeg, music).let { if (settings.cuts.fromStart) MusicAnalyzer.fromStart(it, settings.maxDuration) else it }
         analysisStep.complete()
         val inspected = KillInspector(ffmpeg).inspect(MontagePlanner.groups(sessions, settings), settings, profile.audio, progress.child("Kills", 0.06))
         val groups = MatchCutter(ffmpeg).inspect(inspected, settings, progress.child("Visée", 0.02))

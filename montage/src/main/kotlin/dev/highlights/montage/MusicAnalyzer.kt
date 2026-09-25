@@ -147,6 +147,12 @@ data class MusicAnalysis(
 }
 
 object MusicAnalyzer {
+    /** Part de la durée du montage avant laquelle une drop doit tomber pour y compter, avec de quoi la suivre. */
+    private const val REACH = 0.7
+
+    /** Saut d'intensité minimal d'une section à la suivante pour y voir une drop, quand la musique part du début. */
+    private const val MIN_JUMP = 0.3
+
     const val SAMPLE_RATE = 22050
     private const val FRAME = 1024
     private const val HOP = 256
@@ -568,6 +574,28 @@ object MusicAnalyzer {
             }
             s.copy(kind = kind)
         }
+    }
+
+    /**
+     * Musique prise depuis son début sur au plus [length] : la drop devient la plus forte de celles qui tombent assez
+     * tôt pour être dans le montage (avant [REACH] de [length]), et les sections sont reclassées autour d'elle. Une
+     * musique peut avoir plusieurs drops (Spitfire : 0:23 et 4:15) ; la mieux notée peut être hors du montage, qui
+     * n'aurait alors plus de drop du tout. Inchangée si la drop y est déjà, ou si aucune section n'y saute assez
+     * ([MIN_JUMP]) pour en être une.
+     */
+    fun fromStart(analysis: MusicAnalysis, length: Duration): MusicAnalysis {
+        val sections = analysis.sections
+        if (sections.size < 2) return analysis
+        val start = analysis.beatTime(sections.first().startBeat)
+        val reach = length * REACH
+        if (analysis.beatTime(analysis.dropBeat) - start <= reach) return analysis
+        val early = sections.takeWhile { analysis.beatTime(it.startBeat) - start <= reach }
+        val candidates = (1 until early.size).filter { early[it].intensity - early[it - 1].intensity >= MIN_JUMP }
+        if (candidates.isEmpty()) return analysis
+        val drop = findDrop(early.take(candidates.max() + 1))
+        if (candidates.none { early[it].startBeat == drop }) return analysis
+        log.info { "Musique depuis le début : drop au temps $drop (${analysis.beatTime(drop)}) au lieu de ${analysis.dropBeat} (${analysis.beatTime(analysis.dropBeat)})" }
+        return analysis.copy(sections = classify(sections, drop), dropBeat = drop)
     }
 
     /** Drop : début de la section intense qui suit le plus gros saut d'intensité (à égalité, la première). */
