@@ -296,34 +296,44 @@ data class WhipPanEffect(
 }
 
 /**
- * Raccord sur les animations du jeu : rechargement, sprint, sort, grenade… reviennent d'un clip à l'autre, dessinés au
- * même endroit de l'écran (l'arme et les mains). À chaque coupe, la fin du plan sortant et le début du plan entrant sont
- * comparés dans cette zone, image par image, en apparence et en mouvement ; si les deux montrent la même animation au
- * même stade, la coupe est déplacée de quelques images de part et d'autre pour qu'elle tombe dessus, et le mouvement
- * continue par-dessus la coupe. Une légère rampe de vitesse rattrape le déplacement : les kills restent sur leur temps.
+ * Raccord visée sur visée : juste avant un kill, le joueur vise, et le viseur occupe le centre de l'écran. À chaque
+ * coupe, le plan sortant s'arrête avant que le joueur ne baisse son arme, et le plan entrant commence quand il a déjà
+ * épaulé : le viseur reste au centre par-dessus la coupe. Ces deux portions sont ralenties pour garder la durée de leur
+ * slot (les kills restent sur leur temps). La visée se reconnaît à ce que le centre ressemble à ce qu'il était juste
+ * avant le kill, en ne comparant que les pixels immobiles à ce moment-là : l'arme, pas le décor qui défile derrière.
  */
 @Serializable
 data class MatchCut(
     val enabled: Boolean = true,
     /**
-     * Zone des animations du personnage, mesurée sur une capture 16:9 et accrochée au bord droit (elle est ramenée au
-     * format de chaque capture). Par défaut : l'arme et les mains, au-dessus de la barre de vie et des munitions.
+     * Zone du viseur et du haut de l'arme en visée, mesurée sur une capture 16:9 et accrochée au centre (elle est
+     * ramenée au format de chaque capture) : le jeu place l'arme par rapport au centre de l'écran, pas au bord.
      */
-    val region: CropRegion = CropRegion(0.5, 0.45, 0.5, 0.45),
-    /** Déplacement maximal de la coupe, dans chacun des deux plans. */
-    val maxShift: SerialDuration = 150.milliseconds,
-    /** Images comparées de part et d'autre de la coupe : de quoi reconnaître un mouvement, pas seulement une pose. */
-    val window: SerialDuration = 150.milliseconds,
-    /** Ressemblance minimale (0..1) pour raccorder ; en dessous, la coupe reste où la musique l'a mise. */
+    val region: CropRegion = CropRegion(0.35, 0.30, 0.30, 0.55),
+    /** Ressemblance minimale (0..1) avec la visée du kill pour qu'une image compte comme visée. */
     val minSimilarity: Double = 0.6,
-    /** Écart de vitesse maximal de la rampe qui rattrape le déplacement (0,1 = ±10 %, inaudible sur le son du jeu). */
-    val maxSpeedChange: Double = 0.1,
+    /** Images qui servent de référence à la visée : celles qui précèdent le kill, sur cette durée. */
+    val reference: SerialDuration = 400.milliseconds,
+    /** Part des pixels de la zone comparés : les plus immobiles de la référence (l'arme). */
+    val stillShare: Double = 0.3,
+    /**
+     * Symétrie gauche-droite minimale (-1..1) du bas de la zone au moment du kill : en visée, l'arme descend au centre ;
+     * à la hanche, elle est sur le côté et le kill ne se raccorde pas. Mesurée sur WARDOGS : 0,22 et plus en visée (un
+     * cas sur quatorze en dessous), 0,09 au plus à la hanche.
+     */
+    val minSymmetry: Double = 0.15,
+    /**
+     * Vitesse minimale des portions ralenties pour tenir dans la visée (0,3 = trois fois plus lent). Le joueur baisse
+     * son arme 0 à 0,5 s après le kill, alors que le plan dure encore plus d'une seconde : la fin se ralentit beaucoup.
+     */
+    val minSpeed: Double = 0.3,
 ) {
     init {
-        require(maxShift.isPositive() && maxShift.inWholeMilliseconds <= 500) { "montage.matchCut.maxShift doit être entre 0 et 500 ms" }
-        require(window.inWholeMilliseconds in 50..500) { "montage.matchCut.window doit être entre 50 et 500 ms" }
         require(minSimilarity in 0.0..1.0) { "montage.matchCut.minSimilarity doit être entre 0 et 1" }
-        require(maxSpeedChange in 0.0..0.2) { "montage.matchCut.maxSpeedChange doit être entre 0 et 0,2" }
+        require(reference.inWholeMilliseconds in 100..1000) { "montage.matchCut.reference doit être entre 100 et 1000 ms" }
+        require(stillShare > 0.0 && stillShare <= 1.0) { "montage.matchCut.stillShare doit être entre 0 et 1" }
+        require(minSymmetry in -1.0..1.0) { "montage.matchCut.minSymmetry doit être entre -1 et 1" }
+        require(minSpeed in 0.25..1.0) { "montage.matchCut.minSpeed doit être entre 0,25 et 1" }
     }
 }
 

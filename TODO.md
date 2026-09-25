@@ -18,16 +18,18 @@ garde le sens du balayage dans `KillTraits.direction` ; `MontageRenderBuilder.wh
 
 - Piste : un bruitage de souffle (whoosh) sur la coupe renforcerait l'effet.
 
-## 3. Transitions sur les animations du jeu (fait, à régler sur de vraies parties)
+## 3. Raccords visée sur visée (fait, 3 coupes sur 18 sur le dernier montage)
 
-On repère les animations qui reviennent d'un clip à l'autre (rechargement, flick, sprint, sort, grenade), puis on
-coupe d'une animation dans un clip à la même animation, au même stade, dans le clip suivant. Le mouvement continue
-par-dessus la coupe. Voir `MatchCutter` et `MatchCuts` ; réglages dans `montage.matchCut`.
+Sur les parties WARDOGS, les rechargements et changements d'arme n'apparaissent presque jamais autour des kills : le
+geste qui revient, c'est la visée (le joueur épaule avant le kill et baisse son arme 0 à 0,5 s après). Le plan sortant
+s'arrête donc avant qu'il ne baisse son arme, le plan entrant commence quand il a déjà épaulé, et le viseur reste au
+centre par-dessus la coupe. Voir `MatchCutter` et `ScopeCuts` ; réglages dans `montage.matchCut`.
 
-- Pas de détecteur par type d'animation : la zone de l'arme et des mains est comparée d'une coupe à l'autre, et c'est
-  la ressemblance du geste qui décide. Le flick, mouvement de toute la vue, reste l'affaire du whip pan (point 2).
-- À régler sur de vraies captures : la zone (`region`, mesurée en 16:9) et le seuil (`minSimilarity`, la ressemblance
-  de chaque coupe est écrite au journal).
+- Un kill tiré à la hanche est écarté (symétrie du bas de la zone, `minSymmetry`) : 5 sur 5 écartés, 1 kill visé sur
+  14 écarté à tort (décor très dissymétrique derrière l'arme).
+- Limite : la fin du plan sortant. La visée dure 0 à 0,5 s après le kill, le plan encore 1,1 s et plus : il faut
+  ralentir jusqu'à ×0,3, et la plupart des coupes restent hors de portée. Piste : quand un raccord est possible,
+  laisser le planificateur raccourcir la fin du plan après le kill (moins de temps après le kill, plus avant le suivant).
 - Piste : l'ordre des clips est fixé avant les raccords ; le choisir aussi pour rapprocher les clips qui se raccordent.
 
 ## 4. Scoreur sensible aux temps morts (fait)

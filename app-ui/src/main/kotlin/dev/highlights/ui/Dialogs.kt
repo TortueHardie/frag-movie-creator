@@ -180,7 +180,7 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     MontageToggle("Zoom punch sur le kill", montage.zoom) { v -> actions.updateMontage { it.copy(zoom = v) } }
                     MontageToggle("Flash blanc aux coupes fortes", montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
                     MontageToggle("Whip pan dans le sens du flick", montage.whip) { v -> actions.updateMontage { it.copy(whip = v) } }
-                    MontageToggle("Raccords sur les animations (rechargement, sort…)", montage.matchCut) { v -> actions.updateMontage { it.copy(matchCut = v) } }
+                    MontageToggle("Raccords visée sur visée (le viseur reste au centre)", montage.matchCut) { v -> actions.updateMontage { it.copy(matchCut = v) } }
                     MontageToggle("Classer les kills selon le round (mort, ace, clutch)", montage.rounds) { v -> actions.updateMontage { it.copy(rounds = v) } }
                     MontageToggle("Ralenti sur le kill", montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
                     MontageToggle("Textes DOUBLÉ / TRIPLÉ", montage.text) { v -> actions.updateMontage { it.copy(text = v) } }

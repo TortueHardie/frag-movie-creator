@@ -174,7 +174,7 @@ class MontageCommand : PipelineCommand("montage") {
     private val noFlash by option("--no-flash", help = "Sans flash aux coupes").flag()
     private val flashEveryCut by option("--flash-every-cut", help = "Flash à chaque coupe, pas seulement aux coupes fortes").flag()
     private val noWhip by option("--no-whip", help = "Sans whip pan dans le sens du flick").flag()
-    private val noMatchCut by option("--no-match-cut", help = "Sans raccord sur les animations du jeu (rechargement, sort…)").flag()
+    private val noMatchCut by option("--no-match-cut", help = "Sans raccord visée sur visée (le viseur reste au centre par-dessus la coupe)").flag()
     private val noRounds by option("--no-rounds", help = "Sans classement selon le round (mort juste après, ace, clutch)").flag()
     private val noSlowmo by option("--no-slowmo", help = "Sans ralenti").flag()
     private val noRamp by option("--no-ramp", help = "Sans rampe de vitesse entre les kills d'un multi-kill").flag()

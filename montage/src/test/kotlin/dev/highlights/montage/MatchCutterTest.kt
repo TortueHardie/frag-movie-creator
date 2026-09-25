@@ -1,17 +1,12 @@
 package dev.highlights.montage
 
-import dev.highlights.core.model.MatchCut
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageSettings
-import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.VideoStream
-import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.doubles.plusOrMinus
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
 import kotlin.io.path.Path
-import kotlin.math.abs
 import kotlin.random.Random
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -19,52 +14,56 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 class MatchCutterTest : FunSpec({
-    val w = MatchCuts.WIDTH
-    val h = MatchCuts.HEIGHT
+    val size = ScopeCuts.SIZE
 
     /**
-     * Images d'une animation : un motif (l'arme) qui glisse d'un pixel par image sur un décor fixe propre à chaque
-     * clip. L'image j montre le stade [phase0] + j ; [vertical] : le motif descend au lieu d'avancer.
+     * Images de la zone du viseur : le décor change à chaque image (la vue suit la cible) ; sur les images [aiming],
+     * l'arme (un motif fixe, symétrique comme une arme vue de derrière) est posée par-dessus, au centre et jusqu'en bas
+     * de la zone ; décalée de [shift] pixels à droite pour un tir à la hanche.
      */
-    fun animation(phase0: Int, count: Int, seed: Int, vertical: Boolean = false): List<FloatArray> {
-        val random = Random(seed)
-        val background = FloatArray(w * h) { random.nextInt(256).toFloat() }
-        // Motif de 24 px sur 64 x 36 : l'arme occupe une bonne part de la zone, le décor le reste.
-        val s = 24
-        val sprite = Random(99).let { r -> FloatArray(s * s) { r.nextInt(256).toFloat() } }
+    fun frames(count: Int, aiming: IntRange, shift: Int = 0): List<FloatArray> {
+        val s = 20
+        val half = Random(99).let { r -> FloatArray(s * size / 2) { r.nextInt(256).toFloat() } }
+        val o = (size - s) / 2
         return List(count) { j ->
-            val p = phase0 + j
-            val (ox, oy) = if (vertical) 20 to (p % 12) else p to 6
-            background.copyOf().also { img ->
-                for (y in 0 until s) for (x in 0 until s) img[(oy + y) * w + ox + x] = sprite[y * s + x]
+            val random = Random(j)
+            FloatArray(size * size) { random.nextInt(256).toFloat() }.also { img ->
+                if (j in aiming) for (y in size / 3 until size) for (x in 0 until s) {
+                    val col = if (x < s / 2) x else s - 1 - x
+                    val at = o + x + shift
+                    if (at < size) img[y * size + at] = half[(y - size / 3) % (size / 2) * (s / 2) + col]
+                }
             }
         }
     }
 
-    val shifts = -4..4
-    val margin = 5
-    val count = shifts.last - shifts.first + 2 * margin
+    val settings = MontageSettings(killOffset = Duration.ZERO)
+    val scope = settings.matchCut
 
-    test("même animation décalée de trois images : la coupe se déplace pour tomber au même stade") {
-        val a = animation(10, count, seed = 1)
-        val b = animation(7, count, seed = 2)
-        val choice = MatchCuts.best(a, b, shifts, shifts, margin)!!
-        // Stade montré de part et d'autre de la coupe : 10 + tail d'un côté, 7 + head de l'autre.
-        (10 + choice.tail) shouldBe (7 + choice.head)
-        withClue("ressemblance ${choice.similarity}") { (choice.similarity > MatchCut().minSimilarity + 0.1) shouldBe true }
-        (abs(choice.tail) + abs(choice.head)) shouldBe 3
+    test("visée avant le kill : elle commence quand le viseur se pose") {
+        val f = frames(40, 12..39)
+        val curve = ScopeCuts.aimCurve(f, killIndex = 36, reference = 12, stillShare = scope.stillShare, minSymmetry = scope.minSymmetry)!!
+        ScopeCuts.aimStart(curve, 36, scope.minSimilarity) shouldBe 12
     }
 
-    test("gestes différents : ressemblance faible") {
-        val a = animation(10, count, seed = 1)
-        val b = animation(0, count, seed = 2, vertical = true)
-        val choice = MatchCuts.best(a, b, shifts, shifts, margin)!!
-        withClue("ressemblance ${choice.similarity}") { (choice.similarity < MatchCut().minSimilarity) shouldBe true }
+    test("visée après le kill : elle finit quand le joueur baisse son arme, malgré la flamme d'un tir") {
+        val f = frames(40, 0..24).toMutableList()
+        // Flamme du tir juste après le kill : une image brouillée au milieu de la visée.
+        f[16] = frames(1, IntRange.EMPTY).single()
+        val curve = ScopeCuts.aimCurve(f, killIndex = 15, reference = 12, stillShare = scope.stillShare, minSymmetry = scope.minSymmetry)!!
+        ScopeCuts.aimEnd(curve, 15, scope.minSimilarity) shouldBe 24
     }
 
-    test("arme au repos : pas d'animation à raccorder") {
-        val still = animation(10, 1, seed = 1).single()
-        MatchCuts.best(List(count) { still }, List(count) { still }, shifts, shifts, margin) shouldBe null
+    test("tir à la hanche : l'arme sur le côté, pas de visée") {
+        val f = frames(40, 0..39, shift = 16)
+        ScopeCuts.aimCurve(f, killIndex = 20, reference = 12, stillShare = scope.stillShare, minSymmetry = scope.minSymmetry) shouldBe null
+    }
+
+    test("pas de visée au moment du kill : rien à raccorder") {
+        val f = frames(40, IntRange.EMPTY)
+        val curve = ScopeCuts.aimCurve(f, killIndex = 20, reference = 12, stillShare = scope.stillShare, minSymmetry = -1.0)!!
+        ScopeCuts.aimStart(curve, 20, scope.minSimilarity) shouldBe null
+        ScopeCuts.aimEnd(curve, 20, scope.minSimilarity) shouldBe null
     }
 
     val media = MediaInfo(Path("partie.mp4"), 1, 30.minutes, video = VideoStream(0, "h264", 1920, 1080, 60.0))
@@ -72,7 +71,6 @@ class MatchCutterTest : FunSpec({
         Path("musique.wav"), 120.seconds, 120.0, List(240) { (it * 0.5).seconds }, 0, DoubleArray(240) { 1.0 }, DoubleArray(240) { 0.8 },
         listOf(MusicSection(0, 96, -14.0, 0.4), MusicSection(96, 240, -8.0, 1.0)), 96,
     )
-    val settings = MontageSettings(killOffset = Duration.ZERO)
     val plan = MontagePlanner.plan(
         listOf(
             KillGroup(media, listOf(100.seconds, 102.seconds), 1.0, emptyList(), emptyList()),
@@ -84,29 +82,41 @@ class MatchCutterTest : FunSpec({
 
     fun ms(d: Duration) = d.inWholeMicroseconds / 1000.0
 
-    test("déplacement du début ou de la fin : kills et durée de sortie inchangés") {
+    test("début et fin ramenés dans la visée : kills et durée de sortie inchangés, portions ralenties") {
         for (clip in plan.clips) {
-            val head = MatchCuts.headShifts(clip, settings.matchCut)
-            val tail = MatchCuts.tailShifts(clip, settings.matchCut)
-            head shouldNotBe null
-            tail shouldNotBe null
-            val moved = MatchCuts.shiftTail(MatchCuts.shiftHead(clip, MatchCuts.FRAME * head!!.first), MatchCuts.FRAME * tail!!.last)
-            moved.start shouldBe clip.start + MatchCuts.FRAME * head.first
-            moved.end shouldBe clip.end + MatchCuts.FRAME * tail.last
+            val kill = clip.kills.first()
+            val head = ScopeCuts.retimeHead(clip, kill - 300.milliseconds)!!
+            val moved = ScopeCuts.retimeTail(head, clip.anchor + 200.milliseconds)!!
+            moved.start shouldBe kill - 300.milliseconds
+            moved.end shouldBe clip.anchor + 200.milliseconds
             moved.kills shouldBe clip.kills
             moved.outputKills().zip(clip.outputKills()).forEach { (x, y) -> ms(x) shouldBe (ms(y) plusOrMinus 0.01) }
             ms(moved.toOutput(moved.end)) shouldBe (ms(clip.toOutput(clip.end)) plusOrMinus 0.01)
-            // Les rampes ajoutées restent dans l'écart permis.
-            (moved.speeds - clip.speeds.toSet()).size shouldBe 2
-            (moved.speeds - clip.speeds.toSet()).forEach { abs(it.factor - 1) shouldBe (0.05 plusOrMinus 0.0501) }
+            (moved.speeds.first().factor < 1.0) shouldBe true
+            (moved.speeds.last().factor < 1.0) shouldBe true
         }
     }
 
-    test("pas de marge : image gelée au bord ou kill collé à la coupe") {
+    test("raccord : refusé sans visée d'un côté ou quand le ralenti irait trop loin") {
+        val (out, into) = plan.clips[0] to plan.clips[1]
+        // Visée sur les trois quarts de la portion : un ralenti de ×0,6 à ×0,75, dans la limite de ×0,5.
+        val aimEnd = out.anchor + (out.end - out.anchor) * 0.75
+        val aimStart = into.kills.first() - (into.kills.first() - into.start) * 0.75
+        val cut = ScopeCuts.cut(out, into, aimEnd, aimStart, scope)!!
+        cut.end shouldBe aimEnd
+        cut.into.start shouldBe aimStart
+        ScopeCuts.cut(out, into, null, aimStart, scope) shouldBe null
+        ScopeCuts.cut(out, into, aimEnd, null, scope) shouldBe null
+        // Visée trop courte : il faudrait ralentir le début bien au-delà de ×0,5.
+        ScopeCuts.cut(out, into, aimEnd, into.kills.first() - 210.milliseconds, scope) shouldBe null
+    }
+
+    test("pas de place : image gelée au bord ou kill collé à la coupe") {
         val clip = plan.clips.first()
-        MatchCuts.tailShifts(clip.copy(padAfter = 100.milliseconds), settings.matchCut) shouldBe null
-        MatchCuts.headShifts(clip.copy(padBefore = 100.milliseconds), settings.matchCut) shouldBe null
-        MatchCuts.headShifts(clip.copy(start = clip.kills.first() - 200.milliseconds), settings.matchCut) shouldBe null
+        ScopeCuts.retimeTail(clip.copy(padAfter = 100.milliseconds), clip.anchor + 300.milliseconds) shouldBe null
+        ScopeCuts.retimeHead(clip.copy(padBefore = 100.milliseconds), clip.kills.first() - 300.milliseconds) shouldBe null
+        ScopeCuts.retimeHead(clip, clip.kills.first() - 100.milliseconds) shouldBe null
+        ScopeCuts.retimeTail(clip, clip.anchor + 50.milliseconds) shouldBe null
     }
 
     test("coupe raccordée : ni flash ni whip") {
