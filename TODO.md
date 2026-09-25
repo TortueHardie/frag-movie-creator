@@ -10,13 +10,13 @@ Un kill suivi de sa propre mort recule dans le classement ; les aces et les clut
 - Reste ouvert : le clutch est déduit (round survécu, fini sur un multi-kill) faute de connaître le nombre d'alliés en
   vie. À affiner si une source donne les rounds ou l'état de l'équipe.
 
-## 2. Transitions dans le sens du mouvement
+## 2. Transitions dans le sens du mouvement (fait)
 
-Un raccord en whip pan qui reprend la direction du flick déjà mesurée par `KillInspector`.
+Un raccord en whip pan qui reprend la direction du flick déjà mesurée par `KillInspector`. `FlickMeter.direction`
+garde le sens du balayage dans `KillTraits.direction` ; `MontageRenderBuilder.whips` choisit les coupes et
+`whipStages` construit le raccord (réglages : `montage.whip`).
 
-- `FlickMeter.speeds` calcule un décalage signé (`dx`, `dy`) puis n'en garde que la norme : la direction est perdue.
-  Il faut la conserver jusqu'à `KillTraits`.
-- Le raccord lui-même se construit dans `MontageRenderBuilder`.
+- Piste : un bruitage de souffle (whoosh) sur la coupe renforcerait l'effet.
 
 ## 3. Transitions sur les animations du jeu
 

@@ -12,6 +12,7 @@ import dev.highlights.core.model.MontageAudio
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SlowAudio
 import dev.highlights.core.model.TimeRange
+import dev.highlights.core.model.WhipPanEffect
 import dev.highlights.core.serialization.Durations
 import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
@@ -80,6 +81,7 @@ object MontageRenderBuilder {
         val audio = settings.audio
         val bleeds = bleeds(plan, fps)
         val flashes = flashes(plan)
+        val whips = whips(plan)
         val zooms = zooms(plan)
 
         val args = mutableListOf<String>()
@@ -176,9 +178,23 @@ object MontageRenderBuilder {
             // Le zoom arrondit largeur et hauteur séparément : `scale` modifie alors la forme des pixels (SAR), que
             // concat refuse si elle diffère d'un plan à l'autre.
             effects += "setsar=1"
-            effects += "format=yuv420p"
-            effects += "settb=AVTB"
-            graph += "[$base]${effects.joinToString(",")}[v$i]"
+            val finish = "format=yuv420p,settb=AVTB"
+            val stages = whipStages(settings.whip, whips[i], whips.getOrNull(i + 1), length, w, h)
+            if (stages.isEmpty()) {
+                graph += "[$base]${(effects + finish).joinToString(",")}[v$i]"
+            } else {
+                // Whip pan : chaque étape superpose deux copies décalées du plan, puis la dernière rend le plan fini.
+                var label = "w${i}e"
+                graph += "[$base]${effects.joinToString(",")}[$label]"
+                stages.forEachIndexed { k, (first, second) ->
+                    val out = if (k == stages.lastIndex) "v$i" else "w${i}s$k"
+                    val tail = if (k == stages.lastIndex) ",$finish" else ""
+                    graph += "[$label]split=3[w${i}m$k][w${i}a$k][w${i}b$k]"
+                    graph += "[w${i}m$k][w${i}a$k]$first[w${i}o$k]"
+                    graph += "[w${i}o$k][w${i}b$k]$second$tail[$out]"
+                    label = out
+                }
+            }
 
             // --- audio du jeu : même découpe, volume adaptatif, posé à son décalage (peut déborder sur le clip suivant)
             // Les pistes sont choisies par leur rôle : une capture à pistes séparées (OBS) est mixée ici même.
@@ -276,7 +292,12 @@ object MontageRenderBuilder {
      * Coupes qui reçoivent un flash blanc. Par défaut les seules coupes fortes : entrée dans une nouvelle section de la
      * musique, plan de la drop, multi-kill. Un flash sur chaque coupe noie l'action au lieu de la souligner.
      */
-    internal fun flashes(plan: MontagePlan): List<Boolean> = plan.clips.mapIndexed { i, clip ->
+    internal fun flashes(plan: MontagePlan): List<Boolean> {
+        val whips = whips(plan)
+        return plan.clips.mapIndexed { i, clip -> flash(plan, i, clip) && whips[i] == null }
+    }
+
+    private fun flash(plan: MontagePlan, i: Int, clip: MontageClip): Boolean =
         when {
             // Le montage n'ouvre pas sur un écran blanc.
             i == 0 -> false
@@ -288,6 +309,58 @@ object MontageRenderBuilder {
             // Les kills visibles, pas ceux du groupe : un multi-kill dont le début a été coupé n'en est plus un à l'écran.
             else -> clip.kills.size > 1
         }
+
+    /**
+     * Sens du whip pan à la coupe qui ouvre chaque clip, ou null : coupe franche. Le plan qui s'achève sur un flick
+     * donne son sens (le mouvement se prolonge au-delà de la coupe) ; sinon le plan qui arrive, si son premier kill
+     * visible en est un (le mouvement l'annonce). Le premier plan n'a pas de coupe d'entrée.
+     */
+    internal fun whips(plan: MontagePlan): List<FlickDirection?> {
+        if (!plan.settings.whip.enabled) return plan.clips.map { null }
+        fun flickOf(clip: MontageClip, kill: Duration?) =
+            kill?.let { clip.group.traitsOf(it) }?.takeIf { it.flick >= KillTraits.STRONG_FLICK }?.direction
+        return plan.clips.mapIndexed { i, clip ->
+            if (i == 0) return@mapIndexed null
+            val previous = plan.clips[i - 1]
+            flickOf(previous, previous.kills.lastOrNull()) ?: flickOf(clip, clip.kills.firstOrNull())
+        }
+    }
+
+    /**
+     * Étapes du whip pan d'un plan de [length] : [enter], sens du raccord à son début ; [exit], à sa fin. Chaque étape
+     * décale l'image dans le sens où le décor file (à l'opposé de la caméra), deux fois de suite pour que le bord laissé
+     * libre soit rempli par l'image elle-même, puis la floute le long du mouvement. Le plan sortant accélère jusqu'à une
+     * demi-image de décalage sur la coupe ; l'entrant repart de là et ralentit jusqu'à une image entière, qui retombe
+     * exactement sur l'image d'origine. Une étape : superposition de la première copie, puis de la seconde et flou.
+     */
+    internal fun whipStages(whip: WhipPanEffect, enter: FlickDirection?, exit: FlickDirection?, length: Duration, w: Int, h: Int): List<Pair<String, String>> {
+        val half = minOf(whip.duration / 2, length / 3)
+        val hs = num(secs(half))
+        val tail = num(secs(length - half))
+        fun stage(direction: FlickDirection, active: String, progress: String): Pair<String, String> {
+            val size = if (direction.horizontal) "W" else "H"
+            val first = "${sign(direction)}*$progress*$size"
+            // La seconde copie suit la première à une image d'écart, du côté que le décalage laisse vide.
+            val second = if (sign(direction) == "-1") "$first+$size" else "$first-$size"
+            fun overlay(offset: String) =
+                if (direction.horizontal) "overlay=x='$offset':y=0:enable='$active'" else "overlay=x=0:y='$offset':enable='$active'"
+            val sigma = whip.blur * (if (direction.horizontal) w else h)
+            val blur = if (sigma <= 0) "" else {
+                val (sx, sy) = if (direction.horizontal) sigma to 0.5 else 0.5 to sigma
+                ",gblur=sigma=${num(sx)}:sigmaV=${num(sy)}:enable='$active'"
+            }
+            return overlay(first) to overlay(second) + blur
+        }
+        return listOfNotNull(
+            enter?.let { stage(it, "lt(t\\,$hs)", "(1-0.5*pow(1-t/$hs\\,2))") },
+            exit?.let { stage(it, "gte(t\\,$tail)", "0.5*pow((t-$tail)/$hs\\,2)") },
+        )
+    }
+
+    /** Sens où le décor file dans l'image : à l'opposé de la caméra (elle tourne à droite, la scène part à gauche). */
+    private fun sign(direction: FlickDirection) = when (direction) {
+        FlickDirection.RIGHT, FlickDirection.DOWN -> "-1"
+        FlickDirection.LEFT, FlickDirection.UP -> "1"
     }
 
     /**

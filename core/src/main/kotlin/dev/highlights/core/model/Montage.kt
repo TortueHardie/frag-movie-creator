@@ -58,6 +58,7 @@ data class MontageSettings(
     val cuts: CutSettings = CutSettings(),
     val zoom: ZoomEffect = ZoomEffect(),
     val flash: FlashEffect = FlashEffect(),
+    val whip: WhipPanEffect = WhipPanEffect(),
     val slowMotion: SlowMotionEffect = SlowMotionEffect(),
     val speedRamp: SpeedRampEffect = SpeedRampEffect(),
     val text: TextEffect = TextEffect(),
@@ -252,6 +253,25 @@ data class FlashEffect(
     val duration: SerialDuration = 60.milliseconds,
     val onEveryCut: Boolean = false,
 )
+
+/**
+ * Raccord en whip pan dans le sens du flick : le plan qui finit sur un flick file dans la direction où la vue tournait,
+ * flouté par la vitesse, et le suivant arrive en continuant le même mouvement. Sans flick de part et d'autre de la
+ * coupe, la coupe reste franche. Le whip remplace le flash sur la coupe où il tombe.
+ */
+@Serializable
+data class WhipPanEffect(
+    val enabled: Boolean = true,
+    /** Durée totale du raccord, partagée de part et d'autre de la coupe. */
+    val duration: SerialDuration = 200.milliseconds,
+    /** Flou de mouvement, en part de la dimension balayée (largeur pour un flick horizontal). */
+    val blur: Double = 0.015,
+) {
+    init {
+        require(duration.inWholeMilliseconds in 40..600) { "montage.whip.duration doit être entre 40 ms et 600 ms" }
+        require(blur in 0.0..0.1) { "montage.whip.blur doit être entre 0 et 0,1" }
+    }
+}
 
 /**
  * Ralenti sur le kill d'ancrage : la vitesse descend par paliers avant le kill ([rampSteps]) au lieu de changer d'un

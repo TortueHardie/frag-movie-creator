@@ -41,15 +41,27 @@ data class KillGroup(
 
 /**
  * Particularités d'un kill : tir à la tête (événement du jeu), [flick] de 0 (visée posée) à 1 (balayage franc juste
- * avant le kill), [shift] : correction appliquée à son instant par le recalage sur le son du tir.
+ * avant le kill) et son [direction], [shift] : correction appliquée à son instant par le recalage sur le son du tir.
  */
-data class KillTraits(val headshot: Boolean = false, val flick: Double = 0.0, val shift: Duration = Duration.ZERO) {
+data class KillTraits(
+    val headshot: Boolean = false,
+    val flick: Double = 0.0,
+    val shift: Duration = Duration.ZERO,
+    val direction: FlickDirection? = null,
+) {
     companion object {
         val NONE = KillTraits()
 
         /** Flick assez net pour faire d'un plan un plan fort (ralenti, pour qu'on le voie). */
         const val STRONG_FLICK = 0.5
     }
+}
+
+/** Sens dans lequel la caméra tourne pendant un flick. */
+enum class FlickDirection {
+    LEFT, RIGHT, UP, DOWN;
+
+    val horizontal: Boolean get() = this == LEFT || this == RIGHT
 }
 
 /**
