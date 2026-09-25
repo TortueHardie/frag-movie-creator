@@ -213,6 +213,8 @@ data class MontageUiState(
     val zoom: Boolean = true,
     val flash: Boolean = true,
     val whip: Boolean = true,
+    /** Coupes déplacées de quelques images pour raccorder sur une animation qui revient (rechargement, sort…). */
+    val matchCut: Boolean = true,
     /** Kills classés selon leur round : mort juste après, ace, clutch (captures avec les morts d'Outplayed). */
     val rounds: Boolean = true,
     val slowMotion: Boolean = true,

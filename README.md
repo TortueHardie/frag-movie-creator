@@ -229,6 +229,14 @@ détecte les kills). En ligne de commande :
   le plan sortant file dans le sens où la vue tournait, flouté par la vitesse, et le suivant arrive en continuant le
   même mouvement (200 ms en tout, `duration` ; flou `blur`). Le whip remplace le flash sur cette coupe ; sans flick de
   part et d'autre, la coupe reste franche. Désactivable par une case de la fenêtre de montage ou `--no-whip`.
+- **Raccords sur les animations** (`matchCut`) : rechargement, sprint, sort, grenade reviennent d'un clip à l'autre,
+  dessinés au même endroit (l'arme et les mains, en bas à droite : `region`). À chaque coupe, cette zone est comparée à
+  la fin du plan sortant et au début de l'entrant, en apparence et surtout en mouvement ; si les deux montrent le même
+  geste au même stade (`minSimilarity`), la coupe est déplacée de quelques images de part et d'autre (jusqu'à
+  `maxShift`, 150 ms) pour tomber dessus, et le mouvement continue par-dessus la coupe. Une rampe de vitesse de ±10 %
+  au plus rattrape le déplacement : les kills restent sur leur temps. Une coupe raccordée n'a ni flash ni whip. Le
+  journal donne la ressemblance de chaque coupe, de quoi régler le seuil. Désactivable par une case de la fenêtre de
+  montage ou `--no-match-cut`.
 - **Kills dans leur round** (`killStyle`, avec les morts d'Outplayed) : un kill suivi de sa propre mort dans les 3 s
   recule (`deathPenalty`) ; le groupe qui finit un round de 5 kills monte nettement (**ace**, `aceBonus`) ; celui qui
   finit un round survécu sur au moins deux kills monte aussi (**clutch**, `clutchBonus`). Le jeu ne donne ni les rounds

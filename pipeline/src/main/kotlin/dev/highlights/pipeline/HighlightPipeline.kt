@@ -32,6 +32,7 @@ import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
 import dev.highlights.montage.KillInspector
 import dev.highlights.montage.KillMontageExporter
+import dev.highlights.montage.MatchCutter
 import dev.highlights.montage.MontageExportRequest
 import dev.highlights.montage.MontagePlanner
 import dev.highlights.montage.MusicAnalyzer
@@ -94,6 +95,8 @@ data class MontageOptions(
     val flashEveryCut: Boolean? = null,
     /** Whip pan dans le sens du flick aux coupes qui en suivent ou en précèdent un. */
     val whip: Boolean? = null,
+    /** Raccords sur les animations du jeu (rechargement, sprint, sort…) qui reviennent d'un clip à l'autre. */
+    val matchCut: Boolean? = null,
     /** Classement des kills selon leur round (mort juste après, ace, clutch) ; false : les morts sont ignorées. */
     val rounds: Boolean? = null,
     val slowMotion: Boolean? = null,
@@ -386,6 +389,7 @@ class HighlightPipeline(
                 onEveryCut = options.flashEveryCut ?: base.flash.onEveryCut,
             ),
             whip = base.whip.copy(enabled = options.whip ?: base.whip.enabled),
+            matchCut = base.matchCut.copy(enabled = options.matchCut ?: base.matchCut.enabled),
             // Sans événement de mort, ni round, ni ace, ni clutch, ni pénalité : le classement redevient celui d'avant.
             killStyle = if (options.rounds == false) base.killStyle.copy(deathEvent = "") else base.killStyle,
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),
@@ -401,7 +405,7 @@ class HighlightPipeline(
         val analysis = MusicAnalyzer.analyze(ffmpeg, music)
         analysisStep.complete()
         val groups = KillInspector(ffmpeg).inspect(MontagePlanner.groups(sessions, settings), settings, profile.audio, progress.child("Kills", 0.06))
-        val plan = MontagePlanner.best(groups, analysis, settings)
+        val plan = MatchCutter(ffmpeg).apply(MontagePlanner.best(groups, analysis, settings), progress.child("Raccords", 0.02))
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(analysis.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
         return withJobDir { workDir ->
             montageExporter.export(
@@ -417,7 +421,7 @@ class HighlightPipeline(
                     hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
                     audioLayout = profile.audio,
                 ),
-                progress.child("Rendu", 0.88),
+                progress.child("Rendu", 0.86),
             )
         }
     }

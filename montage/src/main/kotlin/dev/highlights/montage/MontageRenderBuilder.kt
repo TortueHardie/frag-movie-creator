@@ -301,6 +301,8 @@ object MontageRenderBuilder {
         when {
             // Le montage n'ouvre pas sur un écran blanc.
             i == 0 -> false
+            // Un raccord sur une animation doit passer inaperçu : le flash le casserait.
+            clip.matchCut -> false
             plan.settings.flash.onEveryCut -> true
             clip.slot.dropBeat != null -> true
             clip.slot.section != plan.clips[i - 1].slot.section -> true
@@ -320,7 +322,8 @@ object MontageRenderBuilder {
         fun flickOf(clip: MontageClip, kill: Duration?) =
             kill?.let { clip.group.traitsOf(it) }?.takeIf { it.flick >= KillTraits.STRONG_FLICK }?.direction
         return plan.clips.mapIndexed { i, clip ->
-            if (i == 0) return@mapIndexed null
+            // Le raccord sur une animation a déjà son mouvement : le whip le couvrirait.
+            if (i == 0 || clip.matchCut) return@mapIndexed null
             val previous = plan.clips[i - 1]
             flickOf(previous, previous.kills.lastOrNull()) ?: flickOf(clip, clip.kills.firstOrNull())
         }

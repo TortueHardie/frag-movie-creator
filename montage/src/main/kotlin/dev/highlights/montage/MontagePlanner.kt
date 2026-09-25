@@ -100,6 +100,8 @@ data class MontageClip(
     val padAfter: Duration,
     val speeds: List<SpeedSegment>,
     val outputLength: Duration,
+    /** La coupe qui ouvre ce plan raccorde sur une animation du plan précédent (voir [MatchCutter]). */
+    val matchCut: Boolean = false,
 ) {
     val beats: Int get() = slot.beats
     val beatsPre: Int get() = anchorBeat - slot.startBeat

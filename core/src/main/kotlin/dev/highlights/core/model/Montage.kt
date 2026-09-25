@@ -59,6 +59,7 @@ data class MontageSettings(
     val zoom: ZoomEffect = ZoomEffect(),
     val flash: FlashEffect = FlashEffect(),
     val whip: WhipPanEffect = WhipPanEffect(),
+    val matchCut: MatchCut = MatchCut(),
     val slowMotion: SlowMotionEffect = SlowMotionEffect(),
     val speedRamp: SpeedRampEffect = SpeedRampEffect(),
     val text: TextEffect = TextEffect(),
@@ -270,6 +271,38 @@ data class WhipPanEffect(
     init {
         require(duration.inWholeMilliseconds in 40..600) { "montage.whip.duration doit être entre 40 ms et 600 ms" }
         require(blur in 0.0..0.1) { "montage.whip.blur doit être entre 0 et 0,1" }
+    }
+}
+
+/**
+ * Raccord sur les animations du jeu : rechargement, sprint, sort, grenade… reviennent d'un clip à l'autre, dessinés au
+ * même endroit de l'écran (l'arme et les mains). À chaque coupe, la fin du plan sortant et le début du plan entrant sont
+ * comparés dans cette zone, image par image, en apparence et en mouvement ; si les deux montrent la même animation au
+ * même stade, la coupe est déplacée de quelques images de part et d'autre pour qu'elle tombe dessus, et le mouvement
+ * continue par-dessus la coupe. Une légère rampe de vitesse rattrape le déplacement : les kills restent sur leur temps.
+ */
+@Serializable
+data class MatchCut(
+    val enabled: Boolean = true,
+    /**
+     * Zone des animations du personnage, mesurée sur une capture 16:9 et accrochée au bord droit (elle est ramenée au
+     * format de chaque capture). Par défaut : l'arme et les mains, au-dessus de la barre de vie et des munitions.
+     */
+    val region: CropRegion = CropRegion(0.5, 0.45, 0.5, 0.45),
+    /** Déplacement maximal de la coupe, dans chacun des deux plans. */
+    val maxShift: SerialDuration = 150.milliseconds,
+    /** Images comparées de part et d'autre de la coupe : de quoi reconnaître un mouvement, pas seulement une pose. */
+    val window: SerialDuration = 150.milliseconds,
+    /** Ressemblance minimale (0..1) pour raccorder ; en dessous, la coupe reste où la musique l'a mise. */
+    val minSimilarity: Double = 0.6,
+    /** Écart de vitesse maximal de la rampe qui rattrape le déplacement (0,1 = ±10 %, inaudible sur le son du jeu). */
+    val maxSpeedChange: Double = 0.1,
+) {
+    init {
+        require(maxShift.isPositive() && maxShift.inWholeMilliseconds <= 500) { "montage.matchCut.maxShift doit être entre 0 et 500 ms" }
+        require(window.inWholeMilliseconds in 50..500) { "montage.matchCut.window doit être entre 50 et 500 ms" }
+        require(minSimilarity in 0.0..1.0) { "montage.matchCut.minSimilarity doit être entre 0 et 1" }
+        require(maxSpeedChange in 0.0..0.2) { "montage.matchCut.maxSpeedChange doit être entre 0 et 0,2" }
     }
 }
 
