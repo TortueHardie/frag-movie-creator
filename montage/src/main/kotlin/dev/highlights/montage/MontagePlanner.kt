@@ -513,7 +513,7 @@ object MontagePlanner {
 
     /**
      * Durées de sortie avant le kill d'ancrage ([pre]) et après ([post]) pour que le début et la fin du plan tombent dans
-     * leur fenêtre de pose aux vitesses permises ([MatchCut.minSpeed]..[ScopeCuts.MAX_SPEED]) : le raccord avec le plan
+     * leur fenêtre de pose aux vitesses permises ([ScopeCuts.speeds]) : le raccord avec le plan
      * précédent, ou le suivant, devient possible. Null : pas de raccord à chercher de ce côté.
      */
     internal data class AimFit(val pre: ClosedRange<Duration>? = null, val post: ClosedRange<Duration>? = null) {
@@ -531,15 +531,16 @@ object MontagePlanner {
         if (!scope.enabled) return AimFit.NONE
         val first = group.kills.first()
         val last = group.kills.last()
+        val allowed = ScopeCuts.speeds(settings)
         // Source avant le kill (ou après) que le plan peut montrer : de quoi calculer la sortie aux deux vitesses extrêmes.
         val pre = group.aim.head?.takeIf { previous != null && ScopeCuts.compatible(previous, group, scope) }
             ?.let { h -> (first - h.start) to (first - minOf(h.end, first - ScopeCuts.MIN_AIM_BEFORE)) }
             ?.takeIf { (far, near) -> near <= far }
-            ?.let { (far, near) -> (group.span + near / ScopeCuts.MAX_SPEED)..(group.span + far / scope.minSpeed) }
+            ?.let { (far, near) -> (group.span + near / allowed.endInclusive)..(group.span + far / allowed.start) }
         val post = group.aim.tail?.takeIf { next != null && ScopeCuts.compatible(group, next, scope) }
             ?.let { t -> (maxOf(t.start, last + ScopeCuts.MIN_AIM_AFTER) - last) to (t.end - last) }
             ?.takeIf { (near, far) -> near <= far }
-            ?.let { (near, far) -> (near / ScopeCuts.MAX_SPEED)..(far / scope.minSpeed) }
+            ?.let { (near, far) -> (near / allowed.endInclusive)..(far / allowed.start) }
         return AimFit(pre, post)
     }
 

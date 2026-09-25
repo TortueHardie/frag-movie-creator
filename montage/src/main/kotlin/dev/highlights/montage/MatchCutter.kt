@@ -300,7 +300,7 @@ object ScopeCuts {
             // La pose mesurée précède le premier kill du groupe : sans lui à l'écran, elle ne dit rien du début du plan.
             val head = into.group.aim.head?.takeIf { into.kills.firstOrNull() == into.group.kills.first() }
             val alike = compatible(out.group, into.group, settings)
-            val cut = if (alike) cut(out, into, tail, head, settings) else null
+            val cut = if (alike) cut(out, into, tail, head, plan.settings) else null
             if (verbose) log.info { "Coupe $i : ${describe(out, into, tail, head, cut)}${poses(out.group, into.group, alike)}" }
             if (cut == null) continue
             // Le plan sortant a pu être retaillé par la coupe précédente : on ne touche qu'à sa fin.
@@ -456,20 +456,43 @@ object ScopeCuts {
     }
 
     /**
+     * Vitesses permises pour une portion déplacée par un raccord : le ralenti jusqu'à [MatchCut.minSpeed] seulement si
+     * le ralenti est activé, sinon l'écart d'une rampe de vitesse ([SpeedRampEffect.maxChange]) si elles le sont, et
+     * sinon aucun changement : désactiver le ralenti ou les rampes vaut aussi pour les raccords.
+     */
+    fun speeds(settings: MontageSettings): ClosedFloatingPointRange<Double> {
+        val ramp = settings.speedRamp
+        val low = when {
+            settings.slowMotion.enabled -> settings.matchCut.minSpeed
+            ramp.enabled -> 1 - ramp.maxChange
+            else -> 1.0
+        }
+        return low..(if (ramp.enabled) minOf(MAX_SPEED, 1 + ramp.maxChange) else 1.0)
+    }
+
+    /**
+     * Vitesse en dessous de laquelle une portion déplacée est un ralenti (son du jeu traité comme tel, plan compté comme
+     * ralenti) ; au-dessus, une rampe, inaudible.
+     */
+    private fun slowUnder(settings: MontageSettings): Double = if (settings.speedRamp.enabled) 1 - settings.speedRamp.maxChange else 1.0
+
+    /**
      * Raccord d'une coupe : fin du plan sortant ramenée dans sa fenêtre de pose ([tail]), début du plan entrant dans la
      * sienne ([head]), au plus près de la coupe prévue ; chaque portion déplacée est rejouée à la vitesse qui garde sa
-     * durée de sortie. Null sans pose d'un côté, si la vitesse sortirait de [MatchCut.minSpeed]..[MAX_SPEED], ou si les
+     * durée de sortie. Null sans pose d'un côté, si la vitesse sortirait des vitesses permises ([speeds]), ou si les
      * deux plans se suivent dans la même capture (c'est déjà la même scène).
      */
-    fun cut(out: MontageClip, into: MontageClip, tail: TimeRange?, head: TimeRange?, settings: MatchCut): ScopeCut? {
+    fun cut(out: MontageClip, into: MontageClip, tail: TimeRange?, head: TimeRange?, settings: MontageSettings): ScopeCut? {
         if (tail == null || head == null) return null
         val end = out.end.coerceIn(tail.start, tail.end)
         val start = into.start.coerceIn(head.start, head.end)
-        val retimedTail = retimeTail(out, end) ?: return null
-        val retimedHead = retimeHead(into, start) ?: return null
+        val slow = slowUnder(settings)
+        val retimedTail = retimeTail(out, end, slow) ?: return null
+        val retimedHead = retimeHead(into, start, slow) ?: return null
         val tailSpeed = if (end != out.end) retimedTail.speeds.last().factor else null
         val headSpeed = if (start != into.start) retimedHead.speeds.first().factor else null
-        if (listOfNotNull(tailSpeed, headSpeed).any { it < settings.minSpeed - 1e-9 || it > MAX_SPEED + 1e-9 }) return null
+        val allowed = speeds(settings)
+        if (listOfNotNull(tailSpeed, headSpeed).any { it < allowed.start - 1e-9 || it > allowed.endInclusive + 1e-9 }) return null
         if (out.group.media.path == into.group.media.path && (end - start).absoluteValue < 1.seconds) return null
         return ScopeCut(end, retimedHead, tailSpeed, headSpeed)
     }
@@ -477,29 +500,34 @@ object ScopeCuts {
     /**
      * Fin du clip ramenée à [end] : tout ce qui suit le kill d'ancrage est rejoué à une seule vitesse, qui fait tenir la
      * portion dans sa durée de sortie : plus lentement si [end] avance, plus vite s'il recule. Inchangé si [end] est la
-     * fin actuelle ; null sans place pour l'impact, au-delà de la capture ou avec une image gelée à la fin.
+     * fin actuelle ; null sans place pour l'impact, au-delà de la capture ou avec une image gelée à la fin. En dessous
+     * de [slowUnder], la portion est un ralenti, au-dessus une rampe.
      */
-    fun retimeTail(clip: MontageClip, end: Duration): MontageClip? {
+    fun retimeTail(clip: MontageClip, end: Duration, slowUnder: Double = 1.0): MontageClip? {
         if (end == clip.end) return clip
         if (clip.padAfter.isPositive() || end - clip.anchor < MIN_AIM_AFTER || end > clip.group.media.duration) return null
         val output = clip.toOutput(clip.end) - clip.toOutput(clip.anchor)
         val speeds = split(clip.speeds, clip.anchor).filter { it.range.end <= clip.anchor }
-        return clip.copy(end = end, speeds = speeds + SpeedSegment(TimeRange(clip.anchor, end), (end - clip.anchor) / output, SpeedKind.SLOW))
+        val factor = (end - clip.anchor) / output
+        return clip.copy(end = end, speeds = speeds + SpeedSegment(TimeRange(clip.anchor, end), factor, kind(factor, slowUnder)))
     }
 
     /**
      * Début du clip ramené à [start] : tout ce qui précède le premier kill visible est rejoué à une seule vitesse.
      * Inchangé si [start] est le début actuel ; null sans pose assez longue avant le kill, avant le début de la
-     * capture ou avec une image gelée au début.
+     * capture ou avec une image gelée au début. En dessous de [slowUnder], la portion est un ralenti, au-dessus une rampe.
      */
-    fun retimeHead(clip: MontageClip, start: Duration): MontageClip? {
+    fun retimeHead(clip: MontageClip, start: Duration, slowUnder: Double = 1.0): MontageClip? {
         if (start == clip.start) return clip
         val kill = clip.kills.firstOrNull() ?: return null
         if (clip.padBefore.isPositive() || kill - start < MIN_AIM_BEFORE || start < clip.group.media.bounds.start) return null
         val output = clip.toOutput(kill) - clip.toOutput(clip.start)
         val speeds = split(clip.speeds, kill).filter { it.range.start >= kill }
-        return clip.copy(start = start, speeds = listOf(SpeedSegment(TimeRange(start, kill), (kill - start) / output, SpeedKind.SLOW)) + speeds)
+        val factor = (kill - start) / output
+        return clip.copy(start = start, speeds = listOf(SpeedSegment(TimeRange(start, kill), factor, kind(factor, slowUnder))) + speeds)
     }
+
+    private fun kind(factor: Double, slowUnder: Double) = if (factor < slowUnder - 1e-9) SpeedKind.SLOW else SpeedKind.RAMP
 
     /**
      * Pose sans les images où l'arme n'est pas en main ([armed], null : pas de vérification) : elles ne comptent plus

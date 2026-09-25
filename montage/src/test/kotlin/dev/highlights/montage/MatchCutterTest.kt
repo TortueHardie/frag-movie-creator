@@ -164,13 +164,30 @@ class MatchCutterTest : FunSpec({
         val aimStart = into.kills.first() - (into.kills.first() - into.start) * 0.75
         val tail = TimeRange(out.anchor, aimEnd)
         val head = TimeRange(aimStart, into.kills.first())
-        val cut = ScopeCuts.cut(out, into, tail, head, scope)!!
+        val cut = ScopeCuts.cut(out, into, tail, head, settings)!!
         cut.end shouldBe aimEnd
         cut.into.start shouldBe aimStart
-        ScopeCuts.cut(out, into, null, head, scope) shouldBe null
-        ScopeCuts.cut(out, into, tail, null, scope) shouldBe null
+        ScopeCuts.cut(out, into, null, head, settings) shouldBe null
+        ScopeCuts.cut(out, into, tail, null, settings) shouldBe null
         // Visée trop courte : il faudrait ralentir le début bien au-delà de ×0,5.
-        ScopeCuts.cut(out, into, tail, TimeRange(into.kills.first() - 210.milliseconds, into.kills.first()), scope) shouldBe null
+        ScopeCuts.cut(out, into, tail, TimeRange(into.kills.first() - 210.milliseconds, into.kills.first()), settings) shouldBe null
+    }
+
+    test("ralenti désactivé : un raccord ne ralentit pas plus qu'une rampe, et ce n'est pas un ralenti") {
+        val noSlow = settings.copy(slowMotion = settings.slowMotion.copy(enabled = false))
+        val flat = MontagePlanner.plan(plan.clips.map { it.group }.distinct(), music, noSlow)
+        val (out, into) = flat.clips[0] to flat.clips[1]
+        val tail = TimeRange(out.anchor, out.anchor + (out.end - out.anchor) * 0.75)
+        val head = TimeRange(into.kills.first() - (into.kills.first() - into.start) * 0.75, into.kills.first())
+        // Il faudrait ralentir à ×0,6-0,75 : au-delà d'une rampe (±15 %).
+        ScopeCuts.cut(out, into, tail, head, noSlow) shouldBe null
+        val gentle = ScopeCuts.cut(out, into, TimeRange(out.anchor, out.end - 100.milliseconds), TimeRange(into.start + 100.milliseconds, into.kills.first()), noSlow)!!
+        listOfNotNull(gentle.tailSpeed, gentle.headSpeed).forEach { (it >= 0.85) shouldBe true }
+        gentle.into.speeds.first().kind shouldBe SpeedKind.RAMP
+        // Ni ralenti ni rampe : seulement les raccords qui ne changent aucune vitesse.
+        val still = noSlow.copy(speedRamp = noSlow.speedRamp.copy(enabled = false))
+        ScopeCuts.speeds(still) shouldBe 1.0..1.0
+        ScopeCuts.cut(out, into, TimeRange(out.anchor, out.end - 100.milliseconds), TimeRange(into.start + 100.milliseconds, into.kills.first()), still) shouldBe null
     }
 
     test("pas de place : image gelée au bord ou kill collé à la coupe") {

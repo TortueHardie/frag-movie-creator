@@ -251,8 +251,9 @@ détecte les kills). En ligne de commande :
   ou un couteau tenus au même endroit qu'une arme ne se raccordent plus.
 
   Les deux poses doivent se ressembler (`minPoseMatch` : même arme tenue de la même façon ; -1 en visée, où le viseur au
-  centre suffit). Les portions déplacées sont ralenties (jusqu'à ×0,3, `minSpeed`) ou un peu accélérées (×1,25) pour
-  garder la durée de leur slot : les kills restent sur leur temps. La pose est mesurée avant la planification : les
+  centre suffit). Les portions déplacées sont ralenties (jusqu'à ×0,3, `minSpeed`) ou un peu accélérées pour garder
+  la durée de leur slot : les kills restent sur leur temps. Sans ralenti, elles ne changent pas plus de vitesse qu'une
+  rampe (±15 %) ; sans ralenti ni rampes, seuls restent les raccords qui ne changent aucune vitesse. La pose est mesurée avant la planification : les
   groupes d'importance voisine échangent leurs places pour mettre côte à côte ceux qui se raccordent (hors drop et
   accroche ; un échange à la fois, ou deux quand aucun n'aide seul), et un kill peut changer de temps dans son plan pour qu'il reste moins à ralentir, si la note du montage
   n'y perd pas plus que les raccords gagnés ne valent. Une coupe raccordée n'a ni flash ni whip. Le journal donne, coupe
