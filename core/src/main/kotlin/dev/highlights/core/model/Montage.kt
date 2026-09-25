@@ -21,7 +21,9 @@ data class MontageSettings(
     /** Fenêtre autour d'un groupe de kills dans laquelle on cherche score et réactions (voix, rires). */
     val preRoll: SerialDuration = 2500.milliseconds,
     val postRoll: SerialDuration = 1200.milliseconds,
+    /** Plafond de durée ; la durée visée vient du nombre de kills (voir [length]). */
     val maxDuration: SerialDuration = 60.seconds,
+    val length: MontageLength = MontageLength(),
     /** Segments à ne pas couper (réactions après le kill) : le clip s'étend sur le slot suivant s'il est libre. */
     val keepWhole: List<String> = listOf("laughter", "shout", "speech"),
     /**
@@ -68,6 +70,25 @@ data class MontageSettings(
 ) {
     init {
         require(minScore in 0.0..1.0) { "montage.minScore doit être entre 0 et 1" }
+    }
+}
+
+/**
+ * Durée du montage tirée de ce qu'il y a à montrer : [perClip] par clip, [perExtraKill] de plus par kill au-delà du
+ * premier dans un multi-kill, au moins [min], au plus [MontageSettings.maxDuration]. Sans [fitKills], le montage occupe
+ * toute la durée maximale, quitte à étirer quatre kills sur une minute de musique.
+ */
+@Serializable
+data class MontageLength(
+    val fitKills: Boolean = true,
+    val perClip: SerialDuration = 2500.milliseconds,
+    val perExtraKill: SerialDuration = 1.seconds,
+    val min: SerialDuration = 12.seconds,
+) {
+    init {
+        require(perClip.isPositive()) { "montage.length.perClip doit être positif" }
+        require(!perExtraKill.isNegative()) { "montage.length.perExtraKill ne peut pas être négatif" }
+        require(min.isPositive()) { "montage.length.min doit être positif" }
     }
 }
 

@@ -207,6 +207,8 @@ fun eventsLabel(events: Map<String, Int>): String = events.entries
 data class MontageUiState(
     val music: Path? = null,
     val maxDurationText: String = "60s",
+    /** Durée tirée du nombre de kills, la durée maximale restant un plafond. */
+    val fitKills: Boolean = true,
     val buildUp: Boolean = true,
     val formats: Set<OutputFormat> = setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
     val density: EffectDensity = EffectDensity.BALANCED,

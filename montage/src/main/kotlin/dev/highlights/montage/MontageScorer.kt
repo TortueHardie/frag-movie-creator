@@ -24,7 +24,7 @@ data class MontageScore(
     val restraint: Double,
     /** Deux plans voisins ne viennent pas du même moment de la même partie. Null s'il n'y a qu'un plan. */
     val variety: Double?,
-    /** Durée demandée réellement utilisée. */
+    /** Durée visée réellement utilisée : celle tirée du nombre de kills, ou la durée maximale. */
     val fill: Double,
     /**
      * Les plans sont-ils plus courts dans les sections intenses ? Null quand le montage n'a pas deux plans ordinaires
@@ -129,8 +129,8 @@ object MontageScorer {
         }
         val variety = if (pairs.isEmpty()) null else 1.0 - similar.toDouble() / pairs.size
 
-        // --- remplissage de la durée demandée.
-        val fill = (plan.duration / plan.settings.maxDuration).coerceIn(0.0, 1.0)
+        // --- remplissage de la durée visée : quatre kills n'ont pas à occuper une minute.
+        val fill = (plan.duration / (plan.target ?: plan.settings.maxDuration)).coerceIn(0.0, 1.0)
 
         // --- rythme : à intensité différente, le plan de la section la plus intense doit être le plus court.
         // Le plan de la drop et ceux étendus pour tenir un multi-kill sont longs par conception : les comparer

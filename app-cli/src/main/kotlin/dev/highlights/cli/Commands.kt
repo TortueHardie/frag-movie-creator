@@ -161,6 +161,7 @@ class MontageCommand : PipelineCommand("montage") {
         .path(mustExist = true, canBeDir = false).multiple(required = true)
     private val music by option("-m", "--music", help = "Musique (mp3, wav, flac…) : tempo détecté, coupes et kills calés sur les temps")
         .path(mustExist = true, canBeDir = false).required()
+    private val fill by option("--fill", help = "Occuper toute la durée maximale au lieu d'adapter la durée au nombre de kills").flag()
     private val max by option("--max", help = "Durée maximale, ex. 60s").convert { text ->
         Durations.parseOrNull(text) ?: throw BadParameterValue("durée invalide '$text'")
     }
@@ -202,6 +203,7 @@ class MontageCommand : PipelineCommand("montage") {
                         formats = formats,
                         outputDir = out,
                         maxDuration = max,
+                        fitKills = if (fill) false else null,
                         order = if (chronological) MontageOrder.CHRONOLOGICAL else null,
                         hook = if (noHook) false else null,
                         effectDensity = effects,

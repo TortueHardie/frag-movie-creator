@@ -454,6 +454,7 @@ class AppController(
                 montage = MontageUiState(
                     music = it.lastMusic,
                     maxDurationText = montage?.maxDuration?.let(dev.highlights.core.serialization.Durations::format) ?: "60s",
+                    fitKills = montage?.length?.fitKills ?: true,
                     buildUp = montage?.order != dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
                     formats = montage?.formats?.toSet() ?: setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
                     zoom = montage?.zoom?.enabled ?: true,
@@ -498,6 +499,7 @@ class AppController(
                     formats = OutputFormat.entries.filter { it in montage.formats },
                     outputDir = s.settings.outputDir,
                     maxDuration = montage.maxDuration,
+                    fitKills = montage.fitKills,
                     order = if (montage.buildUp) dev.highlights.core.model.MontageOrder.BUILD_UP else dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
                     effectDensity = montage.density,
                     zoom = montage.zoom,

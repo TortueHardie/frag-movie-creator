@@ -237,7 +237,8 @@ class MontageRenderBuilderTest : FunSpec({
 
     test("flash : un multi-kill dont le début est coupé ne compte pas comme une coupe forte") {
         // Slot court : seul le dernier kill du groupe reste visible, le plan n'a donc rien d'un multi-kill à l'écran.
-        val tight = settings.copy(cuts = settings.cuts.copy(maxBeats = 4, minLead = 250.milliseconds))
+        // Durée maximale occupée : pas de plan de réserve où le multi-kill s'étendrait.
+        val tight = settings.copy(cuts = settings.cuts.copy(maxBeats = 4, minLead = 250.milliseconds), length = settings.length.copy(fitKills = false))
         val groups = listOf(
             KillGroup(media, listOf(500.seconds), 1.0, emptyList(), emptyList()),
             KillGroup(media, listOf(100.seconds, 104.seconds), 0.5, emptyList(), emptyList()),

@@ -7,6 +7,7 @@ import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.TimeRange
+import dev.highlights.core.serialization.Durations
 import dev.highlights.core.session.Session
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlin.math.abs
@@ -149,6 +150,8 @@ data class MontagePlan(
     val music: MusicAnalysis,
     val settings: MontageSettings,
     val variant: PlanVariant = PlanVariant.BASE,
+    /** Durée visée d'après les kills (voir [MontagePlanner.targetDuration]) ; null : la durée maximale. */
+    val target: Duration? = null,
 ) {
     init {
         require(clips.isNotEmpty()) { "montage vide" }
@@ -201,6 +204,9 @@ object MontagePlanner {
     private val DROP_SHIFTS = listOf(-0.15, 0.0, 0.15)
     private val SCALES = listOf(1.0, 2.0, 4.0, 8.0)
     private const val MIN_CLIP_SHARE = 0.85
+
+    /** Allongement de la durée visée quand elle fait perdre des clips. */
+    private const val TARGET_STEP = 1.5
 
     /** Gain de note en dessous duquel le plan de base est gardé : on ne change pas pour du bruit. */
     private const val MIN_GAIN = 0.005
@@ -310,6 +316,28 @@ object MontagePlanner {
     }
 
     /**
+     * Durée visée : de quoi montrer chaque groupe sans l'étirer ([MontageLength]), bornée par la durée maximale. Un
+     * groupe compte aussi la réaction qu'on garde entière après son dernier kill, et le temps que prend son ralenti
+     * s'il y a droit (multi-kill, flick, les deux meilleurs : la drop et l'accroche ; tous avec beaucoup d'effets). Sans [MontageLength.fitKills],
+     * la durée maximale.
+     */
+    fun targetDuration(groups: List<KillGroup>, settings: MontageSettings): Duration {
+        val length = settings.length
+        if (!length.fitKills) return settings.maxDuration
+        val slow = settings.slowMotion
+        val slowExtra = if (slow.enabled) (slow.before + slow.after) * (1 / slow.factor - 1) else Duration.ZERO
+        val best = groups.sortedByDescending { it.rank }.take(2).toSet()
+        val wanted = groups.fold(Duration.ZERO) { acc, g ->
+            val anchor = g.kills.last()
+            val reaction = g.protectedSegments.filter { it.end > anchor }.maxOfOrNull { it.end - anchor } ?: Duration.ZERO
+            val strong = settings.effectDensity == EffectDensity.HEAVY || g.kills.size > 1 || g in best ||
+                g.traits.any { it.flick >= KillTraits.STRONG_FLICK }
+            acc + length.perClip + length.perExtraKill * (g.kills.size - 1) + reaction + (if (strong) slowExtra else Duration.ZERO)
+        }
+        return wanted.coerceIn(minOf(length.min, settings.maxDuration), settings.maxDuration)
+    }
+
+    /**
      * Meilleur plan parmi des variantes (échelle de la grille, place de la drop), d'après [MontageScorer]. Sans
      * [MontageSettings.variants], le plan de base. Une variante doit garder presque tous les clips du plan de base et le
      * battre nettement : sinon le plan de base, dont les choix sont les plus prévisibles, reste.
@@ -346,14 +374,58 @@ object MontagePlanner {
         } else {
             all
         }
+        // Durée visée tirée des kills ; si elle fait perdre quelque chose face au montage plein (un clip, le début d'un
+        // multi-kill, la fin d'une réaction), elle s'allonge par paliers : raccourcir ne doit rien coûter à l'écran.
+        var target = targetDuration(groups, settings)
+        var result = layout(groups, music, settings, variant, target)
+        if (target < settings.maxDuration) {
+            val full = Shown.of(layout(groups, music, settings, variant, settings.maxDuration).first)
+            while (!Shown.of(result.first).covers(full) && target < settings.maxDuration) {
+                target = (target * TARGET_STEP).coerceAtMost(settings.maxDuration)
+                result = layout(groups, music, settings, variant, target)
+            }
+        }
+        val (plan, describe) = result
+        // Les variantes essayées par [best] ne méritent pas une ligne chacune : seul le plan de base est détaillé.
+        if (variant == PlanVariant.BASE) log.info(describe) else log.debug(describe)
+        return plan
+    }
+
+    /**
+     * Ce qu'un plan montre : kills à l'écran, réactions gardées jusqu'au bout, flicks et multi-kills ralentis (sans
+     * ralenti, un flick passe trop vite pour être vu), et tous les ralentis quand on les a demandés partout. Pas les
+     * autres : ceux de l'accroche et de la drop dépendent de la forme du plan (les deux peuvent tomber sur le même
+     * clip), pas de ce qu'on voit des parties.
+     */
+    private data class Shown(val kills: Int, val reactions: Int, val slowed: Int) {
+        fun covers(other: Shown) = kills >= other.kills && reactions >= other.reactions && slowed >= other.slowed
+
+        companion object {
+            fun of(plan: MontagePlan) = Shown(
+                kills = plan.clips.sumOf { it.kills.size },
+                reactions = plan.clips.sumOf { c -> c.group.protectedSegments.count { it.end > c.anchor && it.end <= c.end } },
+                slowed = plan.clips.count { it.slow != null && (it.flick || it.kills.size > 1 || plan.settings.effectDensity == EffectDensity.HEAVY) },
+            )
+        }
+    }
+
+    /** Plan pour une durée visée donnée, et sa description pour le journal. */
+    private fun layout(groups: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings, variant: PlanVariant, target: Duration): Pair<MontagePlan, () -> String> {
         val cuts = settings.cuts.let { it.copy(dropPosition = (it.dropPosition + variant.dropShift).coerceIn(0.0, 1.0)) }
         val period = music.beatPeriod
         val minLeadBeats = beatsCeil(cuts.minLead, period).coerceAtLeast(1)
         val minTailBeats = beatsCeil(cuts.minTail, period).coerceAtLeast(1)
         val minBeats = maxOf(2, minLeadBeats + minTailBeats)
 
-        // Grille : plus grossière quand il y a moins de clips que de plans dans la durée demandée.
-        val (scale, _, window) = CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size, variant.scale?.let(::listOf))
+        // Grille : plus grossière quand il y a moins de clips que de plans dans la durée visée. Un montage raccourci
+        // garde un plan de réserve par multi-kill et par réaction à garder : ils s'étendent sur un voisin, sans prendre
+        // la place d'un autre groupe (un montage plein a des plans assez longs pour s'en passer).
+        val spare = if (target < settings.maxDuration) {
+            groups.count { g -> g.kills.size > 1 || g.protectedSegments.any { it.end > g.kills.last() } }
+        } else {
+            0
+        }
+        val (scale, _, window) = CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size + spare, variant.scale?.let(::listOf), target)
         if (window.isEmpty()) throw HighlightsException("Musique trop courte pour un seul clip (${music.duration.inWholeSeconds} s)")
 
         val cells = assign(window, groups, music, settings, minLeadBeats, minTailBeats)
@@ -369,13 +441,11 @@ object MontagePlanner {
                 plain
             }
         }
-        // Les variantes essayées par [best] ne méritent pas une ligne chacune : seul le plan de base est détaillé.
         val describe = {
-            "Grille ×${"%.0f".format(scale)} : ${window.size} slots, ${clips.size} clips, ${clips.sumOf { it.beats }} temps, " +
+            "Grille ×${"%.0f".format(scale)}, durée visée ${Durations.format(target)} : ${window.size} slots, ${clips.size} clips, ${clips.sumOf { it.beats }} temps, " +
                 clips.joinToString(" ") { "${it.beats}${if (it.slot.dropBeat != null) "*" else ""}" }
         }
-        if (variant == PlanVariant.BASE) log.info(describe) else log.debug(describe)
-        return MontagePlan(clips, music, settings, variant)
+        return MontagePlan(clips, music, settings, variant, target) to describe
     }
 
     private class Cell(var startBeat: Int, var endBeat: Int, val section: Int, val dropBeat: Int?) {

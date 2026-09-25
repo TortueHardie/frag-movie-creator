@@ -39,10 +39,13 @@ comprise) et `action` (part de chaque plan hors de l'action). Ils comptent dans 
 - Constat : quatre kills sur une minute de musique laissent des trous de plus de 10 s, le critère `lull` tombe à 0.
   C'est l'étirement que le point 5 doit corriger.
 
-## 5. Longueur du montage adaptée au nombre de kills
+## 5. Longueur du montage adaptée au nombre de kills (fait)
 
-Au lieu d'étirer les clips pour remplir la musique.
+Au lieu d'étirer les clips pour remplir la musique. `MontagePlanner.targetDuration` tire une durée visée des groupes
+retenus (réglages : `montage.length`), `maxDuration` ne restant qu'un plafond ; `CutGrid.select` et le critère `fill`
+visent cette durée. Si elle ferait perdre un clip, le début d'un multi-kill, une réaction ou un ralenti de flick face
+au montage plein, elle s'allonge par paliers.
 
-- Aujourd'hui, deux endroits poussent à remplir : le critère `fill` de `MontageScorer` (durée / `maxDuration`) et le
-  terme `length / maxDuration` de `CutGrid.select`.
-- Viser une durée tirée du nombre de kills retenus, `maxDuration` ne restant qu'un plafond.
+- Mesuré sur deux musiques de test : 6 groupes passent de 48 s (trou de 10 s) à 20 s (trou de 3,5 s), et le montage
+  adapté garde tous les groupes là où le montage plein en perdait jusqu'à 5 sur 20.
+- À vérifier sur de vraies parties : `perClip` (2,5 s) et `min` (12 s) sont des estimations.

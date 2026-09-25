@@ -59,6 +59,8 @@ class MontagePlannerTest : FunSpec({
     }
 
     val settings = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds)
+    /** Ancien comportement : la durée maximale occupée quoi qu'il arrive. */
+    val filling = settings.copy(length = settings.length.copy(fitKills = false))
     fun seconds(d: Duration) = d.inWholeMicroseconds / 1e6
     fun plan(kills: List<Int>, m: MusicAnalysis = music(), s: MontageSettings = settings, speech: List<TimeRange> = emptyList()) =
         MontagePlanner.plan(MontagePlanner.groups(listOf(session(kills, speech)), s), m, s)
@@ -95,9 +97,12 @@ class MontagePlannerTest : FunSpec({
     test("les clips remplissent exactement leur slot : coupes et kill d'ancrage sur les temps réels de la musique") {
         val p = plan(manyKills)
         check(p)
-        // 11 groupes (un triple kill) ; le slot de la drop a absorbé un voisin pour le triple kill.
-        p.clips shouldHaveSize 10
-        (seconds(p.duration) > 40.0) shouldBe true
+        // 11 groupes (un triple kill), tous montés : le triple kill s'étend sur un plan de réserve.
+        p.clips shouldHaveSize 11
+        // Durée tirée des kills : jamais plus longue que le montage qui remplit la minute, et au moins autant de kills.
+        val full = plan(manyKills, s = filling)
+        (p.duration <= full.duration) shouldBe true
+        (p.clips.sumOf { it.kills.size } >= full.clips.sumOf { it.kills.size }) shouldBe true
     }
 
     test("montée en puissance : le multi-kill tombe sur la drop, tous ses kills visibles, plans courts dans la partie intense") {
@@ -128,11 +133,42 @@ class MontagePlannerTest : FunSpec({
         }
     }
 
-    test("peu de clips : tous utilisés, plans plus longs") {
-        val p = plan(listOf(100, 400, 700))
+    test("peu de clips, durée maximale à remplir : tous utilisés, plans plus longs") {
+        val p = plan(listOf(100, 400, 700), s = filling)
         check(p)
         p.clips shouldHaveSize 3
         p.clips.forEach { it.beats shouldBeGreaterThanOrEqual 8 }
+    }
+
+    test("peu de clips : montage court, sans rien perdre de ce que montrerait le montage plein") {
+        val kills = listOf(100, 400, 700, 1000)
+        val p = plan(kills)
+        val full = plan(kills, s = filling)
+        check(p)
+        p.clips shouldHaveSize 4
+        withClue("${p.duration} contre ${full.duration}") { (p.duration < full.duration) shouldBe true }
+        p.clips.sumOf { it.kills.size } shouldBe full.clips.sumOf { it.kills.size }
+        // La drop garde son ralenti.
+        (p.clips.single { it.slot.dropBeat != null }.slow != null) shouldBe true
+        // 4 clips à 2,5 s et le ralenti des deux meilleurs (0,8 s chacun) : 11,6 s, relevés au minimum de 12 s.
+        seconds(p.target!!) shouldBe (12.0 plusOrMinus 1e-6)
+    }
+
+    test("durée visée : clips, kills en plus, réaction gardée, bornée par le minimum et le maximum") {
+        val s = settings.copy(slowMotion = settings.slowMotion.copy(enabled = false))
+        fun target(groups: List<KillGroup>, st: MontageSettings = s) = seconds(MontagePlanner.targetDuration(groups, st))
+        val many = MontagePlanner.groups(listOf(session((1..8).map { it * 100 })), s)
+        target(many) shouldBe (20.0 plusOrMinus 1e-6)
+        val triple = MontagePlanner.groups(listOf(session((1..7).map { it * 100 } + listOf(701, 702))), s)
+        target(triple) shouldBe (6 * 2.5 + 2.5 + 2 * 1.0 plusOrMinus 1e-6)
+        // Trop peu : le minimum ; beaucoup : la durée maximale.
+        target(many.take(2)) shouldBe (12.0 plusOrMinus 1e-6)
+        target(MontagePlanner.groups(listOf(session((1..40).map { it * 100 })), s)) shouldBe (60.0 plusOrMinus 1e-6)
+        target(many, s.copy(length = s.length.copy(fitKills = false))) shouldBe (60.0 plusOrMinus 1e-6)
+        // La phrase qui suit un kill compte, quand les réactions sont mises en avant.
+        val talk = s.copy(reactions = true)
+        val withSpeech = MontagePlanner.groups(listOf(session((1..8).map { it * 100 }, listOf(TimeRange(800.5.seconds, 804.seconds)))), talk)
+        target(withSpeech, talk) shouldBe (20.0 + 4.0 plusOrMinus 1e-6)
     }
 
     test("beaucoup de clips : budget respecté, les mieux classés gardés") {

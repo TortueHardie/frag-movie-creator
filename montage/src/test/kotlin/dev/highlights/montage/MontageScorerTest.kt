@@ -104,11 +104,11 @@ class MontageScorerTest : FunSpec({
     /** Assez de kills pour remplir une minute de musique sans étirer les plans. */
     val dense = (0 until 16).map { i -> group(if (i % 2 == 0) media else other, 100 + 60 * i) }
 
-    test("temps morts : quatre kills étirés sur une minute laissent de longs trous") {
-        val sparse = MontageScorer.score(plan(varied))
-        val full = MontageScorer.score(plan(dense))
-        sparse.lull!! shouldBeLessThan full.lull!!
-        sparse.details.getValue("plusLongTrouSecondes") shouldBeGreaterThan full.details.getValue("plusLongTrouSecondes")
+    test("temps morts : quatre kills étirés sur une minute laissent de longs trous, pas ramenés à leur durée") {
+        val stretched = MontageScorer.score(plan(varied, settings.copy(length = settings.length.copy(fitKills = false))))
+        val fitted = MontageScorer.score(plan(varied))
+        stretched.lull!! shouldBeLessThan fitted.lull!!
+        stretched.details.getValue("plusLongTrouSecondes") shouldBeGreaterThan fitted.details.getValue("plusLongTrouSecondes")
     }
 
     test("temps morts : de longs plans autour d'un seul kill font baisser trou et action") {
@@ -141,7 +141,7 @@ class MontageScorerTest : FunSpec({
     }
 
     test("un montage qui n'occupe pas la durée demandée est pénalisé sur ce seul critère") {
-        val short = settings.copy(maxDuration = 120.seconds)
+        val short = settings.copy(maxDuration = 120.seconds, length = settings.length.copy(fitKills = false))
         val score = MontageScorer.score(plan(varied, short))
         score.fill shouldBeLessThan 1.0
         score.sync shouldBeGreaterThan 0.99

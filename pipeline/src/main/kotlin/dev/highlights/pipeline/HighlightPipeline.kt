@@ -87,6 +87,8 @@ data class MontageOptions(
     val formats: List<OutputFormat>? = null,
     val outputDir: Path? = null,
     val maxDuration: Duration? = null,
+    /** Durée tirée du nombre de kills, la durée maximale n'étant qu'un plafond ; false : remplir la durée maximale. */
+    val fitKills: Boolean? = null,
     val order: MontageOrder? = null,
     val hook: Boolean? = null,
     val effectDensity: EffectDensity? = null,
@@ -380,6 +382,7 @@ class HighlightPipeline(
         val settings = base.copy(
             formats = options.formats ?: base.formats,
             maxDuration = options.maxDuration ?: base.maxDuration,
+            length = base.length.copy(fitKills = options.fitKills ?: base.length.fitKills),
             order = options.order ?: base.order,
             hook = options.hook ?: base.hook,
             effectDensity = options.effectDensity ?: base.effectDensity,

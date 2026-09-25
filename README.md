@@ -191,6 +191,13 @@ détecte les kills). En ligne de commande :
 & $app montage output\sessions\partie.session.json --music D:\Musique\son.mp3 --max 60s --format 9:16,source
 ```
 
+- **Durée adaptée au nombre de kills** (`length`) : le montage dure ce qu'il faut pour montrer ses kills — 2,5 s par
+  clip (`perClip`), 1 s de plus par kill supplémentaire d'un multi-kill (`perExtraKill`), la réaction gardée après le
+  dernier kill et le temps du ralenti des plans forts, au moins 12 s (`min`). La durée maximale (`--max`, case « Durée
+  maximale ») n'est plus qu'un plafond : quatre kills ne sont plus étirés sur une minute de musique. Raccourcir ne
+  coûte rien à l'écran : si la durée visée ferait perdre un clip, le début d'un multi-kill, la fin d'une réaction ou le
+  ralenti d'un flick, elle s'allonge jusqu'à les retrouver. `--fill` (ou la case « Durée adaptée au nombre de kills »
+  décochée) rend l'ancien comportement : occuper toute la durée maximale.
 - **Musique** : analysée entièrement (`app music son.mp3` pour voir le résultat) : tempo et temps (suivi à ~12 ms, sans
   dérive), mesures, **sections** (délimitées par timbre et volume, alignées sur les mesures) avec leur intensité, et la
   **drop** (plus gros saut d'intensité). Chaque section reçoit aussi un **rôle** — intro, montée, drop, breakdown, corps

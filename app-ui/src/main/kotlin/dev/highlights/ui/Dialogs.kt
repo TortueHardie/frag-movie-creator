@@ -150,6 +150,9 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                             modifier = Modifier.width(110.dp),
                         )
                     }
+                    MontageToggle("Durée adaptée au nombre de kills (la durée maximale reste un plafond)", montage.fitKills) { v ->
+                        actions.updateMontage { it.copy(fitKills = v) }
+                    }
                     MontageToggle("Montée en puissance (meilleur kill sur la drop)", montage.buildUp) { v ->
                         actions.updateMontage { it.copy(buildUp = v) }
                     }
