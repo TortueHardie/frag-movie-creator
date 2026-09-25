@@ -206,6 +206,8 @@ fun eventsLabel(events: Map<String, Int>): String = events.entries
 
 data class MontageUiState(
     val music: Path? = null,
+    /** Musique prise depuis son début ; retenu pour chaque musique (voir [MusicPrefs]). */
+    val musicFromStart: Boolean = false,
     val maxDurationText: String = "60s",
     /** Durée tirée du nombre de kills, la durée maximale restant un plafond. */
     val fitKills: Boolean = true,

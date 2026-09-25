@@ -167,7 +167,7 @@ object CutGrid {
         var bestScore = Double.NEGATIVE_INFINITY
         for (scale in scales ?: listOf(1.0, 2.0, 4.0, 8.0)) {
             val slots = build(music, cuts, minBeats, scale)
-            val window = window(slots, music, maxDuration, clipCount, cuts.dropPosition, target)
+            val window = window(slots, music, maxDuration, clipCount, cuts.dropPosition, target, cuts.fromStart)
             if (window.isNotEmpty()) {
                 val length = music.beatTime(window.last().endBeat) - music.beatTime(window.first().startBeat)
                 val score = 1.5 * window.size / clipCount + 0.5 * closeness(length, target)
@@ -187,6 +187,7 @@ object CutGrid {
     /**
      * Fenêtre du montage : suite de slots contigus, d'au plus [maxDuration] et [maxSlots], la mieux notée : sections
      * intenses, drop à la position voulue, début et fin sur une frontière de section, durée proche de [target].
+     * [fromStart] : la fenêtre commence au premier slot, le premier temps de la musique.
      */
     fun window(
         slots: List<CutSlot>,
@@ -195,6 +196,7 @@ object CutGrid {
         maxSlots: Int,
         dropPosition: Double,
         target: Duration = maxDuration,
+        fromStart: Boolean = false,
     ): List<CutSlot> {
         if (slots.isEmpty() || maxSlots <= 0) return emptyList()
         val sectionStarts = music.sections.map { it.startBeat }.toSet()
@@ -204,7 +206,7 @@ object CutGrid {
 
         var best: IntRange? = null
         var bestScore = Double.NEGATIVE_INFINITY
-        for (i in slots.indices) {
+        for (i in if (fromStart) 0..0 else slots.indices) {
             val startTime = time(slots[i].startBeat)
             var j = i
             while (j < slots.size && j - i < maxSlots && time(slots[j].endBeat) - startTime <= maxSeconds + 1e-6) j++
