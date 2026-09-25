@@ -242,8 +242,10 @@ détecte les kills). En ligne de commande :
   dure tant que le centre ressemble à ce qu'il était juste avant le kill (`minSimilarity`), en ne comparant que les
   pixels immobiles à ce moment-là, l'arme et pas le décor qui défile. Un kill tiré à la hanche ne se raccorde pas : en
   visée, l'arme descend au centre, symétrique (`minSymmetry`). Les deux portions sont ralenties pour garder la durée
-  de leur slot (jusqu'à ×0,3, `minSpeed`) : les kills restent sur leur temps. Une coupe raccordée n'a ni flash ni
-  whip. Le journal donne, coupe par coupe, la visée trouvée de part et d'autre et le ralenti appliqué. Désactivable par
+  de leur slot (jusqu'à ×0,3, `minSpeed`) : les kills restent sur leur temps. La visée est mesurée avant la
+  planification : quand deux plans voisins visent, le kill peut être placé sur un autre temps de son plan pour laisser
+  moins de temps à ralentir, si la note du montage n'y perd pas plus que les raccords gagnés ne valent (un kill qui
+  arrive plus tard, un passage sans kill plus long). Une coupe raccordée n'a ni flash ni whip. Le journal donne, coupe par coupe, la visée trouvée de part et d'autre et le ralenti appliqué. Désactivable par
   une case de la fenêtre de montage ou `--no-match-cut`.
 - **Kills dans leur round** (`killStyle`, avec les morts d'Outplayed) : un kill suivi de sa propre mort dans les 3 s
   recule (`deathPenalty`) ; le groupe qui finit un round de 5 kills monte nettement (**ace**, `aceBonus`) ; celui qui

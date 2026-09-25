@@ -33,6 +33,8 @@ data class KillGroup(
     val outcome: RoundOutcome = RoundOutcome.NONE,
     /** Bonus de spectacle des kills (tête, flick, enchaînement, ace, clutch, mort), en kills : voir [KillStyle]. */
     val style: Double = 0.0,
+    /** Visée autour des kills, pour les raccords visée sur visée (voir [MatchCutter]). */
+    val aim: Aim = Aim.NONE,
 ) {
     val rank: Double get() = kills.size + score / 10 + style
     val span: Duration get() = kills.last() - kills.first()
@@ -63,6 +65,16 @@ enum class FlickDirection {
     LEFT, RIGHT, UP, DOWN;
 
     val horizontal: Boolean get() = this == LEFT || this == RIGHT
+}
+
+/**
+ * Visée autour d'un groupe, dans la source : [start], le joueur vise déjà depuis cet instant jusqu'au premier kill ;
+ * [end], il vise encore jusqu'à cet instant après le dernier. Null : il ne vise pas (tir à la hanche) ou on ne sait pas.
+ */
+data class Aim(val start: Duration? = null, val end: Duration? = null) {
+    companion object {
+        val NONE = Aim()
+    }
 }
 
 /**
@@ -207,6 +219,18 @@ object MontagePlanner {
 
     /** Allongement de la durée visée quand elle fait perdre des clips. */
     private const val TARGET_STEP = 1.5
+
+    /**
+     * Prix d'un raccord visée sur visée rendu possible par la place du kill dans son plan, en force de frappe : un peu
+     * plus qu'un premier temps de mesure, moins qu'une attaque franchement plus forte.
+     */
+    private const val MATCH_BONUS = 0.8
+
+    /**
+     * Valeur d'un raccord visée sur visée, en note de montage ([MontageScorer]) : ce qu'on accepte de perdre ailleurs
+     * (un kill qui arrive un peu plus tard, un passage sans kill un peu plus long) pour en gagner un.
+     */
+    private const val MATCH_VALUE = 0.005
 
     /** Gain de note en dessous duquel le plan de base est gardé : on ne change pas pour du bruit. */
     private const val MIN_GAIN = 0.005
@@ -430,22 +454,80 @@ object MontagePlanner {
 
         val cells = assign(window, groups, music, settings, minLeadBeats, minTailBeats)
         val preferred = preferredOffsets(cells.map { it.first }, music, minLeadBeats, minTailBeats)
-        val clips = cells.mapIndexed { i, cell ->
+        fun build(i: Int, aim: AimFit): MontageClip {
+            val cell = cells[i]
             val offset = preferred[cell.first.section to cell.first.beats]
             // Le plan sans ralenti d'abord : c'est lui qui dit combien de kills seront réellement à l'écran, donc si le
             // plan mérite le ralenti. Un multi-kill dont tout le début serait coupé n'en est pas un pour le spectateur.
-            val plain = clipFor(cell, music, settings, minLeadBeats, minTailBeats, offset, allowSlow = false)
-            if (allowsSlow(settings, i, cell.first, plain.kills.size, plain.flick)) {
-                clipFor(cell, music, settings, minLeadBeats, minTailBeats, offset, allowSlow = true)
+            val plain = clipFor(cell, music, settings, minLeadBeats, minTailBeats, offset, allowSlow = false, aim = aim)
+            return if (allowsSlow(settings, i, cell.first, plain.kills.size, plain.flick)) {
+                clipFor(cell, music, settings, minLeadBeats, minTailBeats, offset, allowSlow = true, aim = aim)
             } else {
                 plain
             }
         }
+        val blind = cells.indices.map { build(it, AimFit.NONE) }
+        val fits = cells.indices.map { i -> aimFit(cells.getOrNull(i - 1)?.second, cells[i].second, cells.getOrNull(i + 1)?.second, settings) }
+        val clips = arbitrate(blind, fits.mapIndexed { i, fit -> if (fit == AimFit.NONE) blind[i] else build(i, fit) }) { MontagePlan(it, music, settings, variant, target) }
         val describe = {
             "Grille ×${"%.0f".format(scale)}, durée visée ${Durations.format(target)} : ${window.size} slots, ${clips.size} clips, ${clips.sumOf { it.beats }} temps, " +
                 clips.joinToString(" ") { "${it.beats}${if (it.slot.dropBeat != null) "*" else ""}" }
         }
         return MontagePlan(clips, music, settings, variant, target) to describe
+    }
+
+    /**
+     * Places des kills retenues, plan par plan : celle choisie pour la musique ([blind]), ou celle qui rend un raccord
+     * visée sur visée possible ([fitted]), si le montage n'y perd pas plus que les raccords gagnés ne valent. Chaque plan
+     * est essayé à son tour, seul puis avec le suivant, en gardant les choix déjà faits.
+     */
+    private fun arbitrate(blind: List<MontageClip>, fitted: List<MontageClip>, plan: (List<MontageClip>) -> MontagePlan): List<MontageClip> {
+        if (fitted == blind) return blind
+        fun value(clips: List<MontageClip>) = plan(clips).let { MontageScorer.score(it).total + MATCH_VALUE * ScopeCuts.count(it) }
+        var current = blind
+        var best = value(current)
+        for (i in blind.indices) {
+            if (fitted[i] == blind[i]) continue
+            // Le plan seul, puis avec le suivant : les deux côtés d'une coupe ne valent souvent rien l'un sans l'autre.
+            for (moved in listOf(listOf(i), listOf(i, i + 1))) {
+                if (moved.any { it !in blind.indices || fitted[it] == current[it] }) continue
+                val candidate = current.toMutableList().also { c -> moved.forEach { c[it] = fitted[it] } }
+                val v = value(candidate)
+                if (v >= best) {
+                    current = candidate
+                    best = v
+                    break
+                }
+            }
+        }
+        return current
+    }
+
+    /**
+     * Durées de sortie au plus, avant le kill d'ancrage ([maxPre]) et après ([maxPost]), pour que le début et la fin du
+     * plan tiennent dans la visée au ralenti permis ([MatchCut.minSpeed]) : le raccord visée sur visée avec le plan
+     * précédent, ou le suivant, devient possible. Null : pas de raccord à chercher de ce côté.
+     */
+    internal data class AimFit(val maxPre: Duration? = null, val maxPost: Duration? = null) {
+        companion object {
+            val NONE = AimFit()
+        }
+    }
+
+    /**
+     * Ce que la visée demande à la place du kill dans le plan de [group], entre [previous] et [next] : un côté ne compte
+     * que si le voisin vise lui aussi de son côté de la coupe.
+     */
+    internal fun aimFit(previous: KillGroup?, group: KillGroup, next: KillGroup?, settings: MontageSettings): AimFit {
+        val scope = settings.matchCut
+        if (!scope.enabled) return AimFit.NONE
+        val first = group.kills.first()
+        val last = group.kills.last()
+        val pre = group.aim.start?.takeIf { previous?.aim?.end != null && first - it >= ScopeCuts.MIN_AIM_BEFORE }
+            ?.let { group.span + (first - it) / scope.minSpeed }
+        val post = group.aim.end?.takeIf { next?.aim?.start != null && it - last >= ScopeCuts.MIN_AIM_AFTER }
+            ?.let { (it - last) / scope.minSpeed }
+        return AimFit(pre, post)
     }
 
     private class Cell(var startBeat: Int, var endBeat: Int, val section: Int, val dropBeat: Int?) {
@@ -639,6 +721,7 @@ object MontagePlanner {
         minTailBeats: Int,
         preferredOffset: Int? = null,
         allowSlow: Boolean = true,
+        aim: AimFit = AimFit.NONE,
     ): MontageClip {
         val (slot, group) = assignment
         val media = group.media
@@ -652,14 +735,23 @@ object MontagePlanner {
         val candidates = (slot.startBeat + minLeadBeats)..(slot.endBeat - minTailBeats)
         fun fits(b: Int) = music.beatTime(b) - slotStart >= group.span + cuts.minLead && slotEnd - music.beatTime(b) >= reaction + cuts.minTail
         val preferred = preferredOffset?.let { slot.startBeat + it }
+        // Raccords visée sur visée que la place du kill rend possibles : assez peu de temps de part et d'autre du kill
+        // pour que le ralenti tienne dans la visée. Jamais au prix d'un kill ou d'une réaction coupés.
+        fun matches(b: Int): Double {
+            if (!fits(b)) return 0.0
+            val at = music.beatTime(b)
+            return (if (aim.maxPre != null && at - slotStart <= aim.maxPre) MATCH_BONUS else 0.0) +
+                (if (aim.maxPost != null && slotEnd - at <= aim.maxPost) MATCH_BONUS else 0.0)
+        }
+        val bestMatch = candidates.maxOfOrNull(::matches) ?: 0.0
         val anchorBeat = when {
             slot.dropBeat != null && slot.dropBeat in candidates -> slot.dropBeat
             candidates.isEmpty() -> slot.startBeat + maxOf(1, slot.beats / 2)
-            preferred != null && preferred in candidates && fits(preferred) -> preferred
+            preferred != null && preferred in candidates && fits(preferred) && matches(preferred) >= bestMatch -> preferred
             else -> candidates.maxBy { b ->
                 val lead = music.beatTime(b) - slotStart
                 val tail = slotEnd - music.beatTime(b)
-                anchorScore(music, slot, b) +
+                anchorScore(music, slot, b) + matches(b) +
                     (if (lead >= group.span + cuts.minLead) 0.3 else 0.0) +
                     (if (tail >= reaction + cuts.minTail) 0.3 else 0.0)
             }
