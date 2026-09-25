@@ -212,6 +212,9 @@ data class MontageUiState(
     val density: EffectDensity = EffectDensity.BALANCED,
     val zoom: Boolean = true,
     val flash: Boolean = true,
+    val whip: Boolean = true,
+    /** Kills classés selon leur round : mort juste après, ace, clutch (captures avec les morts d'Outplayed). */
+    val rounds: Boolean = true,
     val slowMotion: Boolean = true,
     val text: Boolean = true,
     /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */

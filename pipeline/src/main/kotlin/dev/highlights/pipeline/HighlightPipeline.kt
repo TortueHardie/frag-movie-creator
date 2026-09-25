@@ -92,6 +92,10 @@ data class MontageOptions(
     val zoom: Boolean? = null,
     val flash: Boolean? = null,
     val flashEveryCut: Boolean? = null,
+    /** Whip pan dans le sens du flick aux coupes qui en suivent ou en précèdent un. */
+    val whip: Boolean? = null,
+    /** Classement des kills selon leur round (mort juste après, ace, clutch) ; false : les morts sont ignorées. */
+    val rounds: Boolean? = null,
     val slowMotion: Boolean? = null,
     val speedRamp: Boolean? = null,
     val text: Boolean? = null,
@@ -381,6 +385,9 @@ class HighlightPipeline(
                 enabled = options.flash ?: base.flash.enabled,
                 onEveryCut = options.flashEveryCut ?: base.flash.onEveryCut,
             ),
+            whip = base.whip.copy(enabled = options.whip ?: base.whip.enabled),
+            // Sans événement de mort, ni round, ni ace, ni clutch, ni pénalité : le classement redevient celui d'avant.
+            killStyle = if (options.rounds == false) base.killStyle.copy(deathEvent = "") else base.killStyle,
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),
             speedRamp = base.speedRamp.copy(enabled = options.speedRamp ?: base.speedRamp.enabled),
             text = base.text.copy(enabled = options.text ?: base.text.enabled),

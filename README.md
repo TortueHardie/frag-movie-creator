@@ -228,13 +228,14 @@ détecte les kills). En ligne de commande :
   Une coupe qui suit un plan fini sur un flick, ou qui précède un plan qui s'ouvre sur un flick, devient un whip pan :
   le plan sortant file dans le sens où la vue tournait, flouté par la vitesse, et le suivant arrive en continuant le
   même mouvement (200 ms en tout, `duration` ; flou `blur`). Le whip remplace le flash sur cette coupe ; sans flick de
-  part et d'autre, la coupe reste franche.
+  part et d'autre, la coupe reste franche. Désactivable par une case de la fenêtre de montage ou `--no-whip`.
 - **Kills dans leur round** (`killStyle`, avec les morts d'Outplayed) : un kill suivi de sa propre mort dans les 3 s
   recule (`deathPenalty`) ; le groupe qui finit un round de 5 kills monte nettement (**ace**, `aceBonus`) ; celui qui
   finit un round survécu sur au moins deux kills monte aussi (**clutch**, `clutchBonus`). Le jeu ne donne ni les rounds
   ni le nombre d'alliés en vie : une mort clôt le round du joueur, un silence de plus de 40 s aussi (`roundGap`, plus
   court que la phase d'achat), et le clutch reste une approximation. Une mort sépare toujours deux kills rapprochés en
   deux clips. Sans aucune mort annoncée (capture hors Outplayed, `deathEvent` vide), rien de tout ça ne s'applique.
+  Désactivable par une case de la fenêtre de montage ou `--no-rounds`.
 - **Variantes** (`variants`) : une douzaine de plans sont calculés (échelle de la grille, place de la drop) et seul le
   mieux noté est rendu, à condition de garder presque tous les clips du plan de base et de le battre nettement.
 - **Accroche** : le meilleur groupe après celui de la drop ouvre le montage (`--no-hook`) : c'est dans les premières
