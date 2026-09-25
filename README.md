@@ -272,7 +272,8 @@ détecte les kills). En ligne de commande :
   secondes que le spectateur décide de rester.
 - **Musique depuis le début** (`cuts.fromStart`, `--from-start`, case de la fenêtre de montage retenue pour chaque
   musique dans `~/.highlights/music.json`) : le montage part du premier temps de la musique au lieu du passage le plus
-  intense autour de la drop. Pour les musiques qu'on reconnaît à leur intro ; une intro calme donne des plans longs.
+  intense autour de la drop. Pour les musiques qu'on reconnaît à leur intro. Une musique peut avoir plusieurs drops
+  (Spitfire : 0:23 et 4:15) : la drop retenue est alors la plus forte de celles qui tombent dans le montage.
 - **Une emphase par plan** (`effectDensity`, `--effects sober|balanced|heavy`) : au rythme normal, un plan reçoit un
   ralenti *ou* un zoom, jamais les deux. Le ralenti va aux plans forts — drop, multi-kill visible à l'écran, accroche —
   et les autres prennent le zoom. `sober` ne garde que le ralenti de la drop, `heavy` remet tout partout.

@@ -7,10 +7,13 @@ import io.kotest.matchers.doubles.plusOrMinus
 import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.ints.shouldBeInRange
 import io.kotest.matchers.shouldBe
+import kotlin.io.path.Path
 import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.sin
 import kotlin.random.Random
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 class MusicAnalyzerTest : FunSpec({
     /**
@@ -90,6 +93,34 @@ class MusicAnalyzerTest : FunSpec({
         MusicAnalyzer.findDrop(sections) shouldBe 160
         MusicAnalyzer.findDrop(sections.take(3)) shouldBe 64
         MusicAnalyzer.findDrop(listOf(MusicSection(0, 64, -10.0, 1.0))) shouldBe 0
+    }
+
+    test("musique depuis le début : la drop est la première assez tôt pour être dans le montage") {
+        // Spitfire : intro calme, drop à 0:23, longue suite, montée puis seconde drop à 4:15, mieux notée.
+        val bpm = 157.0
+        val n = 824
+        val sections = MusicAnalyzer.classify(
+            listOf(
+                MusicSection(0, 58, -11.2, 0.09),
+                MusicSection(58, 94, -6.2, 0.64),
+                MusicSection(94, 650, -5.8, 0.70),
+                MusicSection(650, 666, -9.9, 0.11),
+                MusicSection(666, 806, -5.7, 0.70),
+                MusicSection(806, n, -44.9, 0.0),
+            ),
+            666,
+        )
+        val analysis = MusicAnalysis(
+            Path("spitfire.mp3"), 315.seconds, bpm, List(n) { (it * 60.0 / bpm).seconds }, downbeatPhase = 0,
+            beatEnergy = DoubleArray(n) { 1.0 }, beatAccent = DoubleArray(n) { 1.0 }, sections = sections, dropBeat = 666,
+        )
+        val early = MusicAnalyzer.fromStart(analysis, 60.seconds)
+        early.dropBeat shouldBe 58
+        early.sections[1].kind shouldBe SectionKind.DROP
+        early.sections[0].kind shouldBe SectionKind.INTRO
+        // Drop déjà dans le montage, ou aucun saut assez franc au début : rien ne change.
+        MusicAnalyzer.fromStart(analysis, 10.minutes).dropBeat shouldBe 666
+        MusicAnalyzer.fromStart(analysis, 10.seconds).dropBeat shouldBe 666
     }
 
     test("tempos variés") {
