@@ -109,6 +109,7 @@ class AppController(
     private val scope: CoroutineScope,
     private val platform: Platform,
     private val watchPrefs: WatchPrefsStore = WatchPrefsStore(WatchPrefsStore.DEFAULT_FILE),
+    private val musicPrefs: MusicPrefsStore = MusicPrefsStore(MusicPrefsStore.DEFAULT_FILE),
     /** Intervalle entre deux passages sur le dossier surveillé, et temps sans écriture avant qu'une capture soit prise. */
     private val watchInterval: Duration = 5.seconds,
     private val watchSettle: Duration = 15.seconds,
@@ -453,6 +454,7 @@ class AppController(
             it.copy(
                 montage = MontageUiState(
                     music = it.lastMusic,
+                    musicFromStart = it.lastMusic?.let(musicPrefs::fromStart) ?: false,
                     maxDurationText = montage?.maxDuration?.let(dev.highlights.core.serialization.Durations::format) ?: "60s",
                     fitKills = montage?.length?.fitKills ?: true,
                     buildUp = montage?.order != dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
@@ -476,7 +478,7 @@ class AppController(
 
     override fun chooseMusic() {
         platform.chooseAudio(state.value.montage?.music?.parent ?: state.value.lastMusic?.parent)?.let { music ->
-            _state.update { it.copy(montage = it.montage?.copy(music = music), lastMusic = music) }
+            _state.update { it.copy(montage = it.montage?.copy(music = music, musicFromStart = musicPrefs.fromStart(music)), lastMusic = music) }
         }
     }
 
@@ -487,6 +489,7 @@ class AppController(
         val s = state.value
         val montage = s.montage ?: return
         val music = montage.music ?: return
+        musicPrefs.remember(music, montage.musicFromStart)
         val session = s.session ?: return
         val p = backend?.pipeline ?: return
         _state.update { it.copy(montage = null) }
@@ -512,6 +515,7 @@ class AppController(
                     audioBalance = montage.balance,
                     gameAudio = montage.gameAudio,
                     reactions = montage.reactions,
+                    musicFromStart = montage.musicFromStart,
                 ),
                 progress,
             )

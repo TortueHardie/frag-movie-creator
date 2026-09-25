@@ -140,6 +140,9 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                         )
                         OutlinedButton(onClick = actions::chooseMusic) { Text("Choisir…") }
                     }
+                    MontageToggle("Musique depuis le début (sinon : le passage le plus intense, autour de la drop)", montage.musicFromStart) { v ->
+                        actions.updateMontage { it.copy(musicFromStart = v) }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Durée maximale", modifier = Modifier.weight(1f))
                         OutlinedTextField(

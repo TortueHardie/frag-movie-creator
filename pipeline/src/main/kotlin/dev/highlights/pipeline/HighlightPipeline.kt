@@ -110,6 +110,8 @@ data class MontageOptions(
     val gameAudio: GameAudio? = null,
     /** Mettre en avant voix et rires (plans prolongés, micro monté, musique baissée dessous). */
     val reactions: Boolean? = null,
+    /** Musique prise depuis son début, au lieu du passage le plus intense autour de la drop. */
+    val musicFromStart: Boolean? = null,
 )
 
 /** [reused] : analyse reprise de la mémoire, sans recalcul. */
@@ -386,6 +388,7 @@ class HighlightPipeline(
             length = base.length.copy(fitKills = options.fitKills ?: base.length.fitKills),
             order = options.order ?: base.order,
             hook = options.hook ?: base.hook,
+            cuts = base.cuts.copy(fromStart = options.musicFromStart ?: base.cuts.fromStart),
             effectDensity = options.effectDensity ?: base.effectDensity,
             zoom = base.zoom.copy(enabled = options.zoom ?: base.zoom.enabled),
             flash = base.flash.copy(

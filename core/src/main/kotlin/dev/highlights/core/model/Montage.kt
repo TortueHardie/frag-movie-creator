@@ -98,6 +98,11 @@ data class MontageLength(
  */
 @Serializable
 data class CutSettings(
+    /**
+     * Musique prise depuis son premier temps, au lieu du passage le plus intense autour de la drop : pour les musiques
+     * dont l'intro fait partie du montage (celles qu'on reconnaît à leurs premières notes).
+     */
+    val fromStart: Boolean = false,
     /** Durée visée d'un clip dans une section calme (intro, breakdown). */
     val low: SerialDuration = 4.seconds,
     /** Dans une section moyenne (couplet, montée). */

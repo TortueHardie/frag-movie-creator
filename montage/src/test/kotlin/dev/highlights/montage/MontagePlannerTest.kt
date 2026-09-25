@@ -19,6 +19,7 @@ import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.doubles.plusOrMinus
 import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import java.time.Instant
 import kotlin.io.path.Path
 import kotlin.time.Duration
@@ -184,6 +185,15 @@ class MontagePlannerTest : FunSpec({
         val p = plan(listOf(900, 100, 500), s = chrono)
         check(p)
         p.clips.map { it.kills.first().inWholeSeconds } shouldBe listOf(100L, 500L, 900L)
+    }
+
+    test("musique depuis le début : le montage commence au premier temps, même loin de la drop") {
+        // Longue intro calme (4 minutes à 120 BPM) : sans l'option, le montage part autour de la drop.
+        val m = music(seconds = 300, intro = 480, build = 32)
+        val kills = (1..8).map { it * 100 }
+        plan(kills, m).startBeat shouldNotBe 0
+        val fromStart = settings.copy(cuts = settings.cuts.copy(fromStart = true))
+        plan(kills, m, fromStart).startBeat shouldBe 0
     }
 
     test("aucun kill : erreur explicite") {

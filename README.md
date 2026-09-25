@@ -270,6 +270,9 @@ détecte les kills). En ligne de commande :
   mieux noté est rendu, à condition de garder presque tous les clips du plan de base et de le battre nettement.
 - **Accroche** : le meilleur groupe après celui de la drop ouvre le montage (`--no-hook`) : c'est dans les premières
   secondes que le spectateur décide de rester.
+- **Musique depuis le début** (`cuts.fromStart`, `--from-start`, case de la fenêtre de montage retenue pour chaque
+  musique dans `~/.highlights/music.json`) : le montage part du premier temps de la musique au lieu du passage le plus
+  intense autour de la drop. Pour les musiques qu'on reconnaît à leur intro ; une intro calme donne des plans longs.
 - **Une emphase par plan** (`effectDensity`, `--effects sober|balanced|heavy`) : au rythme normal, un plan reçoit un
   ralenti *ou* un zoom, jamais les deux. Le ralenti va aux plans forts — drop, multi-kill visible à l'écran, accroche —
   et les autres prennent le zoom. `sober` ne garde que le ralenti de la drop, `heavy` remet tout partout.
