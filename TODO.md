@@ -18,7 +18,7 @@ garde le sens du balayage dans `KillTraits.direction` ; `MontageRenderBuilder.wh
 
 - Piste : un bruitage de souffle (whoosh) sur la coupe renforcerait l'effet.
 
-## 3. Raccords visée sur visée (fait, 3 coupes sur 18 sur le dernier montage)
+## 3. Raccords visée sur visée (fait, 4 coupes sur 18 sur le dernier montage)
 
 Sur les parties WARDOGS, les rechargements et changements d'arme n'apparaissent presque jamais autour des kills : le
 geste qui revient, c'est la visée (le joueur épaule avant le kill et baisse son arme 0 à 0,5 s après). Le plan sortant
@@ -27,9 +27,13 @@ centre par-dessus la coupe. Voir `MatchCutter` et `ScopeCuts` ; réglages dans `
 
 - Un kill tiré à la hanche est écarté (symétrie du bas de la zone, `minSymmetry`) : 5 sur 5 écartés, 1 kill visé sur
   14 écarté à tort (décor très dissymétrique derrière l'arme).
-- Limite : la fin du plan sortant. La visée dure 0 à 0,5 s après le kill, le plan encore 1,1 s et plus : il faut
-  ralentir jusqu'à ×0,3, et la plupart des coupes restent hors de portée. Piste : quand un raccord est possible,
-  laisser le planificateur raccourcir la fin du plan après le kill (moins de temps après le kill, plus avant le suivant).
+- La visée est mesurée avant la planification (`MatchCutter.inspect`) : quand deux plans voisins visent, le kill peut
+  changer de temps dans son plan pour qu'il reste moins à ralentir (`MontagePlanner.aimFit`), plan par plan, si la note
+  du montage n'y perd pas plus que les raccords gagnés ne valent (`MATCH_VALUE`, 0,005 par raccord). Sur le dernier
+  montage : 4 raccords au lieu de 3, note inchangée ; 6 sans arbitrage, mais premier kill à 2,7 s au lieu de 1,6 s et
+  plus long passage sans kill de 7,6 s au lieu de 6 s.
+- Limite restante : la fin du plan sortant. Le joueur baisse son arme 0 à 0,5 s après le kill ; il faudrait des plans
+  plus courts après le kill, ce qui allonge l'attente avant le kill suivant.
 - Piste : l'ordre des clips est fixé avant les raccords ; le choisir aussi pour rapprocher les clips qui se raccordent.
 
 ## 4. Scoreur sensible aux temps morts (fait)

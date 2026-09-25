@@ -6,6 +6,7 @@ import dev.highlights.core.ffmpeg.StdoutHandler
 import dev.highlights.core.model.CropRegion
 import dev.highlights.core.model.MatchCut
 import dev.highlights.core.model.MediaInfo
+import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.RegionAnchor
 import dev.highlights.core.model.ScreenGeometry
 import dev.highlights.core.model.TimeRange
@@ -29,57 +30,54 @@ import kotlin.time.Duration.Companion.seconds
 private val log = KotlinLogging.logger {}
 
 /**
- * Raccords visée sur visée (voir [MatchCut]) : à chaque coupe, repère jusqu'où le joueur vise encore après le dernier
- * kill du plan sortant, et depuis quand il vise avant le premier kill du plan entrant. Si les deux plans peuvent être
- * taillés dans leur visée, la fin de l'un et le début de l'autre y sont ramenés, ralentis pour garder la durée du slot :
- * le viseur reste au centre de l'écran par-dessus la coupe. Une coupe qu'on n'arrive pas à lire reste où elle est.
+ * Raccords visée sur visée (voir [MatchCut]) : repère, pour chaque groupe de kills, depuis quand le joueur vise avant
+ * le premier kill et jusqu'où il vise encore après le dernier. La planification s'en sert pour placer les kills dans
+ * leurs plans, puis [ScopeCuts.apply] ramène la fin du plan sortant et le début de l'entrant dans leur visée, ralentis
+ * pour garder la durée du slot : le viseur reste au centre de l'écran par-dessus la coupe.
  */
 class MatchCutter(private val ffmpeg: FfmpegService) {
 
-    suspend fun apply(plan: MontagePlan, progress: ProgressReporter): MontagePlan {
-        val settings = plan.settings.matchCut
-        if (!settings.enabled || plan.clips.size < 2) return plan.also { progress.complete() }
+    /**
+     * Visée autour des kills de chaque groupe (voir [Aim]) : avant le premier kill, sur [HEAD_REACH] au plus, et après
+     * le dernier, sur [TAIL_REACH]. Mesurée avant la planification, qui s'en sert pour placer les kills dans leurs plans.
+     */
+    suspend fun inspect(groups: List<KillGroup>, settings: MontageSettings, progress: ProgressReporter): List<KillGroup> {
+        val scope = settings.matchCut
+        if (!scope.enabled || groups.size < 2) return groups.also { progress.complete() }
         val semaphore = Semaphore(PARALLELISM)
-        // Chaque clip est lu une fois de chaque côté : sa fin pour la coupe qui le suit, son début pour celle qui l'ouvre.
-        val sides = coroutineScope {
-            plan.clips.mapIndexed { i, clip ->
+        var done = 0
+        val result = coroutineScope {
+            groups.map { group ->
                 async {
                     semaphore.withPermit {
-                        val tail = if (i < plan.clips.lastIndex) read(clip, head = false, settings) else null
-                        val head = if (i > 0) read(clip, head = true, settings) else null
-                        head to tail
-                    }.also { progress.update((i + 1).toDouble() / plan.clips.size, "plan ${i + 1}/${plan.clips.size}") }
+                        val aim = Aim(start = read(group, head = true, scope), end = read(group, head = false, scope))
+                        synchronized(this@MatchCutter) { done++ }
+                        progress.update(done.toDouble() / groups.size, "groupe $done/${groups.size}")
+                        group.copy(aim = aim)
+                    }
                 }
             }.awaitAll()
         }
-        val clips = plan.clips.toMutableList()
-        for (i in 1 until clips.size) {
-            val out = plan.clips[i - 1]
-            val into = plan.clips[i]
-            val aimEnd = sides[i - 1].second
-            val aimStart = sides[i].first
-            val cut = ScopeCuts.cut(out, into, aimEnd, aimStart, settings)
-            log.info { "Coupe $i : ${describe(out, into, aimEnd, aimStart, cut)}" }
-            if (cut == null) continue
-            // Le plan sortant a pu être retaillé par la coupe précédente : on ne touche qu'à sa fin.
-            clips[i - 1] = ScopeCuts.retimeTail(clips[i - 1], cut.end) ?: continue
-            clips[i] = cut.into.copy(matchCut = true)
+        log.info {
+            "Visée : ${result.count { it.aim.start != null }} groupe(s) visés avant leur premier kill, " +
+                "${result.count { it.aim.end != null }} après leur dernier, sur ${groups.size}"
         }
-        log.info { "Raccords visée sur visée : ${clips.count { it.matchCut }} coupe(s) sur ${plan.clips.size - 1}" }
         progress.complete()
-        return plan.copy(clips = clips)
+        return result
     }
 
     /**
      * Instant où la visée commence avant le premier kill ([head]) ou finit après le dernier, dans la source ; null si
-     * le clip ne se lit pas ou si le joueur ne vise pas au moment du kill.
+     * la capture ne se lit pas ou si le joueur ne vise pas au moment du kill.
      */
-    private suspend fun read(clip: MontageClip, head: Boolean, settings: MatchCut): Duration? {
-        val kill = (if (head) clip.kills.firstOrNull() else clip.kills.lastOrNull()) ?: return null
+    private suspend fun read(group: KillGroup, head: Boolean, settings: MatchCut): Duration? {
+        val media = group.media
+        val kill = if (head) group.kills.first() else group.kills.last()
         val frame = ScopeCuts.FRAME
-        val range = if (head) TimeRange(clip.start, kill) else TimeRange(kill - settings.reference - frame, clip.end)
+        val range = if (head) TimeRange(maxOf(media.bounds.start, kill - HEAD_REACH), kill)
+        else TimeRange(kill - settings.reference - frame, minOf(media.duration, kill + TAIL_REACH))
         return try {
-            val frames = decode(clip.group.media, range, settings.region) ?: return null
+            val frames = decode(media, range, settings.region) ?: return null
             val killIndex = ((kill - range.start) / frame).toInt().coerceIn(0, frames.size)
             val curve = ScopeCuts.aimCurve(frames, killIndex, ScopeCuts.frames(settings.reference), settings.stillShare, settings.minSymmetry) ?: return null
             // Quelques images en deçà du bord de la visée : le viseur y est posé, pas encore en train d'arriver ou de partir.
@@ -92,15 +90,6 @@ class MatchCutter(private val ffmpeg: FfmpegService) {
             log.warn { "Visée illisible autour de ${Durations.format(kill)} : ${e.message}" }
             null
         }
-    }
-
-    private fun describe(out: MontageClip, into: MontageClip, aimEnd: Duration?, aimStart: Duration?, cut: ScopeCut?): String {
-        fun s(d: Duration) = "%.2f s".format(Locale.ROOT, d.inWholeMilliseconds / 1000.0)
-        val after = aimEnd?.let { "visée ${s(it - out.anchor)} après le kill sortant" } ?: "pas de visée après le kill sortant"
-        val before = aimStart?.let { "${s(into.kills.first() - it)} avant le kill entrant" } ?: "pas de visée avant le kill entrant"
-        fun speed(f: Double?) = f?.let { "×${"%.2f".format(Locale.ROOT, it)}" } ?: "inchangée"
-        val result = cut?.let { ", raccord (fin ${speed(it.tailSpeed)}, début ${speed(it.headSpeed)})" } ?: ", coupe laissée"
-        return "$after, $before$result"
     }
 
     /** Petites images en niveaux de gris de la zone du viseur sur [range], une par [ScopeCuts.FRAME]. */
@@ -136,6 +125,12 @@ class MatchCutter(private val ffmpeg: FfmpegService) {
     companion object {
         private const val PARALLELISM = 4
 
+        /** Visée cherchée avant le premier kill : de quoi couvrir le plus long début de plan qu'on voudrait raccorder. */
+        private val HEAD_REACH = 2.seconds
+
+        /** Visée cherchée après le dernier kill : le joueur baisse son arme bien avant. */
+        private val TAIL_REACH = 1500.milliseconds
+
         /** Format sur lequel la zone par défaut a été mesurée. */
         private const val REFERENCE_ASPECT = 16.0 / 9
     }
@@ -166,6 +161,45 @@ object ScopeCuts {
     val MIN_AIM_AFTER = 100.milliseconds
 
     fun frames(d: Duration): Int = (d / FRAME).toInt().coerceAtLeast(1)
+
+    /**
+     * Raccorde les coupes du plan d'après la visée de chaque groupe (voir [MatchCutter.inspect]) : chaque coupe dont les
+     * deux plans visent est retaillée par [cut]. Le journal dit, coupe par coupe, ce qui a été trouvé et fait.
+     */
+    fun apply(plan: MontagePlan): MontagePlan = apply(plan, verbose = true)
+
+    /** Nombre de coupes que [apply] raccorderait, sans rien écrire au journal. */
+    fun count(plan: MontagePlan): Int = apply(plan, verbose = false).clips.count { it.matchCut }
+
+    private fun apply(plan: MontagePlan, verbose: Boolean): MontagePlan {
+        val settings = plan.settings.matchCut
+        if (!settings.enabled || plan.clips.size < 2) return plan
+        val clips = plan.clips.toMutableList()
+        for (i in 1 until clips.size) {
+            val out = plan.clips[i - 1]
+            val into = plan.clips[i]
+            val aimEnd = out.group.aim.end
+            // La visée mesurée précède le premier kill du groupe : sans lui à l'écran, elle ne dit rien du début du plan.
+            val aimStart = into.group.aim.start?.takeIf { into.kills.firstOrNull() == into.group.kills.first() }
+            val cut = cut(out, into, aimEnd, aimStart, settings)
+            if (verbose) log.info { "Coupe $i : ${describe(out, into, aimEnd, aimStart, cut)}" }
+            if (cut == null) continue
+            // Le plan sortant a pu être retaillé par la coupe précédente : on ne touche qu'à sa fin.
+            clips[i - 1] = retimeTail(clips[i - 1], cut.end) ?: continue
+            clips[i] = cut.into.copy(matchCut = true)
+        }
+        if (verbose) log.info { "Raccords visée sur visée : ${clips.count { it.matchCut }} coupe(s) sur ${plan.clips.size - 1}" }
+        return plan.copy(clips = clips)
+    }
+
+    private fun describe(out: MontageClip, into: MontageClip, aimEnd: Duration?, aimStart: Duration?, cut: ScopeCut?): String {
+        fun s(d: Duration) = "%.2f s".format(Locale.ROOT, d.inWholeMilliseconds / 1000.0)
+        val after = aimEnd?.let { "visée ${s(it - out.anchor)} après le kill sortant" } ?: "pas de visée après le kill sortant"
+        val before = aimStart?.let { "${s(into.kills.first() - it)} avant le kill entrant" } ?: "pas de visée avant le kill entrant"
+        fun speed(f: Double?) = f?.let { "×${"%.2f".format(Locale.ROOT, it)}" } ?: "inchangée"
+        val result = cut?.let { ", raccord (fin ${speed(it.tailSpeed)}, début ${speed(it.headSpeed)})" } ?: ", coupe laissée"
+        return "$after, $before$result"
+    }
 
     /**
      * Ressemblance de chaque image avec la visée du kill : la référence est la moyenne des [reference] images qui

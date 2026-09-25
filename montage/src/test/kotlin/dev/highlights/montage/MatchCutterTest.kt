@@ -119,6 +119,40 @@ class MatchCutterTest : FunSpec({
         ScopeCuts.retimeTail(clip, clip.anchor + 50.milliseconds) shouldBe null
     }
 
+    // Le joueur épaule 0,6 s avant son premier kill et baisse son arme 0,35 s après le dernier : trop peu pour la fin
+    // d'un plan placé sans tenir compte de la visée.
+    fun aimed(g: KillGroup) = g.copy(aim = Aim(start = g.kills.first() - 600.milliseconds, end = g.kills.last() + 350.milliseconds))
+    val groups = plan.clips.map { it.group }.distinct()
+
+    test("planification : le kill est placé pour que le plan tienne dans la visée") {
+        val group = groups.single { it.kills.size == 1 && it.kills.first() == 500.seconds }
+        val slot = CutSlot(104, 112, 1, null)
+        fun pre(c: MontageClip) = music.beatTime(c.anchorBeat) - music.beatTime(c.slot.startBeat)
+        fun post(c: MontageClip) = music.beatTime(c.slot.endBeat) - music.beatTime(c.anchorBeat)
+        val free = MontagePlanner.clipFor(slot to group, music, settings, 2, 1)
+        (post(free) > 600.milliseconds) shouldBe true
+        (pre(free) > 1200.milliseconds) shouldBe true
+        val tail = MontagePlanner.clipFor(slot to group, music, settings, 2, 1, aim = MontagePlanner.AimFit(maxPost = 600.milliseconds))
+        (post(tail) <= 600.milliseconds) shouldBe true
+        val head = MontagePlanner.clipFor(slot to group, music, settings, 2, 1, aim = MontagePlanner.AimFit(maxPre = 1200.milliseconds))
+        (pre(head) <= 1200.milliseconds) shouldBe true
+    }
+
+    test("planification : les coupes entre plans qui visent sont raccordées, kills sur leur temps") {
+        val planned = ScopeCuts.apply(MontagePlanner.plan(groups.map(::aimed), music, settings))
+        (planned.clips.count { it.matchCut } >= 1) shouldBe true
+        planned.clips.forEach { c ->
+            ms(c.toOutput(c.end)) shouldBe (ms(c.outputLength) plusOrMinus 0.01)
+            ms(c.outputKills().last()) shouldBe (ms(music.beatTime(c.anchorBeat) - music.beatTime(c.slot.startBeat)) plusOrMinus 1.0)
+        }
+    }
+
+    test("planification : sans voisin qui vise, rien ne change") {
+        val lone = groups.mapIndexed { i, g -> if (i == 0) aimed(g) else g }
+        MontagePlanner.plan(lone, music, settings).clips.map { it.anchorBeat } shouldBe plan.clips.map { it.anchorBeat }
+        MontagePlanner.aimFit(null, aimed(groups[0]), groups[1], settings) shouldBe MontagePlanner.AimFit.NONE
+    }
+
     test("coupe raccordée : ni flash ni whip") {
         val flick = KillTraits(flick = 1.0, direction = FlickDirection.RIGHT)
         val clips = plan.clips.map { c -> c.copy(group = c.group.copy(traits = c.group.kills.map { flick })) }

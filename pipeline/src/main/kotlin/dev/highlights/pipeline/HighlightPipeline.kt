@@ -36,6 +36,7 @@ import dev.highlights.montage.MatchCutter
 import dev.highlights.montage.MontageExportRequest
 import dev.highlights.montage.MontagePlanner
 import dev.highlights.montage.MusicAnalyzer
+import dev.highlights.montage.ScopeCuts
 import dev.highlights.scoring.HighlightMerge
 import dev.highlights.scoring.ScoringEngine
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -407,8 +408,9 @@ class HighlightPipeline(
         val analysisStep = progress.child("Musique", 0.06)
         val analysis = MusicAnalyzer.analyze(ffmpeg, music)
         analysisStep.complete()
-        val groups = KillInspector(ffmpeg).inspect(MontagePlanner.groups(sessions, settings), settings, profile.audio, progress.child("Kills", 0.06))
-        val plan = MatchCutter(ffmpeg).apply(MontagePlanner.best(groups, analysis, settings), progress.child("Raccords", 0.02))
+        val inspected = KillInspector(ffmpeg).inspect(MontagePlanner.groups(sessions, settings), settings, profile.audio, progress.child("Kills", 0.06))
+        val groups = MatchCutter(ffmpeg).inspect(inspected, settings, progress.child("Visée", 0.02))
+        val plan = ScopeCuts.apply(MontagePlanner.best(groups, analysis, settings))
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(analysis.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
         return withJobDir { workDir ->
             montageExporter.export(
