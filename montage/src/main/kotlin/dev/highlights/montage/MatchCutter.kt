@@ -11,6 +11,7 @@ import dev.highlights.core.model.PoseKind
 import dev.highlights.core.model.RegionAnchor
 import dev.highlights.core.model.ScreenGeometry
 import dev.highlights.core.model.TimeRange
+import dev.highlights.core.model.WeaponHud
 import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.serialization.Durations
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -20,7 +21,12 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import java.awt.image.BufferedImage
+import java.nio.file.Path
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import javax.imageio.ImageIO
+import kotlin.io.path.Path
 import kotlin.io.path.isRegularFile
 import kotlin.math.sqrt
 import kotlin.time.Duration
@@ -37,6 +43,9 @@ private val log = KotlinLogging.logger {}
  * pour garder la durée du slot : le viseur reste au centre de l'écran par-dessus la coupe.
  */
 class MatchCutter(private val ffmpeg: FfmpegService) {
+
+    /** Modèles du repère d'arme en main, chargés une fois par fichier. */
+    private val templates = ConcurrentHashMap<String, WeaponTemplate>()
 
     /**
      * Visée autour des kills de chaque groupe (voir [Aim]) : avant le premier kill, sur [HEAD_REACH] au plus, et après
@@ -82,18 +91,21 @@ class MatchCutter(private val ffmpeg: FfmpegService) {
         return try {
             val frames = decode(media, range, settings.region) ?: return null
             val killIndex = ((kill - range.start) / frame).toInt().coerceIn(0, frames.size)
+            val armed = settings.weapon?.let { armed(media, range, it) ?: return null }
             fun at(i: Int) = range.start + frame * i
             val margin = ScopeCuts.MARGIN
             when (settings.pose) {
                 PoseKind.AIM -> {
-                    val held = ScopeCuts.aimCurve(frames, killIndex, ScopeCuts.frames(settings.reference), settings.stillShare, settings.minSymmetry) ?: return null
+                    val held = ScopeCuts.aimCurve(frames, killIndex, ScopeCuts.frames(settings.reference), settings.stillShare, settings.minSymmetry)
+                        ?.let { ScopeCuts.disarm(it, armed) } ?: return null
                     // Quelques images en deçà du bord de la visée : le viseur y est posé, pas encore en train d'arriver ou de partir.
                     val window = if (head) ScopeCuts.aimStart(held.curve, killIndex, settings.minSimilarity)?.let { TimeRange(at(it + margin), kill) }
                     else ScopeCuts.aimEnd(held.curve, killIndex, settings.minSimilarity)?.let { TimeRange(kill, at(it - margin)) }
                     window?.takeIf { it.length.isPositive() }?.let { it to held.pose }
                 }
                 PoseKind.REST -> {
-                    val held = ScopeCuts.restCurve(frames, settings.stillShare, killIndex, ScopeCuts.frames(settings.reference), settings.minSimilarity) ?: return null
+                    val held = ScopeCuts.restCurve(frames, settings.stillShare, killIndex, ScopeCuts.frames(settings.reference), settings.minSimilarity)
+                        ?.let { ScopeCuts.disarm(it, armed) } ?: return null
                     val runs = ScopeCuts.runs(held.curve, settings.minSimilarity)
                     // Le repos le plus proche du kill, de son côté, arrêté au kill : l'arme est souvent au repos à travers lui.
                     val run = if (head) runs.lastOrNull { it.first < killIndex }?.let { it.first + margin..minOf(it.last - margin, killIndex) }
@@ -109,13 +121,29 @@ class MatchCutter(private val ffmpeg: FfmpegService) {
         }
     }
 
+    /**
+     * Arme en main image par image sur [range] (une par [ScopeCuts.FRAME]) : le repère du HUD [hud] y est-il ? Null si
+     * la zone ne se lit pas.
+     */
+    private suspend fun armed(media: MediaInfo, range: TimeRange, hud: WeaponHud): BooleanArray? {
+        val template = templates.getOrPut(hud.template) { WeaponTemplate.load(Path(hud.template)) }
+        val frames = decode(media, range, hud.region, hud.width, hud.height, "arme en main") ?: return null
+        return BooleanArray(frames.size) { template.score(frames[it], hud.width, hud.height) >= hud.minScore }
+    }
+
     /** Petites images en niveaux de gris de la zone du viseur sur [range], une par [ScopeCuts.FRAME]. */
-    private suspend fun decode(media: MediaInfo, range: TimeRange, region: CropRegion): List<FloatArray>? {
+    private suspend fun decode(
+        media: MediaInfo,
+        range: TimeRange,
+        region: CropRegion,
+        width: Int = ScopeCuts.SIZE,
+        height: Int = ScopeCuts.SIZE,
+        label: String = "visée",
+    ): List<FloatArray>? {
         val video = media.video ?: return null
         if (!media.path.isRegularFile()) return null
         if (range.start < media.bounds.start || range.end > media.duration || !range.length.isPositive()) return null
         val zone = ScreenGeometry.rescale(region, REFERENCE_ASPECT, video.width.toDouble() / video.height, RegionAnchor.CENTER)
-        val size = ScopeCuts.SIZE
         val frames = mutableListOf<FloatArray>()
         ffmpeg.run(
             FfmpegCommand(
@@ -123,14 +151,14 @@ class MatchCutter(private val ffmpeg: FfmpegService) {
                     "-ss", Durations.ffmpegSecondsPrecise(range.start), "-t", Durations.ffmpegSeconds(range.length), "-i", media.path.toString(),
                     "-an", "-vf",
                     "fps=${ScopeCuts.FPS},crop=iw*${num(zone.width)}:ih*${num(zone.height)}:iw*${num(zone.x)}:ih*${num(zone.y)}," +
-                        "scale=$size:$size:flags=area,format=gray",
+                        "scale=$width:$height:flags=area,format=gray",
                     "-f", "rawvideo", "pipe:1",
                 ),
-                "visée ${Durations.format(range.start)}",
+                "$label ${Durations.format(range.start)}",
             ),
             StdoutHandler.Binary { input ->
                 val bytes = input.readAllBytes()
-                val pixels = size * size
+                val pixels = width * height
                 for (i in 0 until bytes.size / pixels) frames += FloatArray(pixels) { (bytes[i * pixels + it].toInt() and 0xFF).toFloat() }
             },
         )
@@ -161,6 +189,58 @@ class Pose(val mean: DoubleArray, val still: BooleanArray)
 
 /** Ressemblance de chaque image à la pose ([curve]), et cette pose. */
 class HeldPose(val curve: DoubleArray, val pose: Pose)
+
+/**
+ * Modèle du repère d'arme en main (voir [WeaponHud]), centré et normé : [score] est la meilleure corrélation (-1..1)
+ * du modèle avec une zone du HUD, sur toutes ses positions dans la zone.
+ */
+class WeaponTemplate(val width: Int, val height: Int, pixels: FloatArray) {
+    private val template: DoubleArray = run {
+        val mean = pixels.average()
+        val centered = DoubleArray(pixels.size) { pixels[it] - mean }
+        val norm = sqrt(centered.sumOf { it * it })
+        require(norm > 1e-6) { "modèle d'arme en main uniforme" }
+        DoubleArray(centered.size) { centered[it] / norm }
+    }
+
+    fun score(zone: FloatArray, zoneWidth: Int, zoneHeight: Int): Double {
+        var best = -1.0
+        val n = width * height
+        val patch = DoubleArray(n)
+        for (y0 in 0..zoneHeight - height) for (x0 in 0..zoneWidth - width) {
+            var sum = 0.0
+            for (y in 0 until height) for (x in 0 until width) {
+                val v = zone[(y0 + y) * zoneWidth + x0 + x].toDouble()
+                patch[y * width + x] = v
+                sum += v
+            }
+            val mean = sum / n
+            var dot = 0.0
+            var sq = 0.0
+            for (i in 0 until n) {
+                val c = patch[i] - mean
+                dot += c * template[i]
+                sq += c * c
+            }
+            if (sq > 1e-6) best = maxOf(best, dot / sqrt(sq))
+        }
+        return best
+    }
+
+    companion object {
+        /** Image en niveaux de gris (échantillons bruts, sans conversion gamma), ou en couleur ramenée à la luminance. */
+        fun load(file: Path): WeaponTemplate {
+            val image: BufferedImage = ImageIO.read(file.toFile()) ?: throw IllegalArgumentException("Modèle d'arme en main illisible : $file")
+            val pixels = FloatArray(image.width * image.height) { i ->
+                val x = i % image.width
+                val y = i / image.width
+                if (image.raster.numBands == 1) image.raster.getSample(x, y, 0).toFloat()
+                else image.getRGB(x, y).let { (0.299 * (it shr 16 and 0xFF) + 0.587 * (it shr 8 and 0xFF) + 0.114 * (it and 0xFF)).toFloat() }
+            }
+            return WeaponTemplate(image.width, image.height, pixels)
+        }
+    }
+}
 
 /**
  * Raccord retenu pour une coupe : nouvelle fin du plan sortant, plan entrant retaillé, et vitesse des portions rejouées
@@ -419,6 +499,16 @@ object ScopeCuts {
         val output = clip.toOutput(kill) - clip.toOutput(clip.start)
         val speeds = split(clip.speeds, kill).filter { it.range.start >= kill }
         return clip.copy(start = start, speeds = listOf(SpeedSegment(TimeRange(start, kill), (kill - start) / output, SpeedKind.SLOW)) + speeds)
+    }
+
+    /**
+     * Pose sans les images où l'arme n'est pas en main ([armed], null : pas de vérification) : elles ne comptent plus
+     * comme tenues. Deux décodages d'une même durée peuvent différer d'une image : au-delà, on ne sait pas.
+     */
+    fun disarm(held: HeldPose, armed: BooleanArray?): HeldPose {
+        if (armed == null) return held
+        val curve = DoubleArray(held.curve.size) { i -> if (armed.getOrElse(i) { false }) held.curve[i] else -1.0 }
+        return HeldPose(curve, held.pose)
     }
 
     /** Moyenne des images autour de [i], sur [SYMMETRY_SPAN] images : une image seule est trop bruitée pour la symétrie. */

@@ -712,28 +712,48 @@ object MontagePlanner {
         while (true) {
             val current = links()
             val alike = monotony()
-            var best: Pair<Int, Int>? = null
-            var bestLinks = current
-            for (i in cells.indices) for (j in i + 1 until cells.size) {
-                if (i in fixed || j in fixed) continue
-                val a = order[i]
-                val b = order[j]
-                if (abs(groups[a].rank - groups[b].rank) > ORDER_TOLERANCE) continue
+            fun swap(i: Int, j: Int) {
+                order[i] = order[j].also { order[j] = order[i] }
+            }
+            fun allowed(i: Int, j: Int): Boolean {
+                if (i in fixed || j in fixed) return false
+                val a = groups[order[i]]
+                val b = groups[order[j]]
+                if (abs(a.rank - b.rank) > ORDER_TOLERANCE) return false
                 // Un groupe ne perd pas de place à l'échange : le nouveau slot le contient, ou n'est pas plus court que l'ancien.
-                if (!(need(groups[a]) <= cells[j].beats || cells[j].beats >= cells[i].beats)) continue
-                if (!(need(groups[b]) <= cells[i].beats || cells[i].beats >= cells[j].beats)) continue
-                order[i] = b
-                order[j] = a
+                return (need(a) <= cells[j].beats || cells[j].beats >= cells[i].beats) &&
+                    (need(b) <= cells[i].beats || cells[i].beats >= cells[j].beats)
+            }
+            val swaps = cells.indices.flatMap { i -> (i + 1 until cells.size).map { i to it } }.filter { (i, j) -> allowed(i, j) }
+            // Le meilleur échange ; faute d'échange qui aide seul, la meilleure paire d'échanges (l'un prépare l'autre).
+            var best: List<Pair<Int, Int>>? = null
+            var bestLinks = current
+            fun consider(moves: List<Pair<Int, Int>>) {
                 val l = links()
                 if (l > bestLinks && monotony() <= alike) {
-                    best = i to j
+                    best = moves
                     bestLinks = l
                 }
-                order[i] = a
-                order[j] = b
             }
-            val (i, j) = best ?: break
-            order[i] = order[j].also { order[j] = order[i] }
+            for ((i, j) in swaps) {
+                swap(i, j)
+                consider(listOf(i to j))
+                swap(i, j)
+            }
+            if (best == null) {
+                for ((k, first) in swaps.withIndex()) {
+                    swap(first.first, first.second)
+                    for (second in swaps.subList(k + 1, swaps.size)) {
+                        if (!allowed(second.first, second.second)) continue
+                        swap(second.first, second.second)
+                        consider(listOf(first, second))
+                        swap(second.first, second.second)
+                    }
+                    swap(first.first, first.second)
+                }
+            }
+            val moves = best ?: break
+            moves.forEach { (i, j) -> swap(i, j) }
         }
         if (links() == before) return
         order.forEachIndexed { i, g -> cells[i].group = groups[g] }

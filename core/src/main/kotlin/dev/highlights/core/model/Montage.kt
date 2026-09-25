@@ -296,6 +296,26 @@ data class WhipPanEffect(
 }
 
 /**
+ * Repère du HUD qui n'apparaît qu'avec une arme à feu en main (VALORANT : l'icône du chargeur, entre les munitions du
+ * chargeur et la réserve). [region] : où le chercher, mesurée en 16:9 et accrochée au centre comme le HUD ; la zone
+ * est réduite à [width] x [height] pixels, l'échelle à laquelle [template] a été découpé. Présent si la corrélation
+ * avec le modèle atteint [minScore] quelque part dans la zone.
+ */
+@Serializable
+data class WeaponHud(
+    val template: String,
+    val region: CropRegion,
+    val width: Int = 64,
+    val height: Int = 40,
+    val minScore: Double = 0.8,
+) {
+    init {
+        require(width in 8..256 && height in 8..256) { "montage.matchCut.weapon : zone réduite entre 8 et 256 pixels" }
+        require(minScore in -1.0..1.0) { "montage.matchCut.weapon.minScore doit être entre -1 et 1" }
+    }
+}
+
+/**
  * Pose de l'arme qu'on raccorde d'un plan à l'autre. [AIM] : la visée, tenue jusqu'au kill et juste après, comparée à
  * l'image du kill (WARDOGS). [REST] : l'arme au repos, comparée à l'image médiane autour du kill ; au moment du kill
  * elle tremble sous le recul, le plan commence et finit donc dans le repos le plus proche (VALORANT).
@@ -341,6 +361,11 @@ data class MatchCut(
      * change) ; à la hanche, un pistolet après un fusil ne se raccorde pas.
      */
     val minPoseMatch: Double = -1.0,
+    /**
+     * Arme en main, lue dans le HUD : une image ne compte dans la pose que si ce repère y est. Sans lui, une capacité
+     * ou un couteau tenus à la même place qu'une arme passent pour elle. Null : pas de vérification.
+     */
+    val weapon: WeaponHud? = null,
     /**
      * Vitesse minimale des portions ralenties pour tenir dans la visée (0,3 = trois fois plus lent). Le joueur baisse
      * son arme 0 à 0,5 s après le kill, alors que le plan dure encore plus d'une seconde : la fin se ralentit beaucoup.
