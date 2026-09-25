@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.file.Path
@@ -99,6 +100,10 @@ interface UiActions {
     fun reveal(path: Path)
     fun dismissError()
     fun dismissImagePreview()
+
+    /** Télécharge la nouvelle version, ferme l'application et l'installe par-dessus. */
+    fun installUpdate()
+    fun dismissUpdate()
 }
 
 /**
@@ -113,6 +118,7 @@ class AppController(
     /** Intervalle entre deux passages sur le dossier surveillé, et temps sans écriture avant qu'une capture soit prise. */
     private val watchInterval: Duration = 5.seconds,
     private val watchSettle: Duration = 15.seconds,
+    private val updater: Updater = Updater.NONE,
     private val backendFactory: () -> Backend = {
         val file = ConfigLocator.locate()
         val config = ConfigYaml.load(file)
@@ -128,9 +134,11 @@ class AppController(
     private var thumbnailJob: Job? = null
     private var saveJob: Job? = null
     private var watchJob: Job? = null
+    private var updateJob: Job? = null
 
     init {
         reloadConfig()
+        checkForUpdate()
     }
 
     // ---------------------------------------------------------------- configuration
@@ -382,6 +390,56 @@ class AppController(
         jobs.forEach { it.cancel() }
         runBlocking { withTimeoutOrNull(3.seconds) { jobs.forEach { it.join() } } }
         state.value.session?.entries?.forEach { runCatching { SessionStore.save(it.session, it.file) } }
+    }
+
+    // ---------------------------------------------------------------- mises à jour
+
+    /** Au démarrage, en fond : une release plus récente que la version installée est proposée. Silencieux hors ligne. */
+    private fun checkForUpdate() {
+        val current = updater.currentVersion ?: return
+        scope.launch {
+            val release = runCatching { withContext(Dispatchers.IO) { updater.latest() } }
+                .onFailure { log.warn { "Recherche de mise à jour impossible : ${it.message}" } }
+                .getOrNull() ?: return@launch
+            if (compareVersions(release.version, current) <= 0) return@launch
+            log.info { "Version ${release.version} disponible (installée : $current)" }
+            _state.update { it.copy(update = UpdateState.Available(release)) }
+        }
+    }
+
+    override fun installUpdate() {
+        val offer = state.value.update ?: return
+        // Pas pendant une analyse ou un export : fermer l'application les interromprait.
+        if (offer is UpdateState.Downloading || offer is UpdateState.Installing || state.value.job != null) return
+        val release = offer.release
+        _state.update { it.copy(update = UpdateState.Downloading(release)) }
+        val lastUpdate = AtomicLong(0)
+        updateJob = scope.launch {
+            try {
+                // Interruptible : « Annuler » arrête le téléchargement en cours.
+                val msi = runInterruptible(Dispatchers.IO) {
+                    updater.download(release) { fraction ->
+                        val now = System.currentTimeMillis()
+                        if (fraction >= 1.0 || now - lastUpdate.getAndUpdate { prev -> if (now - prev >= 100) now else prev } >= 100) {
+                            _state.update { s -> (s.update as? UpdateState.Downloading)?.let { s.copy(update = it.copy(fraction = fraction)) } ?: s }
+                        }
+                    }
+                }
+                withContext(Dispatchers.IO) { updater.installAfterExit(msi) }
+                _state.update { it.copy(update = UpdateState.Installing(release), exitRequested = true) }
+            } catch (e: CancellationException) {
+                log.info { "Téléchargement de la version ${release.version} annulé" }
+            } catch (e: Exception) {
+                log.error(e) { "Mise à jour vers la version ${release.version} impossible" }
+                _state.update { it.copy(update = UpdateState.Failed(release, e.message ?: e.toString())) }
+            }
+        }
+    }
+
+    override fun dismissUpdate() {
+        if (state.value.update is UpdateState.Installing) return
+        updateJob?.cancel()
+        _state.update { it.copy(update = null) }
     }
 
     // ---------------------------------------------------------------- segments

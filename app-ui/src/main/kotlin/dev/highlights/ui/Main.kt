@@ -1,6 +1,7 @@
 package dev.highlights.ui
 
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -24,15 +25,18 @@ fun main() {
     application {
         val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
         var windowRef: java.awt.Frame? = null
-        val controller = remember { AppController(scope, DesktopPlatform { windowRef }) }
+        val controller = remember { AppController(scope, DesktopPlatform { windowRef }, updater = GitHubUpdater()) }
         val state by controller.state.collectAsState()
+        val quit = {
+            controller.shutdown()
+            scope.cancel()
+            exitApplication()
+        }
+        // Mise à jour : l'installeur attend la fermeture de l'application pour remplacer ses fichiers.
+        if (state.exitRequested) LaunchedEffect(Unit) { quit() }
 
         Window(
-            onCloseRequest = {
-                controller.shutdown()
-                scope.cancel()
-                exitApplication()
-            },
+            onCloseRequest = quit,
             title = "Highlights",
             state = rememberWindowState(width = 1440.dp, height = 920.dp, position = WindowPosition.PlatformDefault),
         ) {

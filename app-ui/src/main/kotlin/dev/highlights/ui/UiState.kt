@@ -38,6 +38,10 @@ data class UiState(
     /** Analyses cochées dans la liste, à ouvrir ensemble pour un seul montage (fichiers de session). */
     val librarySelection: Set<Path> = emptySet(),
     val watch: WatchState = WatchState(),
+    /** Nouvelle version proposée (null : à jour, ou pas encore vérifié). */
+    val update: UpdateState? = null,
+    /** L'installeur de la mise à jour attend que l'application se ferme. */
+    val exitRequested: Boolean = false,
 ) {
     /** Première capture : celle qui décide du profil détecté et du ratio d'origine. */
     val source: SourceInfo? get() = sources.firstOrNull()

@@ -75,6 +75,7 @@ fun App(state: UiState, actions: UiActions) {
             }
             VerticalDivider(color = Palette.outline)
             Column(Modifier.weight(1f).fillMaxHeight().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                state.update?.let { UpdateCard(it, busy = state.job != null, actions) }
                 state.job?.let { JobCard(it, actions) }
                 val session = state.session
                 if (session == null) {

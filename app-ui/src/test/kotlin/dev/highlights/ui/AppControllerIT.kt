@@ -207,7 +207,7 @@ class AppControllerIT : FunSpec({
     }
 })
 
-private class RecordingPlatform : Platform {
+internal class RecordingPlatform : Platform {
     val opened: MutableList<Path> = Collections.synchronizedList(mutableListOf())
     override fun chooseVideos(initialDir: Path?): List<Path> = emptyList()
     override fun chooseAudio(initialDir: Path?): Path? = null

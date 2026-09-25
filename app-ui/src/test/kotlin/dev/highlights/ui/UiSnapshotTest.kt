@@ -193,6 +193,16 @@ class UiSnapshotTest : FunSpec({
         render("07_plusieurs_videos", state).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("mise à jour disponible, puis en cours de téléchargement") {
+        val release = Release(
+            "1.4.0", "Highlights-1.4.0.msi", java.net.URI("https://github.com/x/y/releases/download/v1.4.0/Highlights-1.4.0.msi"),
+            180_000_000, null, java.net.URI("https://github.com/x/y/releases/tag/v1.4.0"),
+        )
+        val state = UiState(config = ready, sources = listOf(source), settings = settings, update = UpdateState.Available(release))
+        render("08_mise_a_jour", state).fileSize() shouldBeGreaterThan 0L
+        render("09_mise_a_jour_telechargement", state.copy(update = UpdateState.Downloading(release, 0.42))).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("erreur FFmpeg") {
         val state = UiState(
             config = ready,
@@ -251,4 +261,6 @@ private object NoopActions : UiActions {
     override fun reveal(path: Path) = Unit
     override fun dismissError() = Unit
     override fun dismissImagePreview() = Unit
+    override fun installUpdate() = Unit
+    override fun dismissUpdate() = Unit
 }
