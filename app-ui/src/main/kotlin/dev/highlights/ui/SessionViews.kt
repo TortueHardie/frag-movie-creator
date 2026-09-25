@@ -102,6 +102,62 @@ fun JobCard(job: JobState, actions: UiActions) {
     }
 }
 
+/** Nouvelle version disponible : un bouton la télécharge, ferme l'application, l'installe et la relance. */
+@Composable
+fun UpdateCard(update: UpdateState, busy: Boolean, actions: UiActions) {
+    val version = update.release.version
+    Surface(shape = RoundedCornerShape(10.dp), color = Palette.surface, border = BorderStroke(1.dp, Palette.accent)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    val title = when (update) {
+                        is UpdateState.Downloading -> "Téléchargement de la version $version…"
+                        is UpdateState.Installing -> "Installation de la version $version"
+                        is UpdateState.Failed -> "La mise à jour vers la version $version a échoué"
+                        is UpdateState.Available -> "Nouvelle version disponible : $version"
+                    }
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    val detail = when (update) {
+                        is UpdateState.Downloading -> "Highlights se fermera, s'installera puis se relancera tout seul."
+                        is UpdateState.Installing -> "Highlights se ferme et se relance une fois la nouvelle version installée."
+                        is UpdateState.Failed -> update.message
+                        is UpdateState.Available ->
+                            if (busy) "À installer une fois le traitement en cours terminé."
+                            else "Highlights se fermera, s'installera puis se relancera. Montages et profils sont conservés."
+                    }
+                    Text(detail, style = MaterialTheme.typography.bodySmall, color = if (update is UpdateState.Failed) Palette.danger else Palette.textMuted)
+                }
+                when (update) {
+                    is UpdateState.Downloading -> {
+                        Text("%.0f %%".format(update.fraction * 100), style = MaterialTheme.typography.titleLarge, color = Palette.accent)
+                        Spacer(Modifier.width(12.dp))
+                        OutlinedButton(onClick = actions::dismissUpdate) { Text("Annuler") }
+                    }
+                    is UpdateState.Installing -> Unit
+                    is UpdateState.Available, is UpdateState.Failed -> {
+                        TextButton(onClick = actions::dismissUpdate) { Text("Plus tard") }
+                        Spacer(Modifier.width(8.dp))
+                        Button(onClick = actions::installUpdate, enabled = !busy) {
+                            Text(if (update is UpdateState.Failed) "Réessayer" else "Mettre à jour")
+                        }
+                    }
+                }
+            }
+            if (update is UpdateState.Downloading) {
+                LinearProgressIndicator(
+                    progress = { update.fraction.toFloat() },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                    color = Palette.accent,
+                    trackColor = Palette.surfaceHigh,
+                    strokeCap = StrokeCap.Round,
+                    gapSize = 0.dp,
+                    drawStopIndicator = {},
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun SessionHeader(state: UiState, session: SessionState, actions: UiActions) {
     val target = state.settings.target

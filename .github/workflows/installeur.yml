@@ -49,34 +49,34 @@ jobs:
             Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $wix.FullName 'bin')
           }
 
-      # Numéro de version : celui du tag (v1.2.3 → 1.2.3), sinon celui de gradle.properties.
+      # Numéro de version : celui du tag (v1.2.3 → 1.2.3), sinon celui de gradle.properties. Transmis à Gradle par
+      # variable d'environnement (ORG_GRADLE_PROJECT_…) : en argument, PowerShell coupait « -Phighlights.version=… » et
+      # tous les builds de tag échouaient avant même les tests.
       - name: Version
         shell: pwsh
         run: |
           $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '' }
           Add-Content -Path $env:GITHUB_ENV -Value "HIGHLIGHTS_VERSION=$version"
+          if ($version) { Add-Content -Path $env:GITHUB_ENV -Value "ORG_GRADLE_PROJECT_highlights.version=$version" }
 
       # FFmpeg livré avec l'application, téléchargé par le build : les tests s'exécutent contre ce binaire-là.
       - name: FFmpeg
         shell: pwsh
         run: |
-          $extra = if ($env:HIGHLIGHTS_VERSION) { @("-Phighlights.version=$env:HIGHLIGHTS_VERSION") } else { @() }
-          & .\gradlew.bat @('--no-daemon', ':app-ui:prepareBundledResources') @extra
+          & .\gradlew.bat @('--no-daemon', ':app-ui:prepareBundledResources')
           if ($LASTEXITCODE -ne 0) { throw "prepareBundledResources : code $LASTEXITCODE" }
           Add-Content -Path $env:GITHUB_PATH -Value (Resolve-Path 'app-ui\build\appResources\windows\ffmpeg')
 
       - name: Tests
         shell: pwsh
         run: |
-          $extra = if ($env:HIGHLIGHTS_VERSION) { @("-Phighlights.version=$env:HIGHLIGHTS_VERSION") } else { @() }
-          & .\gradlew.bat @('--no-daemon', 'test') @extra
+          & .\gradlew.bat @('--no-daemon', 'test')
           if ($LASTEXITCODE -ne 0) { throw "tests : code $LASTEXITCODE" }
 
       - name: Installeur et version portable
         shell: pwsh
         run: |
-          $extra = if ($env:HIGHLIGHTS_VERSION) { @("-Phighlights.version=$env:HIGHLIGHTS_VERSION") } else { @() }
-          & .\gradlew.bat @('--no-daemon', ':app-ui:packageMsi', ':app-ui:portableZip') @extra
+          & .\gradlew.bat @('--no-daemon', ':app-ui:packageMsi', ':app-ui:portableZip')
           if ($LASTEXITCODE -ne 0) { throw "empaquetage : code $LASTEXITCODE" }
 
       - name: Rassembler les fichiers

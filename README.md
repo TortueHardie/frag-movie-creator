@@ -41,7 +41,9 @@ carte graphique particulière ne sont nécessaires.
 L'installeur n'étant pas signé, Windows affiche « Windows a protégé votre ordinateur » : « Informations
 complémentaires », puis « Exécuter quand même ». (Signer demanderait un certificat payant.)
 
-**Mettre à jour** : lancer le MSI de la nouvelle version, rien d'autre. Il remplace l'installation existante au lieu de
+**Mettre à jour** : au démarrage, Highlights regarde s'il existe une release plus récente et propose « Mettre à jour » :
+le MSI est téléchargé (taille et empreinte vérifiées), l'application se ferme, s'installe par-dessus dans le même
+dossier puis se relance. À la main, il suffit aussi de lancer le MSI de la nouvelle version. Il remplace l'installation existante au lieu de
 s'ajouter à côté : une seule entrée dans « Applications installées », une seule application dans le menu Démarrer.
 Relancer l'installeur d'une version déjà installée ne crée pas non plus de doublon. Les profils modifiés dans
 `%APPDATA%\Highlights\config` sont conservés ; les fichiers livrés qui n'ont pas été retouchés sont mis à jour.
