@@ -191,6 +191,13 @@ détecte les kills). En ligne de commande :
 & $app montage output\sessions\partie.session.json --music D:\Musique\son.mp3 --max 60s --format 9:16,source
 ```
 
+- **Durée adaptée au nombre de kills** (`length`) : le montage dure ce qu'il faut pour montrer ses kills — 2,5 s par
+  clip (`perClip`), 1 s de plus par kill supplémentaire d'un multi-kill (`perExtraKill`), la réaction gardée après le
+  dernier kill et le temps du ralenti des plans forts, au moins 12 s (`min`). La durée maximale (`--max`, case « Durée
+  maximale ») n'est plus qu'un plafond : quatre kills ne sont plus étirés sur une minute de musique. Raccourcir ne
+  coûte rien à l'écran : si la durée visée ferait perdre un clip, le début d'un multi-kill, la fin d'une réaction ou le
+  ralenti d'un flick, elle s'allonge jusqu'à les retrouver. `--fill` (ou la case « Durée adaptée au nombre de kills »
+  décochée) rend l'ancien comportement : occuper toute la durée maximale.
 - **Musique** : analysée entièrement (`app music son.mp3` pour voir le résultat) : tempo et temps (suivi à ~12 ms, sans
   dérive), mesures, **sections** (délimitées par timbre et volume, alignées sur les mesures) avec leur intensité, et la
   **drop** (plus gros saut d'intensité). Chaque section reçoit aussi un **rôle** — intro, montée, drop, breakdown, corps
@@ -224,6 +231,27 @@ détecte les kills). En ligne de commande :
   l'écran puis s'arrête sur la cible, mesuré sur une demi-seconde d'image autour du kill) et kills enchaînés à moins
   d'une seconde ajoutent un bonus au rang d'un groupe : un one-tap en flick passe devant un double kill ordinaire et
   décroche la drop. Un flick est aussi un plan fort : il reçoit le ralenti, sinon il passe trop vite pour être vu.
+- **Whip pan dans le sens du flick** (`whip`) : la mesure du flick donne aussi son sens (gauche, droite, haut, bas).
+  Une coupe qui suit un plan fini sur un flick, ou qui précède un plan qui s'ouvre sur un flick, devient un whip pan :
+  le plan sortant file dans le sens où la vue tournait, flouté par la vitesse, et le suivant arrive en continuant le
+  même mouvement (200 ms en tout, `duration` ; flou `blur`). Le whip remplace le flash sur cette coupe ; sans flick de
+  part et d'autre, la coupe reste franche. Désactivable par une case de la fenêtre de montage ou `--no-whip`.
+- **Raccords visée sur visée** (`matchCut`) : autour d'un kill, le joueur vise, le viseur au centre de l'écran. À
+  chaque coupe, le plan sortant s'arrête avant que le joueur ne baisse son arme et le plan entrant commence quand il a
+  déjà épaulé : le viseur reste au centre par-dessus la coupe. La visée se lit dans une zone centrale (`region`) : elle
+  dure tant que le centre ressemble à ce qu'il était juste avant le kill (`minSimilarity`), en ne comparant que les
+  pixels immobiles à ce moment-là, l'arme et pas le décor qui défile. Un kill tiré à la hanche ne se raccorde pas : en
+  visée, l'arme descend au centre, symétrique (`minSymmetry`). Les deux portions sont ralenties pour garder la durée
+  de leur slot (jusqu'à ×0,3, `minSpeed`) : les kills restent sur leur temps. Une coupe raccordée n'a ni flash ni
+  whip. Le journal donne, coupe par coupe, la visée trouvée de part et d'autre et le ralenti appliqué. Désactivable par
+  une case de la fenêtre de montage ou `--no-match-cut`.
+- **Kills dans leur round** (`killStyle`, avec les morts d'Outplayed) : un kill suivi de sa propre mort dans les 3 s
+  recule (`deathPenalty`) ; le groupe qui finit un round de 5 kills monte nettement (**ace**, `aceBonus`) ; celui qui
+  finit un round survécu sur au moins deux kills monte aussi (**clutch**, `clutchBonus`). Le jeu ne donne ni les rounds
+  ni le nombre d'alliés en vie : une mort clôt le round du joueur, un silence de plus de 40 s aussi (`roundGap`, plus
+  court que la phase d'achat), et le clutch reste une approximation. Une mort sépare toujours deux kills rapprochés en
+  deux clips. Sans aucune mort annoncée (capture hors Outplayed, `deathEvent` vide), rien de tout ça ne s'applique.
+  Désactivable par une case de la fenêtre de montage ou `--no-rounds`.
 - **Variantes** (`variants`) : une douzaine de plans sont calculés (échelle de la grille, place de la drop) et seul le
   mieux noté est rendu, à condition de garder presque tous les clips du plan de base et de le battre nettement.
 - **Accroche** : le meilleur groupe après celui de la drop ouvre le montage (`--no-hook`) : c'est dans les premières
@@ -252,7 +280,10 @@ détecte les kills). En ligne de commande :
   le meilleur kill.
 - **Note du montage** : chaque rapport porte une note qui mesure ce que le moteur prétend faire — kills sur un temps,
   temps accentués, sobriété des effets, variété des clips, durée occupée, plans plus courts dans les sections intenses,
-  absence d'image gelée. Elle ne dit pas si un montage est beau ; elle sert à comparer deux versions du moteur sans les
+  absence d'image gelée, et trois mesures des temps morts : délai avant le premier kill (sans reproche jusqu'à 2 s,
+  nul à 6 s), plus long passage sans kill (4 s, puis nul à 10 s) et part de chaque plan passée hors de l'action (loin
+  de tout kill et de toute réaction gardée). Ces mesures pèsent aussi dans le choix entre les variantes du plan. Elle
+  ne dit pas si un montage est beau ; elle sert à comparer deux versions du moteur sans les
   regarder l'une après l'autre. Un critère qu'on ne peut pas mesurer sur un montage donné (`-` à l'affichage) sort de la
   moyenne au lieu d'y entrer à 1.
 

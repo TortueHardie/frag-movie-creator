@@ -21,7 +21,9 @@ data class MontageSettings(
     /** Fenêtre autour d'un groupe de kills dans laquelle on cherche score et réactions (voix, rires). */
     val preRoll: SerialDuration = 2500.milliseconds,
     val postRoll: SerialDuration = 1200.milliseconds,
+    /** Plafond de durée ; la durée visée vient du nombre de kills (voir [length]). */
     val maxDuration: SerialDuration = 60.seconds,
+    val length: MontageLength = MontageLength(),
     /** Segments à ne pas couper (réactions après le kill) : le clip s'étend sur le slot suivant s'il est libre. */
     val keepWhole: List<String> = listOf("laughter", "shout", "speech"),
     /**
@@ -58,6 +60,8 @@ data class MontageSettings(
     val cuts: CutSettings = CutSettings(),
     val zoom: ZoomEffect = ZoomEffect(),
     val flash: FlashEffect = FlashEffect(),
+    val whip: WhipPanEffect = WhipPanEffect(),
+    val matchCut: MatchCut = MatchCut(),
     val slowMotion: SlowMotionEffect = SlowMotionEffect(),
     val speedRamp: SpeedRampEffect = SpeedRampEffect(),
     val text: TextEffect = TextEffect(),
@@ -66,6 +70,25 @@ data class MontageSettings(
 ) {
     init {
         require(minScore in 0.0..1.0) { "montage.minScore doit être entre 0 et 1" }
+    }
+}
+
+/**
+ * Durée du montage tirée de ce qu'il y a à montrer : [perClip] par clip, [perExtraKill] de plus par kill au-delà du
+ * premier dans un multi-kill, au moins [min], au plus [MontageSettings.maxDuration]. Sans [fitKills], le montage occupe
+ * toute la durée maximale, quitte à étirer quatre kills sur une minute de musique.
+ */
+@Serializable
+data class MontageLength(
+    val fitKills: Boolean = true,
+    val perClip: SerialDuration = 2500.milliseconds,
+    val perExtraKill: SerialDuration = 1.seconds,
+    val min: SerialDuration = 12.seconds,
+) {
+    init {
+        require(perClip.isPositive()) { "montage.length.perClip doit être positif" }
+        require(!perExtraKill.isNegative()) { "montage.length.perExtraKill ne peut pas être négatif" }
+        require(min.isPositive()) { "montage.length.min doit être positif" }
     }
 }
 
@@ -129,8 +152,12 @@ data class ShotAlign(
 
 /**
  * Ce qui rend un kill spectaculaire au-delà du nombre : tir à la tête, flick (visée qui balaie l'écran puis s'arrête sur
- * la cible), kills enchaînés très vite. Les bonus s'ajoutent au rang d'un groupe, dont 1 vaut un kill de plus : un
- * one-tap en flick passe devant un double kill ordinaire, et décroche la drop.
+ * la cible), kills enchaînés très vite, ace, clutch. Les bonus s'ajoutent au rang d'un groupe, dont 1 vaut un kill de
+ * plus : un one-tap en flick passe devant un double kill ordinaire, et décroche la drop. Un kill aussitôt suivi de sa
+ * propre mort recule.
+ *
+ * Le jeu ne dit ni où commence un round ni combien d'alliés sont encore en vie : les rounds sont déduits des kills et
+ * des morts du joueur. Une mort clôt son round ; un silence de plus de [roundGap] (phase d'achat) aussi.
  */
 @Serializable
 data class KillStyle(
@@ -147,9 +174,29 @@ data class KillStyle(
     /** Kill qui suit le précédent de moins que ça : enchaînement. */
     val quickGap: SerialDuration = 1.seconds,
     val quickBonus: Double = 0.3,
+    /** Événement émis pour une mort du joueur (VALORANT via Outplayed). Vide : ni mort, ni round, ni ace, ni clutch. */
+    val deathEvent: String = "death",
+    /** Mort qui suit le dernier kill d'un groupe de moins que ça : le kill est aussitôt payé, le groupe recule. */
+    val deathGap: SerialDuration = 3.seconds,
+    val deathPenalty: Double = 0.5,
+    /** Silence (ni kill ni mort) au-delà duquel un nouveau round commence : plus court que la phase d'achat. */
+    val roundGap: SerialDuration = 40.seconds,
+    /** Kills d'un même round qui font un ace ; le bonus va au groupe du dernier kill du round. */
+    val aceKills: Int = 5,
+    val aceBonus: Double = 1.5,
+    /**
+     * Clutch : round survécu, fini sur un groupe d'au moins [clutchKills] kills. Sans le nombre d'alliés en vie, c'est
+     * l'approche la plus proche : le joueur termine le round seul face aux derniers adversaires.
+     */
+    val clutchKills: Int = 2,
+    val clutchBonus: Double = 0.5,
 ) {
     init {
         require(flickTo > flickFrom) { "montage.killStyle.flickTo doit dépasser flickFrom" }
+        require(deathPenalty >= 0) { "montage.killStyle.deathPenalty ne peut pas être négatif" }
+        require(roundGap.isPositive()) { "montage.killStyle.roundGap doit être positif" }
+        require(aceKills >= 2) { "montage.killStyle.aceKills doit valoir au moins 2" }
+        require(clutchKills >= 1) { "montage.killStyle.clutchKills doit valoir au moins 1" }
     }
 }
 
@@ -228,6 +275,67 @@ data class FlashEffect(
     val duration: SerialDuration = 60.milliseconds,
     val onEveryCut: Boolean = false,
 )
+
+/**
+ * Raccord en whip pan dans le sens du flick : le plan qui finit sur un flick file dans la direction où la vue tournait,
+ * flouté par la vitesse, et le suivant arrive en continuant le même mouvement. Sans flick de part et d'autre de la
+ * coupe, la coupe reste franche. Le whip remplace le flash sur la coupe où il tombe.
+ */
+@Serializable
+data class WhipPanEffect(
+    val enabled: Boolean = true,
+    /** Durée totale du raccord, partagée de part et d'autre de la coupe. */
+    val duration: SerialDuration = 200.milliseconds,
+    /** Flou de mouvement, en part de la dimension balayée (largeur pour un flick horizontal). */
+    val blur: Double = 0.015,
+) {
+    init {
+        require(duration.inWholeMilliseconds in 40..600) { "montage.whip.duration doit être entre 40 ms et 600 ms" }
+        require(blur in 0.0..0.1) { "montage.whip.blur doit être entre 0 et 0,1" }
+    }
+}
+
+/**
+ * Raccord visée sur visée : juste avant un kill, le joueur vise, et le viseur occupe le centre de l'écran. À chaque
+ * coupe, le plan sortant s'arrête avant que le joueur ne baisse son arme, et le plan entrant commence quand il a déjà
+ * épaulé : le viseur reste au centre par-dessus la coupe. Ces deux portions sont ralenties pour garder la durée de leur
+ * slot (les kills restent sur leur temps). La visée se reconnaît à ce que le centre ressemble à ce qu'il était juste
+ * avant le kill, en ne comparant que les pixels immobiles à ce moment-là : l'arme, pas le décor qui défile derrière.
+ */
+@Serializable
+data class MatchCut(
+    val enabled: Boolean = true,
+    /**
+     * Zone du viseur et du haut de l'arme en visée, mesurée sur une capture 16:9 et accrochée au centre (elle est
+     * ramenée au format de chaque capture) : le jeu place l'arme par rapport au centre de l'écran, pas au bord.
+     */
+    val region: CropRegion = CropRegion(0.35, 0.30, 0.30, 0.55),
+    /** Ressemblance minimale (0..1) avec la visée du kill pour qu'une image compte comme visée. */
+    val minSimilarity: Double = 0.6,
+    /** Images qui servent de référence à la visée : celles qui précèdent le kill, sur cette durée. */
+    val reference: SerialDuration = 400.milliseconds,
+    /** Part des pixels de la zone comparés : les plus immobiles de la référence (l'arme). */
+    val stillShare: Double = 0.3,
+    /**
+     * Symétrie gauche-droite minimale (-1..1) du bas de la zone au moment du kill : en visée, l'arme descend au centre ;
+     * à la hanche, elle est sur le côté et le kill ne se raccorde pas. Mesurée sur WARDOGS : 0,22 et plus en visée (un
+     * cas sur quatorze en dessous), 0,09 au plus à la hanche.
+     */
+    val minSymmetry: Double = 0.15,
+    /**
+     * Vitesse minimale des portions ralenties pour tenir dans la visée (0,3 = trois fois plus lent). Le joueur baisse
+     * son arme 0 à 0,5 s après le kill, alors que le plan dure encore plus d'une seconde : la fin se ralentit beaucoup.
+     */
+    val minSpeed: Double = 0.3,
+) {
+    init {
+        require(minSimilarity in 0.0..1.0) { "montage.matchCut.minSimilarity doit être entre 0 et 1" }
+        require(reference.inWholeMilliseconds in 100..1000) { "montage.matchCut.reference doit être entre 100 et 1000 ms" }
+        require(stillShare > 0.0 && stillShare <= 1.0) { "montage.matchCut.stillShare doit être entre 0 et 1" }
+        require(minSymmetry in -1.0..1.0) { "montage.matchCut.minSymmetry doit être entre -1 et 1" }
+        require(minSpeed in 0.25..1.0) { "montage.matchCut.minSpeed doit être entre 0,25 et 1" }
+    }
+}
 
 /**
  * Ralenti sur le kill d'ancrage : la vitesse descend par paliers avant le kill ([rampSteps]) au lieu de changer d'un

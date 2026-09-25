@@ -12,6 +12,7 @@ import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SlowAudio
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.VideoStream
+import dev.highlights.core.model.WhipPanEffect
 import dev.highlights.core.serialization.Durations
 import dev.highlights.editing.CutInput
 import dev.highlights.editing.SourceCuts
@@ -83,6 +84,51 @@ class MontageRenderBuilderTest : FunSpec({
         cuts.size shouldBe p.clips.size
         inputs.values.forEach { args shouldContainInOrder listOf("-ss", "1.000000", "-i", it.path.toString()) }
         args shouldNotContain media.path.toString()
+    }
+
+    /** Plan de deux clips dont le premier groupe (le multi-kill) est fait de flicks francs dans le sens donné. */
+    fun flickPlan(direction: FlickDirection, s: MontageSettings = settings): MontagePlan {
+        val flick = KillTraits(flick = 1.0, direction = direction)
+        val groups = listOf(
+            KillGroup(media, listOf(100.seconds, 102.seconds), 1.0, emptyList(), emptyList(), traits = listOf(flick, flick)),
+            KillGroup(media, listOf(500.seconds), 0.5, emptyList(), emptyList()),
+        )
+        return MontagePlanner.plan(groups, music, s)
+    }
+
+    test("whip pan : la coupe voisine d'un flick le prolonge, sans flash") {
+        val p = flickPlan(FlickDirection.RIGHT)
+        // Que le flick soit dans le plan qui sort ou dans celui qui entre, la coupe entre les deux reçoit le whip.
+        MontageRenderBuilder.whips(p) shouldBe listOf(null, FlickDirection.RIGHT)
+        MontageRenderBuilder.flashes(p)[1] shouldBe false
+        val g = build(p).filterGraph
+        // Caméra vers la droite : le décor file vers la gauche (décalage négatif), deux copies, flou horizontal.
+        g shouldContain "overlay=x='-1*"
+        g shouldContain "-1*0.5*pow("
+        g shouldContain "gblur=sigma=16.2000:sigmaV=0.5000"
+        g shouldContain "split=3"
+    }
+
+    test("whip pan : un flick vertical balaie en hauteur") {
+        val g = build(flickPlan(FlickDirection.UP)).filterGraph
+        g shouldContain "overlay=x=0:y='1*"
+        g shouldContain "sigma=0.5000:sigmaV=28.8000"
+    }
+
+    test("whip pan : désactivé ou sans flick, la coupe reste franche") {
+        val off = flickPlan(FlickDirection.LEFT, settings.copy(whip = WhipPanEffect(enabled = false)))
+        MontageRenderBuilder.whips(off) shouldBe listOf(null, null)
+        build(off).filterGraph shouldNotContain "overlay="
+        build(plan()).filterGraph shouldNotContain "overlay="
+    }
+
+    test("whip pan : la sortie accélère jusqu'à une demi-image, l'entrée finit sur une image entière") {
+        val stages = MontageRenderBuilder.whipStages(WhipPanEffect(), FlickDirection.LEFT, FlickDirection.RIGHT, 2.seconds, 1080, 1920)
+        stages.size shouldBe 2
+        // Entrée : 100 ms, décor vers la droite ; sortie : les 100 dernières ms, décor vers la gauche.
+        stages[0].first shouldBe "overlay=x='1*(1-0.5*pow(1-t/0.1000\\,2))*W':y=0:enable='lt(t\\,0.1000)'"
+        stages[1].first shouldBe "overlay=x='-1*0.5*pow((t-1.9000)/0.1000\\,2)*W':y=0:enable='gte(t\\,1.9000)'"
+        stages[1].second shouldContain "overlay=x='-1*0.5*pow((t-1.9000)/0.1000\\,2)*W+W'"
     }
 
     test("effets, ralenti, textes et mixage présents") {
@@ -191,7 +237,8 @@ class MontageRenderBuilderTest : FunSpec({
 
     test("flash : un multi-kill dont le début est coupé ne compte pas comme une coupe forte") {
         // Slot court : seul le dernier kill du groupe reste visible, le plan n'a donc rien d'un multi-kill à l'écran.
-        val tight = settings.copy(cuts = settings.cuts.copy(maxBeats = 4, minLead = 250.milliseconds))
+        // Durée maximale occupée : pas de plan de réserve où le multi-kill s'étendrait.
+        val tight = settings.copy(cuts = settings.cuts.copy(maxBeats = 4, minLead = 250.milliseconds), length = settings.length.copy(fitKills = false))
         val groups = listOf(
             KillGroup(media, listOf(500.seconds), 1.0, emptyList(), emptyList()),
             KillGroup(media, listOf(100.seconds, 104.seconds), 0.5, emptyList(), emptyList()),

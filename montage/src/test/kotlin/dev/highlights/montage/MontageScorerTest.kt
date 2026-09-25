@@ -42,7 +42,10 @@ class MontageScorerTest : FunSpec({
 
     test("un montage conforme est bien noté, et chaque critère reste dans [0, 1]") {
         val score = MontageScorer.score(plan(varied))
-        listOfNotNull(score.sync, score.accent, score.restraint, score.variety, score.fill, score.pacing, score.coverage, score.total)
+        listOfNotNull(
+            score.sync, score.accent, score.restraint, score.variety, score.fill, score.pacing, score.coverage,
+            score.opening, score.lull, score.action, score.total,
+        )
             .forEach { (it in 0.0..1.0) shouldBe true }
         // Le moteur promet les kills d'ancrage sur un temps : c'est le critère qu'il doit saturer.
         score.sync shouldBeGreaterThan 0.99
@@ -89,13 +92,56 @@ class MontageScorerTest : FunSpec({
         val measured = listOf(
             0.25 to score.sync, 0.10 to score.accent, 0.20 to score.restraint,
             0.15 to score.variety!!, 0.10 to score.fill, 0.10 to score.coverage,
+            0.10 to score.opening!!, 0.10 to score.lull!!, 0.10 to score.action!!,
         )
         val expected = measured.sumOf { it.first * it.second } / measured.sumOf { it.first }
         score.total shouldBe (expected plusOrMinus 1e-3)
     }
 
+    /** Tous les plans longs de 8 s : chaque kill est entouré d'une longue attente. */
+    val slow = settings.copy(cuts = settings.cuts.copy(low = 8.seconds, mid = 8.seconds, high = 8.seconds))
+
+    /** Assez de kills pour remplir une minute de musique sans étirer les plans. */
+    val dense = (0 until 16).map { i -> group(if (i % 2 == 0) media else other, 100 + 60 * i) }
+
+    test("temps morts : quatre kills étirés sur une minute laissent de longs trous, pas ramenés à leur durée") {
+        val stretched = MontageScorer.score(plan(varied, settings.copy(length = settings.length.copy(fitKills = false))))
+        val fitted = MontageScorer.score(plan(varied))
+        stretched.lull!! shouldBeLessThan fitted.lull!!
+        stretched.details.getValue("plusLongTrouSecondes") shouldBeGreaterThan fitted.details.getValue("plusLongTrouSecondes")
+    }
+
+    test("temps morts : de longs plans autour d'un seul kill font baisser trou et action") {
+        val tight = MontageScorer.score(plan(dense))
+        val loose = MontageScorer.score(plan(dense, slow))
+        loose.lull!! shouldBeLessThan tight.lull!!
+        loose.action!! shouldBeLessThan tight.action!!
+        loose.details.getValue("plusLongTrouSecondes") shouldBeGreaterThan tight.details.getValue("plusLongTrouSecondes")
+        loose.details.getValue("horsActionParPlan") shouldBeGreaterThan tight.details.getValue("horsActionParPlan")
+        // Les kills restent sur leur temps : seuls les critères de temps morts bougent.
+        loose.sync shouldBe tight.sync
+    }
+
+    test("temps morts : le premier kill est mesuré depuis le début du montage") {
+        for (s in listOf(settings, slow)) {
+            val p = plan(dense, s)
+            val score = MontageScorer.score(p)
+            val first = p.clips.first().outputKills().first()
+            score.details.getValue("premierKillSecondes") shouldBe (first.inWholeMilliseconds / 1000.0 plusOrMinus 0.01)
+            val expected = 1.0 - ((first.inWholeMilliseconds / 1000.0 - 2.0) / 4.0).coerceIn(0.0, 1.0)
+            score.opening!! shouldBe (expected plusOrMinus 1e-3)
+        }
+    }
+
+    test("un rapport écrit avant les critères de temps morts se relit sans eux") {
+        val old = """{"total":0.9,"sync":1.0,"accent":0.8,"restraint":1.0,"variety":1.0,"fill":1.0,"pacing":null,"coverage":1.0}"""
+        val score = kotlinx.serialization.json.Json.decodeFromString(MontageScore.serializer(), old)
+        score.opening shouldBe null
+        score.action shouldBe null
+    }
+
     test("un montage qui n'occupe pas la durée demandée est pénalisé sur ce seul critère") {
-        val short = settings.copy(maxDuration = 120.seconds)
+        val short = settings.copy(maxDuration = 120.seconds, length = settings.length.copy(fitKills = false))
         val score = MontageScorer.score(plan(varied, short))
         score.fill shouldBeLessThan 1.0
         score.sync shouldBeGreaterThan 0.99

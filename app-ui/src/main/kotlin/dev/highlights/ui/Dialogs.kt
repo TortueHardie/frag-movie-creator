@@ -150,6 +150,9 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                             modifier = Modifier.width(110.dp),
                         )
                     }
+                    MontageToggle("Durée adaptée au nombre de kills (la durée maximale reste un plafond)", montage.fitKills) { v ->
+                        actions.updateMontage { it.copy(fitKills = v) }
+                    }
                     MontageToggle("Montée en puissance (meilleur kill sur la drop)", montage.buildUp) { v ->
                         actions.updateMontage { it.copy(buildUp = v) }
                     }
@@ -176,6 +179,9 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     Text(densityHint(montage.density), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
                     MontageToggle("Zoom punch sur le kill", montage.zoom) { v -> actions.updateMontage { it.copy(zoom = v) } }
                     MontageToggle("Flash blanc aux coupes fortes", montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
+                    MontageToggle("Whip pan dans le sens du flick", montage.whip) { v -> actions.updateMontage { it.copy(whip = v) } }
+                    MontageToggle("Raccords visée sur visée (le viseur reste au centre)", montage.matchCut) { v -> actions.updateMontage { it.copy(matchCut = v) } }
+                    MontageToggle("Classer les kills selon le round (mort, ace, clutch)", montage.rounds) { v -> actions.updateMontage { it.copy(rounds = v) } }
                     MontageToggle("Ralenti sur le kill", montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
                     MontageToggle("Textes DOUBLÉ / TRIPLÉ", montage.text) { v -> actions.updateMontage { it.copy(text = v) } }
                 }

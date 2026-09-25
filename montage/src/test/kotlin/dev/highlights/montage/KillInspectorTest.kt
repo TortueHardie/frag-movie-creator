@@ -95,6 +95,27 @@ class KillInspectorTest : FunSpec({
         (FlickMeter.score(speeds, 24, style) <= 0.5) shouldBe true
     }
 
+    test("sens du flick : la vue qui tourne à droite fait filer le décor à gauche") {
+        // La fenêtre avance dans la texture : la caméra tourne vers la droite.
+        val right = List(30) { i -> 20 * (i - 8).coerceIn(0, 8) }
+        FlickMeter.direction(FlickMeter.motions(frames(right), FlickMeter.WIDTH, 144, fps), 24) shouldBe FlickDirection.RIGHT
+        val left = right.map { 160 - it }
+        FlickMeter.direction(FlickMeter.motions(frames(left), FlickMeter.WIDTH, 144, fps), 24) shouldBe FlickDirection.LEFT
+        FlickMeter.direction(FlickMeter.motions(frames(List(30) { 0 }), FlickMeter.WIDTH, 144, fps), 24) shouldBe null
+    }
+
+    test("sens du flick : un balayage vertical donne haut ou bas") {
+        val random = Random(5)
+        val width = FlickMeter.WIDTH
+        val height = 144
+        val tall = height * 3
+        val texture = ByteArray(width * tall) { random.nextInt(256).toByte() }
+        fun vertical(offsets: List<Int>) = offsets.map { y -> ByteArray(width * height) { i -> texture[(i / width + y) * width + i % width] } }
+        val down = List(30) { i -> 12 * (i - 8).coerceIn(0, 8) }
+        FlickMeter.direction(FlickMeter.motions(vertical(down), width, height, fps), 24) shouldBe FlickDirection.DOWN
+        FlickMeter.direction(FlickMeter.motions(vertical(down.map { 96 - it }), width, height, fps), 24) shouldBe FlickDirection.UP
+    }
+
     test("capture réelle : kills recalés sur le tir, flick mesuré sur l'image").config(enabledIf = { TestMedia.available }, timeout = 2.seconds * 60) {
         val ffmpeg = TestMedia.requireFfmpeg()
         val video = tempdir().toPath().resolve("partie.mp4")
@@ -119,6 +140,8 @@ class KillInspectorTest : FunSpec({
         inspected.traitsOf(inspected.kills[0]).shift.inWholeMilliseconds.toDouble() shouldBe (-100.0 plusOrMinus 15.0)
         (inspected.traitsOf(inspected.kills[0]).flick < KillTraits.STRONG_FLICK) shouldBe true
         (inspected.traitsOf(inspected.kills[1]).flick >= KillTraits.STRONG_FLICK) shouldBe true
+        // La fenêtre de recadrage file vers la droite : la caméra tourne à droite.
+        inspected.traitsOf(inspected.kills[1]).direction shouldBe FlickDirection.RIGHT
         (inspected.style >= MontageSettings().killStyle.flickBonus * KillTraits.STRONG_FLICK) shouldBe true
 
         // Recalage et mesure désactivés : le groupe ressort tel quel.

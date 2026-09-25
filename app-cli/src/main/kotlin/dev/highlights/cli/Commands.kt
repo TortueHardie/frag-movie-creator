@@ -161,6 +161,7 @@ class MontageCommand : PipelineCommand("montage") {
         .path(mustExist = true, canBeDir = false).multiple(required = true)
     private val music by option("-m", "--music", help = "Musique (mp3, wav, flac…) : tempo détecté, coupes et kills calés sur les temps")
         .path(mustExist = true, canBeDir = false).required()
+    private val fill by option("--fill", help = "Occuper toute la durée maximale au lieu d'adapter la durée au nombre de kills").flag()
     private val max by option("--max", help = "Durée maximale, ex. 60s").convert { text ->
         Durations.parseOrNull(text) ?: throw BadParameterValue("durée invalide '$text'")
     }
@@ -172,6 +173,9 @@ class MontageCommand : PipelineCommand("montage") {
     private val noZoom by option("--no-zoom", help = "Sans zoom sur les kills").flag()
     private val noFlash by option("--no-flash", help = "Sans flash aux coupes").flag()
     private val flashEveryCut by option("--flash-every-cut", help = "Flash à chaque coupe, pas seulement aux coupes fortes").flag()
+    private val noWhip by option("--no-whip", help = "Sans whip pan dans le sens du flick").flag()
+    private val noMatchCut by option("--no-match-cut", help = "Sans raccord visée sur visée (le viseur reste au centre par-dessus la coupe)").flag()
+    private val noRounds by option("--no-rounds", help = "Sans classement selon le round (mort juste après, ace, clutch)").flag()
     private val noSlowmo by option("--no-slowmo", help = "Sans ralenti").flag()
     private val noRamp by option("--no-ramp", help = "Sans rampe de vitesse entre les kills d'un multi-kill").flag()
     private val noText by option("--no-text", help = "Sans textes (DOUBLÉ, TRIPLÉ…)").flag()
@@ -199,12 +203,16 @@ class MontageCommand : PipelineCommand("montage") {
                         formats = formats,
                         outputDir = out,
                         maxDuration = max,
+                        fitKills = if (fill) false else null,
                         order = if (chronological) MontageOrder.CHRONOLOGICAL else null,
                         hook = if (noHook) false else null,
                         effectDensity = effects,
                         zoom = if (noZoom) false else null,
                         flash = if (noFlash) false else null,
                         flashEveryCut = if (flashEveryCut) true else null,
+                        whip = if (noWhip) false else null,
+                        matchCut = if (noMatchCut) false else null,
+                        rounds = if (noRounds) false else null,
                         slowMotion = if (noSlowmo) false else null,
                         speedRamp = if (noRamp) false else null,
                         text = if (noText) false else null,
@@ -379,6 +387,7 @@ internal fun readReport(file: Path): MontageReport =
 private fun criteria(s: MontageScore): List<Pair<String, Double?>> = listOf(
     "sync" to s.sync, "accent" to s.accent, "sobriete" to s.restraint, "variete" to s.variety,
     "duree" to s.fill, "rythme" to s.pacing, "source" to s.coverage,
+    "ouverture" to s.opening, "trou" to s.lull, "action" to s.action,
 )
 
 private fun cell(v: Double?) = if (v == null) "%8s".format("-") else "%8.3f".format(v)

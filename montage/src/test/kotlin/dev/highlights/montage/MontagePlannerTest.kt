@@ -59,6 +59,8 @@ class MontagePlannerTest : FunSpec({
     }
 
     val settings = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds)
+    /** Ancien comportement : la durée maximale occupée quoi qu'il arrive. */
+    val filling = settings.copy(length = settings.length.copy(fitKills = false))
     fun seconds(d: Duration) = d.inWholeMicroseconds / 1e6
     fun plan(kills: List<Int>, m: MusicAnalysis = music(), s: MontageSettings = settings, speech: List<TimeRange> = emptyList()) =
         MontagePlanner.plan(MontagePlanner.groups(listOf(session(kills, speech)), s), m, s)
@@ -95,9 +97,12 @@ class MontagePlannerTest : FunSpec({
     test("les clips remplissent exactement leur slot : coupes et kill d'ancrage sur les temps réels de la musique") {
         val p = plan(manyKills)
         check(p)
-        // 11 groupes (un triple kill) ; le slot de la drop a absorbé un voisin pour le triple kill.
-        p.clips shouldHaveSize 10
-        (seconds(p.duration) > 40.0) shouldBe true
+        // 11 groupes (un triple kill), tous montés : le triple kill s'étend sur un plan de réserve.
+        p.clips shouldHaveSize 11
+        // Durée tirée des kills : jamais plus longue que le montage qui remplit la minute, et au moins autant de kills.
+        val full = plan(manyKills, s = filling)
+        (p.duration <= full.duration) shouldBe true
+        (p.clips.sumOf { it.kills.size } >= full.clips.sumOf { it.kills.size }) shouldBe true
     }
 
     test("montée en puissance : le multi-kill tombe sur la drop, tous ses kills visibles, plans courts dans la partie intense") {
@@ -128,11 +133,42 @@ class MontagePlannerTest : FunSpec({
         }
     }
 
-    test("peu de clips : tous utilisés, plans plus longs") {
-        val p = plan(listOf(100, 400, 700))
+    test("peu de clips, durée maximale à remplir : tous utilisés, plans plus longs") {
+        val p = plan(listOf(100, 400, 700), s = filling)
         check(p)
         p.clips shouldHaveSize 3
         p.clips.forEach { it.beats shouldBeGreaterThanOrEqual 8 }
+    }
+
+    test("peu de clips : montage court, sans rien perdre de ce que montrerait le montage plein") {
+        val kills = listOf(100, 400, 700, 1000)
+        val p = plan(kills)
+        val full = plan(kills, s = filling)
+        check(p)
+        p.clips shouldHaveSize 4
+        withClue("${p.duration} contre ${full.duration}") { (p.duration < full.duration) shouldBe true }
+        p.clips.sumOf { it.kills.size } shouldBe full.clips.sumOf { it.kills.size }
+        // La drop garde son ralenti.
+        (p.clips.single { it.slot.dropBeat != null }.slow != null) shouldBe true
+        // 4 clips à 2,5 s et le ralenti des deux meilleurs (0,8 s chacun) : 11,6 s, relevés au minimum de 12 s.
+        seconds(p.target!!) shouldBe (12.0 plusOrMinus 1e-6)
+    }
+
+    test("durée visée : clips, kills en plus, réaction gardée, bornée par le minimum et le maximum") {
+        val s = settings.copy(slowMotion = settings.slowMotion.copy(enabled = false))
+        fun target(groups: List<KillGroup>, st: MontageSettings = s) = seconds(MontagePlanner.targetDuration(groups, st))
+        val many = MontagePlanner.groups(listOf(session((1..8).map { it * 100 })), s)
+        target(many) shouldBe (20.0 plusOrMinus 1e-6)
+        val triple = MontagePlanner.groups(listOf(session((1..7).map { it * 100 } + listOf(701, 702))), s)
+        target(triple) shouldBe (6 * 2.5 + 2.5 + 2 * 1.0 plusOrMinus 1e-6)
+        // Trop peu : le minimum ; beaucoup : la durée maximale.
+        target(many.take(2)) shouldBe (12.0 plusOrMinus 1e-6)
+        target(MontagePlanner.groups(listOf(session((1..40).map { it * 100 })), s)) shouldBe (60.0 plusOrMinus 1e-6)
+        target(many, s.copy(length = s.length.copy(fitKills = false))) shouldBe (60.0 plusOrMinus 1e-6)
+        // La phrase qui suit un kill compte, quand les réactions sont mises en avant.
+        val talk = s.copy(reactions = true)
+        val withSpeech = MontagePlanner.groups(listOf(session((1..8).map { it * 100 }, listOf(TimeRange(800.5.seconds, 804.seconds)))), talk)
+        target(withSpeech, talk) shouldBe (20.0 + 4.0 plusOrMinus 1e-6)
     }
 
     test("beaucoup de clips : budget respecté, les mieux classés gardés") {
@@ -376,6 +412,67 @@ class MontagePlannerTest : FunSpec({
         groups.map { it.traits.single().headshot } shouldBe listOf(false, true)
         groups[1].style shouldBe (settings.killStyle.headshotBonus plusOrMinus 1e-9)
         (groups[1].rank > groups[0].rank) shouldBe true
+    }
+
+    fun withDeaths(s: Session, deaths: List<Double>) =
+        s.copy(timeline = s.timeline.copy(events = (s.timeline.events + deaths.map { TimelineEvent(it.seconds, "death", 1.0, "n") }).sortedBy { it.at }))
+
+    test("rounds : une mort clôt le sien, un long silence aussi") {
+        val kills = listOf(100, 110, 200, 205, 400).map { it.seconds }
+        val rounds = MontagePlanner.rounds(kills, listOf(112.seconds, 600.seconds), 40.seconds)
+        rounds.map { r -> r.kills.map { it.inWholeSeconds } to r.died } shouldBe listOf(
+            listOf(100L, 110L) to true,
+            listOf(200L, 205L) to false,
+            listOf(400L) to false,
+        )
+    }
+
+    test("un kill aussitôt suivi de sa propre mort recule") {
+        val groups = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 400)), listOf(101.5))), settings)
+        groups.map { it.outcome.traded } shouldBe listOf(true, false)
+        groups[0].style shouldBe (-settings.killStyle.deathPenalty plusOrMinus 1e-9)
+        (groups[0].rank < groups[1].rank) shouldBe true
+    }
+
+    test("une mort qui tombe bien plus tard ne coûte rien") {
+        val group = MontagePlanner.groups(listOf(withDeaths(session(listOf(100)), listOf(110.0))), settings).single()
+        group.outcome shouldBe RoundOutcome.NONE
+    }
+
+    test("ace : le groupe qui finit un round de cinq kills monte devant les autres") {
+        // Cinq kills espacés de 10 s : cinq groupes, un seul round (pas de mort, pas de silence de 40 s).
+        val groups = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 110, 120, 130, 140, 400)), listOf(145.0))), settings)
+        groups.map { it.outcome.ace } shouldBe listOf(false, false, false, false, true, false)
+        groups.maxBy { it.rank } shouldBe groups[4]
+        // Le joueur meurt au milieu : deux rounds, pas d'ace.
+        val split = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 110, 120, 130, 140)), listOf(125.0))), settings)
+        split.none { it.outcome.ace } shouldBe true
+    }
+
+    test("clutch : un round survécu fini sur un multi-kill monte, pas s'il meurt ensuite") {
+        val survived = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 130, 132)), listOf(300.0))), settings)
+        survived.map { it.outcome.clutch } shouldBe listOf(false, true)
+        survived[1].style shouldBe (settings.killStyle.clutchBonus plusOrMinus 1e-9)
+        val died = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 130, 132)), listOf(133.0))), settings)
+        died.map { it.outcome } shouldBe listOf(RoundOutcome.NONE, RoundOutcome(traded = true))
+    }
+
+    test("une mort sépare deux kills rapprochés en deux groupes") {
+        val groups = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 103)), listOf(101.0))), settings)
+        groups.map { g -> g.kills.map { it.inWholeSeconds } } shouldBe listOf(listOf(100L), listOf(103L))
+    }
+
+    test("sans événement de mort : ni round, ni ace, ni clutch") {
+        val off = settings.copy(killStyle = settings.killStyle.copy(deathEvent = ""))
+        val groups = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 110, 120, 130, 140)), listOf(141.0))), off)
+        groups.all { it.outcome == RoundOutcome.NONE } shouldBe true
+    }
+
+    test("le bilan du round survit au recalage des kills") {
+        val group = MontagePlanner.groups(listOf(withDeaths(session(listOf(100)), listOf(101.0))), settings).single()
+        val inspected = MontagePlanner.withTraits(group, listOf(99.8.seconds), listOf(KillTraits(headshot = true)), settings.killStyle)
+        inspected.outcome.traded shouldBe true
+        inspected.style shouldBe (settings.killStyle.headshotBonus - settings.killStyle.deathPenalty plusOrMinus 1e-9)
     }
 
     test("kills enchaînés : bonus par kill qui suit le précédent de près") {

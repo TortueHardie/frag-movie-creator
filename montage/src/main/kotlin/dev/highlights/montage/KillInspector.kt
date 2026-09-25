@@ -102,7 +102,8 @@ class KillInspector(private val ffmpeg: FfmpegService) {
         }
         if (style.flick && media.video != null) {
             try {
-                result = result.copy(flick = measureFlick(media, at, style))
+                val (flick, direction) = measureFlick(media, at, style)
+                result = result.copy(flick = flick, direction = direction.takeIf { flick > 0.0 })
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -135,13 +136,13 @@ class KillInspector(private val ffmpeg: FfmpegService) {
         return ShotLocator.locate(samples, ShotLocator.RATE, start, kill, align)
     }
 
-    private suspend fun measureFlick(media: MediaInfo, kill: Duration, style: KillStyle): Double {
-        val video = media.video ?: return 0.0
+    private suspend fun measureFlick(media: MediaInfo, kill: Duration, style: KillStyle): Pair<Double, FlickDirection?> {
+        val video = media.video ?: return 0.0 to null
         val width = FlickMeter.WIDTH
         val height = ((width.toDouble() * video.height / video.width) / 2).roundToInt().coerceAtLeast(8) * 2
         val start = (kill - FlickMeter.BEFORE).coerceAtLeast(Duration.ZERO)
         val end = (kill + FlickMeter.AFTER).coerceAtMost(media.duration)
-        if (end <= start) return 0.0
+        if (end <= start) return 0.0 to null
         val frames = mutableListOf<ByteArray>()
         ffmpeg.run(
             FfmpegCommand(
@@ -157,10 +158,10 @@ class KillInspector(private val ffmpeg: FfmpegService) {
                 for (i in 0 until bytes.size / size) frames += bytes.copyOfRange(i * size, (i + 1) * size)
             },
         )
-        val speeds = FlickMeter.speeds(frames, width, height, FlickMeter.FPS.toDouble())
+        val motions = FlickMeter.motions(frames, width, height, FlickMeter.FPS.toDouble())
         // Le kill tombe à (kill - start) dans l'extrait ; la vitesse i mesure le passage de l'image i à l'image i + 1.
         val killIndex = ((kill - start) / FlickMeter.FRAME).toInt()
-        return FlickMeter.score(speeds, killIndex, style)
+        return FlickMeter.score(motions.map { it.speed }, killIndex, style) to FlickMeter.direction(motions, killIndex)
     }
 
     companion object {
@@ -258,13 +259,44 @@ object FlickMeter {
     /** Bandes ignorées en haut et en bas (HUD, minicarte, barre de vie) pour le profil des colonnes. */
     private const val BAND = 0.15
 
-    /** Vitesse de chaque passage d'une image à la suivante, en largeurs d'écran par seconde. */
-    fun speeds(frames: List<ByteArray>, width: Int, height: Int, fps: Double): List<Double> {
+    /** Rotation de la caméra d'une image à la suivante, en largeurs d'écran par seconde : x vers la droite, y vers le bas. */
+    data class Motion(val x: Double, val y: Double) {
+        val speed: Double get() = sqrt(x * x + y * y)
+    }
+
+    /**
+     * Rotation de la caméra à chaque passage d'une image à la suivante. Le décor glisse à l'opposé de la caméra : une
+     * vue qui tourne vers la droite fait filer la scène vers la gauche de l'image.
+     */
+    fun motions(frames: List<ByteArray>, width: Int, height: Int, fps: Double): List<Motion> {
         val profiles = frames.map { profiles(it, width, height) }
         return profiles.zipWithNext { a, b ->
             val dx = shift(a.first, b.first, (width * MAX_SHIFT).toInt())
             val dy = shift(a.second, b.second, (height * MAX_SHIFT).toInt())
-            sqrt(dx * dx + dy * dy.toDouble()) / width * fps
+            Motion(dx.toDouble() / width * fps, dy.toDouble() / width * fps)
+        }
+    }
+
+    /** Vitesse de chaque passage d'une image à la suivante, en largeurs d'écran par seconde. */
+    fun speeds(frames: List<ByteArray>, width: Int, height: Int, fps: Double): List<Double> =
+        motions(frames, width, height, fps).map { it.speed }
+
+    /**
+     * Sens du balayage : celui de la rotation la plus rapide dans les 350 ms avant le kill (même fenêtre que [score]),
+     * sommée sur les images qui l'entourent. L'axe dominant l'emporte ; null si la vue ne bouge pas.
+     */
+    fun direction(motions: List<Motion>, killIndex: Int): FlickDirection? {
+        if (motions.size < 2) return null
+        val last = (killIndex - 2).coerceIn(0, motions.size - 2)
+        val window = (last - SEARCH_FRAMES).coerceAtLeast(0)..last
+        val peak = window.maxBy { (motions[it].speed + motions[it + 1].speed) / 2 }
+        val around = (peak - 2).coerceAtLeast(0)..(peak + 3).coerceAtMost(motions.lastIndex)
+        val x = around.sumOf { motions[it].x }
+        val y = around.sumOf { motions[it].y }
+        return when {
+            x == 0.0 && y == 0.0 -> null
+            abs(x) >= abs(y) -> if (x > 0) FlickDirection.RIGHT else FlickDirection.LEFT
+            else -> if (y > 0) FlickDirection.DOWN else FlickDirection.UP
         }
     }
 

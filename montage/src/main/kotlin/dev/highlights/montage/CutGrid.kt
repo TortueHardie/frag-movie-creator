@@ -6,6 +6,7 @@ import kotlin.math.ln
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Emplacement d'un clip dans la musique : temps [startBeat] inclus à [endBeat] exclu, coupes sur les temps.
@@ -149,18 +150,27 @@ object CutGrid {
 
     /**
      * Choisit l'échelle de la grille (×1, ×2, ×4, ×8) d'après le nombre de clips disponibles : on cherche à utiliser tous
-     * les clips (coupes plus rapides) sans laisser trop de musique inutilisée (plans plus longs). [scales] restreint les
-     * échelles essayées (variantes de plan).
+     * les clips (coupes plus rapides) avec une durée proche de [target] (par défaut [maxDuration], qui reste le plafond
+     * dans tous les cas). Une durée visée courte garde les plans courts au lieu d'étirer peu de clips sur toute la
+     * musique. [scales] restreint les échelles essayées (variantes de plan).
      */
-    fun select(music: MusicAnalysis, cuts: CutSettings, minBeats: Int, maxDuration: Duration, clipCount: Int, scales: List<Double>? = null): Selection {
+    fun select(
+        music: MusicAnalysis,
+        cuts: CutSettings,
+        minBeats: Int,
+        maxDuration: Duration,
+        clipCount: Int,
+        scales: List<Double>? = null,
+        target: Duration = maxDuration,
+    ): Selection {
         var best: Selection? = null
         var bestScore = Double.NEGATIVE_INFINITY
         for (scale in scales ?: listOf(1.0, 2.0, 4.0, 8.0)) {
             val slots = build(music, cuts, minBeats, scale)
-            val window = window(slots, music, maxDuration, clipCount, cuts.dropPosition)
+            val window = window(slots, music, maxDuration, clipCount, cuts.dropPosition, target)
             if (window.isNotEmpty()) {
                 val length = music.beatTime(window.last().endBeat) - music.beatTime(window.first().startBeat)
-                val score = 1.5 * window.size / clipCount + 0.5 * (length / maxDuration).coerceAtMost(1.0)
+                val score = 1.5 * window.size / clipCount + 0.5 * closeness(length, target)
                 if (score > bestScore + 1e-9) {
                     bestScore = score
                     best = Selection(scale, slots, window)
@@ -170,11 +180,22 @@ object CutGrid {
         return best ?: Selection(1.0, emptyList(), emptyList())
     }
 
+    /** 1 quand [length] vaut [target], 0 à partir du double (ou de zéro) ; plus court n'est pas mieux que plus long. */
+    private fun closeness(length: Duration, target: Duration): Double =
+        (1.0 - (length - target).absoluteValue / target).coerceIn(0.0, 1.0)
+
     /**
      * Fenêtre du montage : suite de slots contigus, d'au plus [maxDuration] et [maxSlots], la mieux notée : sections
-     * intenses, drop à la position voulue, début et fin sur une frontière de section.
+     * intenses, drop à la position voulue, début et fin sur une frontière de section, durée proche de [target].
      */
-    fun window(slots: List<CutSlot>, music: MusicAnalysis, maxDuration: Duration, maxSlots: Int, dropPosition: Double): List<CutSlot> {
+    fun window(
+        slots: List<CutSlot>,
+        music: MusicAnalysis,
+        maxDuration: Duration,
+        maxSlots: Int,
+        dropPosition: Double,
+        target: Duration = maxDuration,
+    ): List<CutSlot> {
         if (slots.isEmpty() || maxSlots <= 0) return emptyList()
         val sectionStarts = music.sections.map { it.startBeat }.toSet()
         val dropIndex = slots.indexOfFirst { it.dropBeat != null }
@@ -192,7 +213,7 @@ object CutGrid {
             val beats = run.sumOf { slots[it].beats }
             val intensity = run.sumOf { music.sections[slots[it].section].intensity * slots[it].beats } / beats
             val length = time(slots[j - 1].endBeat) - startTime
-            var score = intensity + 0.05 * (length / maxSeconds)
+            var score = intensity + 0.05 * closeness(length.seconds, target)
             if (dropIndex in run) {
                 val fraction = (time(music.dropBeat) - startTime) / length
                 score += 1.0 - 0.6 * abs(fraction - dropPosition)

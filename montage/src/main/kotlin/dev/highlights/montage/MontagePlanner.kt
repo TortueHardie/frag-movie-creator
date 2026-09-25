@@ -7,6 +7,7 @@ import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.TimeRange
+import dev.highlights.core.serialization.Durations
 import dev.highlights.core.session.Session
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlin.math.abs
@@ -28,7 +29,9 @@ data class KillGroup(
     val voiceSegments: List<TimeRange>,
     /** Ce qu'on sait de chaque kill (même ordre que [kills]) ; vide : rien de particulier. */
     val traits: List<KillTraits> = emptyList(),
-    /** Bonus de spectacle des kills (tête, flick, enchaînement), en kills : voir [KillStyle]. */
+    /** Ce que le round dit du groupe : kill aussitôt payé, ace, clutch. */
+    val outcome: RoundOutcome = RoundOutcome.NONE,
+    /** Bonus de spectacle des kills (tête, flick, enchaînement, ace, clutch, mort), en kills : voir [KillStyle]. */
     val style: Double = 0.0,
 ) {
     val rank: Double get() = kills.size + score / 10 + style
@@ -39,14 +42,36 @@ data class KillGroup(
 
 /**
  * Particularités d'un kill : tir à la tête (événement du jeu), [flick] de 0 (visée posée) à 1 (balayage franc juste
- * avant le kill), [shift] : correction appliquée à son instant par le recalage sur le son du tir.
+ * avant le kill) et son [direction], [shift] : correction appliquée à son instant par le recalage sur le son du tir.
  */
-data class KillTraits(val headshot: Boolean = false, val flick: Double = 0.0, val shift: Duration = Duration.ZERO) {
+data class KillTraits(
+    val headshot: Boolean = false,
+    val flick: Double = 0.0,
+    val shift: Duration = Duration.ZERO,
+    val direction: FlickDirection? = null,
+) {
     companion object {
         val NONE = KillTraits()
 
         /** Flick assez net pour faire d'un plan un plan fort (ralenti, pour qu'on le voie). */
         const val STRONG_FLICK = 0.5
+    }
+}
+
+/** Sens dans lequel la caméra tourne pendant un flick. */
+enum class FlickDirection {
+    LEFT, RIGHT, UP, DOWN;
+
+    val horizontal: Boolean get() = this == LEFT || this == RIGHT
+}
+
+/**
+ * Place d'un groupe dans son round : [traded], le joueur meurt juste après son dernier kill ; [ace], le groupe finit un
+ * round d'au moins [KillStyle.aceKills] kills ; [clutch], il finit un round survécu (voir [KillStyle.clutchKills]).
+ */
+data class RoundOutcome(val traded: Boolean = false, val ace: Boolean = false, val clutch: Boolean = false) {
+    companion object {
+        val NONE = RoundOutcome()
     }
 }
 
@@ -76,6 +101,8 @@ data class MontageClip(
     val padAfter: Duration,
     val speeds: List<SpeedSegment>,
     val outputLength: Duration,
+    /** La coupe qui ouvre ce plan raccorde sur une animation du plan précédent (voir [MatchCutter]). */
+    val matchCut: Boolean = false,
 ) {
     val beats: Int get() = slot.beats
     val beatsPre: Int get() = anchorBeat - slot.startBeat
@@ -123,6 +150,8 @@ data class MontagePlan(
     val music: MusicAnalysis,
     val settings: MontageSettings,
     val variant: PlanVariant = PlanVariant.BASE,
+    /** Durée visée d'après les kills (voir [MontagePlanner.targetDuration]) ; null : la durée maximale. */
+    val target: Duration? = null,
 ) {
     init {
         require(clips.isNotEmpty()) { "montage vide" }
@@ -176,6 +205,9 @@ object MontagePlanner {
     private val SCALES = listOf(1.0, 2.0, 4.0, 8.0)
     private const val MIN_CLIP_SHARE = 0.85
 
+    /** Allongement de la durée visée quand elle fait perdre des clips. */
+    private const val TARGET_STEP = 1.5
+
     /** Gain de note en dessous duquel le plan de base est gardé : on ne change pas pour du bruit. */
     private const val MIN_GAIN = 0.005
 
@@ -189,15 +221,28 @@ object MontagePlanner {
         val headshots = if (style.headshotEvent.isEmpty()) emptyList()
         else timeline.events.filter { it.kind == style.headshotEvent }.map { it.at + settings.killOffset }
         fun headshot(k: Duration) = headshots.any { (it - k).absoluteValue <= HEADSHOT_MATCH }
+        val deaths = if (style.deathEvent.isEmpty()) emptyList()
+        else timeline.events.filter { it.kind == style.deathEvent }.map { it.at + settings.killOffset }.sorted()
+        val rounds = rounds(kills, deaths, style.roundGap)
+        val roundOf = rounds.flatMapIndexed { i, r -> r.kills.map { it to i } }.toMap()
+        // Un groupe ne déborde jamais sur le round suivant : une mort entre deux kills les sépare.
         val grouped = mutableListOf<MutableList<Duration>>()
         for (k in kills) {
             val last = grouped.lastOrNull()
-            if (last != null && k - last.last() <= settings.mergeGap) last += k else grouped += mutableListOf(k)
+            if (last != null && k - last.last() <= settings.mergeGap && roundOf[k] == roundOf[last.last()]) last += k else grouped += mutableListOf(k)
+        }
+        // Sans aucune mort annoncée, on ne sait pas si le joueur survit : ni round survécu, ni clutch, ni ace à déduire.
+        val outcomes = grouped.map { if (deaths.isEmpty()) RoundOutcome.NONE else outcome(it, deaths, rounds, style) }
+        if (outcomes.any { it != RoundOutcome.NONE }) {
+            log.info {
+                "${session.media.path.fileName} : ${rounds.size} round(s) déduit(s), ${outcomes.count { it.ace }} ace(s), " +
+                    "${outcomes.count { it.clutch }} clutch(s), ${outcomes.count { it.traded }} kill(s) aussitôt payé(s)"
+            }
         }
         // Sans mise en avant des réactions, la voix ne décide de rien : ni durée des plans, ni volume, ni débordement.
         val protectedSegments = if (settings.reactions) timeline.segments.filter { it.kind in settings.keepWhole }.map { it.range } else emptyList()
         val voice = if (settings.reactions) timeline.segments.filter { it.kind in setOf("speech", "laughter", "shout") }.map { it.range } else emptyList()
-        grouped.map { ks ->
+        grouped.mapIndexed { i, ks ->
             val window = TimeRange(ks.first() - settings.preRoll, ks.last() + settings.postRoll)
             val indices = timeline.grid.let { g -> (0 until g.count).filter { g.rangeOf(it).isWithin(window) } }
             val traits = ks.map { KillTraits(headshot = headshot(it)) }
@@ -208,20 +253,88 @@ object MontagePlanner {
                 protectedSegments = protectedSegments.filter { it.isWithin(window, settings.postRoll * 4) },
                 voiceSegments = voice.filter { it.isWithin(window, settings.postRoll * 4) },
                 traits = traits,
-                style = style(ks, traits, style),
+                outcome = outcomes[i],
+                style = style(ks, traits, outcomes[i], style),
             )
         }
     }
 
-    /** Bonus de spectacle d'un groupe, en kills : tirs à la tête, flicks, kills enchaînés. */
-    fun style(kills: List<Duration>, traits: List<KillTraits>, style: KillStyle): Double =
+    /** Round déduit des événements du joueur : ses kills, et s'il y est mort. */
+    internal data class Round(val kills: List<Duration>, val died: Boolean)
+
+    /**
+     * Découpe les kills et les morts en rounds : une mort clôt le sien, un silence de plus de [gap] aussi. Les kills
+     * d'avant la première mort et d'après la dernière forment leurs propres rounds, survécus.
+     */
+    internal fun rounds(kills: List<Duration>, deaths: List<Duration>, gap: Duration): List<Round> {
+        val events = (kills.map { it to false } + deaths.map { it to true }).sortedBy { it.first }
+        val rounds = mutableListOf<Round>()
+        var current = mutableListOf<Duration>()
+        var previous: Duration? = null
+        for ((at, death) in events) {
+            if (previous != null && at - previous > gap && current.isNotEmpty()) {
+                rounds += Round(current, died = false)
+                current = mutableListOf()
+            }
+            if (death) {
+                // Une mort sans kill dans son round ne dit rien d'un groupe : inutile de la garder.
+                if (current.isNotEmpty()) rounds += Round(current, died = true)
+                current = mutableListOf()
+            } else {
+                current += at
+            }
+            previous = at
+        }
+        if (current.isNotEmpty()) rounds += Round(current, died = false)
+        return rounds
+    }
+
+    /** Ce que le round dit d'un groupe : mort juste après, ace ou clutch s'il en porte le dernier kill. */
+    internal fun outcome(group: List<Duration>, deaths: List<Duration>, rounds: List<Round>, style: KillStyle): RoundOutcome {
+        val last = group.last()
+        val traded = deaths.any { it >= last && it - last <= style.deathGap }
+        val round = rounds.firstOrNull { last in it.kills } ?: return RoundOutcome(traded = traded)
+        val closes = round.kills.last() == last
+        return RoundOutcome(
+            traded = traded,
+            ace = closes && round.kills.size >= style.aceKills,
+            clutch = closes && !round.died && group.size >= style.clutchKills,
+        )
+    }
+
+    /** Bonus de spectacle d'un groupe, en kills : tirs à la tête, flicks, kills enchaînés, ace, clutch ; une mort aussitôt après le coûte. */
+    fun style(kills: List<Duration>, traits: List<KillTraits>, outcome: RoundOutcome, style: KillStyle): Double =
         traits.sumOf { (if (it.headshot) style.headshotBonus else 0.0) + style.flickBonus * it.flick } +
-            style.quickBonus * kills.zipWithNext().count { (a, b) -> b - a <= style.quickGap }
+            style.quickBonus * kills.zipWithNext().count { (a, b) -> b - a <= style.quickGap } +
+            (if (outcome.ace) style.aceBonus else 0.0) + (if (outcome.clutch) style.clutchBonus else 0.0) -
+            (if (outcome.traded) style.deathPenalty else 0.0)
 
     /** Même groupe, kills recalés et particularités mises à jour (voir [KillInspector]) ; le bonus est recalculé. */
     fun withTraits(group: KillGroup, kills: List<Duration>, traits: List<KillTraits>, style: KillStyle): KillGroup {
         val sorted = kills.zip(traits).sortedBy { it.first }
-        return group.copy(kills = sorted.map { it.first }, traits = sorted.map { it.second }, style = style(sorted.map { it.first }, sorted.map { it.second }, style))
+        return group.copy(kills = sorted.map { it.first }, traits = sorted.map { it.second }, style = style(sorted.map { it.first }, sorted.map { it.second }, group.outcome, style))
+    }
+
+    /**
+     * Durée visée : de quoi montrer chaque groupe sans l'étirer ([MontageLength]), bornée par la durée maximale. Un
+     * groupe compte aussi la réaction qu'on garde entière après son dernier kill, et le temps que prend son ralenti
+     * s'il y a droit (multi-kill, flick, les deux meilleurs : la drop et l'accroche ; tous avec beaucoup d'effets). Sans [MontageLength.fitKills],
+     * la durée maximale.
+     */
+    fun targetDuration(groups: List<KillGroup>, settings: MontageSettings): Duration {
+        val length = settings.length
+        if (!length.fitKills) return settings.maxDuration
+        val slow = settings.slowMotion
+        val slowExtra = if (slow.enabled) (slow.before + slow.after) * (1 / slow.factor - 1) else Duration.ZERO
+        val best = groups.sortedByDescending { it.rank }.take(2).toSet()
+        val wanted = groups.fold(Duration.ZERO) { acc, g ->
+            val anchor = g.kills.last()
+            val reaction = g.protectedSegments.filter { it.end > anchor }.maxOfOrNull { it.end - anchor } ?: Duration.ZERO
+            val strong = settings.effectDensity == EffectDensity.HEAVY || g.kills.size > 1 || g in best ||
+                g.traits.any { it.flick >= KillTraits.STRONG_FLICK }
+            acc + length.perClip + length.perExtraKill * (g.kills.size - 1) + reaction + (if (strong) slowExtra else Duration.ZERO)
+        }
+        return wanted.coerceIn(minOf(length.min, settings.maxDuration), settings.maxDuration)
     }
 
     /**
@@ -261,14 +374,58 @@ object MontagePlanner {
         } else {
             all
         }
+        // Durée visée tirée des kills ; si elle fait perdre quelque chose face au montage plein (un clip, le début d'un
+        // multi-kill, la fin d'une réaction), elle s'allonge par paliers : raccourcir ne doit rien coûter à l'écran.
+        var target = targetDuration(groups, settings)
+        var result = layout(groups, music, settings, variant, target)
+        if (target < settings.maxDuration) {
+            val full = Shown.of(layout(groups, music, settings, variant, settings.maxDuration).first)
+            while (!Shown.of(result.first).covers(full) && target < settings.maxDuration) {
+                target = (target * TARGET_STEP).coerceAtMost(settings.maxDuration)
+                result = layout(groups, music, settings, variant, target)
+            }
+        }
+        val (plan, describe) = result
+        // Les variantes essayées par [best] ne méritent pas une ligne chacune : seul le plan de base est détaillé.
+        if (variant == PlanVariant.BASE) log.info(describe) else log.debug(describe)
+        return plan
+    }
+
+    /**
+     * Ce qu'un plan montre : kills à l'écran, réactions gardées jusqu'au bout, flicks et multi-kills ralentis (sans
+     * ralenti, un flick passe trop vite pour être vu), et tous les ralentis quand on les a demandés partout. Pas les
+     * autres : ceux de l'accroche et de la drop dépendent de la forme du plan (les deux peuvent tomber sur le même
+     * clip), pas de ce qu'on voit des parties.
+     */
+    private data class Shown(val kills: Int, val reactions: Int, val slowed: Int) {
+        fun covers(other: Shown) = kills >= other.kills && reactions >= other.reactions && slowed >= other.slowed
+
+        companion object {
+            fun of(plan: MontagePlan) = Shown(
+                kills = plan.clips.sumOf { it.kills.size },
+                reactions = plan.clips.sumOf { c -> c.group.protectedSegments.count { it.end > c.anchor && it.end <= c.end } },
+                slowed = plan.clips.count { it.slow != null && (it.flick || it.kills.size > 1 || plan.settings.effectDensity == EffectDensity.HEAVY) },
+            )
+        }
+    }
+
+    /** Plan pour une durée visée donnée, et sa description pour le journal. */
+    private fun layout(groups: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings, variant: PlanVariant, target: Duration): Pair<MontagePlan, () -> String> {
         val cuts = settings.cuts.let { it.copy(dropPosition = (it.dropPosition + variant.dropShift).coerceIn(0.0, 1.0)) }
         val period = music.beatPeriod
         val minLeadBeats = beatsCeil(cuts.minLead, period).coerceAtLeast(1)
         val minTailBeats = beatsCeil(cuts.minTail, period).coerceAtLeast(1)
         val minBeats = maxOf(2, minLeadBeats + minTailBeats)
 
-        // Grille : plus grossière quand il y a moins de clips que de plans dans la durée demandée.
-        val (scale, _, window) = CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size, variant.scale?.let(::listOf))
+        // Grille : plus grossière quand il y a moins de clips que de plans dans la durée visée. Un montage raccourci
+        // garde un plan de réserve par multi-kill et par réaction à garder : ils s'étendent sur un voisin, sans prendre
+        // la place d'un autre groupe (un montage plein a des plans assez longs pour s'en passer).
+        val spare = if (target < settings.maxDuration) {
+            groups.count { g -> g.kills.size > 1 || g.protectedSegments.any { it.end > g.kills.last() } }
+        } else {
+            0
+        }
+        val (scale, _, window) = CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size + spare, variant.scale?.let(::listOf), target)
         if (window.isEmpty()) throw HighlightsException("Musique trop courte pour un seul clip (${music.duration.inWholeSeconds} s)")
 
         val cells = assign(window, groups, music, settings, minLeadBeats, minTailBeats)
@@ -284,13 +441,11 @@ object MontagePlanner {
                 plain
             }
         }
-        // Les variantes essayées par [best] ne méritent pas une ligne chacune : seul le plan de base est détaillé.
         val describe = {
-            "Grille ×${"%.0f".format(scale)} : ${window.size} slots, ${clips.size} clips, ${clips.sumOf { it.beats }} temps, " +
+            "Grille ×${"%.0f".format(scale)}, durée visée ${Durations.format(target)} : ${window.size} slots, ${clips.size} clips, ${clips.sumOf { it.beats }} temps, " +
                 clips.joinToString(" ") { "${it.beats}${if (it.slot.dropBeat != null) "*" else ""}" }
         }
-        if (variant == PlanVariant.BASE) log.info(describe) else log.debug(describe)
-        return MontagePlan(clips, music, settings, variant)
+        return MontagePlan(clips, music, settings, variant, target) to describe
     }
 
     private class Cell(var startBeat: Int, var endBeat: Int, val section: Int, val dropBeat: Int?) {

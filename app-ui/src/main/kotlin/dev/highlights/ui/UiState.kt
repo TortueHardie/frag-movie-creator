@@ -207,11 +207,18 @@ fun eventsLabel(events: Map<String, Int>): String = events.entries
 data class MontageUiState(
     val music: Path? = null,
     val maxDurationText: String = "60s",
+    /** Durée tirée du nombre de kills, la durée maximale restant un plafond. */
+    val fitKills: Boolean = true,
     val buildUp: Boolean = true,
     val formats: Set<OutputFormat> = setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
     val density: EffectDensity = EffectDensity.BALANCED,
     val zoom: Boolean = true,
     val flash: Boolean = true,
+    val whip: Boolean = true,
+    /** Coupes déplacées de quelques images pour raccorder sur une animation qui revient (rechargement, sort…). */
+    val matchCut: Boolean = true,
+    /** Kills classés selon leur round : mort juste après, ace, clutch (captures avec les morts d'Outplayed). */
+    val rounds: Boolean = true,
     val slowMotion: Boolean = true,
     val text: Boolean = true,
     /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */
