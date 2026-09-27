@@ -205,24 +205,6 @@ data class KillStyle(
     }
 }
 
-/**
- * Coupure de la musique juste avant la drop : le son du jeu reste seul un instant, puis la drop repart sur le meilleur
- * kill. L'attente rend la drop plus forte que n'importe quel effet.
- */
-@Serializable
-data class DropBreak(
-    val enabled: Boolean = true,
-    /** Longueur de la coupure, en temps de la musique (0,5 = une croche). */
-    val beats: Double = 1.0,
-    /** Volume de la musique pendant la coupure (0 = silence). */
-    val musicLevel: Double = 0.0,
-) {
-    init {
-        require(beats in 0.25..4.0) { "montage.audio.dropBreak.beats doit être entre 0,25 et 4" }
-        require(musicLevel in 0.0..1.0) { "montage.audio.dropBreak.musicLevel doit être entre 0 et 1" }
-    }
-}
-
 /** Ce que devient le son du jeu pendant un ralenti. */
 @Serializable
 enum class SlowAudio {
@@ -483,7 +465,6 @@ data class MontageAudio(
     val duckRelease: SerialDuration = 220.milliseconds,
     /** Le son du jeu peut déborder d'autant sur le plan suivant pour finir un kill ou une phrase (fondu). */
     val bleed: SerialDuration = 300.milliseconds,
-    val dropBreak: DropBreak = DropBreak(),
     val loudnessLufs: Double = -14.0,
 ) {
     init {

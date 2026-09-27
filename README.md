@@ -295,9 +295,7 @@ détecte les kills). En ligne de commande :
   avec `--reactions`) déborde un peu sur le plan suivant (`audio.bleed`). L'équilibre jeu / musique se règle dans le dialogue du montage
   (`audio.balance`, `--balance`, de -1 à 1 : ±6 dB par cran, jeu et musique en sens opposés). En mode « kills
   seulement » (`audio.game: kills`, `--game-audio kills`), on n'entend du jeu que le son du kill — tir, notification —
-  et la musique baisse dessous pour le laisser passer (`audio.musicUnderKill`). Juste avant la drop, la musique se tait
-  un temps (`audio.dropBreak` : `beats`, `musicLevel`) : le jeu reste seul un instant, puis la drop repart d'un coup sur
-  le meilleur kill.
+  et la musique baisse dessous pour le laisser passer (`audio.musicUnderKill`).
 - **Note du montage** : chaque rapport porte une note qui mesure ce que le moteur prétend faire — kills sur un temps,
   temps accentués, sobriété des effets, variété des clips, durée occupée, plans plus courts dans les sections intenses,
   absence d'image gelée, et trois mesures des temps morts : délai avant le premier kill (sans reproche jusqu'à 2 s,
