@@ -113,4 +113,20 @@ class KillfeedTest : FunSpec({
         repeat(4) { t.add(at(100 + it), listOf(death)) }
         t.appearances() shouldBe listOf(KillfeedRole.DEATH to at(0), KillfeedRole.DEATH to at(100))
     }
+
+    test("passages relus : de deux images clés avant une ligne vue à l'image clé suivante, fusionnés s'ils se touchent") {
+        val times = (0..20).map { it.seconds }
+        fun seen(vararg at: Int) = times.indices.map { it in at }
+        reviewWindows(times, seen(10, 11), end = 21.seconds, join = 1.seconds) shouldBe listOf(8.seconds..12.seconds)
+        // Image clé 12 masquée par un flash : 13 prolonge le même passage.
+        reviewWindows(times, seen(10, 11, 13), 21.seconds, 1.seconds) shouldBe listOf(8.seconds..14.seconds)
+        reviewWindows(times, seen(3, 15), 21.seconds, 1.seconds) shouldBe listOf(1.seconds..4.seconds, 13.seconds..16.seconds)
+        // Bords de la capture.
+        reviewWindows(times, seen(0, 20), 21.seconds, 1.seconds) shouldBe listOf(Duration.ZERO..1.seconds, 18.seconds..21.seconds)
+        reviewWindows(times, seen(), 21.seconds, 1.seconds).shouldBeEmpty()
+    }
+
+    test("une image sans pixel du joueur ne donne rien") {
+        reader.rows(ZoneFrame(300, 120, ByteArray(300 * 120))).shouldBeEmpty()
+    }
 })

@@ -11,6 +11,7 @@ import dev.highlights.core.ffmpeg.Hwaccel
 import dev.highlights.core.model.CropRegion
 import dev.highlights.core.model.RegionAnchor
 import dev.highlights.core.model.ScreenGeometry
+import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.serialization.Durations
 import dev.highlights.core.serialization.SerialDuration
 import dev.highlights.core.video.FrameSampler
@@ -121,6 +122,14 @@ data class KillfeedParams(
     val kinds: Map<KillfeedRole, String> = mapOf(KillfeedRole.KILL to "kill", KillfeedRole.DEATH to "death"),
     /** Décalage ajouté à l'instant où la ligne est vue pour la première fois. */
     val offset: SerialDuration = Duration.ZERO,
+    /**
+     * Lecture en deux temps quand les images clés de la capture sont espacées de cette durée au plus : elles seules sont
+     * d'abord lues (sans décoder les autres images, bien plus rapide), puis seuls les passages où l'une
+     * d'elles montre une ligne du joueur sont décodés à [fps]. Une ligne reste plusieurs secondes : elle tombe sur au
+     * moins deux images clés, même si une fumée ou un flash en masque une. Au-delà, ou à null, toute la vidéo est
+     * décodée à [fps].
+     */
+    val keyframeScan: SerialDuration? = 2.seconds,
 ) {
     init {
         require(fps > 0) { "fps doit être > 0" }
@@ -191,13 +200,19 @@ internal class FeedReader(
     fun rows(frame: ZoneFrame): List<FeedRow> {
         val w = frame.width
         val h = frame.height
-        val lit = BooleanArray(w * h) { (frame.pixels[it].toInt() and 0xFF) >= threshold }
-        // Trous d'un trait comblés en largeur, pour le regroupement seulement : les mesures portent sur les vrais pixels.
-        val joined = if (bridge == 0) lit else BooleanArray(w * h) { i ->
-            val x = i % w
-            val row = i - x
-            (maxOf(0, x - bridge)..minOf(w - 1, x + bridge)).any { lit[row + it] }
+        val pixels = frame.pixels
+        // La plupart des images n'ont aucun pixel de la couleur du joueur : rien à allouer ni à parcourir.
+        var any = false
+        for (i in 0 until w * h) {
+            if ((pixels[i].toInt() and 0xFF) >= threshold) {
+                any = true
+                break
+            }
         }
+        if (!any) return emptyList()
+        val lit = BooleanArray(w * h) { (pixels[it].toInt() and 0xFF) >= threshold }
+        // Trous d'un trait comblés en largeur, pour le regroupement seulement : les mesures portent sur les vrais pixels.
+        val joined = if (bridge == 0) lit else bridged(lit, w, h)
         val label = IntArray(w * h)
         val stack = IntArray(w * h)
         val found = mutableListOf<FeedRow>()
@@ -237,6 +252,24 @@ internal class FeedReader(
             frameOf(lit, label, next, w, top, bottom + 1, left, right)?.let { found += it }
         }
         return merge(found)
+    }
+
+    /** Pixel allumé s'il y en a un à [bridge] pixels au plus sur sa ligne : fenêtre glissante, un passage par ligne. */
+    private fun bridged(lit: BooleanArray, w: Int, h: Int): BooleanArray {
+        val out = BooleanArray(w * h)
+        for (y in 0 until h) {
+            val row = y * w
+            var inside = 0
+            for (x in 0 until minOf(w, bridge)) if (lit[row + x]) inside++
+            for (x in 0 until w) {
+                val enter = x + bridge
+                if (enter < w && lit[row + enter]) inside++
+                val leave = x - bridge - 1
+                if (leave >= 0 && lit[row + leave]) inside--
+                out[row + x] = inside > 0
+            }
+        }
+        return out
     }
 
     private fun frameOf(lit: BooleanArray, label: IntArray, id: Int, w: Int, top: Int, bottom: Int, left: Int, right: Int): FeedRow? {
@@ -339,7 +372,17 @@ internal class FeedTracker(
  */
 class KillfeedDetector(override val id: String, private val params: KillfeedParams) : SignalDetector {
 
-    private class Prepared(val subscription: FrameSampler.Subscription, val rows: MutableList<List<FeedRow>>, val tolerance: Int)
+    private class Prepared(
+        val subscription: FrameSampler.Subscription,
+        val rows: MutableList<List<FeedRow>>,
+        val tolerance: Int,
+        val zone: FrameZone,
+        val reader: FeedReader,
+        /** Intervalle des images clés quand [subscription] ne lit qu'elles (lecture en deux temps), sinon null. */
+        val keyframes: Duration?,
+        /** Part de la progression réservée à la relecture des passages repérés. */
+        val review: ProgressReporter,
+    )
 
     @Volatile
     private var prepared: Prepared? = null
@@ -369,16 +412,22 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         )
         val reader = FeedReader(params.threshold, px(params.victimWidth), params.bridge, shape)
         val rows = mutableListOf<List<FeedRow>>()
-        log.info { "$id : killfeed ${cw}x$ch à ($cx, $cy), lu en ${zone.width}x${zone.height}, ${params.fps} img/s" }
+        val keyframes = params.keyframeScan?.let { max -> ctx.frames.keyframeInterval(id)?.takeIf { it <= max } }
+        log.info {
+            "$id : killfeed ${cw}x$ch à ($cx, $cy), lu en ${zone.width}x${zone.height}, ${params.fps} img/s" +
+                (keyframes?.let { ", repéré sur les images clés (toutes les $it)" } ?: ", toute la vidéo")
+        }
+        val scanProgress = if (keyframes == null) ctx.progress else ctx.progress.child("images clés", SCAN_SHARE)
         val subscription = ctx.frames.subscribe(
-            spec = FrameSpec.fps(params.fps, params.hwaccel),
+            spec = keyframes?.let { FrameSpec.keyframes(it) } ?: FrameSpec.fps(params.fps, params.hwaccel),
             zones = listOf(zone),
             label = id,
-            progress = ctx.progress,
+            progress = scanProgress,
             onReset = { rows.clear() },
             onFrame = { _, zones -> rows += reader.rows(zones[0]) },
         )
-        prepared = Prepared(subscription, rows, px(params.matchTolerance))
+        val review = if (keyframes == null) ProgressReporter.NONE else ctx.progress.child("killfeed", 1 - SCAN_SHARE)
+        prepared = Prepared(subscription, rows, px(params.matchTolerance), zone, reader, keyframes, review)
     }
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
@@ -391,8 +440,12 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         if (count == 0) return SignalTrack.missing(id, ctx.grid.count, "aucune image analysée")
 
         val tracker = FeedTracker(state.tolerance, params.minSightings, params.maxGap, params.deathSpacing)
-        for (i in 0 until count) tracker.add(times[i], state.rows[i])
         val end = ctx.media.duration
+        if (state.keyframes == null) {
+            for (i in 0 until count) tracker.add(times[i], state.rows[i])
+        } else {
+            review(ctx, state, times.take(count), end, tracker)
+        }
         val events = tracker.appearances().mapNotNull { (role, at) ->
             val kind = params.kinds[role] ?: return@mapNotNull null
             SignalEvent((at + params.offset).coerceIn(Duration.ZERO, end), kind, 1.0)
@@ -400,6 +453,59 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         log.info { "$id : ${events.groupingBy { it.kind }.eachCount()} : " + events.joinToString { "${it.kind} ${Durations.format(it.at)}" } }
         return SignalTrack(id, DoubleArray(ctx.grid.count) { Double.NaN }, events)
     }
+
+    /** Relit à [KillfeedParams.fps] les seuls passages où les images clés montrent une ligne du joueur. */
+    private suspend fun review(ctx: AnalysisContext, state: Prepared, keyTimes: List<Duration>, end: Duration, tracker: FeedTracker) {
+        val interval = state.keyframes ?: return
+        val windows = reviewWindows(keyTimes, keyTimes.indices.map { state.rows[it].isNotEmpty() }, end, join = interval)
+        val total = windows.fold(Duration.ZERO) { acc, w -> acc + (w.endInclusive - w.start) }
+        log.info { "$id : ${windows.size} passage(s) à relire, ${Durations.format(total)} sur ${Durations.format(end)}" }
+        var done = Duration.ZERO
+        for (window in windows) {
+            val rows = mutableListOf<List<FeedRow>>()
+            val length = window.endInclusive - window.start
+            val times = ctx.frames.extractRange(
+                spec = FrameSpec.fps(params.fps, params.hwaccel),
+                zones = listOf(state.zone),
+                from = window.start,
+                length = length,
+                label = id,
+                progress = ProgressReporter.NONE,
+                onReset = { rows.clear() },
+                onFrame = { _, zones -> rows += state.reader.rows(zones[0]) },
+            )
+            for (i in 0 until minOf(times.size, rows.size)) tracker.add(times[i], rows[i])
+            done += length
+            state.review.update(done / total, "${Durations.format(done)} relues sur ${Durations.format(total)}")
+        }
+        state.review.complete()
+    }
+
+    private companion object {
+        /** Part de la progression prise par la lecture des images clés, bien plus rapide que la relecture. */
+        const val SCAN_SHARE = 0.3
+    }
+}
+
+/**
+ * Passages à relire de près, d'après les images clés ([times]) où une ligne du joueur a été vue ([seen]) : de deux
+ * images clés avant (la ligne est apparue après la précédente, qu'une fumée a pu masquer) à l'image clé suivante. Les
+ * passages qui se touchent ou presque (moins de [join] d'écart) sont fusionnés : une seule lecture.
+ */
+internal fun reviewWindows(times: List<Duration>, seen: List<Boolean>, end: Duration, join: Duration): List<ClosedRange<Duration>> {
+    val out = mutableListOf<ClosedRange<Duration>>()
+    for (i in times.indices) {
+        if (!seen[i]) continue
+        val start = if (i >= 2) times[i - 2] else Duration.ZERO
+        val stop = times.getOrNull(i + 1) ?: end
+        val last = out.lastOrNull()
+        if (last != null && start <= last.endInclusive + join) {
+            out[out.lastIndex] = last.start..maxOf(last.endInclusive, stop)
+        } else {
+            out += start..stop
+        }
+    }
+    return out
 }
 
 class KillfeedDetectorFactory : SignalDetectorFactory {
