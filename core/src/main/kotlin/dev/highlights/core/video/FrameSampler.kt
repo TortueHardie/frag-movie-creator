@@ -21,7 +21,12 @@ import kotlin.time.Duration.Companion.seconds
 
 private val log = KotlinLogging.logger {}
 
-/** Zone rectangulaire de la source (pixels), réduite à [width]x[height] avant d'être remontée. */
+/**
+ * Zone rectangulaire de la source (pixels), réduite à [width]x[height] avant d'être remontée. Par défaut en niveaux de
+ * gris ; avec [color], chaque pixel vaut cette expression du filtre `geq` de FFmpeg (composantes `r(X,Y)`, `g(X,Y)`,
+ * `b(X,Y)` de 0 à 255, résultat ramené dans 0..255), calculée après la réduction : un détecteur qui cherche une
+ * couleur (lignes jaunes du killfeed) la reçoit déjà isolée, sur un octet par pixel comme les autres.
+ */
 data class FrameZone(
     val cropX: Int,
     val cropY: Int,
@@ -29,6 +34,7 @@ data class FrameZone(
     val cropHeight: Int,
     val width: Int,
     val height: Int,
+    val color: String? = null,
 )
 
 /**
@@ -54,7 +60,7 @@ data class FrameSpec private constructor(
     }
 }
 
-/** Une zone d'une image, en niveaux de gris ligne par ligne. Le tampon est réutilisé d'une image à l'autre. */
+/** Une zone d'une image, un octet par pixel ligne par ligne. Le tampon est réutilisé d'une image à l'autre. */
 class ZoneFrame(val width: Int, val height: Int, val pixels: ByteArray)
 
 /**
@@ -184,7 +190,8 @@ class FrameSampler(private val ffmpeg: FfmpegService, private val media: MediaIn
     private fun filterGraph(layout: Layout, spec: FrameSpec): String {
         val head = "[0:v:0]" + (if (spec.keyframes) "" else "fps=${spec.fps},") + "setsar=1"
         fun chain(z: FrameZone, first: Boolean) = buildString {
-            append("crop=${z.cropWidth}:${z.cropHeight}:${z.cropX}:${z.cropY},scale=${z.width}:${z.height}:flags=area,format=gray")
+            append("crop=${z.cropWidth}:${z.cropHeight}:${z.cropX}:${z.cropY},scale=${z.width}:${z.height}:flags=area,")
+            append(z.color?.let(::colorFilter) ?: "format=gray")
             if (first) append(",showinfo")
             if (z.width < layout.width) append(",pad=${layout.width}:${z.height}:0:0")
         }
@@ -198,6 +205,15 @@ class FrameSampler(private val ffmpeg: FfmpegService, private val media: MediaIn
             zones.indices.forEach { append("[r$it]") }
             append("vstack=inputs=${zones.size}[out]")
         }
+    }
+
+    /**
+     * Expression de [FrameZone.color] calculée sur les composantes RVB, puis un seul plan extrait : pas de conversion
+     * en luminance, dont la plage (limitée ou pleine) décalerait les valeurs.
+     */
+    private fun colorFilter(expression: String): String {
+        val e = "'clip($expression,0,255)'"
+        return "format=gbrp,geq=r=$e:g=$e:b=$e,extractplanes=g"
     }
 
     private suspend fun extract(spec: FrameSpec): List<Duration> {

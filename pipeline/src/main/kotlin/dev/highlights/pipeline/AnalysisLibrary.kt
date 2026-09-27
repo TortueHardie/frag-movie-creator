@@ -105,7 +105,7 @@ class AnalysisLibrary(val file: Path) {
 
     companion object {
         /** À augmenter quand un détecteur change de calcul : les analyses précédentes sont alors refaites. */
-        const val ANALYSIS_VERSION = 1
+        const val ANALYSIS_VERSION = 2
 
         private val json = Json(SessionStore.json) { prettyPrint = true }
         // Sans les null : le sérialiseur YAML des paramètres (retirés ici) ne les accepte pas.

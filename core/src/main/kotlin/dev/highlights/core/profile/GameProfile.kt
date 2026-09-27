@@ -29,6 +29,12 @@ data class GameProfile(
 ) {
     init {
         require(detectors.map { it.id }.toSet().size == detectors.size) { "profil '$id' : identifiants de détecteurs en double" }
+        detectors.forEach { d ->
+            val target = d.fallbackFor ?: return@forEach
+            val replaced = detectors.find { it.id == target }
+            require(replaced != null && target != d.id) { "profil '$id' : fallbackFor du détecteur '${d.id}' ne désigne aucun autre détecteur ('$target')" }
+            require(replaced.fallbackFor == null) { "profil '$id' : '${d.id}' ne peut pas secourir '$target', lui-même détecteur de secours" }
+        }
     }
 }
 
@@ -61,6 +67,11 @@ data class DetectorConfig(
     /** Bonus par type d'événement (ex. kill: 0.8, assist: 0.3) ; à défaut, eventBoost. */
     val eventBoosts: Map<String, Double> = emptyMap(),
     val normalization: NormalizationConfig = NormalizationConfig(),
+    /**
+     * Détecteur de secours : ne tourne que si le détecteur d'id [fallbackFor] n'a rien donné (ex. kills lus à l'image
+     * quand la capture ne vient pas d'Outplayed). Les mêmes événements ne sont ainsi jamais comptés deux fois.
+     */
+    val fallbackFor: String? = null,
     val params: YamlNode? = null,
 ) {
     init {

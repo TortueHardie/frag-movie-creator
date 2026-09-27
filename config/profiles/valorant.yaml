@@ -36,6 +36,27 @@ detectors:
       # ±10 ms), 0,39 s en médiane pour les morts ; même retard supposé pour les assistances.
       offsets: { kill: -390ms, death: -390ms, assist: -390ms, headshot: -390ms }
 
+  # Sans Outplayed (capture OBS, ShadowPlay…), kills et morts sont lus dans le killfeed : le portrait du joueur y est
+  # pris dans un cadre jaune, à gauche quand il tue, à droite quand il meurt, quels que soient l'agent, l'arme, le skin
+  # ou le pseudo. Ne tourne que si game-events n'a rien donné : jamais deux fois les mêmes kills. Sans assistances ni
+  # headshots (absents du killfeed pour le joueur). Mesuré sur quatre parties (3440x1440 et 1920x1080, deux joueurs,
+  # deux agents) : 79 kills sur 79, 58 morts sur 58, aucun faux positif. Coût : la vidéo est décodée en entier
+  # (environ 5 fois plus vite que le temps réel).
+  - id: killfeed
+    type: killfeed
+    fallbackFor: game-events
+    weight: 0
+    eventBoosts: { kill: 0.8 }
+    params:
+      # Killfeed mesuré sur 3440x1440, collé au bord droit : la zone suit le format de la capture analysée.
+      region: { x: 0.709302, y: 0.076389, width: 0.290698, height: 0.243056 }
+      referenceWidth: 3440
+      referenceHeight: 1440
+      anchor: right
+      # Ligne vue après son apparition (0,1 s en moyenne à 5 img/s, plus son affichage) : sur deux parties, 0,12 et
+      # 0,23 s en médiane après les kills d'Outplayed recalés sur le killfeed (la troisième : 0,5 s avant).
+      offset: -150ms
+
   # Prises de parole sur la piste micro : un moment n'est jamais coupé au milieu d'une phrase ou d'un rire.
   - id: voice
     type: voice-activity
