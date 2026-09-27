@@ -347,11 +347,12 @@ ligne est un événement.
   comptés deux fois, et une capture Outplayed ne coûte pas un décodage vidéo de plus. Il tourne alors en même temps
   que l'analyse audio, pas après.
 - Lecture en deux temps (`keyframeScan`, 2 s par défaut) : seules les images clés sont d'abord lues, sans décoder les
-  autres ; puis seuls les passages où l'une d'elles montre une ligne du joueur sont décodés à 5 img/s. Une ligne reste
-  plusieurs secondes, elle tombe toujours sur plusieurs images clés. Sur une capture 3440x1440 de 2 min (images clés
-  toutes les 2 s), 15 s d'analyse au lieu de 35, mêmes kills aux mêmes instants ; le gain grandit avec la part de la
-  partie sans kill ni mort. Si les images clés de la capture sont plus espacées, ou avec `keyframeScan: null`, toute la
-  vidéo est décodée à 5 img/s comme avant.
+  autres. Une ligne du joueur qu'aucune image clé des secondes précédentes n'explique (même bord gauche, même hauteur ou
+  plus haut) est nouvelle : seul l'intervalle où elle est apparue est décodé à 5 img/s, de l'image clé d'avant à une
+  seconde après celle qui la montre, trois intervalles à la fois. Une ligne qui reste ou qui monte ne coûte rien. Sur
+  une capture 3440x1440 de 2 min à 60 img/s (images clés toutes les 2 s), 5 s d'analyse au lieu de 35, mêmes kills aux
+  mêmes instants. Si les images clés de la capture sont plus espacées (réglage « intervalle d'images clés » d'OBS), ou
+  avec `keyframeScan: null`, toute la vidéo est décodée à 5 img/s comme avant.
 - `fallbackFor` vaut pour n'importe quel détecteur : il désigne l'id du détecteur que celui-ci remplace quand son signal
   est absent.
 - La zone (`region`) est mesurée en 3440x1440 et suit le format de la capture (`referenceWidth`, `anchor: right`) ; les
