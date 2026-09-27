@@ -1,2 +1,3 @@
 dev.highlights.vision.HudTemplateDetectorFactory
 dev.highlights.vision.OcrLogDetectorFactory
+dev.highlights.vision.KillfeedDetectorFactory

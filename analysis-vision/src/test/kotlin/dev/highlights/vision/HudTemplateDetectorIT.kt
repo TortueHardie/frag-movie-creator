@@ -102,6 +102,6 @@ class HudTemplateDetectorIT : FunSpec({
 private fun region(x: Int, y: Int, w: Int, h: Int) =
     CropRegion(x / 1280.0, y / 720.0, w / 1280.0, h / 720.0).let { "{ x: ${it.x}, y: ${it.y}, width: ${it.width}, height: ${it.height} }" }
 
-private fun paramsOf(yaml: String) = dev.highlights.core.analysis.DetectorParams(
+internal fun paramsOf(yaml: String) = dev.highlights.core.analysis.DetectorParams(
     dev.highlights.core.config.ConfigYaml.yaml.parseToYamlNode(yaml.trimIndent()),
 )

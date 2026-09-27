@@ -5,7 +5,8 @@ Transforme des captures de gameplay brutes (Outplayed, OBS, ShadowPlay…) en mo
 Deux interfaces sur le même moteur : une **application de bureau** (Compose) et une **ligne de commande**.
 
 - **Détection des moments** : volume du jeu (EBU R128), prises de parole et rires (YAMNet), événements enregistrés par
-  Outplayed (kills, morts, assistances), icônes du HUD et journal des gains lu par OCR (Wardogs).
+  Outplayed (kills, morts, assistances), killfeed lu à l'image quand Outplayed n'est pas là (VALORANT), icônes du HUD
+  et journal des gains lu par OCR (Wardogs).
 - **Highlights** : les meilleurs moments fusionnés et exportés en 16:9 et/ou 9:16, encodés par le GPU (AMD, NVIDIA,
   Intel) avec repli logiciel.
 - **Étalonnage** (`edit.grade` d'un profil, pour les highlights comme pour le montage) : table de correspondance
@@ -108,8 +109,9 @@ installation (le code de mise à niveau, `upgradeUuid` dans `app-ui/build.gradle
 
 Rien à régler avant d'analyser une première capture : l'application s'adapte à ce qu'elle trouve.
 
-- **Outplayed ou pas** : les événements du jeu (kills, morts) viennent d'Outplayed quand il est là ; sinon ce signal est
-  simplement absent, les autres (volume, voix, rires, icônes du HUD) continuent et leur poids est redistribué.
+- **Outplayed ou pas** : les événements du jeu (kills, morts) viennent d'Outplayed quand il est là. Sinon, pour
+  VALORANT, ils sont lus dans le killfeed de la capture (voir plus bas) ; pour les autres jeux ce signal est simplement
+  absent, les autres (volume, voix, rires, icônes du HUD) continuent et leur poids est redistribué.
 - **Pistes audio** : elles sont désignées par leur rôle (`game`, `mic`, `mix`), pas par leur numéro. Outplayed en écrit
   trois (mix, jeu, micro), OBS une ou deux (jeu puis micro) : la bonne piste est trouvée dans les deux cas, d'après les
   titres des pistes puis leur nombre. Le montage garde tout le son sans le doubler : la piste de mix si elle existe,
@@ -266,7 +268,8 @@ détecte les kills). En ligne de commande :
   finit un round survécu sur au moins deux kills monte aussi (**clutch**, `clutchBonus`). Le jeu ne donne ni les rounds
   ni le nombre d'alliés en vie : une mort clôt le round du joueur, un silence de plus de 40 s aussi (`roundGap`, plus
   court que la phase d'achat), et le clutch reste une approximation. Une mort sépare toujours deux kills rapprochés en
-  deux clips. Sans aucune mort annoncée (capture hors Outplayed, `deathEvent` vide), rien de tout ça ne s'applique.
+  deux clips. Sans aucune mort annoncée (`deathEvent` vide, ou jeu sans Outplayed ni killfeed lu), rien de tout ça ne
+  s'applique.
   Désactivable par une case de la fenêtre de montage ou `--no-rounds`.
 - **Variantes** (`variants`) : une douzaine de plans sont calculés (échelle de la grille, place de la drop) et seul le
   mieux noté est rendu, à condition de garder presque tous les clips du plan de base et de le battre nettement.
@@ -323,6 +326,30 @@ pas d'Outplayed (OBS…), le signal est simplement absent.
 - `kinds` choisit les types retenus (ex. `kill: kill`) ; `offsets` corrige le retard de l'événement (VALORANT : −390 ms,
   mesuré sur une partie complète : l'instant tombe alors sur l'image où le kill apparaît dans le killfeed).
 - Sur une partie VALORANT de 50 min : 22 kills, 22 morts, 8 assistances, exactement le tableau de fin.
+
+## Killfeed (sans Outplayed)
+
+Une capture VALORANT enregistrée par OBS, ShadowPlay ou autre n'a pas d'événements Outplayed : le détecteur `killfeed`
+les lit alors à l'image. Dans le killfeed, le portrait du joueur est pris dans un cadre jaune : à gauche quand il
+tue, au bord droit quand il meurt, quels que soient l'agent, l'arme, le skin ou le pseudo (« Moi » ou son nom). FFmpeg
+ne transmet de la zone que ce jaune (expression `color`, un octet par pixel). Chaque tache jaune qui a la forme du cadre
+(hauteur d'une ligne, trait en haut ; largeur et remplissage varient selon ce que le visage de l'agent en cache) est une
+ligne du joueur, suivie d'une image à l'autre (elle garde sa place en largeur et ne fait que monter), et chaque nouvelle
+ligne est un événement.
+
+- Mesuré sur quatre parties : trois en 3440x1440 comparées à Outplayed, une en 1920x1080 d'un autre joueur et d'un
+  autre agent relevée à l'image : 79 kills sur 79, 58 morts sur 58, aucun faux positif (ni le décor jaune, ni les
+  flashs, ni les icônes du jeu, ni le graphe « Erreur de tir »). Une ligne « joueur → joueur » (ultime de Clove qui
+  expire) compte comme une mort, pas un kill. Pas d'assistances ni de headshots, que le killfeed ne distingue pas.
+- Toutes les captures sont lues à la même finesse (`scale`, en pixels lus par pixel de référence) : réduite davantage,
+  une capture 1080p perdait le contour d'un pixel du cadre.
+- Il ne tourne que si Outplayed n'a rien donné (`fallbackFor: game-events` dans le profil) : les kills ne sont jamais
+  comptés deux fois, et une capture Outplayed ne coûte pas un décodage vidéo de plus. Sinon, la vidéo est décodée en
+  entier à 5 img/s (environ 5 fois plus vite que le temps réel en 3440x1440).
+- `fallbackFor` vaut pour n'importe quel détecteur : il désigne l'id du détecteur que celui-ci remplace quand son signal
+  est absent.
+- La zone (`region`) est mesurée en 3440x1440 et suit le format de la capture (`referenceWidth`, `anchor: right`) ; les
+  tailles du cadre (`minHeight`…`maxFill`) et la couleur (`color`, `threshold`) se règlent pour un autre jeu.
 
 ## Journal des gains (Wardogs)
 
@@ -399,7 +426,7 @@ accroché, ce qui est deviné par défaut d'après sa position.
 | `core` | Modèle, interfaces (`SignalDetector`, `FfmpegService`, `EncoderSelector`…), config YAML, progression + ETA, session, décodage vidéo partagé (`FrameSampler`), FFT |
 | `ffmpeg` | Exécution FFmpeg/ffprobe via ProcessBuilder, détection des encodeurs |
 | `analysis` | Détecteurs audio et Outplayed (`audio-loudness`, `voice-activity`, `outplayed-events`), enregistrés par `ServiceLoader` |
-| `analysis-vision` | Détecteurs d'image (`hud-template`, `ocr-log` via l'OCR de Windows) |
+| `analysis-vision` | Détecteurs d'image (`hud-template`, `killfeed`, `ocr-log` via l'OCR de Windows) |
 | `analysis-ml` | Rires et exclamations (`audio-events`, YAMNet via ONNX Runtime) |
 | `scoring` | Normalisation par percentiles, fusion pondérée, sélection des moments |
 | `editing` | Plan de montage et graphe de filtres FFmpeg (une entrée par clip, xfade, loudnorm, recadrage) |

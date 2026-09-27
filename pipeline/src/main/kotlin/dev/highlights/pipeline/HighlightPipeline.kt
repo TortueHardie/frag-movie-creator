@@ -462,17 +462,42 @@ class HighlightPipeline(
     ): List<Pair<DetectorConfig, SignalTrack>> {
         val enabled = profile.detectors.filter { it.enabled }
         if (enabled.isEmpty()) throw HighlightsException("Le profil ${profile.id} n'a aucun détecteur actif")
-        val instances = enabled.map { it to detectors.create(it.type, it.id, it.detectorParams()) }
+        val tracks = AudioTracks.of(media.audio, profile.audio)
+        log.info { "Pistes audio : ${tracks.describe()}" }
+        val steps = enabled.associate { it.id to progress.child(it.id, 1.0 / enabled.size) }
+
+        // Les détecteurs de secours (fallbackFor) attendent le signal qu'ils remplacent : ils ne tournent que s'il est
+        // absent, pour ne pas compter deux fois les mêmes événements ni décoder la vidéo pour rien.
+        val (fallbacks, primaries) = enabled.partition { cfg -> cfg.fallbackFor != null && enabled.any { it.id == cfg.fallbackFor } }
+        val first = runPhase(primaries, media, grid, workDir, steps, tracks, warnings)
+        val missing = first.filter { it.second.isMissing }.map { it.first.id }.toSet()
+        val (needed, skipped) = fallbacks.partition { it.fallbackFor in missing }
+        skipped.forEach { steps.getValue(it.id).complete() }
+        needed.forEach { log.info { "${it.fallbackFor} sans signal : ${it.id} prend le relais" } }
+        val second = if (needed.isEmpty()) emptyList() else runPhase(needed, media, grid, workDir, steps, tracks, warnings)
+        val results = (first + second).associateBy { it.first.id }
+        return enabled.mapNotNull { results[it.id] }
+    }
+
+    /** Lance [configs] ensemble : une seule passe de décodage vidéo partagée, au plus `parallelism` à la fois. */
+    private suspend fun runPhase(
+        configs: List<DetectorConfig>,
+        media: MediaInfo,
+        grid: WindowGrid,
+        workDir: Path,
+        steps: Map<String, ProgressReporter>,
+        tracks: AudioTracks,
+        warnings: MutableList<String>,
+    ): List<Pair<DetectorConfig, SignalTrack>> {
+        val instances = configs.map { it to detectors.create(it.type, it.id, it.detectorParams()) }
         val semaphore = Semaphore(config.app.analysis.parallelism)
 
         // Chaque détecteur déclare d'abord ses besoins (zones vidéo, cadence) : la capture n'est ensuite décodée
         // qu'une fois pour tous ceux qui lisent des images. Une préparation en échec est relancée dans son détecteur,
         // pour être traitée comme n'importe quelle autre panne (continueOnDetectorError).
         val frames = FrameSampler(ffmpeg, media)
-        val tracks = AudioTracks.of(media.audio, profile.audio)
-        log.info { "Pistes audio : ${tracks.describe()}" }
         val contexts = instances.map { (cfg, _) ->
-            AnalysisContext(media, grid, ffmpeg, workDir, progress.child(cfg.id, 1.0 / instances.size), config.baseDir, frames, tracks)
+            AnalysisContext(media, grid, ffmpeg, workDir, steps.getValue(cfg.id), config.baseDir, frames, tracks)
         }
         val preparations = instances.mapIndexed { i, (_, detector) -> runCatching { detector.prepare(contexts[i]) } }
 
