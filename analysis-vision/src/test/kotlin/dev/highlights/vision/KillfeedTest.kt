@@ -113,4 +113,43 @@ class KillfeedTest : FunSpec({
         repeat(4) { t.add(at(100 + it), listOf(death)) }
         t.appearances() shouldBe listOf(KillfeedRole.DEATH to at(0), KillfeedRole.DEATH to at(100))
     }
+
+    test("passages relus : de l'image clé qui précède une nouvelle ligne à une seconde après celle qui la montre") {
+        val times = (0..20).map { (2 * it).seconds }
+        val kill = FeedRow(KillfeedRole.KILL, 10, 32, 100, 138)
+        val below = FeedRow(KillfeedRole.KILL, 36, 58, 120, 158)
+        val other = FeedRow(KillfeedRole.KILL, 10, 32, 140, 178)
+        fun plan(vararg at: Pair<Int, List<FeedRow>>): List<Review> {
+            val rows = times.indices.map { i -> at.firstOrNull { it.first == i }?.second ?: emptyList() }
+            return planReview(times, rows, end = 41.seconds, tolerance = 6, lookback = 5.seconds, tail = 1.seconds)
+        }
+        // Ligne vue sur trois images clés : seule son apparition est relue.
+        plan(5 to listOf(kill), 6 to listOf(kill), 7 to listOf(kill)) shouldBe listOf(Review(8.seconds, 11.seconds, emptyList()))
+        // Une seconde ligne en dessous, juste après : relue aussi, dans le même passage.
+        plan(5 to listOf(kill), 6 to listOf(kill, below)) shouldBe listOf(Review(8.seconds, 13.seconds, emptyList()))
+        // Une ligne qui monte quand la plus ancienne disparaît ne coûte rien.
+        plan(5 to listOf(kill), 6 to listOf(kill, below), 7 to listOf(below.copy(top = 10, bottom = 32))).last().stop shouldBe 13.seconds
+        // Masquée par un flash sur une image clé : reconnue à la suivante.
+        plan(5 to listOf(kill), 7 to listOf(kill)).size shouldBe 1
+        // Une autre ligne à la même hauteur, bord gauche ailleurs : nouvelle, avec l'ancienne connue.
+        plan(5 to listOf(kill), 8 to listOf(other)) shouldBe
+            listOf(Review(8.seconds, 11.seconds, emptyList()), Review(14.seconds, 17.seconds, listOf(10.seconds to listOf(kill))))
+        // Bords de la capture.
+        plan(0 to listOf(kill), 20 to listOf(other)) shouldBe
+            listOf(Review(Duration.ZERO, 1.seconds, emptyList()), Review(38.seconds, 41.seconds, emptyList()))
+        plan().shouldBeEmpty()
+    }
+
+    test("une ligne connue avant le passage relu est suivie sans être comptée") {
+        val t = FeedTracker(tolerance = 6, minSightings = 3, maxGap = 3.seconds, deathSpacing = 10.seconds)
+        val kill = FeedRow(KillfeedRole.KILL, 10, 32, 100, 138)
+        val below = FeedRow(KillfeedRole.KILL, 36, 58, 120, 158)
+        t.known(8.seconds, listOf(kill))
+        repeat(5) { t.add(9.seconds + (200 * it).milliseconds, listOf(kill, below)) }
+        t.appearances() shouldBe listOf(KillfeedRole.KILL to 9.seconds)
+    }
+
+    test("une image sans pixel du joueur ne donne rien") {
+        reader.rows(ZoneFrame(300, 120, ByteArray(300 * 120))).shouldBeEmpty()
+    }
 })

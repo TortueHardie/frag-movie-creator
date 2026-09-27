@@ -467,14 +467,18 @@ class HighlightPipeline(
         val steps = enabled.associate { it.id to progress.child(it.id, 1.0 / enabled.size) }
 
         // Les détecteurs de secours (fallbackFor) attendent le signal qu'ils remplacent : ils ne tournent que s'il est
-        // absent, pour ne pas compter deux fois les mêmes événements ni décoder la vidéo pour rien.
-        val (fallbacks, primaries) = enabled.partition { cfg -> cfg.fallbackFor != null && enabled.any { it.id == cfg.fallbackFor } }
-        val first = runPhase(primaries, media, grid, workDir, steps, tracks, warnings)
+        // absent, pour ne pas compter deux fois les mêmes événements ni décoder la vidéo pour rien. Seuls les signaux
+        // remplaçables sont lus d'abord (base d'Outplayed : un instant) ; les secours nécessaires tournent ensuite en
+        // même temps que tous les autres, décodage vidéo et analyse audio en parallèle, au lieu d'attendre leur fin.
+        val (fallbacks, others) = enabled.partition { cfg -> cfg.fallbackFor != null && enabled.any { it.id == cfg.fallbackFor } }
+        val replaceable = fallbacks.mapNotNull { it.fallbackFor }.toSet()
+        val (targets, rest) = others.partition { it.id in replaceable }
+        val first = if (targets.isEmpty()) emptyList() else runPhase(targets, media, grid, workDir, steps, tracks, warnings)
         val missing = first.filter { it.second.isMissing }.map { it.first.id }.toSet()
         val (needed, skipped) = fallbacks.partition { it.fallbackFor in missing }
         skipped.forEach { steps.getValue(it.id).complete() }
         needed.forEach { log.info { "${it.fallbackFor} sans signal : ${it.id} prend le relais" } }
-        val second = if (needed.isEmpty()) emptyList() else runPhase(needed, media, grid, workDir, steps, tracks, warnings)
+        val second = runPhase(rest + needed, media, grid, workDir, steps, tracks, warnings)
         val results = (first + second).associateBy { it.first.id }
         return enabled.mapNotNull { results[it.id] }
     }

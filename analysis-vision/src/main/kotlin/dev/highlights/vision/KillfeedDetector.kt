@@ -11,6 +11,7 @@ import dev.highlights.core.ffmpeg.Hwaccel
 import dev.highlights.core.model.CropRegion
 import dev.highlights.core.model.RegionAnchor
 import dev.highlights.core.model.ScreenGeometry
+import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.serialization.Durations
 import dev.highlights.core.serialization.SerialDuration
 import dev.highlights.core.video.FrameSampler
@@ -18,11 +19,18 @@ import dev.highlights.core.video.FrameSpec
 import dev.highlights.core.video.FrameZone
 import dev.highlights.core.video.ZoneFrame
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 private val log = KotlinLogging.logger {}
@@ -121,6 +129,14 @@ data class KillfeedParams(
     val kinds: Map<KillfeedRole, String> = mapOf(KillfeedRole.KILL to "kill", KillfeedRole.DEATH to "death"),
     /** Décalage ajouté à l'instant où la ligne est vue pour la première fois. */
     val offset: SerialDuration = Duration.ZERO,
+    /**
+     * Lecture en deux temps quand les images clés de la capture sont espacées de cette durée au plus : elles seules sont
+     * d'abord lues (sans décoder les autres images, une vingtaine de fois plus rapide), puis seuls les intervalles où
+     * une nouvelle ligne du joueur apparaît sont décodés à [fps], de l'image clé qui la précède à une seconde après celle
+     * qui la montre. Une ligne reste plusieurs secondes : elle tombe toujours sur une image clé. Au-delà, ou à null,
+     * toute la vidéo est décodée à [fps].
+     */
+    val keyframeScan: SerialDuration? = 2.seconds,
 ) {
     init {
         require(fps > 0) { "fps doit être > 0" }
@@ -191,13 +207,19 @@ internal class FeedReader(
     fun rows(frame: ZoneFrame): List<FeedRow> {
         val w = frame.width
         val h = frame.height
-        val lit = BooleanArray(w * h) { (frame.pixels[it].toInt() and 0xFF) >= threshold }
-        // Trous d'un trait comblés en largeur, pour le regroupement seulement : les mesures portent sur les vrais pixels.
-        val joined = if (bridge == 0) lit else BooleanArray(w * h) { i ->
-            val x = i % w
-            val row = i - x
-            (maxOf(0, x - bridge)..minOf(w - 1, x + bridge)).any { lit[row + it] }
+        val pixels = frame.pixels
+        // La plupart des images n'ont aucun pixel de la couleur du joueur : rien à allouer ni à parcourir.
+        var any = false
+        for (i in 0 until w * h) {
+            if ((pixels[i].toInt() and 0xFF) >= threshold) {
+                any = true
+                break
+            }
         }
+        if (!any) return emptyList()
+        val lit = BooleanArray(w * h) { (pixels[it].toInt() and 0xFF) >= threshold }
+        // Trous d'un trait comblés en largeur, pour le regroupement seulement : les mesures portent sur les vrais pixels.
+        val joined = if (bridge == 0) lit else bridged(lit, w, h)
         val label = IntArray(w * h)
         val stack = IntArray(w * h)
         val found = mutableListOf<FeedRow>()
@@ -237,6 +259,24 @@ internal class FeedReader(
             frameOf(lit, label, next, w, top, bottom + 1, left, right)?.let { found += it }
         }
         return merge(found)
+    }
+
+    /** Pixel allumé s'il y en a un à [bridge] pixels au plus sur sa ligne : fenêtre glissante, un passage par ligne. */
+    private fun bridged(lit: BooleanArray, w: Int, h: Int): BooleanArray {
+        val out = BooleanArray(w * h)
+        for (y in 0 until h) {
+            val row = y * w
+            var inside = 0
+            for (x in 0 until minOf(w, bridge)) if (lit[row + x]) inside++
+            for (x in 0 until w) {
+                val enter = x + bridge
+                if (enter < w && lit[row + enter]) inside++
+                val leave = x - bridge - 1
+                if (leave >= 0 && lit[row + leave]) inside--
+                out[row + x] = inside > 0
+            }
+        }
+        return out
     }
 
     private fun frameOf(lit: BooleanArray, label: IntArray, id: Int, w: Int, top: Int, bottom: Int, left: Int, right: Int): FeedRow? {
@@ -290,9 +330,24 @@ internal class FeedTracker(
     private val maxGap: Duration,
     private val deathSpacing: Duration,
 ) {
-    private class Track(val role: KillfeedRole, var left: Int, var right: Int, var center: Double, val first: Duration, var last: Duration, var sightings: Int)
+    private class Track(
+        val role: KillfeedRole,
+        var left: Int,
+        var right: Int,
+        var center: Double,
+        val first: Duration,
+        var last: Duration,
+        var sightings: Int,
+        /** Ligne déjà présente avant le passage relu (vue sur une image clé) : suivie, jamais comptée. */
+        val known: Boolean = false,
+    )
 
     private val tracks = mutableListOf<Track>()
+
+    /** Lignes vues sur une image clé avant un passage relu : elles y seront reconnues, pas prises pour de nouvelles. */
+    fun known(at: Duration, rows: List<FeedRow>) {
+        rows.forEach { tracks += Track(it.role, it.left, it.right, it.center, at, at, minSightings, known = true) }
+    }
 
     fun add(at: Duration, rows: List<FeedRow>) {
         val used = HashSet<Track>()
@@ -319,7 +374,7 @@ internal class FeedTracker(
 
     /** Lignes vues assez souvent, dans l'ordre : (sorte, instant d'apparition). */
     fun appearances(): List<Pair<KillfeedRole, Duration>> {
-        val seen = tracks.filter { it.sightings >= minSightings }.sortedBy { it.first }
+        val seen = tracks.filter { !it.known && it.sightings >= minSightings }.sortedBy { it.first }
         var lastDeath: Duration? = null
         return seen.mapNotNull { t ->
             if (t.role == KillfeedRole.DEATH) {
@@ -339,7 +394,17 @@ internal class FeedTracker(
  */
 class KillfeedDetector(override val id: String, private val params: KillfeedParams) : SignalDetector {
 
-    private class Prepared(val subscription: FrameSampler.Subscription, val rows: MutableList<List<FeedRow>>, val tolerance: Int)
+    private class Prepared(
+        val subscription: FrameSampler.Subscription,
+        val rows: MutableList<List<FeedRow>>,
+        val tolerance: Int,
+        val zone: FrameZone,
+        val reader: FeedReader,
+        /** Intervalle des images clés quand [subscription] ne lit qu'elles (lecture en deux temps), sinon null. */
+        val keyframes: Duration?,
+        /** Part de la progression réservée à la relecture des passages repérés. */
+        val review: ProgressReporter,
+    )
 
     @Volatile
     private var prepared: Prepared? = null
@@ -369,16 +434,22 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         )
         val reader = FeedReader(params.threshold, px(params.victimWidth), params.bridge, shape)
         val rows = mutableListOf<List<FeedRow>>()
-        log.info { "$id : killfeed ${cw}x$ch à ($cx, $cy), lu en ${zone.width}x${zone.height}, ${params.fps} img/s" }
+        val keyframes = params.keyframeScan?.let { max -> ctx.frames.keyframeInterval(id)?.takeIf { it <= max } }
+        log.info {
+            "$id : killfeed ${cw}x$ch à ($cx, $cy), lu en ${zone.width}x${zone.height}, ${params.fps} img/s" +
+                (keyframes?.let { ", repéré sur les images clés (toutes les $it)" } ?: ", toute la vidéo")
+        }
+        val scanProgress = if (keyframes == null) ctx.progress else ctx.progress.child("images clés", SCAN_SHARE)
         val subscription = ctx.frames.subscribe(
-            spec = FrameSpec.fps(params.fps, params.hwaccel),
+            spec = keyframes?.let { FrameSpec.keyframes(it) } ?: FrameSpec.fps(params.fps, params.hwaccel),
             zones = listOf(zone),
             label = id,
-            progress = ctx.progress,
+            progress = scanProgress,
             onReset = { rows.clear() },
             onFrame = { _, zones -> rows += reader.rows(zones[0]) },
         )
-        prepared = Prepared(subscription, rows, px(params.matchTolerance))
+        val review = if (keyframes == null) ProgressReporter.NONE else ctx.progress.child("killfeed", 1 - SCAN_SHARE)
+        prepared = Prepared(subscription, rows, px(params.matchTolerance), zone, reader, keyframes, review)
     }
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
@@ -391,14 +462,120 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         if (count == 0) return SignalTrack.missing(id, ctx.grid.count, "aucune image analysée")
 
         val tracker = FeedTracker(state.tolerance, params.minSightings, params.maxGap, params.deathSpacing)
-        for (i in 0 until count) tracker.add(times[i], state.rows[i])
         val end = ctx.media.duration
+        if (state.keyframes == null) {
+            for (i in 0 until count) tracker.add(times[i], state.rows[i])
+        } else {
+            review(ctx, state, times.take(count), end, tracker)
+        }
         val events = tracker.appearances().mapNotNull { (role, at) ->
             val kind = params.kinds[role] ?: return@mapNotNull null
             SignalEvent((at + params.offset).coerceIn(Duration.ZERO, end), kind, 1.0)
         }
         log.info { "$id : ${events.groupingBy { it.kind }.eachCount()} : " + events.joinToString { "${it.kind} ${Durations.format(it.at)}" } }
         return SignalTrack(id, DoubleArray(ctx.grid.count) { Double.NaN }, events)
+    }
+
+    /**
+     * Relit à [KillfeedParams.fps] les seuls passages où une image clé montre une nouvelle ligne du joueur, plusieurs à la
+     * fois ; le suivi les reçoit ensuite dans l'ordre.
+     */
+    private suspend fun review(ctx: AnalysisContext, state: Prepared, keyTimes: List<Duration>, end: Duration, tracker: FeedTracker) {
+        val interval = state.keyframes ?: return
+        val plan = planReview(
+            keyTimes, keyTimes.indices.map { state.rows[it] }, end, state.tolerance,
+            lookback = params.maxGap + interval,
+            tail = ((params.minSightings + 2) / params.fps).seconds,
+        )
+        val total = plan.fold(Duration.ZERO) { acc, r -> acc + (r.stop - r.start) }
+        log.info { "$id : ${plan.size} passage(s) à relire, ${Durations.format(total)} sur ${Durations.format(end)}" }
+        val done = AtomicLong()
+        val semaphore = Semaphore(PARALLEL_REVIEWS)
+        val frames = coroutineScope {
+            plan.map { r ->
+                async {
+                    semaphore.withPermit {
+                        val rows = mutableListOf<List<FeedRow>>()
+                        val times = ctx.frames.extractRange(
+                            spec = FrameSpec.fps(params.fps, params.hwaccel),
+                            zones = listOf(state.zone),
+                            from = r.start,
+                            length = r.stop - r.start,
+                            label = id,
+                            progress = ProgressReporter.NONE,
+                            onReset = { rows.clear() },
+                            onFrame = { _, zones -> rows += state.reader.rows(zones[0]) },
+                        )
+                        val read = done.addAndGet((r.stop - r.start).inWholeMilliseconds).milliseconds
+                        state.review.update(read / total, "${Durations.format(read)} relues sur ${Durations.format(total)}")
+                        times.zip(rows)
+                    }
+                }
+            }.awaitAll()
+        }
+        plan.forEachIndexed { i, r ->
+            r.known.forEach { (at, rows) -> tracker.known(at, rows) }
+            frames[i].forEach { (at, rows) -> tracker.add(at, rows) }
+        }
+        state.review.complete()
+    }
+
+    private companion object {
+        /** Part de la progression prise par la lecture des images clés, bien plus rapide que la relecture. */
+        const val SCAN_SHARE = 0.3
+
+        /** Passages relus en même temps : chaque lecture est courte, le lancement de FFmpeg et la recherche pèsent. */
+        const val PARALLEL_REVIEWS = 3
+    }
+}
+
+/** Passage relu de près, avec les lignes déjà présentes sur les images clés qui le précèdent (instant, lignes). */
+internal data class Review(val start: Duration, val stop: Duration, val known: List<Pair<Duration, List<FeedRow>>>)
+
+/**
+ * Passages à relire d'après les images clés ([times], lignes lues [rows]). Une ligne d'une image clé que n'explique
+ * aucune ligne des images clés des [lookback] précédentes (même sorte, même bord gauche à [tolerance] près, pas plus bas)
+ * est nouvelle : elle est apparue depuis l'image clé précédente. Seul cet intervalle est relu, prolongé de [tail] pour
+ * que la ligne y soit vue assez de fois. Une ligne qui reste, ou qui monte, ne coûte plus rien.
+ *
+ * Les passages qui se recouvrent sont fusionnés. Chacun garde les lignes des images clés de [lookback] avant son
+ * début : le suivi les reconnaît au lieu de les compter, même masquées un instant par un flash.
+ */
+internal fun planReview(
+    times: List<Duration>,
+    rows: List<List<FeedRow>>,
+    end: Duration,
+    tolerance: Int,
+    lookback: Duration,
+    tail: Duration,
+): List<Review> {
+    fun before(k: Int) = (k - 1 downTo 0).takeWhile { times[it] >= times[k] - lookback }
+    val out = mutableListOf<Review>()
+    for (k in times.indices) {
+        if (rows[k].isEmpty() || explained(rows[k], before(k).flatMap { rows[it] }, tolerance)) continue
+        val start = if (k > 0) times[k - 1] else Duration.ZERO
+        val stop = minOf(times[k] + tail, end)
+        val last = out.lastOrNull()
+        if (last != null && start <= last.stop) {
+            out[out.lastIndex] = last.copy(stop = maxOf(last.stop, stop))
+        } else {
+            val known = if (k == 0) emptyList() else (listOf(k - 1) + before(k - 1)).filter { rows[it].isNotEmpty() }
+            out += Review(start, stop, known.sorted().map { times[it] to rows[it] })
+        }
+    }
+    return out
+}
+
+/** Chaque ligne de [rows] est-elle une de [previous], restée en place ou montée ? Une ligne ancienne n'en explique qu'une. */
+private fun explained(rows: List<FeedRow>, previous: List<FeedRow>, tolerance: Int): Boolean {
+    val used = BooleanArray(previous.size)
+    return rows.sortedBy { it.center }.all { row ->
+        val match = previous.indices
+            .filter { !used[it] && previous[it].role == row.role && row.center <= previous[it].center + tolerance }
+            .filter { abs(previous[it].left - row.left) <= tolerance }
+            .minByOrNull { abs(previous[it].left - row.left) }
+        if (match != null) used[match] = true
+        match != null
     }
 }
 

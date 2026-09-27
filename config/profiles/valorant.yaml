@@ -40,8 +40,8 @@ detectors:
   # pris dans un cadre jaune, à gauche quand il tue, à droite quand il meurt, quels que soient l'agent, l'arme, le skin
   # ou le pseudo. Ne tourne que si game-events n'a rien donné : jamais deux fois les mêmes kills. Sans assistances ni
   # headshots (absents du killfeed pour le joueur). Mesuré sur quatre parties (3440x1440 et 1920x1080, deux joueurs,
-  # deux agents) : 79 kills sur 79, 58 morts sur 58, aucun faux positif. Coût : la vidéo est décodée en entier
-  # (environ 5 fois plus vite que le temps réel).
+  # deux agents) : 79 kills sur 79, 58 morts sur 58, aucun faux positif. Coût : les images clés sont lues d'abord, puis
+  # seuls les instants où une nouvelle ligne du joueur apparaît sont décodés (keyframeScan, voir le README).
   - id: killfeed
     type: killfeed
     fallbackFor: game-events

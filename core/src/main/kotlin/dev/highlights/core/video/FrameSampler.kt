@@ -212,17 +212,42 @@ class FrameSampler(private val ffmpeg: FfmpegService, private val media: MediaIn
      * en luminance, dont la plage (limitée ou pleine) décalerait les valeurs.
      */
     private fun colorFilter(expression: String): String {
+        // Seul le plan vert est gardé : l'expression n'y est calculée qu'une fois, les deux autres sont à zéro.
         val e = "'clip($expression,0,255)'"
-        return "format=gbrp,geq=r=$e:g=$e:b=$e,extractplanes=g"
+        return "format=gbrp,geq=r=0:g=$e:b=0,extractplanes=g"
     }
 
-    private suspend fun extract(spec: FrameSpec): List<Duration> {
-        val subs = synchronized(subscriptions) { subscriptions.filter { it.spec == spec } }
+    private suspend fun extract(spec: FrameSpec): List<Duration> =
+        extract(spec, synchronized(subscriptions) { subscriptions.filter { it.spec == spec } }, range = null)
+
+    /**
+     * Passe à part, limitée à [length] à partir de [from] : rien n'est partagé avec les autres détecteurs. Sert à relire
+     * de près quelques passages repérés par une première passe rapide (images clés). Rend les instants des images,
+     * comptés depuis le début de la capture ; en cas d'échec, lève.
+     */
+    suspend fun extractRange(
+        spec: FrameSpec,
+        zones: List<FrameZone>,
+        from: Duration,
+        length: Duration,
+        label: String,
+        progress: ProgressReporter,
+        onReset: () -> Unit,
+        onFrame: (Int, List<ZoneFrame>) -> Unit,
+    ): List<Duration> {
+        require(zones.isNotEmpty()) { "$label : au moins une zone attendue" }
+        val sub = Subscription(spec, zones, label, progress, onReset, onFrame, this)
+        return extract(spec, listOf(sub), from to length)
+    }
+
+    private suspend fun extract(spec: FrameSpec, subs: List<Subscription>, range: Pair<Duration, Duration>?): List<Duration> {
         val layout = layout(subs)
         val label = subs.joinToString("+") { it.label }
         val times = ConcurrentHashMap<Int, Duration>()
         val showinfo = Regex("""\bn:\s*(\d+)\b.*\bpts_time:\s*(-?[\d.]+)""")
-        val expected = (media.duration / spec.interval).coerceAtLeast(1.0)
+        val expected = ((range?.second ?: media.duration) / spec.interval).coerceAtLeast(1.0)
+        // Avec -ss, FFmpeg compte les instants depuis le point de départ.
+        val origin = range?.first ?: Duration.ZERO
         var count = 0
 
         // Un tampon par zone unique, réutilisé à chaque image et redistribué à chaque abonné.
@@ -236,6 +261,9 @@ class FrameSampler(private val ffmpeg: FfmpegService, private val media: MediaIn
                     // Images clés : les autres paquets sont écartés dès le démultiplexage (le décodeur ne les voit
                     // même pas), deux fois plus rapide que -skip_frame pour des images identiques au pixel près.
                     if (spec.keyframes) addAll(listOf("-discard", "nokey"))
+                    range?.let { (from, length) ->
+                        addAll(listOf("-ss", Durations.ffmpegSecondsPrecise(from), "-t", Durations.ffmpegSecondsPrecise(length)))
+                    }
                     addAll(listOf("-i", media.path.toString(), "-an", "-sn", "-dn"))
                     addAll(listOf("-filter_complex", filterGraph(layout, spec)))
                     addAll(listOf("-map", "[out]", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"))
@@ -269,7 +297,7 @@ class FrameSampler(private val ffmpeg: FfmpegService, private val media: MediaIn
             },
             onStderrLine = { line ->
                 if (line.contains("showinfo")) {
-                    showinfo.find(line)?.let { m -> times[m.groupValues[1].toInt()] = m.groupValues[2].toDouble().seconds }
+                    showinfo.find(line)?.let { m -> times[m.groupValues[1].toInt()] = origin + m.groupValues[2].toDouble().seconds }
                 }
             },
         )
@@ -287,6 +315,6 @@ class FrameSampler(private val ffmpeg: FfmpegService, private val media: MediaIn
         }
         subs.forEach { it.progress.complete() }
         if (times.size < count) log.warn { "$label : ${count - times.size} horodatage(s) manquant(s), estimation par l'intervalle" }
-        return List(count) { i -> times[i] ?: (spec.interval * i) }
+        return List(count) { i -> times[i] ?: (origin + spec.interval * i) }
     }
 }
