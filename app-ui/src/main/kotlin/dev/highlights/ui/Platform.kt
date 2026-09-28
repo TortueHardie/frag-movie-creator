@@ -1,5 +1,6 @@
 package dev.highlights.ui
 
+import dev.highlights.montage.MusicLibrary
 import dev.highlights.pipeline.HighlightPipeline
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.awt.Desktop
@@ -37,7 +38,7 @@ class DesktopPlatform(private val owner: () -> Frame?) : Platform {
 
     override fun chooseAudio(initialDir: Path?): Path? =
         fileDialog("Choisir une musique", initialDir) { name ->
-            name.lowercase().let { n -> listOf(".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".opus").any { n.endsWith(it) } }
+            name.lowercase().substringAfterLast('.', "") in MusicLibrary.AUDIO_EXTENSIONS
         }
 
     override fun chooseSessions(initialDir: Path?): List<Path> =

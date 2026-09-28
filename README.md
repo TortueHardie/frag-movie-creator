@@ -193,7 +193,20 @@ détecte les kills). En ligne de commande :
 
 ```powershell
 & $app montage output\sessions\partie.session.json --music D:\Musique\son.mp3 --max 60s --format 9:16,source
+& $app montage output\sessions\partie.session.json --music D:\Musique\TikTok --max 60s   # musique choisie dans le dossier
 ```
+
+- **Bibliothèque musicale** : `--music` accepte un dossier (sous-dossiers compris), et le dialogue du montage a un mode
+  « Choisir dans un dossier » (dossier retenu d'un montage à l'autre). Le montage est alors planifié sur chaque musique,
+  et celle qui obtient la meilleure note (la note du montage : kills sur des temps
+  accentués, durée visée tenue, drop à portée, pas de trou) l'emporte ; la note est multipliée par la part des groupes
+  de kills que la musique montre, pour qu'une musique trop courte ne gagne pas en en perdant. Planifier ne coûte presque
+  rien face au rendu : seules les analyses sont longues, et chaque musique n'est analysée qu'une fois (gardée dans
+  `<workDir>/cache/music`, refaite si le fichier change). `app music <dossier>` les fait d'avance. Chaque musique garde
+  son réglage « depuis le début » ; `--from-start` l'impose à toutes. Les musiques essayées et leur note sont dans le
+  rapport JSON (`musicCandidates`) et affichées par la commande. Pour ne pas ressortir toujours la même, une musique
+  des 3 derniers montages (choisie ou imposée, `output/sessions/music-history.json`) perd 0,03 de note : les musiques
+  qui collent presque aussi bien tournent, jamais une qui ferait perdre des kills (un groupe perdu coûte plus).
 
 - **Durée adaptée au nombre de kills** (`length`) : le montage dure ce qu'il faut pour montrer ses kills — 2,5 s par
   clip (`perClip`), 1 s de plus par kill supplémentaire d'un multi-kill (`perExtraKill`), la réaction gardée après le
@@ -389,6 +402,7 @@ $app = ".\app-cli\build\install\app\bin\app.bat"
 & $app encoders                                   # encodeurs utilisables sur cette machine
 & $app probe "D:\Videos\Outplayed\League of Legends\partie.mp4"   # pistes audio, résolution, durée
 & $app music D:\Musique\son.mp3 --max 60s --clips 12         # tempo, sections, drop et grille de coupes d'un montage
+& $app music D:\Musique\TikTok                         # analyse d'avance chaque musique d'un dossier (bibliothèque)
 & $app process "D:\Videos\...\partie.mp4"         # analyse + montage
 & $app process partie.mp4 --profile valorant --duration 5m --format 16:9,9:16
 & $app process partie1.mp4 partie2.mp4 partie3.mp4 --top 10   # toute une soirée : un seul montage, parties dans l'ordre joué

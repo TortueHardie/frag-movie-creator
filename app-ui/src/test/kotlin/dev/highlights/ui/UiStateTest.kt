@@ -46,6 +46,33 @@ class UiStateTest : FunSpec({
         aspectLabel(1000, 100) shouldBe "1000x100"
     }
 
+    test("montage kills : une musique, ou un dossier où la choisir") {
+        val music = java.nio.file.Path.of("C:/Musiques/drop.mp3")
+        val dir = java.nio.file.Path.of("C:/Musiques")
+        MontageUiState(music = music).musicSource shouldBe music
+        MontageUiState(music = music).canCreate shouldBe true
+        // En mode dossier, la musique choisie à la main ne compte plus : sans dossier, rien à créer.
+        MontageUiState(music = music, useLibrary = true).canCreate shouldBe false
+        MontageUiState(music = music, useLibrary = true, musicLibrary = dir).musicSource shouldBe dir
+        MontageUiState(useLibrary = true, musicLibrary = dir).canCreate shouldBe true
+    }
+
+    test("choix des musiques retenus : dossier, mode et réglage « depuis le début »") {
+        val file = kotlin.io.path.createTempDirectory("prefs").resolve("music.json")
+        val dir = java.nio.file.Path.of("C:/Musiques")
+        val store = MusicPrefsStore(file)
+        store.useLibrary() shouldBe false
+        store.rememberLibrary(dir, useLibrary = true)
+        store.remember(dir.resolve("intro.mp3"), fromStart = true)
+        val reread = MusicPrefsStore(file)
+        reread.library() shouldBe dir
+        reread.useLibrary() shouldBe true
+        reread.fromStartMusics().map { it.toString() } shouldBe listOf(dir.resolve("intro.mp3").toString())
+        // Revenir à une musique précise garde le dossier pour la prochaine fois.
+        reread.rememberLibrary(null, useLibrary = false)
+        MusicPrefsStore(file).let { it.library() shouldBe dir; it.useLibrary() shouldBe false }
+    }
+
     test("les réglages reprennent les valeurs du profil") {
         val profile = GameProfile(
             id = "wardogs",

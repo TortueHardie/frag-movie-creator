@@ -35,7 +35,12 @@ import dev.highlights.montage.KillMontageExporter
 import dev.highlights.montage.MatchCutter
 import dev.highlights.montage.MontageExportRequest
 import dev.highlights.montage.MontagePlanner
+import dev.highlights.montage.MontageReportMusic
+import dev.highlights.montage.MusicAnalysis
 import dev.highlights.montage.MusicAnalyzer
+import dev.highlights.montage.MusicChoice
+import dev.highlights.montage.MusicHistory
+import dev.highlights.montage.MusicLibrary
 import dev.highlights.montage.ScopeCuts
 import dev.highlights.scoring.HighlightMerge
 import dev.highlights.scoring.ScoringEngine
@@ -55,6 +60,7 @@ import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteRecursively
 import kotlin.io.path.extension
+import kotlin.io.path.isDirectory
 import kotlin.io.path.isReadable
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.nameWithoutExtension
@@ -110,8 +116,13 @@ data class MontageOptions(
     val gameAudio: GameAudio? = null,
     /** Mettre en avant voix et rires (plans prolongés, micro monté, musique baissée dessous). */
     val reactions: Boolean? = null,
-    /** Musique prise depuis son début, au lieu du passage le plus intense autour de la drop. */
+    /** Musique prise depuis son début, au lieu du passage le plus intense autour de la drop. null : réglage de chaque musique. */
     val musicFromStart: Boolean? = null,
+    /**
+     * Musiques d'une bibliothèque à prendre depuis leur début (choix retenu pour chacune dans l'application), quand
+     * [musicFromStart] ne tranche pas pour toutes.
+     */
+    val fromStartMusics: Set<Path> = emptySet(),
 )
 
 /** [reused] : analyse reprise de la mémoire, sans recalcul. */
@@ -145,6 +156,12 @@ class HighlightPipeline(
     val previewDir: Path get() = config.workDir.resolve("cache").resolve("previews")
 
     val profilesDir: Path get() = config.profilesDir
+
+    /** Musiques déjà analysées : une bibliothèque se réessaie à chaque montage sans tout redécoder. */
+    private val musicLibrary = MusicLibrary(config.workDir.resolve("cache").resolve("music"))
+
+    /** Musiques des derniers montages : une bibliothèque ne ressort pas toujours la même. */
+    val musicHistory = MusicHistory(config.outputDir.resolve("sessions").resolve("music-history.json"))
 
     /** Analyses déjà faites : une capture inchangée n'est pas réanalysée. */
     val library = AnalysisLibrary(config.outputDir.resolve("sessions").resolve("library.json"))
@@ -374,9 +391,13 @@ class HighlightPipeline(
     private fun cacheDir(media: MediaInfo): Path =
         config.workDir.resolve("cache").resolve("${media.path.nameWithoutExtension}_${media.sizeBytes}")
 
+    /** Analyse chaque musique de [dir] (ou la reprend du cache) : le prochain montage sur ce dossier n'aura plus qu'à choisir. */
+    suspend fun loadMusicLibrary(dir: Path, progress: ProgressReporter): List<MusicAnalysis> = musicLibrary.load(ffmpeg, dir, progress)
+
     /**
      * Montage « tous les kills » calé sur [music] à partir d'une ou plusieurs sessions analysées.
      * Les réglages viennent du profil de la première session, surchargés par [options].
+     * [music] peut être un dossier : la musique y est choisie ([MusicChoice]), celle sur laquelle le montage est le mieux noté.
      */
     suspend fun killMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter): ExportResult {
         if (sessions.isEmpty()) throw InputException("Aucune session pour le montage")
@@ -411,13 +432,26 @@ class HighlightPipeline(
                 game = options.gameAudio ?: base.audio.game,
             ),
         )
-        val analysisStep = progress.child("Musique", 0.06)
-        val analysis = MusicAnalyzer.analyze(ffmpeg, music).let { if (settings.cuts.fromStart) MusicAnalyzer.fromStart(it, settings.maxDuration) else it }
-        analysisStep.complete()
+        val musicStep = progress.child(if (music.isDirectory()) "Musiques" else "Musique", 0.06)
+        val musics = if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music))
+        musicStep.complete()
         val inspected = KillInspector(ffmpeg).inspect(MontagePlanner.groups(sessions, settings), settings, profile.audio, progress.child("Kills", 0.06))
         val groups = MatchCutter(ffmpeg).inspect(inspected, settings, progress.child("Visée", 0.02))
-        val plan = ScopeCuts.apply(MontagePlanner.best(groups, analysis, settings))
-        log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(analysis.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
+        val fromStart = options.fromStartMusics.map { it.toAbsolutePath().normalize() }.toSet()
+        val (chosen, choice) = if (music.isDirectory()) {
+            // Le réglage « depuis le début » de chaque musique, sauf si l'appel l'impose à toutes.
+            val ranked = MusicChoice.rank(groups, musics, settings, musicHistory.recent()) { f ->
+                options.musicFromStart ?: (f.toAbsolutePath().normalize() in fromStart || base.cuts.fromStart)
+            }
+            val best = ranked.first()
+            val plan = best.plan ?: throw HighlightsException("Aucune musique de $music ne permet ce montage : ${best.error}")
+            log.info { "Musique choisie : ${best.music.file.fileName} (note ${"%.3f".format(best.score)}, ${best.groups} groupe(s), parmi ${ranked.size})" }
+            plan to ranked.map(MontageReportMusic::of)
+        } else {
+            MontagePlanner.best(groups, MusicChoice.prepare(musics.single(), settings), settings) to emptyList()
+        }
+        val plan = ScopeCuts.apply(chosen)
+        log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(plan.music.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
         return withJobDir { workDir ->
             montageExporter.export(
                 plan,
@@ -431,10 +465,11 @@ class HighlightPipeline(
                     audioBitrate = config.app.encoder.audioBitrate,
                     hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
                     audioLayout = profile.audio,
+                    musicChoice = choice,
                 ),
                 progress.child("Rendu", 0.86),
             )
-        }
+        }.also { musicHistory.record(plan.music.file) } // Choisie ou imposée : elle a servi, elle se repose un peu.
     }
 
     /** [analyzeAll] puis un seul montage de toutes les captures. */

@@ -93,4 +93,64 @@ class KillMontageIT : FunSpec({
         report.dropAtSeconds!! shouldBe (drop.killsInMontage.last() plusOrMinus 0.001)
         report.sections.isNotEmpty() shouldBe true
     }
+
+    test("musique choisie dans un dossier, analyses gardées d'un montage à l'autre").config(enabledIf = { TestMedia.available }, timeout = 5.seconds * 60) {
+        val root = tempdir().toPath()
+        val ffmpeg = TestMedia.requireFfmpeg()
+        val video = TestMedia.generate(Files.createDirectories(root.resolve("WARDOGS")).resolve("partie.mp4"), durationSeconds = 90)
+        val library = Files.createDirectories(root.resolve("musiques"))
+        // Une musique rythmée (calme puis forte), une trop courte pour un tempo, et un fichier qui n'est pas de la musique.
+        suspend fun tone(file: java.nio.file.Path, seconds: Int) = ffmpeg.run(
+            FfmpegCommand(
+                listOf(
+                    "-y", "-f", "lavfi",
+                    "-i", "aevalsrc='0.7*sin(2*PI*(50+90*exp(-mod(t\\,0.5)*28))*mod(t\\,0.5))*exp(-mod(t\\,0.5)*12)*(0.4+0.6*gte(t\\,30))':s=44100:d=$seconds",
+                    file.toString(),
+                ),
+                "musique de test",
+            ),
+        )
+        tone(library.resolve("rythmee.wav"), 70)
+        tone(library.resolve("courte.wav"), 3)
+        library.resolve("pochette.txt").toFile().writeText("pas une musique")
+
+        val media = ffmpeg.probe(video)
+        val grid = WindowGrid(1.seconds, 1.seconds, media.duration)
+        val session = Session(
+            createdAt = Instant.EPOCH,
+            media = media,
+            profileId = "wardogs",
+            timeline = ScoredTimeline(grid, List(grid.count) { 0.5 }, emptyMap(), events = listOf(20, 23, 60).map { TimelineEvent(it.seconds, "kill", 1.0, "notifications") }),
+            highlights = emptyList(),
+        )
+        val config = LoadedConfig(
+            app = AppConfig(
+                ffmpeg = FfmpegSettings(hwaccelDecode = null),
+                outputDir = root.resolve("out").toString(),
+                profilesDir = Path("../config/profiles").toAbsolutePath().toString(),
+                workDir = root.resolve("work").toString(),
+            ),
+            baseDir = Path("../config").toAbsolutePath().normalize(),
+            source = null,
+        )
+        val pipeline = Pipelines.create(config, ffmpeg)
+        val result = pipeline.killMontage(
+            listOf(session), library, MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds), ProgressReporter.NONE,
+        )
+
+        result.music shouldBe library.resolve("rythmee.wav")
+        val report = Json { ignoreUnknownKeys = true }.decodeFromString(MontageReport.serializer(), result.report.readText())
+        report.music shouldBe library.resolve("rythmee.wav").toString()
+        // La musique trop courte n'a pas de tempo : écartée dès l'analyse, elle n'est même pas essayée.
+        report.musicCandidates.map { Path(it.music).fileName.toString() } shouldBe listOf("rythmee.wav")
+        report.bpm shouldBe (120.0 plusOrMinus 1.0)
+        // Elle a servi : au prochain montage, elle cède sa place à une musique qui colle presque aussi bien.
+        pipeline.musicHistory.recent().map { it.fileName.toString() } shouldBe listOf("rythmee.wav")
+
+        // Les deux analyses (réussie et ratée) sont gardées : la seconde lecture ne décode plus rien.
+        val cache = root.resolve("work").resolve("cache").resolve("music")
+        Files.list(cache).use { files -> files.filter { it.toString().endsWith(".json") }.count() } shouldBe 2L
+        val again = pipeline.loadMusicLibrary(library, ProgressReporter.NONE)
+        again.map { it.file.fileName.toString() } shouldBe listOf("rythmee.wav")
+    }
 })

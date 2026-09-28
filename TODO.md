@@ -61,3 +61,72 @@ au montage plein, elle s'allonge par paliers.
 - Mesuré sur deux musiques de test : 6 groupes passent de 48 s (trou de 10 s) à 20 s (trou de 3,5 s), et le montage
   adapté garde tous les groupes là où le montage plein en perdait jusqu'à 5 sur 20.
 - À vérifier sur de vraies parties : `perClip` (2,5 s) et `min` (12 s) sont des estimations.
+
+---
+
+# Améliorations
+
+## Montage kills : pistes ouvertes
+- [ ] Whoosh sur les whip pans : brancher les SFX de `StoryRenderBuilder` (`WHOOSH_SOURCE_*`, `SfxBank`) dans `MontageRenderBuilder.whips`.
+- [ ] Valider `perClip` (2,5 s) et `min` (12 s) de `montage.length` sur de vraies parties.
+- [ ] Vérifier l'icône du chargeur VALORANT sur une capture 16:9 (mesurée en 21:9 seulement).
+- [ ] Fin du plan sortant : couper plus tôt après le kill seulement quand la coupe suivante est un raccord sur la pose.
+- [ ] Clutch réel : compter les alliés en vie à partir des morts alliées du killfeed.
+
+## Interface : retoucher les moments
+- [ ] Ajuster début/fin d'un moment (poignées sur `TimelineCard` ou boutons ±1 s).
+- [ ] Ajouter un moment à la main en cliquant sur la timeline.
+- [ ] Réordonner les clips par glisser-déposer (`ClipOrder` existe côté moteur).
+- [ ] Exclure ou forcer un kill précis dans le montage kills.
+- [ ] Supprimer / oublier une analyse dans `LibraryView`.
+
+## Flux de travail
+- [ ] File d'attente de jobs (aujourd'hui un seul job à la fois via `runTask`).
+- [ ] Dossier surveillé : enchaîner l'export automatiquement après l'analyse.
+- [ ] Préréglages d'export (« TikTok », « YouTube court », « complet »).
+
+## Qualité de détection
+- [ ] Jeu de vérité terrain versionné (timecodes annotés) + test de non-régression précision/rappel, lancé à la main.
+- [ ] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
+
+## Entretien
+- [ ] Mettre à jour `CLAUDE.md` (décrit la v1.3.0, projet en 1.5.1) et le versionner.
+
+# Nouvelles fonctionnalités
+
+## Nouveaux types de montage
+- [ ] Clip unique « meilleur moment » : une vidéo 9:16 de 15 à 30 s par moment (accroche, sous-titres, punch-in).
+- [ ] Récap de soirée : plusieurs captures, intercalaire par partie (« Partie 3 – 14 kills »).
+- [ ] Montage « fails / morts » : morts du killfeed/Outplayed, musique comique, ralenti sur la mort.
+- [ ] Montage « réactions » : segments `laughter`/`shout` de YAMNet, micro en avant, sous-titres whisper.
+
+## Habillage
+- [ ] Webcam en incrustation : seconde source synchronisée, disposition 9:16 webcam au-dessus du jeu.
+- [ ] Compteur de kills à l'écran (« 1… 2… 3… ACE ») et bandeau de score de round.
+- [ ] Intro/outro personnalisées (logo, pseudo, fond) définies dans le profil.
+- [ ] Miniature automatique : image du meilleur kill + punch-in + texte, PNG prêt pour YouTube.
+
+## Musique
+- [x] Bibliothèque musicale : analyser un dossier une fois (BPM, drop, sections), choisir automatiquement la musique selon le nombre de kills et la durée visée.
+  `MusicLibrary` (analyses gardées dans `<workDir>/cache/music`) et `MusicChoice.rank` (note du plan × part des groupes
+  gardés), `MusicHistory` : une musique des 3 derniers montages perd 0,03 de note, pour que les musiques proches tournent.
+- [ ] Caler le drop sur le kill principal (musique démarrée en cours si nécessaire).
+
+## Publication et partage
+- [ ] Export direct YouTube / TikTok (API officielles, brouillon privé), titre et description générés depuis les événements.
+- [ ] Profils de plateforme : durée max, débit, loudness, zones de sécurité de l'UI TikTok pour le texte.
+
+## Analyse et suivi
+- [ ] Statistiques par soirée : kills par partie, meilleur round, évolution dans le temps.
+- [ ] Recherche dans la bibliothèque (« tous mes aces », « headshots à l'Operator ») et montage à partir du résultat.
+
+## Plus ambitieux
+- [ ] Modèle ML personnalisé entraîné sur les moments gardés/décochés des sessions.
+- [ ] Lecteur intégré : aperçu vidéo, scrubbing sur la timeline, rendu d'aperçu basse résolution avant l'export.
+
+## Priorités suggérées
+1. Clip unique vertical.
+2. Compteur de kills à l'écran.
+3. ~~Bibliothèque musicale avec choix automatique.~~ (fait)
+4. Whoosh sur les whip pans.
+5. Ajuster début/fin d'un moment dans l'UI.

@@ -40,6 +40,8 @@ data class MontageExportRequest(
     val hwaccel: String? = null,
     /** Indices de pistes imposés par le profil ; vide = rôles déduits de la capture. */
     val audioLayout: AudioLayout = AudioLayout(),
+    /** Musiques essayées quand elle a été choisie dans une bibliothèque, de la retenue à la moins bonne. */
+    val musicChoice: List<MontageReportMusic> = emptyList(),
 )
 
 @Serializable
@@ -58,7 +60,25 @@ data class MontageReport(
     val score: MontageScore? = null,
     /** Variante de plan retenue (voir [MontagePlanner.best]). */
     val variant: String? = null,
+    /** Musiques essayées, la retenue d'abord, quand elle a été choisie dans une bibliothèque (voir [MusicChoice]). */
+    val musicCandidates: List<MontageReportMusic> = emptyList(),
 )
+
+/** Musique d'une bibliothèque essayée pour le montage ; [error] : aucun plan possible sur elle. */
+@Serializable
+data class MontageReportMusic(
+    val music: String,
+    val value: Double,
+    val score: Double,
+    val groups: Int,
+    val error: String? = null,
+    /** Retenue pour avoir servi à un montage récent (voir [MusicChoice.recency]). */
+    val recency: Double = 0.0,
+) {
+    companion object {
+        fun of(c: MusicCandidate) = MontageReportMusic(c.music.file.toString(), c.value.roundTo(3), c.score.roundTo(3), c.groups, c.error, c.recency.roundTo(3))
+    }
+}
 
 /** Section de la musique couverte par le montage (instants dans le montage). */
 @Serializable
@@ -170,6 +190,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             outputs = paths.videos.values.map { it.toString() },
             score = MontageScorer.score(plan),
             variant = plan.variant.toString(),
+            musicCandidates = request.musicChoice,
             clips = plan.clips.zip(plan.clipOffsets()).map { (c, offset) ->
                 MontageReportClip(
                     c.group.media.path.toString(), c.start.toTimecode(), c.end.toTimecode(), c.kills.map { it.toTimecode() },
@@ -183,7 +204,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             },
         )
         paths.report.writeText(json.encodeToString(MontageReport.serializer(), report))
-        return ExportResult(paths.videos, paths.report, plan.duration, encoder.name)
+        return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file)
     }
 
     companion object {

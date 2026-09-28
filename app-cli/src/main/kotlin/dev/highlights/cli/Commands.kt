@@ -37,6 +37,7 @@ import dev.highlights.montage.CutGrid
 import dev.highlights.montage.MontageReport
 import dev.highlights.montage.MontageScore
 import dev.highlights.montage.MusicAnalyzer
+import dev.highlights.montage.MusicLibrary
 import dev.highlights.core.profile.ProfileRepository
 import dev.highlights.pipeline.AnalysisOutcome
 import dev.highlights.pipeline.AnalyzeOptions
@@ -46,6 +47,7 @@ import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
 import dev.highlights.pipeline.render
 import java.nio.file.Path
+import kotlin.io.path.isDirectory
 import kotlin.io.path.readText
 import kotlinx.serialization.json.Json
 
@@ -159,8 +161,11 @@ class ExportCommand : PipelineCommand("export") {
 class MontageCommand : PipelineCommand("montage") {
     private val sessions by argument("SESSION", help = "Une ou plusieurs sessions (.session.json) analysées avec détection des kills")
         .path(mustExist = true, canBeDir = false).multiple(required = true)
-    private val music by option("-m", "--music", help = "Musique (mp3, wav, flac…) : tempo détecté, coupes et kills calés sur les temps")
-        .path(mustExist = true, canBeDir = false).required()
+    private val music by option(
+        "-m", "--music",
+        help = "Musique (mp3, wav, flac…) : tempo détecté, coupes et kills calés sur les temps. Un dossier : la musique y est choisie, " +
+            "celle sur laquelle le montage est le mieux noté (analyses gardées d'un montage à l'autre)",
+    ).path(mustExist = true).required()
     private val fill by option("--fill", help = "Occuper toute la durée maximale au lieu d'adapter la durée au nombre de kills").flag()
     private val max by option("--max", help = "Durée maximale, ex. 60s").convert { text ->
         Durations.parseOrNull(text) ?: throw BadParameterValue("durée invalide '$text'")
@@ -229,8 +234,18 @@ class MontageCommand : PipelineCommand("montage") {
             }
         }
         printExport(result)
+        val report = runCatching { readReport(result.report) }.getOrNull()
+        // Musique choisie dans une bibliothèque : les autres essayées, pour voir de combien elle l'a emporté.
+        report?.musicCandidates?.takeIf { it.isNotEmpty() }?.let { candidates ->
+            echo("  musique choisie parmi ${candidates.size} :")
+            candidates.forEachIndexed { i, c ->
+                val name = Path.of(c.music).fileName
+                val recent = if (c.recency > 0) ", récente -%.3f".format(c.recency) else ""
+                echo(if (c.error != null) "    -  $name : aucun plan (${c.error})" else "    %s %.3f  %s (note %.3f, %d groupe(s)%s)".format(if (i == 0) ">" else " ", c.value, name, c.score, c.groups, recent))
+            }
+        }
         // La note du montage : ce que le moteur prétend faire, mesuré. « app score » compare deux rapports.
-        runCatching { readReport(result.report).score }.getOrNull()?.let { s ->
+        report?.score?.let { s ->
             val parts = criteria(s).joinToString(", ") { (n, v) -> if (v == null) "$n -" else "%s %.2f".format(n, v) }
             echo("  note %.3f  ($parts)".format(s.total))
         }
@@ -238,7 +253,7 @@ class MontageCommand : PipelineCommand("montage") {
 }
 
 class MusicCommand : PipelineCommand("music") {
-    private val file by argument("MUSIQUE", help = "Fichier audio (mp3, wav, flac…)").path(mustExist = true, canBeDir = false)
+    private val file by argument("MUSIQUE", help = "Fichier audio (mp3, wav, flac…), ou dossier de musiques à analyser d'avance").path(mustExist = true)
     private val max by option("--max", help = "Affiche aussi la grille de coupes d'un montage de cette durée (ex. 60s), réglages du profil").convert { text ->
         Durations.parseOrNull(text) ?: throw BadParameterValue("durée invalide '$text'")
     }
@@ -246,9 +261,11 @@ class MusicCommand : PipelineCommand("music") {
     private val profile by option("-p", "--profile", help = "Profil dont on prend les réglages de montage (défaut : default)")
 
     override fun help(context: Context) =
-        "Analyse une musique comme le fait le montage kills : tempo, mesures, sections (intensité), drop et grille de coupes."
+        "Analyse une musique comme le fait le montage kills : tempo, mesures, sections (intensité), drop et grille de coupes. " +
+            "Un dossier : analyse (et garde) chaque musique pour que « montage --music <dossier> » n'ait plus qu'à choisir."
 
     override fun run() {
+        if (file.isDirectory()) return library()
         val a = execute { MusicAnalyzer.analyze(Pipelines.ffmpeg(env.config), file) }
         echo("${a.file.fileName} : ${a.duration.toShortText()}, ${"%.2f".format(a.bpm)} BPM, ${a.beats.size} temps, premier temps de mesure = temps ${a.downbeatPhase}")
         echo("Drop : temps ${a.dropBeat} à ${a.beatTime(a.dropBeat).toTimecode()}")
@@ -276,6 +293,26 @@ class MusicCommand : PipelineCommand("music") {
         val end = a.beatTime(window.last().endBeat)
         echo("Grille x${"%.0f".format(scale)} : ${window.size} plans de ${start.toTimecode()} a ${end.toTimecode()} (${(end - start).toShortText()})")
         echo("  " + window.joinToString(" ") { s -> "${s.beats}${if (s.dropBeat != null) "*" else ""}" } + "  (temps par plan, * = drop)")
+    }
+
+    /** Bibliothèque : chaque musique analysée (ou reprise de ce qui est gardé), une ligne par musique. */
+    private fun library() {
+        val progress = ConsoleProgress()
+        val analyses = execute {
+            try {
+                Pipelines.create(env.config).loadMusicLibrary(file, ProgressTracker(listener = progress).root)
+            } finally {
+                progress.finish()
+            }
+        }
+        echo("$file : ${analyses.size} musique(s) exploitable(s) sur ${MusicLibrary.files(file).size}")
+        analyses.forEach { a ->
+            echo(
+                "  %-40s %s  %6.1f BPM  drop à %s  %d sections".format(
+                    a.file.fileName.toString().take(40), a.duration.toShortText(), a.bpm, a.beatTime(a.dropBeat).toTimecode(), a.sections.size,
+                ),
+            )
+        }
     }
 }
 

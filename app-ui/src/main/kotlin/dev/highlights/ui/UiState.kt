@@ -210,6 +210,10 @@ fun eventsLabel(events: Map<String, Int>): String = events.entries
 
 data class MontageUiState(
     val music: Path? = null,
+    /** Choisir la musique dans [musicLibrary] : celle sur laquelle le montage est le mieux noté. */
+    val useLibrary: Boolean = false,
+    /** Dossier de musiques ; retenu d'un montage à l'autre (voir [MusicPrefs]). */
+    val musicLibrary: Path? = null,
     /** Musique prise depuis son début ; retenu pour chaque musique (voir [MusicPrefs]). */
     val musicFromStart: Boolean = false,
     val maxDurationText: String = "60s",
@@ -234,5 +238,7 @@ data class MontageUiState(
     val reactions: Boolean = false,
 ) {
     val maxDuration: Duration? get() = Durations.parseOrNull(maxDurationText)?.takeIf { it.isPositive() }
-    val canCreate: Boolean get() = music != null && maxDuration != null && formats.isNotEmpty()
+    /** Musique ou dossier de musiques passé au montage, selon le mode. */
+    val musicSource: Path? get() = if (useLibrary) musicLibrary else music
+    val canCreate: Boolean get() = musicSource != null && maxDuration != null && formats.isNotEmpty()
 }

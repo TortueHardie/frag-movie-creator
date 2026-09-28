@@ -255,6 +255,7 @@ private object NoopActions : UiActions {
     override fun openMontage() = Unit
     override fun closeMontage() = Unit
     override fun chooseMusic() = Unit
+    override fun chooseMusicLibrary() = Unit
     override fun updateMontage(change: (MontageUiState) -> MontageUiState) = Unit
     override fun createMontage() = Unit
     override fun open(path: Path) = Unit

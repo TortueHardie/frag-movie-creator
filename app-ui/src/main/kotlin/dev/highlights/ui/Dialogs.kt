@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -132,16 +133,44 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                 )
 
                 DialogGroup("Musique") {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            montage.music?.fileName?.toString() ?: "Aucune musique choisie",
-                            modifier = Modifier.weight(1f),
-                            color = if (montage.music == null) Palette.textMuted else Palette.text,
-                        )
-                        OutlinedButton(onClick = actions::chooseMusic) { Text("Choisir…") }
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        listOf(false to "Une musique", true to "Choisir dans un dossier").forEachIndexed { i, (library, label) ->
+                            SegmentedButton(
+                                selected = montage.useLibrary == library,
+                                onClick = { actions.updateMontage { it.copy(useLibrary = library) } },
+                                shape = SegmentedButtonDefaults.itemShape(i, 2),
+                            ) { Text(label) }
+                        }
                     }
-                    MontageToggle("Musique depuis le début (sinon : le passage le plus intense, autour de la drop)", montage.musicFromStart) { v ->
-                        actions.updateMontage { it.copy(musicFromStart = v) }
+                    if (montage.useLibrary) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                montage.musicLibrary?.toString() ?: "Aucun dossier choisi",
+                                modifier = Modifier.weight(1f),
+                                color = if (montage.musicLibrary == null) Palette.textMuted else Palette.text,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            OutlinedButton(onClick = actions::chooseMusicLibrary) { Text("Choisir…") }
+                        }
+                        Text(
+                            "Le montage est préparé sur chaque musique du dossier : celle où les kills tombent le mieux, sans en perdre, " +
+                                "est retenue. Chaque musique n'est analysée qu'une fois et garde son réglage « depuis le début ».",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Palette.textMuted,
+                        )
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                montage.music?.fileName?.toString() ?: "Aucune musique choisie",
+                                modifier = Modifier.weight(1f),
+                                color = if (montage.music == null) Palette.textMuted else Palette.text,
+                            )
+                            OutlinedButton(onClick = actions::chooseMusic) { Text("Choisir…") }
+                        }
+                        MontageToggle("Musique depuis le début (sinon : le passage le plus intense, autour de la drop)", montage.musicFromStart) { v ->
+                            actions.updateMontage { it.copy(musicFromStart = v) }
+                        }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Durée maximale", modifier = Modifier.weight(1f))
