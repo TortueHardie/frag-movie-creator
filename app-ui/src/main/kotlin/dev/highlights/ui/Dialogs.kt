@@ -132,6 +132,14 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     color = Palette.textMuted,
                 )
 
+                montage.pick?.let { pick ->
+                    Text(
+                        "Seulement les ${pick.size} kill(s) choisis dans la recherche.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Palette.accent,
+                    )
+                }
+
                 DialogGroup("Musique") {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                         listOf(false to "Une musique", true to "Choisir dans un dossier").forEachIndexed { i, (library, label) ->
