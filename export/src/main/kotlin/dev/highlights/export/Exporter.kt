@@ -59,7 +59,14 @@ data class ExportRequest(
     val captionCache: Path? = null,
 )
 
-data class ExportResult(val videos: Map<OutputFormat, Path>, val report: Path, val duration: Duration, val encoder: String)
+data class ExportResult(
+    val videos: Map<OutputFormat, Path>,
+    val report: Path,
+    val duration: Duration,
+    val encoder: String,
+    /** Musique du montage kills (choisie dans une bibliothèque, ou imposée) ; null pour les highlights. */
+    val music: Path? = null,
+)
 
 class Exporter(
     private val ffmpeg: FfmpegService,

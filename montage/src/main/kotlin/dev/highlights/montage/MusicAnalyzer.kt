@@ -7,6 +7,7 @@ import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.StdoutHandler
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.Serializable
 import java.io.DataInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -59,6 +60,7 @@ enum class SectionKind {
  * Section de la musique (intro, couplet, montée, drop, breakdown…), délimitée par des changements de timbre ou de
  * volume et alignée sur les mesures. [endBeat] est exclusif.
  */
+@Serializable
 data class MusicSection(
     val startBeat: Int,
     val endBeat: Int,
@@ -147,6 +149,9 @@ data class MusicAnalysis(
 }
 
 object MusicAnalyzer {
+    /** À augmenter quand l'analyse change de calcul : les analyses gardées par [MusicLibrary] sont alors refaites. */
+    const val VERSION = 1
+
     /** Part de la durée du montage avant laquelle une drop doit tomber pour y compter, avec de quoi la suivre. */
     private const val REACH = 0.7
 

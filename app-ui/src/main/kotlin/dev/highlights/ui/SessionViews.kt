@@ -492,6 +492,9 @@ fun ExportBar(state: UiState, session: SessionState, actions: UiActions) {
             state.lastExport?.let { result ->
                 Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
                     Text("Export terminé (${result.duration.toShortText()}, ${result.encoder})", color = Palette.success, style = MaterialTheme.typography.labelLarge)
+                    result.music?.let { music ->
+                        Text("Musique : ${music.fileName}", style = MaterialTheme.typography.bodyMedium, color = Palette.textMuted)
+                    }
                     (result.videos.values + listOf(result.report)).forEach { file ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(file.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)

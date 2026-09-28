@@ -85,6 +85,8 @@ interface UiActions {
     fun openMontage()
     fun closeMontage()
     fun chooseMusic()
+    /** Dossier de musiques où le montage choisit la sienne. */
+    fun chooseMusicLibrary()
     fun updateMontage(change: (MontageUiState) -> MontageUiState)
     fun createMontage()
 
@@ -513,6 +515,8 @@ class AppController(
                 montage = MontageUiState(
                     music = it.lastMusic,
                     musicFromStart = it.lastMusic?.let(musicPrefs::fromStart) ?: false,
+                    useLibrary = musicPrefs.useLibrary(),
+                    musicLibrary = musicPrefs.library(),
                     maxDurationText = montage?.maxDuration?.let(dev.highlights.core.serialization.Durations::format) ?: "60s",
                     fitKills = montage?.length?.fitKills ?: true,
                     buildUp = montage?.order != dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
@@ -540,18 +544,27 @@ class AppController(
         }
     }
 
+    override fun chooseMusicLibrary() {
+        val current = state.value.montage?.musicLibrary ?: musicPrefs.library()
+        platform.chooseDirectory(current ?: state.value.lastMusic?.parent, "Dossier de musiques")?.let { dir ->
+            _state.update { it.copy(montage = it.montage?.copy(musicLibrary = dir, useLibrary = true)) }
+        }
+    }
+
     override fun updateMontage(change: (MontageUiState) -> MontageUiState) =
         _state.update { s -> s.copy(montage = s.montage?.let(change)) }
 
     override fun createMontage() {
         val s = state.value
         val montage = s.montage ?: return
-        val music = montage.music ?: return
-        musicPrefs.remember(music, montage.musicFromStart)
+        val music = montage.musicSource ?: return
+        if (!montage.useLibrary) musicPrefs.remember(music, montage.musicFromStart)
+        musicPrefs.rememberLibrary(montage.musicLibrary, montage.useLibrary)
         val session = s.session ?: return
         val p = backend?.pipeline ?: return
         _state.update { it.copy(montage = null) }
-        runTask("Montage kills sur ${music.name}") { progress ->
+        val title = if (montage.useLibrary) "Montage kills, musique choisie dans ${music.name}" else "Montage kills sur ${music.name}"
+        runTask(title) { progress ->
             saveNow(session)
             val result = p.killMontage(
                 session.sessions,
@@ -573,7 +586,9 @@ class AppController(
                     audioBalance = montage.balance,
                     gameAudio = montage.gameAudio,
                     reactions = montage.reactions,
-                    musicFromStart = montage.musicFromStart,
+                    // Bibliothèque : chaque musique garde son réglage « depuis le début ».
+                    musicFromStart = if (montage.useLibrary) null else montage.musicFromStart,
+                    fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
                 ),
                 progress,
             )
