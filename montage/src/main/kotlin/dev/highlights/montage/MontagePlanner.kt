@@ -457,7 +457,25 @@ object MontagePlanner {
         } else {
             0
         }
-        val (scale, _, window) = CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size + spare, variant.scale?.let(::listOf), target)
+        // Montage chronologique : le passage de la musique où le meilleur groupe tombe sur la drop sans changer l'ordre.
+        // Le compter d'avance ne marche pas : un groupe prend des plans entiers, deux plans courts s'il déborde d'un.
+        // Sans perdre de groupe face au passage qu'on aurait pris sans cela.
+        fun select(accept: (List<CutSlot>) -> Boolean = { true }) =
+            CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size + spare, variant.scale?.let(::listOf), target, accept)
+        fun assigned(w: List<CutSlot>) = runCatching { assign(w, groups, music, settings, minLeadBeats, minTailBeats) }.getOrNull()
+        val best = groups.maxByOrNull { it.rank }
+        val (scale, _, window) = if (settings.order == MontageOrder.CHRONOLOGICAL && best != null) {
+            val shown = assigned(select().window)?.size ?: 0
+            // Le meilleur, ou un groupe qui le vaut ([ORDER_TOLERANCE]) : exiger le meilleur seul envoyait la drop à 95 %
+            // du montage quand il est joué en dernier, alors qu'un double kill de même valeur la tenait à 41 %.
+            select { w ->
+                assigned(w)?.let { cells ->
+                    cells.size >= shown && cells.any { (slot, g) -> slot.dropBeat != null && g.rank >= best.rank - ORDER_TOLERANCE }
+                } == true
+            }
+        } else {
+            select()
+        }
         if (window.isEmpty()) throw HighlightsException("Musique trop courte pour un seul clip (${music.duration.inWholeSeconds} s)")
 
         val cells = assign(window, groups, music, settings, minLeadBeats, minTailBeats)
@@ -544,6 +562,19 @@ object MontagePlanner {
         return AimFit(pre, post)
     }
 
+    /** Temps nécessaires pour montrer tous les kills du groupe (et finir une réaction) sans couper. */
+    private fun need(g: KillGroup, settings: MontageSettings, period: Duration, minLeadBeats: Int, minTailBeats: Int): Int {
+        val cuts = settings.cuts
+        val slowTail = if (settings.slowMotion.enabled) settings.slowMotion.after / settings.slowMotion.factor else Duration.ZERO
+        val reaction = g.protectedSegments.filter { it.end > g.kills.last() }.maxOfOrNull { it.end - g.kills.last() } ?: Duration.ZERO
+        val post = maxOf(minTailBeats, beatsCeil(maxOf(reaction + cuts.minTail, slowTail + cuts.minTail), period))
+        return beatsCeil(g.span + cuts.minLead, period).coerceAtLeast(minLeadBeats) + post
+    }
+
+    /** Les parties dans l'ordre où elles ont été jouées, pas dans celui des noms de fichiers. */
+    private fun chronological(groups: List<KillGroup>): List<KillGroup> =
+        groups.sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { g: KillGroup -> g.media }.thenBy { it.kills.first() })
+
     private class Cell(var startBeat: Int, var endBeat: Int, val section: Int, val dropBeat: Int?) {
         var group: KillGroup? = null
         val beats: Int get() = endBeat - startBeat
@@ -562,14 +593,8 @@ object MontagePlanner {
         val cuts = settings.cuts
         val period = music.beatPeriod
         val cells = window.map { Cell(it.startBeat, it.endBeat, it.section, it.dropBeat) }.toMutableList()
-        val slowTail = if (settings.slowMotion.enabled) settings.slowMotion.after / settings.slowMotion.factor else Duration.ZERO
 
-        /** Temps nécessaires pour montrer tous les kills du groupe (et finir une réaction) sans couper. */
-        fun need(g: KillGroup): Int {
-            val reaction = g.protectedSegments.filter { it.end > g.kills.last() }.maxOfOrNull { it.end - g.kills.last() } ?: Duration.ZERO
-            val post = maxOf(minTailBeats, beatsCeil(maxOf(reaction + cuts.minTail, slowTail + cuts.minTail), period))
-            return beatsCeil(g.span + cuts.minLead, period).coerceAtLeast(minLeadBeats) + post
-        }
+        fun need(g: KillGroup): Int = need(g, settings, period, minLeadBeats, minTailBeats)
 
         fun importance(c: Cell) = (if (c.dropBeat != null) 10.0 else 0.0) + music.sections[c.section].intensity + 1e-4 * c.startBeat
 
@@ -658,14 +683,34 @@ object MontagePlanner {
             }
             MontageOrder.CHRONOLOGICAL -> {
                 val kept = groups.sortedByDescending { it.rank }.take(cells.size)
-                // Les parties dans l'ordre où elles ont été jouées, pas dans celui des noms de fichiers.
-                val ordered = kept.sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { g: KillGroup -> g.media }.thenBy { it.kills.first() })
-                var i = 0
-                for (g in ordered) {
-                    if (i >= cells.size) break
-                    i = grow(i, need(g))
-                    cells[i].group = g
-                    i++
+                val ordered = chronological(kept)
+                val dropIndex = cells.indexOfFirst { it.dropBeat != null }
+                val best = kept.firstOrNull()
+                val before = ordered.indexOf(best)
+                // Le meilleur groupe sur la drop, les autres dans l'ordre de part et d'autre : possible si chaque côté a
+                // assez de plans. Sinon (grille qui ne s'y prête pas), l'ordre seul, comme avant.
+                val snapshot = cells.map { Cell(it.startBeat, it.endBeat, it.section, it.dropBeat) }
+                fun sequential(from: Int, until: () -> Int, list: List<KillGroup>): Boolean {
+                    var i = from
+                    for (g in list) {
+                        if (i >= until()) return false
+                        i = grow(i, need(g))
+                        if (cells[i].group != null) return false
+                        cells[i].group = g
+                        i++
+                    }
+                    return true
+                }
+                fun bestAt() = cells.indexOfFirst { it.group === best }
+                val aligned = best != null && before in 0..dropIndex && run {
+                    place(dropIndex, best)
+                    sequential(0, ::bestAt, ordered.take(before)) && sequential(bestAt() + 1, { cells.size }, ordered.drop(before + 1))
+                }
+                if (!aligned) {
+                    if (best != null && dropIndex >= 0) log.debug { "Montage chronologique : le meilleur groupe ne peut pas tomber sur la drop" }
+                    cells.clear()
+                    cells += snapshot
+                    sequential(0, { cells.size }, ordered)
                 }
             }
         }

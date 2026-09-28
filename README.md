@@ -226,13 +226,18 @@ détecte les kills). En ligne de commande :
   sur les mesures. Le montage préfère aussi s'ouvrir sur une intro ou une montée, pour avoir la rampe qui mène à la drop.
 - **Coupes dictées par la musique** : la longueur des plans dépend de la section (courts dans les parties intenses, longs
   dans les calmes, toujours des mesures entières), les frontières de sections sont des coupes, et le montage est placé
-  sur la fenêtre de la musique la plus intéressante (montée puis drop vers 40 %). Chaque coupe tombe une image avant son
-  temps (`cuts.preBeatFrames`) — l'œil met quelques images à enregistrer un nouveau plan — sans déplacer le kill.
+  sur la fenêtre de la musique la plus intéressante (montée puis drop vers 40 %), quitte à commencer au milieu du
+  morceau. La drop garde une vraie montée avant elle (`cuts.dropLead`, 6 s, au plus 40 % du montage) : un passage qui
+  s'ouvre presque sur la drop n'est pris qu'à défaut, même si l'intro calme qui y mène fait baisser l'intensité moyenne.
+  Chaque coupe tombe une image avant son temps (`cuts.preBeatFrames`) — l'œil met quelques images à enregistrer un
+  nouveau plan — sans déplacer le kill.
 - **Choix et ordre des clips** : deux plans voisins ne viennent pas du même moment de la même partie (`varietyGap`), et
   `minScore` permet d'écarter les groupes de kills trop faibles quitte à raccourcir le montage (0 = tout garder ; les
   trois meilleurs sont gardés quoi qu'il arrive). Les meilleurs groupes restants terminent naturellement le montage.
 - **Clips taillés pour la musique** : chaque clip est étendu ou coupé pour remplir exactement son plan ; le dernier kill
-  tombe sur le temps le plus accentué du plan, le meilleur groupe (multi-kill) exactement sur la drop ; les multi-kills
+  tombe sur le temps le plus accentué du plan, le meilleur groupe (multi-kill, ace) exactement sur la drop — en ordre
+  chronologique aussi : le passage de la musique est alors choisi pour que la drop tombe sur lui (ou sur un groupe qui
+  le vaut) sans changer l'ordre ni perdre de groupe ; les multi-kills
   et, avec `--reactions`, les réactions (voix, rires) fusionnent des plans voisins ; l'image est gelée si la vidéo manque. Quand il y a peu de
   kills, les plans s'allongent plutôt que de laisser de la musique inutilisée.
 - **Chaque kill sur un temps** : dans un multi-kill, la lecture entre deux kills est accélérée ou ralentie de ±15 % au
@@ -326,7 +331,7 @@ détecte les kills). En ligne de commande :
   ```
 
 - Réglages détaillés : section `montage:` d'un profil (voir `core/.../model/Montage.kt`), notamment `cuts:` (durées
-  visées par intensité `low`/`mid`/`high`, `maxBeats`, `minLead`/`minTail`, `dropPosition`).
+  visées par intensité `low`/`mid`/`high`, `maxBeats`, `minLead`/`minTail`, `dropPosition`, `dropLead`).
 
 ## Événements de jeu (Outplayed)
 
