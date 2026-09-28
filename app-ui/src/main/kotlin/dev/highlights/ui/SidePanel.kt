@@ -222,13 +222,25 @@ fun SettingsSection(state: UiState, actions: UiActions) {
         // Formats
         Spacer(Modifier.height(2.dp))
         Text("Formats de sortie", style = MaterialTheme.typography.labelLarge)
+        PlatformPicker(state.platforms, settings.platform, actions::setPlatform)
+        // Une plateforme impose son format : les cases ne comptent plus tant qu'elle est choisie.
+        val chosen = state.platforms.firstOrNull { it.id == settings.platform }
         OutputFormat.entries.forEach { format ->
+            val enabled = chosen == null
             Row(
-                Modifier.fillMaxWidth().clickable { actions.toggleFormat(format) },
+                Modifier.fillMaxWidth().clickable(enabled = enabled) { actions.toggleFormat(format) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Checkbox(checked = format in settings.formats, onCheckedChange = { actions.toggleFormat(format) })
-                Text(formatLabel(format, state.source?.media), style = MaterialTheme.typography.bodyMedium)
+                Checkbox(
+                    checked = if (chosen != null) format == chosen.format else format in settings.formats,
+                    onCheckedChange = { actions.toggleFormat(format) },
+                    enabled = enabled,
+                )
+                Text(
+                    formatLabel(format, state.source?.media),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (enabled) Palette.text else Palette.textMuted,
+                )
             }
         }
 
@@ -340,5 +352,31 @@ fun SettingsSection(state: UiState, actions: UiActions) {
         Button(onClick = actions::analyze, enabled = state.canAnalyze, modifier = Modifier.fillMaxWidth().height(44.dp)) {
             Text(if (state.session == null) "Analyser" else "Réanalyser", style = MaterialTheme.typography.titleMedium)
         }
+    }
+}
+
+/**
+ * Plateforme visée : « Aucune » garde les formats cochés ; une plateforme impose le sien et adapte volume, débit,
+ * durée et place des textes. Ce qu'elle impose s'affiche dessous.
+ */
+@Composable
+internal fun PlatformPicker(platforms: List<PlatformInfo>, selected: String?, onSelect: (String?) -> Unit) {
+    if (platforms.isEmpty()) return
+    val chosen = platforms.firstOrNull { it.id == selected }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(Modifier.fillMaxWidth()) {
+            var expanded by remember { mutableStateOf(false) }
+            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Plateforme : " + (chosen?.name ?: "aucune (formats cochés)"), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("▾")
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                DropdownMenuItem(text = { Text("Aucune : les formats cochés") }, onClick = { expanded = false; onSelect(null) })
+                platforms.forEach { p ->
+                    DropdownMenuItem(text = { Text(p.name) }, onClick = { expanded = false; onSelect(p.id) })
+                }
+            }
+        }
+        chosen?.let { Text(it.summary, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted) }
     }
 }

@@ -2,6 +2,7 @@ package dev.highlights.core.ffmpeg
 
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.model.MediaInfo
+import dev.highlights.core.model.PlatformProfile
 import java.io.InputStream
 import java.nio.file.Path
 import kotlin.time.Duration
@@ -73,7 +74,19 @@ data class EncoderProfile(
     /** Arguments de sortie vidéo, codec inclus (ex. -c:v h264_amf …). */
     val videoArgs: List<String>,
     val hardware: Boolean,
-)
+) {
+    /**
+     * Débit plafonné à [maxBitrate] (ex. 16M) : `-maxrate` et `-bufsize` (une seconde de tampon), ajoutés après les
+     * arguments de l'encodeur, qu'ils remplacent. Un encodeur matériel vise en plus 75 % du plafond (`-b:v`), sans quoi
+     * son débit visé (12M par défaut) pourrait dépasser un plafond plus bas ; le logiciel garde sa qualité constante
+     * (CRF), bornée par le plafond.
+     */
+    fun withMaxBitrate(maxBitrate: String?): EncoderProfile {
+        val max = maxBitrate?.let(PlatformProfile::parseBitrate) ?: return this
+        val target = if (hardware) listOf("-b:v", (max * 3 / 4).toString()) else emptyList()
+        return copy(videoArgs = videoArgs + target + listOf("-maxrate", max.toString(), "-bufsize", max.toString()))
+    }
+}
 
 interface EncoderSelector {
     /** Premier encodeur de la liste de préférence réellement utilisable sur cette machine. */

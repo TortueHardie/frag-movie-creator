@@ -17,6 +17,7 @@ import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.OutputFormat
+import dev.highlights.core.model.PlatformProfile
 import dev.highlights.core.model.SelectionTarget
 import dev.highlights.core.model.WindowGrid
 import dev.highlights.core.profile.DetectorConfig
@@ -87,6 +88,8 @@ data class ExportOptions(
     val style: EditStyle? = null,
     /** Musique de fond du montage story ; null = réglage du profil. */
     val music: Path? = null,
+    /** Plateforme visée (tiktok, shorts, reels, youtube…) : format, volume, débit, zone sûre et durée maximale. */
+    val platform: String? = null,
 )
 
 /** Surcharges ponctuelles des réglages de montage du profil (null = valeur du profil). */
@@ -123,6 +126,8 @@ data class MontageOptions(
      * [musicFromStart] ne tranche pas pour toutes.
      */
     val fromStartMusics: Set<Path> = emptySet(),
+    /** Plateforme visée : format, volume, débit, zone sûre, et la durée maximale devient un plafond de plus. */
+    val platform: String? = null,
 )
 
 /** [reused] : analyse reprise de la mémoire, sans recalcul. */
@@ -168,6 +173,13 @@ class HighlightPipeline(
 
     /** Publication sur YouTube ; [browse] ouvre la page de connexion de Google. */
     fun youtube(browse: (java.net.URI) -> Unit): YouTubePublisher = YouTubePublisher(config, ffmpeg, { profiles }, browse)
+
+    /** Plateformes connues (app.yaml compris), par identifiant. */
+    val platforms: Map<String, PlatformProfile> get() = config.platforms
+
+    private fun platform(id: String?): PlatformProfile? = id?.let {
+        config.platforms[it] ?: throw InputException("Plateforme inconnue : $it (connues : ${config.platforms.keys.joinToString()})")
+    }
 
     /** Relit les profils sur disque (après modification d'un YAML). */
     fun reloadProfiles() {
@@ -313,11 +325,12 @@ class HighlightPipeline(
         if (sessions.isEmpty()) throw InputException("Aucune session à exporter")
         val profile = profiles.byId(sessions.first().profileId)
         val edit = profile.gradedEdit()
+        val platform = platform(options.platform)
         val settings: EditSettings = edit.copy(
             formats = options.formats ?: edit.formats,
             style = options.style ?: edit.style,
             story = options.music?.let { edit.story.copy(music = edit.story.music.copy(file = it.toAbsolutePath().toString())) } ?: edit.story,
-        )
+        ).let { platform?.applyTo(it) ?: it }
         return withJobDir { workDir ->
             exporter.export(
                 sessions,
@@ -330,6 +343,8 @@ class HighlightPipeline(
                     hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
                     audioLayout = profile.audio,
                     captionCache = config.workDir.resolve("cache").resolve("captions"),
+                    platform = options.platform,
+                    maxDuration = platform?.maxDuration,
                 ),
                 progress,
             )
@@ -406,9 +421,11 @@ class HighlightPipeline(
         if (sessions.isEmpty()) throw InputException("Aucune session pour le montage")
         val profile = profiles.byId(sessions.first().profileId)
         val base = profile.montage
+        val platform = platform(options.platform)
+        val maxDuration = (options.maxDuration ?: base.maxDuration).let { d -> platform?.maxDuration?.let { minOf(it, d) } ?: d }
         val settings = base.copy(
-            formats = options.formats ?: base.formats,
-            maxDuration = options.maxDuration ?: base.maxDuration,
+            formats = platform?.let { listOf(it.format) } ?: options.formats ?: base.formats,
+            maxDuration = maxDuration,
             length = base.length.copy(fitKills = options.fitKills ?: base.length.fitKills),
             order = options.order ?: base.order,
             hook = options.hook ?: base.hook,
@@ -433,6 +450,7 @@ class HighlightPipeline(
             audio = base.audio.copy(
                 balance = options.audioBalance ?: base.audio.balance,
                 game = options.gameAudio ?: base.audio.game,
+                loudnessLufs = platform?.loudnessLufs ?: base.audio.loudnessLufs,
             ),
         )
         val musicStep = progress.child(if (music.isDirectory()) "Musiques" else "Musique", 0.06)
@@ -460,7 +478,7 @@ class HighlightPipeline(
                 plan,
                 MontageExportRequest(
                     formats = settings.formats,
-                    edit = profile.gradedEdit(),
+                    edit = profile.gradedEdit().let { platform?.applyTo(it) ?: it },
                     outputDir = options.outputDir ?: config.outputDir,
                     workDir = workDir,
                     gameName = profile.id,
@@ -469,6 +487,7 @@ class HighlightPipeline(
                     hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
                     audioLayout = profile.audio,
                     musicChoice = choice,
+                    platform = options.platform,
                 ),
                 progress.child("Rendu", 0.86),
             )

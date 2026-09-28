@@ -92,6 +92,14 @@ class UiStateTest : FunSpec({
         p.copy(title = "autre").let { it.withSuggestion(it.suggested!!) }.title shouldBe suggested.title
     }
 
+    test("plateforme : son format remplace les cases, et ce qu'elle impose se lit en clair") {
+        val tiktok = PlatformInfo.of("tiktok", dev.highlights.core.model.PlatformProfile.DEFAULTS.getValue("tiktok"))
+        tiktok.summary shouldBe "format 9:16 · 10 min au plus · -14 LUFS · textes hors de l'interface de l'appli"
+        PlatformInfo.of("youtube", dev.highlights.core.model.PlatformProfile.DEFAULTS.getValue("youtube")).summary shouldBe "format source · -14 LUFS"
+        MontageUiState(music = java.nio.file.Path.of("m.mp3"), formats = emptySet()).canCreate shouldBe false
+        MontageUiState(music = java.nio.file.Path.of("m.mp3"), formats = emptySet(), platform = "tiktok").canCreate shouldBe true
+    }
+
     test("les réglages reprennent les valeurs du profil") {
         val profile = GameProfile(
             id = "wardogs",

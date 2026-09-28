@@ -122,7 +122,9 @@ au montage plein, elle s'allonge par paliers.
   assisté par défaut (textes à copier, page d'envoi ouverte) ; envoi direct par l'API en option (`publish.youtube.api`,
   désactivé : projet Google à créer, vidéos verrouillées en privé tant qu'il n'est pas audité).
 - [ ] Export TikTok (Content Posting API, brouillon dans la boîte de réception) : demande une application TikTok validée.
-- [ ] Profils de plateforme : durée max, débit, loudness, zones de sécurité de l'UI TikTok pour le texte.
+- [x] Profils de plateforme : durée max, débit, loudness, zones de sécurité de l'UI TikTok pour le texte.
+  `PlatformProfile` (tiktok, shorts, reels, youtube, surchargeables dans app.yaml), `--platform`, choix « Plateforme ».
+  Piste : replacer aussi les éléments du HUD (`vertical.hud`) dans la zone sûre — score et capacités tombent sous l'interface de TikTok.
 
 ## Analyse et suivi
 - [ ] Statistiques par soirée : kills par partie, meilleur round, évolution dans le temps.

@@ -472,7 +472,8 @@ fun ExportBar(state: UiState, session: SessionState, actions: UiActions) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Montage", style = MaterialTheme.typography.titleMedium)
-                    val formats = state.settings.orderedFormats.joinToString(" + ") {
+                    val platform = state.platforms.firstOrNull { it.id == state.settings.platform }
+                    val formats = platform?.let { "${it.name} (${it.format.label})" } ?: state.settings.orderedFormats.joinToString(" + ") {
                         when (it) {
                             dev.highlights.core.model.OutputFormat.SOURCE -> state.source?.media?.video?.let { v -> aspectLabel(v.width, v.height) } ?: "source"
                             else -> it.label

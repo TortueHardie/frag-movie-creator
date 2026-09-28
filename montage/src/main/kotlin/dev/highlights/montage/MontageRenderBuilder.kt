@@ -10,6 +10,7 @@ import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.MontageAudio
 import dev.highlights.core.model.OutputFormat
+import dev.highlights.core.model.SafeArea
 import dev.highlights.core.model.SlowAudio
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.WhipPanEffect
@@ -162,10 +163,10 @@ object MontageRenderBuilder {
                     killCounter++
                     if (j >= 1 && settings.text.multiKillLabels.isNotEmpty()) {
                         val label = settings.text.multiKillLabels[minOf(j - 1, settings.text.multiKillLabels.lastIndex)]
-                        effects += drawText(font, label, k, (h * 0.10).roundToInt(), labelY, border = (h * 0.006).roundToInt().coerceAtLeast(3))
+                        effects += drawText(font, label, k, (h * 0.10).roundToInt(), labelY, border = (h * 0.006).roundToInt().coerceAtLeast(3), safe = request.edit.safeArea)
                     }
                     if (settings.text.killCounter) {
-                        effects += drawText(font, "KILL $killCounter", k, (h * 0.045).roundToInt(), counterY, border = (h * 0.003).roundToInt().coerceAtLeast(2))
+                        effects += drawText(font, "KILL $killCounter", k, (h * 0.045).roundToInt(), counterY, border = (h * 0.003).roundToInt().coerceAtLeast(2), safe = request.edit.safeArea)
                     }
                 }
             }
@@ -495,14 +496,19 @@ object MontageRenderBuilder {
         return terms.reduce { acc, term -> "max($acc\\,$term)" }
     }
 
-    private fun drawText(font: String, text: String, at: Duration, size: Int, y: String, border: Int): String {
+    /**
+     * Texte centré dans la largeur utile de [safe], [y] ramené entre ses marges du haut et du bas : l'interface de la
+     * plateforme (boutons à droite, légende en bas) ne le cache pas.
+     */
+    private fun drawText(font: String, text: String, at: Duration, size: Int, y: String, border: Int, safe: SafeArea = SafeArea.NONE): String {
         val t0 = sec(at)
         val t1 = sec(at + TEXT_DURATION)
         val fadeIn = sec(at + 80.milliseconds)
         val fadeOutStart = sec(at + TEXT_DURATION - 250.milliseconds)
         val alpha = "if(lt(t\\,$fadeIn)\\,(t-$t0)/0.08\\,if(gt(t\\,$fadeOutStart)\\,($t1-t)/0.25\\,1))"
         return "drawtext=fontfile='$font':text='$text':fontsize=$size:fontcolor=white:borderw=$border:bordercolor=black" +
-            ":x=(w-text_w)/2:y=$y:enable='between(t\\,$t0\\,$t1)':alpha='$alpha'"
+            (if (safe == SafeArea.NONE) ":x=(w-text_w)/2:y=$y" else ":x=w*${num(safe.left)}+(w*${num(safe.width)}-text_w)/2:y='min(max($y\\,h*${num(safe.top)})\\,h*${num(1 - safe.bottom)}-text_h)'") +
+            ":enable='between(t\\,$t0\\,$t1)':alpha='$alpha'"
     }
 
     private fun sec(d: Duration) = Durations.ffmpegSeconds(d)

@@ -55,6 +55,11 @@ private fun PipelineCommand.formatsOption() = option("-f", "--format", help = "F
     .convert { OutputFormat.parse(it) ?: throw BadParameterValue("format inconnu '$it' (source, 16:9 ou 9:16)") }
     .split(",")
 
+private fun PipelineCommand.platformOption() = option(
+    "--platform",
+    help = "Plateforme visée : tiktok, shorts, reels, youtube (ou définie dans app.yaml) — format, volume, débit, textes hors de l'interface de l'appli, durée maximale",
+)
+
 private fun PipelineCommand.styleOption() = option(
     "--style",
     help = "Montage : simple (moments bout à bout) ou story (façon YouTube : jump cuts, accroche, punch-in, secousses, bruitages)",
@@ -80,6 +85,7 @@ class ProcessCommand : PipelineCommand("process") {
     private val kills by option("--kills", help = "Un moment par kill (ou multi-kill) détecté, au lieu des meilleurs moments").flag()
     private val reanalyze by option("--reanalyze", help = "Tout recalculer, même pour une capture déjà analysée").flag()
     private val formats by formatsOption()
+    private val platform by platformOption()
     private val style by styleOption()
     private val music by musicOption()
     private val out by option("-o", "--out", help = "Dossier de sortie").path(canBeFile = false)
@@ -96,7 +102,7 @@ class ProcessCommand : PipelineCommand("process") {
                 pipeline.processAll(
                     files,
                     AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, reuse = !reanalyze),
-                    ExportOptions(formats, out, style, music),
+                    ExportOptions(formats, out, style, music, platform),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -138,6 +144,7 @@ class ExportCommand : PipelineCommand("export") {
     private val sessionFiles by argument("SESSION", help = "Un ou plusieurs fichiers .session.json : plusieurs = un seul montage, parties dans l'ordre d'enregistrement")
         .path(mustExist = true, canBeDir = false).multiple(required = true)
     private val formats by formatsOption()
+    private val platform by platformOption()
     private val style by styleOption()
     private val music by musicOption()
     private val out by option("-o", "--out").path(canBeFile = false)
@@ -149,7 +156,7 @@ class ExportCommand : PipelineCommand("export") {
         val result = execute {
             val sessions = sessionFiles.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).export(sessions, ExportOptions(formats, out, style, music), ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).export(sessions, ExportOptions(formats, out, style, music, platform), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
@@ -171,6 +178,7 @@ class MontageCommand : PipelineCommand("montage") {
         Durations.parseOrNull(text) ?: throw BadParameterValue("durée invalide '$text'")
     }
     private val formats by formatsOption()
+    private val platform by platformOption()
     private val chronological by option("--chronological", help = "Ordre chronologique au lieu de la montée en puissance").flag()
     private val effects by option("--effects", help = "Quantité d'effets : sober, balanced (défaut) ou heavy")
         .choice("sober" to EffectDensity.SOBER, "balanced" to EffectDensity.BALANCED, "heavy" to EffectDensity.HEAVY)
@@ -207,6 +215,7 @@ class MontageCommand : PipelineCommand("montage") {
                     music,
                     MontageOptions(
                         formats = formats,
+                        platform = platform,
                         outputDir = out,
                         maxDuration = max,
                         fitKills = if (fill) false else null,

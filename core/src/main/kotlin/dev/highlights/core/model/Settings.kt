@@ -73,6 +73,10 @@ data class EditSettings(
     val vertical: VerticalSettings = VerticalSettings(),
     val grade: GradeSettings = GradeSettings(),
     val fps: Int = 60,
+    /** Marges recouvertes par l'interface de la plateforme visée : les textes du montage restent en dehors. */
+    val safeArea: SafeArea = SafeArea.NONE,
+    /** Plafond du débit vidéo (ex. 16M) ; null : celui de l'encodeur. */
+    val maxBitrate: String? = null,
 ) {
     init {
         require(sourceHeight > 0 && sourceHeight % 2 == 0) { "sourceHeight doit être pair et > 0" }

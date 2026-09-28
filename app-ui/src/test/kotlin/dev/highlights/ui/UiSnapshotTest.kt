@@ -192,6 +192,19 @@ class UiSnapshotTest : FunSpec({
         render("11_publiee", exported).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("plateforme visée : format imposé, ce qu'elle change affiché") {
+        val platforms = dev.highlights.core.model.PlatformProfile.DEFAULTS.map { (id, p) -> PlatformInfo.of(id, p) }
+        val state = UiState(
+            config = ready.copy(platforms = platforms),
+            sources = listOf(source),
+            settings = settings.copy(platform = "tiktok"),
+            session = SessionState(session, Path("D:/Highlights/sessions/x.session.json")),
+            montage = MontageUiState(music = Path("D:/Musique/phonk_128.mp3"), platform = "shorts"),
+        )
+        render("12_plateforme", state).fileSize() shouldBeGreaterThan 0L
+        render("13_plateforme_reglages", state.copy(montage = null)).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("plusieurs captures pour un seul montage") {
         // Trois parties de la même soirée : la deuxième est sélectionnée, sa courbe est affichée.
         val parts = listOf("18-4-11-925" to 0, "19-1-23-983" to 3, "20-12-2-114" to 6).mapIndexed { n, (stamp, from) ->
@@ -252,6 +265,7 @@ private object NoopActions : UiActions {
     override fun editProfile() = Unit
     override fun setProfile(id: String?) = Unit
     override fun toggleFormat(format: OutputFormat) = Unit
+    override fun setPlatform(id: String?) = Unit
     override fun setStyle(style: EditStyle) = Unit
     override fun setMomentMode(mode: MomentMode) = Unit
     override fun setTargetMode(mode: TargetMode) = Unit

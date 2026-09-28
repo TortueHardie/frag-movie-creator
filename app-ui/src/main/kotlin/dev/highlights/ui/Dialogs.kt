@@ -191,9 +191,13 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                 }
 
                 DialogGroup("Formats") {
-                    OutputFormat.entries.forEach { format ->
-                        MontageToggle(formatLabel(format, state.source?.media), format in montage.formats) { v ->
-                            actions.updateMontage { it.copy(formats = if (v) it.formats + format else it.formats - format) }
+                    PlatformPicker(state.platforms, montage.platform) { id -> actions.updateMontage { it.copy(platform = id) } }
+                    // Une plateforme impose son format (et sa durée maximale devient un plafond de plus).
+                    if (montage.platform == null) {
+                        OutputFormat.entries.forEach { format ->
+                            MontageToggle(formatLabel(format, state.source?.media), format in montage.formats) { v ->
+                                actions.updateMontage { it.copy(formats = if (v) it.formats + format else it.formats - format) }
+                            }
                         }
                     }
                 }

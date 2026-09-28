@@ -63,6 +63,8 @@ interface UiActions {
 
     fun setProfile(id: String?)
     fun toggleFormat(format: OutputFormat)
+    /** Plateforme visée à l'export (null : les formats cochés). */
+    fun setPlatform(id: String?)
     fun setStyle(style: EditStyle)
     fun setMomentMode(mode: MomentMode)
     fun setTargetMode(mode: TargetMode)
@@ -170,7 +172,10 @@ class AppController(
                 val p = b.pipeline
                 _state.update { s ->
                     s.copy(
-                        config = ConfigStatus.Ready(b.configFile, p.profilesDir, p.profiles.all().map { ProfileInfo(it.id, it.displayName) }),
+                        config = ConfigStatus.Ready(
+                            b.configFile, p.profilesDir, p.profiles.all().map { ProfileInfo(it.id, it.displayName) },
+                            p.platforms.map { (id, platform) -> PlatformInfo.of(id, platform) },
+                        ),
                         settings = s.settings.copy(outputDir = s.settings.outputDir ?: p.defaultOutputDir),
                         sources = s.sources.map { src -> src.copy(detectedProfileId = p.resolveProfile(src.path).id) },
                     )
@@ -302,6 +307,8 @@ class AppController(
 
     override fun setStyle(style: EditStyle) = _state.update { s -> s.copy(settings = s.settings.copy(style = style)) }
 
+    override fun setPlatform(id: String?) = _state.update { s -> s.copy(settings = s.settings.copy(platform = id)) }
+
     override fun toggleFormat(format: OutputFormat) = _state.update { s ->
         val formats = if (format in s.settings.formats) s.settings.formats - format else s.settings.formats + format
         s.copy(settings = s.settings.copy(formats = formats))
@@ -393,7 +400,7 @@ class AppController(
         val p = backend?.pipeline ?: return
         runTask("Export du montage") { progress ->
             saveNow(current)
-            val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style), progress)
+            val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform), progress)
             _state.update { it.copy(lastExport = result, lastUpload = null) }
         }
     }
@@ -547,6 +554,7 @@ class AppController(
                     balance = montage?.audio?.balance ?: 0.0,
                     gameAudio = montage?.audio?.game ?: GameAudio.FULL,
                     reactions = montage?.reactions ?: false,
+                    platform = it.settings.platform,
                 ),
             )
         }
@@ -605,6 +613,7 @@ class AppController(
                     // Bibliothèque : chaque musique garde son réglage « depuis le début ».
                     musicFromStart = if (montage.useLibrary) null else montage.musicFromStart,
                     fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
+                    platform = montage.platform,
                 ),
                 progress,
             )

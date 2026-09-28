@@ -5,6 +5,7 @@ import com.charleskorn.kaml.YamlConfiguration
 import com.charleskorn.kaml.YamlException
 import dev.highlights.core.ConfigException
 import dev.highlights.core.ffmpeg.Hwaccel
+import dev.highlights.core.model.PlatformProfile
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
@@ -24,6 +25,8 @@ data class AppConfig(
     val analysis: AnalysisSettings = AnalysisSettings(),
     val encoder: EncoderSettings = EncoderSettings(),
     val publish: PublishSettings = PublishSettings(),
+    /** Plateformes : ajoutées à celles connues ([PlatformProfile.DEFAULTS]) ou les remplaçant, par identifiant. */
+    val platforms: Map<String, PlatformProfile> = emptyMap(),
 )
 
 @Serializable
@@ -76,6 +79,9 @@ data class LoadedConfig(val app: AppConfig, val baseDir: Path, val source: Path?
     val outputDir: Path get() = resolve(app.outputDir)
     val profilesDir: Path get() = resolve(app.profilesDir)
     val workDir: Path get() = app.workDir?.let(::resolve) ?: Path(System.getProperty("java.io.tmpdir"), "highlights")
+
+    /** Plateformes connues, surchargées par celles d'app.yaml. */
+    val platforms: Map<String, PlatformProfile> get() = PlatformProfile.DEFAULTS + app.platforms
 }
 
 object ConfigYaml {

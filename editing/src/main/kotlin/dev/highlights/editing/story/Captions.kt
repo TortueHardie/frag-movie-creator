@@ -1,6 +1,7 @@
 package dev.highlights.editing.story
 
 import dev.highlights.core.model.CaptionSettings
+import dev.highlights.core.model.SafeArea
 import dev.highlights.core.model.TimeRange
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -139,16 +140,21 @@ object Captions {
      * [CaptionSettings.pop] à son apparition. Une phrase criée passe toute en couleur, plus grosse ; sinon les mots
      * forts ([CaptionSettings.emphasis]) sont colorés, chacun dessiné à sa place dans la ligne. [y] : position
      * verticale du centre (part de la hauteur). Une phrase trop large pour l'image ([width]) est réduite jusqu'à y
-     * tenir : en 9:16, dix-huit caractères à la taille nominale débordent. Renvoie un filtre par morceau de texte.
+     * tenir : en 9:16, dix-huit caractères à la taille nominale débordent. [safe] : marges recouvertes par l'interface
+     * de la plateforme visée, dont le texte reste à l'écart (centré dans la largeur utile). Renvoie un filtre par
+     * morceau de texte.
      */
-    fun drawText(caption: Caption, settings: CaptionSettings, width: Int, height: Int, y: Double): List<String> {
+    /** Hauteur d'une ligne, en tailles de police : de quoi garder le texte entier dans la zone sûre. */
+    private const val LINE_HEIGHT = 1.2
+
+    fun drawText(caption: Caption, settings: CaptionSettings, width: Int, height: Int, y: Double, safe: SafeArea = SafeArea.NONE): List<String> {
         val words = sanitize(caption.text, settings.uppercase).split(' ').filter { it.isNotEmpty() }
         if (words.isEmpty()) return emptyList()
         val nominal = settings.size * height * (if (caption.loud) settings.shoutScale else 1.0)
-        val base = fit(settings.font, nominal, words.joinToString(" "), width)
+        val base = fit(settings.font, nominal, words.joinToString(" "), (width * safe.width).roundToInt())
         val t0 = caption.range.start
         val t1 = caption.range.end
-        val style = TextStyle(settings.font, base, height, y, t0, t1, settings.pop)
+        val style = TextStyle(settings.font, base, height, safe.centerY(y, LINE_HEIGHT * base / height), t0, t1, settings.pop, safe = safe)
         if (caption.loud) return listOf(style.draw(words.joinToString(" "), settings.shoutColor))
         val marked = emphasized(words, settings.emphasis)
         if (marked.none { it }) return listOf(style.draw(words.joinToString(" "), "white"))
@@ -163,16 +169,21 @@ object Captions {
         val total = widths.sumOf { it!! } + space * (words.size - 1)
         var offset = 0.0
         return words.mapIndexed { i, word ->
-            val x = "(w-${num(total)}*${style.scale})/2+${num(offset)}*${style.scale}"
+            val x = style.centered("${num(total)}*${style.scale}") + "+${num(offset)}*${style.scale}"
             offset += widths[i]!! + space
             style.draw(word, if (marked[i]) settings.emphasisColor else "white", x)
         }
     }
 
     /** Libellé d'événement (« DOUBLÉ »…) : même apparition « pop », qui s'efface sur sa fin. */
-    fun drawLabel(text: String, at: TimeRange, font: String, size: Double, color: String, width: Int, height: Int, y: Double, pop: Duration): String {
+    fun drawLabel(
+        text: String, at: TimeRange, font: String, size: Double, color: String, width: Int, height: Int, y: Double, pop: Duration,
+        safe: SafeArea = SafeArea.NONE,
+    ): String {
         val label = sanitize(text, uppercase = true)
-        return TextStyle(font, fit(font, size * height, label, width), height, y, at.start, at.end, pop, fadeOut = 250.milliseconds).draw(label, color)
+        val px = fit(font, size * height, label, (width * safe.width).roundToInt())
+        return TextStyle(font, px, height, safe.centerY(y, LINE_HEIGHT * px / height), at.start, at.end, pop, fadeOut = 250.milliseconds, safe = safe)
+            .draw(label, color)
     }
 
     /**
@@ -214,13 +225,23 @@ object Captions {
         val t1: Duration,
         pop: Duration,
         val fadeOut: Duration = Duration.ZERO,
+        safe: SafeArea = SafeArea.NONE,
     ) {
+        private val safe = safe
+
+        /** Position x d'un texte large de [width] (expression drawtext), centré dans la largeur utile. */
+        fun centered(width: String): String = if (safe == SafeArea.NONE) {
+            "(w-$width)/2"
+        } else {
+            "w*${String.format(Locale.ROOT, "%.4f", safe.left)}+(w*${String.format(Locale.ROOT, "%.4f", safe.width)}-$width)/2"
+        }
+
         private val popSeconds = String.format(Locale.ROOT, "%.3f", (pop.inWholeMicroseconds / 1e6).coerceAtLeast(0.001))
 
         /** Facteur d'échelle de l'apparition (0,7 → 1), à chaque image. */
         val scale = "(0.7+0.3*min(max((t-${sec(t0)})/$popSeconds\\,0)\\,1))"
 
-        fun draw(text: String, color: String, x: String = "(w-text_w)/2"): String {
+        fun draw(text: String, color: String, x: String = centered("text_w")): String {
             val px = size.roundToInt().coerceAtLeast(8)
             val border = (height * 0.006).roundToInt().coerceAtLeast(3)
             val fontFile = font.replace("\\", "/").replace(":", "\\:")

@@ -333,6 +333,36 @@ détecte les kills). En ligne de commande :
 - Réglages détaillés : section `montage:` d'un profil (voir `core/.../model/Montage.kt`), notamment `cuts:` (durées
   visées par intensité `low`/`mid`/`high`, `maxBeats`, `minLead`/`minTail`, `dropPosition`, `dropLead`).
 
+## Plateformes (TikTok, Shorts, Reels, YouTube)
+
+Le choix **Plateforme** (sous « Formats de sortie », et dans le dialogue du montage kills ; `--platform` en ligne de
+commande pour `export`, `process` et `montage`) adapte l'export à là où la vidéo sera publiée :
+
+| | Format | Durée max | Zone sûre (haut / bas / gauche / droite) |
+|---|---|---|---|
+| `tiktok` | 9:16 | 10 min | 10 % / 22 % / 5 % / 14 % |
+| `shorts` (YouTube Shorts) | 9:16 | 3 min | 8 % / 20 % / 4 % / 12 % |
+| `reels` (Instagram) | 9:16 | 3 min | 10 % / 22 % / 5 % / 12 % |
+| `youtube` | source | — | — |
+
+- **Format** imposé (les cases cochées ne comptent plus), **volume** ramené à -14 LUFS (les plateformes normalisent :
+  plus fort, la vidéo est baissée ; plus faible, elle paraît terne), **débit** plafonné à 16 Mb/s et 60 images par
+  seconde au plus pour les formats verticaux.
+- **Zone sûre** : les parts de l'image que l'interface de l'appli recouvre (onglets en haut, légende et musique en bas,
+  boutons à droite). Les textes du montage (DOUBLÉ, TRIPLÉ…, sous-titres et libellés du montage story) sont centrés dans
+  la largeur utile et gardés entre les marges du haut et du bas. Les éléments du HUD replacés en 9:16 (`vertical.hud`
+  du profil) gardent la place que le profil leur donne.
+- **Durée** : en montage kills, la durée maximale de la plateforme devient un plafond de plus ; un montage highlights
+  trop long est refusé avant le rendu, avec la durée à atteindre.
+- Le nom du fichier porte la plateforme : `valorant_2026-09-27_killmontage_tiktok_9x16.mp4`.
+- Valeurs relevées sur les applications, qui changent avec elles : toutes se surchargent dans `app.yaml` (`platforms:`),
+  où l'on peut aussi en ajouter (ex. clips Twitch en 16:9).
+
+```powershell
+& $app montage output\sessions\partie.session.json --music D:\Musique --platform tiktok
+& $app export output\sessions\partie.session.json --platform shorts
+```
+
 ## Publier sur YouTube
 
 Après un export, le bouton **YouTube** à côté de chaque vidéo prépare la publication : titre, description et tags
