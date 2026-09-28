@@ -175,6 +175,23 @@ class UiSnapshotTest : FunSpec({
         render("06_montage", state).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("publication sur YouTube : champs proposés, puis sans identifiant configuré, puis lien de la vidéo en ligne") {
+        val video = Path("D:/Highlights/valorant_2026-09-27_killmontage_9x16.mp4")
+        val suggested = dev.highlights.publish.YouTubeMetadata(
+            "TRIPLÉ — 19 kills en 57 s | VALORANT", "19 kills, dont 13 headshots · 1 triplé, 4 doublés.\nPartie du 27/09/2026.\nMusique : R2D2\n\n#VALORANT #Shorts",
+            listOf("VALORANT", "gaming", "highlights"), dev.highlights.core.config.YouTubePrivacy.PRIVATE,
+        )
+        val base = UiState(config = ready, sources = listOf(source), settings = settings, session = SessionState(session, Path("D:/Highlights/sessions/x.session.json")))
+        render("09_publication_manuelle", base.copy(publish = PublishUiState(video).withSuggestion(suggested))).fileSize() shouldBeGreaterThan 0L
+        render("09_publication_api", base.copy(publish = PublishUiState(video, api = true, connected = true).withSuggestion(suggested))).fileSize() shouldBeGreaterThan 0L
+        render("10_publication_sans_identifiant", base.copy(publish = PublishUiState(video, api = true, configured = false))).fileSize() shouldBeGreaterThan 0L
+        val exported = base.copy(
+            lastExport = ExportResult(mapOf(OutputFormat.VERTICAL to video), Path("D:/Highlights/valorant_2026-09-27_killmontage.json"), 57.seconds, "h264_amf", Path("D:/Musique/R2D2.mp3")),
+            lastUpload = dev.highlights.publish.UploadedVideo("abc123"),
+        )
+        render("11_publiee", exported).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("plusieurs captures pour un seul montage") {
         // Trois parties de la même soirée : la deuxième est sélectionnée, sa courbe est affichée.
         val parts = listOf("18-4-11-925" to 0, "19-1-23-983" to 3, "20-12-2-114" to 6).mapIndexed { n, (stamp, from) ->
@@ -256,6 +273,16 @@ private object NoopActions : UiActions {
     override fun closeMontage() = Unit
     override fun chooseMusic() = Unit
     override fun chooseMusicLibrary() = Unit
+    override fun openPublish(video: java.nio.file.Path) = Unit
+    override fun closePublish() = Unit
+    override fun updatePublish(change: (PublishUiState) -> PublishUiState) = Unit
+    override fun resetPublishText() = Unit
+    override fun publishToYouTube() = Unit
+    override fun youtubeLogout() = Unit
+    override fun editConfig() = Unit
+    override fun browse(uri: java.net.URI) = Unit
+    override fun openYouTubeUpload() = Unit
+    override fun copyToClipboard(text: String) = Unit
     override fun updateMontage(change: (MontageUiState) -> MontageUiState) = Unit
     override fun createMontage() = Unit
     override fun open(path: Path) = Unit

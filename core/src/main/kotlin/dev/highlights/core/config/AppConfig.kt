@@ -23,6 +23,7 @@ data class AppConfig(
     val workDir: String? = null,
     val analysis: AnalysisSettings = AnalysisSettings(),
     val encoder: EncoderSettings = EncoderSettings(),
+    val publish: PublishSettings = PublishSettings(),
 )
 
 @Serializable

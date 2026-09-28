@@ -333,6 +333,57 @@ détecte les kills). En ligne de commande :
 - Réglages détaillés : section `montage:` d'un profil (voir `core/.../model/Montage.kt`), notamment `cuts:` (durées
   visées par intensité `low`/`mid`/`high`, `maxBeats`, `minLead`/`minTail`, `dropPosition`, `dropLead`).
 
+## Publier sur YouTube
+
+Après un export, le bouton **YouTube** à côté de chaque vidéo prépare la publication : titre, description et tags
+pré-remplis d'après la vidéo, tout modifiable (« Texte proposé » y revient).
+
+**Envoi manuel assisté (par défaut, rien à configurer)** : chaque texte a son bouton **Copier**, et « Ouvrir YouTube »
+ouvre la page d'envoi dans le navigateur (où tu es déjà connecté) en montrant la vidéo dans l'Explorateur. On la glisse
+dans la page, on colle les textes, on choisit la visibilité : environ 30 secondes, sans quota ni verrouillage en privé.
+
+```powershell
+& $app publish output\valorant_2026-09-27_killmontage_9x16.mp4 --open     # textes à coller, page d'envoi ouverte
+& $app publish output\valorant_2026-09-27_killmontage_9x16.mp4 --title "Mon ace" --tags "fps,valorant"
+```
+
+**Envoi direct par l'API (optionnel, désactivé)** : `publish.youtube.api: true` dans `app.yaml`. La fenêtre propose
+alors aussi visibilité (privée par défaut), mise en ligne programmée, catégorie, langue, « conçue pour les enfants » et
+notification des abonnés, et envoie la vidéo elle-même :
+
+```powershell
+& $app publish output\valorant_2026-09-27_killmontage_9x16.mp4 --dry-run          # ce qui partirait, sans rien envoyer
+& $app publish output\valorant_2026-09-27_killmontage_9x16.mp4 --privacy unlisted
+& $app publish output\partie_highlights.mp4 --publish-at "2026-10-01 18:00"
+& $app publish --login        # (re)connecter le compte ;  --logout pour l'oublier
+```
+
+- **Texte proposé** : tiré du rapport JSON écrit avec la vidéo. Montage kills : « TRIPLÉ — 19 kills en 57 s |
+  VALORANT » (accroche : ace, clutch, sinon le plus gros multi-kill à partir du triplé), description avec kills,
+  headshots, multi-kills, date de la partie, musique, puis `#VALORANT #Shorts` (#Shorts pour une vidéo verticale de 3
+  minutes au plus). Highlights : « Meilleurs moments VALORANT du 27/09/2026 ». Les tags : le jeu, plus
+  `publish.youtube.tags`. Modèles réglables dans `app.yaml` (`titleTemplate`, `descriptionTemplate`, champs `{jeu}`
+  `{date}` `{accroche}` `{kills}` `{headshots}` `{detail}` `{moments}` `{duree}` `{musique}` `{hashtags}` `{titre}`).
+- **Mise en place de l'API, une fois** : YouTube n'accepte les envois directs que d'une application déclarée chez Google.
+  1. [console.cloud.google.com](https://console.cloud.google.com) : créer un projet, puis activer « YouTube Data API
+     v3 » (API et services › Bibliothèque).
+  2. Écran de consentement OAuth : type « Externe », s'ajouter comme utilisateur test.
+  3. Identifiants › Créer › ID client OAuth › « Application de bureau », puis télécharger le JSON.
+  4. Déposer ce `client_secret_….json` dans le dossier de configuration (à côté d'`app.yaml`), ou indiquer son chemin
+     dans `publish.youtube.clientSecretFile`.
+
+  Au premier envoi, le navigateur s'ouvre sur la page de Google ; le jeton est ensuite gardé dans
+  `~/.highlights/youtube-token.json`. Il ne permet que d'envoyer des vidéos (portée `youtube.upload`), jusqu'à
+  « Se déconnecter » ou au retrait de l'accès dans le compte Google.
+- **Limites de Google** : le quota gratuit d'un projet permet environ 6 envois par jour. Surtout, tant que le projet
+  n'a pas passé l'audit de YouTube, **les vidéos envoyées par l'API sont verrouillées en privé**, quelle que soit la
+  visibilité demandée : c'est une règle de YouTube pour les projets non audités, pas un réglage de Highlights. Pour un
+  usage personnel, on envoie en privé puis on change la visibilité dans YouTube Studio (lien « Studio » après
+  l'envoi) — ou on demande l'audit dans la console Google Cloud.
+- Le `client_secret_….json` déposé dans `config/` est ignoré par git et exclu de l'installeur.
+- **Envoi reprenable** : par morceaux de 8 Mo ; une coupure réseau ou une erreur passagère reprend là où l'envoi en
+  était, au lieu de tout renvoyer.
+
 ## Événements de jeu (Outplayed)
 
 `outplayed-events` reprend les événements qu'Outplayed a enregistrés avec la capture : kills, morts, assistances,
@@ -408,6 +459,7 @@ $app = ".\app-cli\build\install\app\bin\app.bat"
 & $app probe "D:\Videos\Outplayed\League of Legends\partie.mp4"   # pistes audio, résolution, durée
 & $app music D:\Musique\son.mp3 --max 60s --clips 12         # tempo, sections, drop et grille de coupes d'un montage
 & $app music D:\Musique\TikTok                         # analyse d'avance chaque musique d'un dossier (bibliothèque)
+& $app publish output\partie_killmontage_9x16.mp4 --dry-run   # titre, description et tags proposés pour YouTube
 & $app process "D:\Videos\...\partie.mp4"         # analyse + montage
 & $app process partie.mp4 --profile valorant --duration 5m --format 16:9,9:16
 & $app process partie1.mp4 partie2.mp4 partie3.mp4 --top 10   # toute une soirée : un seul montage, parties dans l'ordre joué

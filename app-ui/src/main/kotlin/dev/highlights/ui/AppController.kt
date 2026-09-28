@@ -19,6 +19,7 @@ import dev.highlights.pipeline.FolderWatcher
 import dev.highlights.pipeline.HighlightPipeline
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
+import dev.highlights.pipeline.YouTubePublisher
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -89,6 +90,21 @@ interface UiActions {
     fun chooseMusicLibrary()
     fun updateMontage(change: (MontageUiState) -> MontageUiState)
     fun createMontage()
+
+    /** Fenêtre de publication d'une vidéo exportée sur YouTube, champs proposés d'après la vidéo. */
+    fun openPublish(video: Path)
+    fun closePublish()
+    fun updatePublish(change: (PublishUiState) -> PublishUiState)
+    /** Revient au titre, à la description et aux tags proposés. */
+    fun resetPublishText()
+    fun publishToYouTube()
+    fun youtubeLogout()
+    /** Envoi manuel : page d'envoi de YouTube dans le navigateur, vidéo montrée dans l'Explorateur pour l'y glisser. */
+    fun openYouTubeUpload()
+    fun copyToClipboard(text: String)
+    /** Ouvre app.yaml dans l'éditeur (identifiant YouTube, réglages de publication). */
+    fun editConfig()
+    fun browse(uri: java.net.URI)
 
     /** Ferme l'analyse ouverte (elle reste enregistrée) et revient à la liste des analyses. */
     fun showLibrary()
@@ -378,7 +394,7 @@ class AppController(
         runTask("Export du montage") { progress ->
             saveNow(current)
             val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style), progress)
-            _state.update { it.copy(lastExport = result) }
+            _state.update { it.copy(lastExport = result, lastUpload = null) }
         }
     }
 
@@ -592,9 +608,72 @@ class AppController(
                 ),
                 progress,
             )
-            _state.update { it.copy(lastExport = result) }
+            _state.update { it.copy(lastExport = result, lastUpload = null) }
         }
     }
+
+    // ---------------------------------------------------------------- publication YouTube
+
+    private fun youtube() = backend?.pipeline?.youtube(platform::browse)
+
+    override fun openPublish(video: Path) {
+        val yt = youtube() ?: return
+        _state.update { it.copy(publish = PublishUiState(video, api = yt.apiEnabled, configured = !yt.apiEnabled || yt.configured, connected = yt.connected)) }
+        scope.launch {
+            try {
+                val suggested = withContext(Dispatchers.IO) { yt.suggest(video) }
+                _state.update { s -> s.copy(publish = s.publish?.takeIf { it.video == video }?.withSuggestion(suggested)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(publish = null) }
+                reportFailure("Préparation de la publication", e)
+            }
+        }
+    }
+
+    override fun closePublish() = _state.update { it.copy(publish = null) }
+
+    override fun updatePublish(change: (PublishUiState) -> PublishUiState) =
+        _state.update { s -> s.copy(publish = s.publish?.let(change)) }
+
+    override fun resetPublishText() = updatePublish { p -> p.suggested?.let(p::withSuggestion) ?: p }
+
+    override fun publishToYouTube() {
+        val publish = state.value.publish ?: return
+        if (!publish.canPublish) return
+        val yt = youtube() ?: return
+        val metadata = publish.metadata()
+        _state.update { it.copy(publish = null, lastUpload = null) }
+        runTask("Envoi sur YouTube : ${publish.video.name}") { progress ->
+            if (!yt.connected) progress.update(0.0, "Connexion au compte YouTube dans le navigateur…")
+            val uploaded = yt.upload(publish.video, metadata, progress)
+            _state.update { it.copy(lastUpload = uploaded) }
+        }
+    }
+
+    override fun youtubeLogout() {
+        val yt = youtube() ?: return
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { yt.logout() } }
+                .onFailure { log.warn { "Déconnexion YouTube : ${it.message}" } }
+            _state.update { s -> s.copy(publish = s.publish?.copy(connected = false)) }
+        }
+    }
+
+    override fun openYouTubeUpload() {
+        val video = state.value.publish?.video ?: return
+        platform.browse(YouTubePublisher.UPLOAD_PAGE)
+        platform.reveal(video)
+    }
+
+    override fun copyToClipboard(text: String) = platform.copy(text)
+
+    override fun editConfig() {
+        backend?.configFile?.let(platform::edit)
+    }
+
+    override fun browse(uri: java.net.URI) = platform.browse(uri)
 
     // ---------------------------------------------------------------- analyses enregistrées
 

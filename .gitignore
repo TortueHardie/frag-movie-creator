@@ -13,6 +13,9 @@ music sample/
 # Modèles de transcription whisper.cpp (plusieurs centaines de Mo), téléchargés à part
 config/models/ggml-*.bin
 
+# Identifiant OAuth YouTube personnel (console Google Cloud)
+config/client_secret*.json
+
 # Rapports de plantage de la JVM
 hs_err_pid*.log
 

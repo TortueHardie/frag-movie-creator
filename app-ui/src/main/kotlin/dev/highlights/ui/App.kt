@@ -98,6 +98,7 @@ fun App(state: UiState, actions: UiActions) {
         }
         }
         state.montage?.let { MontageDialog(it, state, actions) }
+        state.publish?.let { PublishDialog(it, actions) }
         state.error?.let { ErrorDialog(it, actions) }
     }
 }

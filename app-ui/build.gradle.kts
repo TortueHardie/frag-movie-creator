@@ -99,6 +99,8 @@ val prepareBundledResources by tasks.registering(Sync::class) {
         into("common/config")
         // Modèles de transcription whisper (plusieurs centaines de Mo) : téléchargés à part, pas livrés dans l'installeur.
         exclude("models/ggml-*.bin")
+        // Identifiant OAuth YouTube personnel, déposé à côté d'app.yaml : jamais livré à d'autres.
+        exclude("client_secret*.json")
         // Installée, l'application écrit dans le dossier Vidéos de l'utilisateur plutôt qu'à côté de la config.
         filesMatching("app.yaml") {
             filter { line -> if (line.startsWith("outputDir:")) "outputDir: ~/Videos/Highlights" else line }

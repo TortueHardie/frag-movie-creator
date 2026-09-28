@@ -73,6 +73,25 @@ class UiStateTest : FunSpec({
         MusicPrefsStore(file).let { it.library() shouldBe dir; it.useLibrary() shouldBe false }
     }
 
+    test("publication YouTube : champs proposés modifiables, envoi bloqué tant que YouTube refuserait") {
+        val suggested = dev.highlights.publish.YouTubeMetadata(
+            "TRIPLÉ — 9 kills en 17 s | VALORANT", "9 kills.", listOf("VALORANT", "gaming"), dev.highlights.core.config.YouTubePrivacy.PRIVATE,
+        )
+        // Envoi manuel (par défaut) : rien ne part d'ici, les textes se copient.
+        PublishUiState(java.nio.file.Path.of("montage.mp4")).withSuggestion(suggested).canPublish shouldBe false
+        val p = PublishUiState(java.nio.file.Path.of("montage.mp4"), api = true).withSuggestion(suggested)
+        p.canPublish shouldBe true
+        p.tagsText shouldBe "VALORANT, gaming"
+        p.copy(tagsText = " fps ,, VALORANT ").metadata().tags shouldBe listOf("fps", "VALORANT")
+        p.copy(title = " ").canPublish shouldBe false
+        p.copy(publishAtText = "demain").problems.single() shouldBe "Heure de mise en ligne illisible (ex. 2026-10-01 18:00)"
+        p.copy(publishAtText = "2999-01-01 18:00").metadata().publishAt shouldBe
+            java.time.LocalDateTime.of(2999, 1, 1, 18, 0).atZone(java.time.ZoneId.systemDefault()).toInstant()
+        PublishUiState(java.nio.file.Path.of("montage.mp4")).canPublish shouldBe false
+        // Revenir au texte proposé après l'avoir modifié.
+        p.copy(title = "autre").let { it.withSuggestion(it.suggested!!) }.title shouldBe suggested.title
+    }
+
     test("les réglages reprennent les valeurs du profil") {
         val profile = GameProfile(
             id = "wardogs",
