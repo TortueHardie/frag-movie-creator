@@ -420,7 +420,7 @@ private fun PipelineCommand.printHighlights(highlights: List<Highlight>, warning
     }
 }
 
-private fun PipelineCommand.printExport(result: ExportResult) {
+internal fun PipelineCommand.printExport(result: ExportResult) {
     echo("Montage (${result.duration.toShortText()}, encodeur ${result.encoder}) :")
     result.videos.forEach { (format, path) -> echo("  ${format.label}  $path") }
     echo("  rapport ${result.report}")

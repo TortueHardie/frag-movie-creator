@@ -46,6 +46,8 @@ data class UiState(
     val lastMusic: Path? = null,
     /** Vue des statistiques, à la place des analyses enregistrées (null = fermée). */
     val stats: StatsState? = null,
+    /** Vue de recherche de moments, à la place des analyses enregistrées (null = fermée). */
+    val search: SearchState? = null,
     /** Analyses déjà faites, la plus récente d'abord. */
     val library: List<LibraryItem> = emptyList(),
     /** Analyses cochées dans la liste, à ouvrir ensemble pour un seul montage (fichiers de session). */
@@ -256,6 +258,8 @@ data class MontageUiState(
     val formats: Set<OutputFormat> = setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
     /** Plateforme visée : impose le format, et sa durée maximale devient un plafond. */
     val platform: String? = null,
+    /** Seulement ces moments (choisis dans la recherche) ; null : tous les kills des parties ouvertes. */
+    val pick: dev.highlights.pipeline.MomentPick? = null,
     val density: EffectDensity = EffectDensity.BALANCED,
     val zoom: Boolean = true,
     val flash: Boolean = true,

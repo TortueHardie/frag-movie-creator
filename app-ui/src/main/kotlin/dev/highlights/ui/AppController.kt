@@ -108,6 +108,13 @@ interface UiActions {
     fun editConfig()
     fun browse(uri: java.net.URI)
 
+    /** Recherche de moments dans les parties analysées, et montage kills des moments cochés. */
+    fun showSearch()
+    fun closeSearch()
+    fun updateSearch(change: (SearchState) -> SearchState)
+    fun toggleMoment(key: String)
+    fun montageFromSearch()
+
     /** Statistiques des parties analysées, par soirée. */
     fun showStats()
     fun closeStats()
@@ -266,7 +273,8 @@ class AppController(
     }
 
     /** Rouvre une ou plusieurs analyses enregistrées : plusieurs = un seul montage. */
-    private fun openSessions(files: List<Path>) {
+    /** [then] : après l'ouverture réussie (montage d'une recherche). */
+    private fun openSessions(files: List<Path>, then: (() -> Unit)? = null) {
         if (state.value.job != null || files.isEmpty()) return
         val p = backend?.pipeline ?: return showError("Configuration non chargée", "Attends la fin du chargement ou corrige la configuration.")
         runTask(if (files.size == 1) "Ouverture de la session" else "Ouverture de ${files.size} sessions", cancellable = false) {
@@ -289,6 +297,7 @@ class AppController(
                 showError("Vidéo source introuvable", "${missing.joinToString()} n'existe plus : l'export et les aperçus seront impossibles.")
             }
             loadThumbnails()
+            then?.invoke()
         }
     }
 
@@ -619,6 +628,7 @@ class AppController(
                     musicFromStart = if (montage.useLibrary) null else montage.musicFromStart,
                     fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
                     platform = montage.platform,
+                    onlyKills = montage.pick,
                 ),
                 progress,
             )
@@ -700,7 +710,7 @@ class AppController(
     }
 
     override fun openLibraryItem(sessionFile: Path) {
-        _state.update { it.copy(stats = null) }
+        _state.update { it.copy(stats = null, search = null) }
         openSessions(listOf(sessionFile))
     }
 
@@ -725,11 +735,48 @@ class AppController(
         }
     }
 
+    // ---------------------------------------------------------------- recherche
+
+    override fun showSearch() {
+        val p = backend?.pipeline ?: return
+        _state.update { it.copy(search = SearchState(), stats = null) }
+        scope.launch {
+            try {
+                val moments = withContext(Dispatchers.IO) { p.search(dev.highlights.pipeline.MomentQuery()) }
+                _state.update { s -> s.copy(search = s.search?.copy(loading = false, moments = moments)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(search = null) }
+                reportFailure("Recherche", e)
+            }
+        }
+    }
+
+    override fun closeSearch() = _state.update { it.copy(search = null) }
+
+    override fun updateSearch(change: (SearchState) -> SearchState) = _state.update { s -> s.copy(search = s.search?.let(change)) }
+
+    override fun toggleMoment(key: String) = updateSearch { s ->
+        s.copy(unpicked = if (key in s.unpicked) s.unpicked - key else s.unpicked + key)
+    }
+
+    /** Ouvre les parties des moments cochés, puis le montage kills limité à ces moments. */
+    override fun montageFromSearch() {
+        val picked = state.value.search?.picked?.takeIf { it.isNotEmpty() } ?: return
+        val pick = dev.highlights.pipeline.MomentPick.of(picked)
+        _state.update { it.copy(search = null) }
+        openSessions(picked.map { it.sessionFile }.distinct()) {
+            openMontage()
+            _state.update { s -> s.copy(montage = s.montage?.copy(pick = pick)) }
+        }
+    }
+
     // ---------------------------------------------------------------- statistiques
 
     override fun showStats() {
         val p = backend?.pipeline ?: return
-        _state.update { it.copy(stats = StatsState()) }
+        _state.update { it.copy(stats = StatsState(), search = null) }
         scope.launch {
             try {
                 val games = withContext(Dispatchers.IO) { p.statistics() }

@@ -80,7 +80,11 @@ fun App(state: UiState, actions: UiActions) {
                 val session = state.session
                 if (session == null) {
                     if (state.job == null) {
-                        state.stats?.let { StatsView(it, actions, Modifier.weight(1f)) } ?: LibraryView(state, actions, Modifier.weight(1f))
+                        when {
+                            state.search != null -> SearchView(state.search, actions, busy = state.job != null, modifier = Modifier.weight(1f))
+                            state.stats != null -> StatsView(state.stats, actions, Modifier.weight(1f))
+                            else -> LibraryView(state, actions, Modifier.weight(1f))
+                        }
                     }
                 } else {
                     SessionHeader(state, session, actions)

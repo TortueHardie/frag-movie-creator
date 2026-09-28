@@ -49,7 +49,11 @@ fun LibraryView(state: UiState, actions: UiActions, modifier: Modifier = Modifie
         WatchCard(state, actions)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Analyses enregistrées", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            if (state.library.isNotEmpty()) OutlinedButton(onClick = actions::showStats) { Text("Statistiques") }
+            if (state.library.isNotEmpty()) {
+                OutlinedButton(onClick = actions::showSearch) { Text("Rechercher") }
+                Spacer(Modifier.width(8.dp))
+                OutlinedButton(onClick = actions::showStats) { Text("Statistiques") }
+            }
             Spacer(Modifier.width(8.dp))
             val selected = state.librarySelection.size
             if (selected > 0) {

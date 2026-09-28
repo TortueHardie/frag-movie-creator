@@ -17,6 +17,7 @@ import dev.highlights.core.session.Session
 import dev.highlights.export.ExportResult
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.longs.shouldBeGreaterThan
+import io.kotest.matchers.shouldBe
 import org.jetbrains.skia.EncodedImageFormat
 import java.nio.file.Path
 import java.time.Instant
@@ -228,6 +229,23 @@ class UiSnapshotTest : FunSpec({
         render("14_statistiques", state).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("recherche de moments") {
+        fun moment(at: String, kills: Int, hs: Int, ace: Boolean = false, clutch: Boolean = false, game: String = "VALORANT") = dev.highlights.pipeline.FoundMoment(
+            Path("D:/Highlights/sessions/${at.take(10)}.session.json"), Path("D:/Videos/Valorant_${at.take(10)}.mp4"), game.lowercase(), game,
+            Instant.parse(at), List(kills) { (Instant.parse(at).epochSecond % 3000 + it).seconds }, hs, ace, clutch, kills.toDouble(),
+        )
+        val moments = listOf(
+            moment("2026-09-25T20:24:00Z", 3, 1, clutch = true), moment("2026-09-26T21:26:00Z", 2, 2, clutch = true),
+            moment("2026-09-27T20:26:00Z", 2, 2, clutch = true), moment("2026-09-27T19:54:00Z", 2, 1), moment("2026-09-27T14:14:00Z", 1, 1),
+            moment("2026-09-23T19:55:00Z", 1, 0, game = "Wardogs"),
+        )
+        val search = SearchState(loading = false, moments = moments, minKills = 2)
+        search.results.size shouldBe 4
+        search.copy(unpicked = setOf(SearchState.key(moments[3]))).picked.size shouldBe 3
+        search.copy(clutch = true, headshots = true).results.size shouldBe 2
+        render("15_recherche", UiState(config = ready, search = search)).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("plusieurs captures pour un seul montage") {
         // Trois parties de la même soirée : la deuxième est sélectionnée, sa courbe est affichée.
         val parts = listOf("18-4-11-925" to 0, "19-1-23-983" to 3, "20-12-2-114" to 6).mapIndexed { n, (stamp, from) ->
@@ -311,6 +329,11 @@ private object NoopActions : UiActions {
     override fun chooseMusic() = Unit
     override fun chooseMusicLibrary() = Unit
     override fun showStats() = Unit
+    override fun showSearch() = Unit
+    override fun closeSearch() = Unit
+    override fun updateSearch(change: (SearchState) -> SearchState) = Unit
+    override fun toggleMoment(key: String) = Unit
+    override fun montageFromSearch() = Unit
     override fun closeStats() = Unit
     override fun setStatsGame(game: String) = Unit
     override fun openPublish(video: java.nio.file.Path) = Unit

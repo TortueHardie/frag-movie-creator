@@ -353,6 +353,22 @@ clutchs, et un graphique des kills par partie d'une soirée à l'autre. Chaque p
   K/D ni rounds, et une partie dont les kills viennent du killfeed de secours (qui ne voit pas les tirs à la tête) est
   laissée hors du taux de headshots au lieu d'y compter pour 0 %.
 
+## Rechercher des moments
+
+Bouton **Rechercher** au-dessus des analyses enregistrées (ou `app search`) : tous les moments (groupes de kills,
+comme le montage kills les forme) des parties analysées, filtrés par jeu, période (7 jours, 30 jours, tout), taille
+(doublés et plus, triplés et plus), aces, clutchs, ou « tout en headshot ». On coche ceux qu'on veut, puis **Montage
+kills de N moment(s)** ouvre leurs parties et le dialogue du montage, limité à ces moments.
+
+```powershell
+& $app search --clutch                                  # tous les clutchs, du plus fort au moins fort
+& $app search --min-kills 2 --headshots --last 7        # doublés et plus, tout en headshot, 7 dernières soirées
+& $app search --min-kills 3 --montage D:\Musique --platform tiktok   # montage des triplés et plus
+```
+
+- L'arme n'est pas un critère : ni VALORANT ni Outplayed ne la transmettent (les événements n'ont qu'un numéro d'ordre).
+- Mêmes parties que les statistiques : une partie enregistrée deux fois ne donne ses moments qu'une fois.
+
 ## Plateformes (TikTok, Shorts, Reels, YouTube)
 
 Le choix **Plateforme** (sous « Formats de sortie », et dans le dialogue du montage kills ; `--platform` en ligne de
@@ -511,6 +527,7 @@ $app = ".\app-cli\build\install\app\bin\app.bat"
 & $app music D:\Musique\TikTok                         # analyse d'avance chaque musique d'un dossier (bibliothèque)
 & $app publish output\partie_killmontage_9x16.mp4 --dry-run   # titre, description et tags proposés pour YouTube
 & $app stats --games                                  # statistiques par soirée, partie par partie
+& $app search --clutch --montage D:\Musique            # moments cherchés dans toutes les parties, et leur montage
 & $app process "D:\Videos\...\partie.mp4"         # analyse + montage
 & $app process partie.mp4 --profile valorant --duration 5m --format 16:9,9:16
 & $app process partie1.mp4 partie2.mp4 partie3.mp4 --top 10   # toute une soirée : un seul montage, parties dans l'ordre joué

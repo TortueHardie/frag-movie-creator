@@ -128,6 +128,8 @@ data class MontageOptions(
     val fromStartMusics: Set<Path> = emptySet(),
     /** Plateforme visée : format, volume, débit, zone sûre, et la durée maximale devient un plafond de plus. */
     val platform: String? = null,
+    /** Seulement ces moments (résultat d'une recherche, voir [MomentPick]) ; null : tous les kills des sessions. */
+    val onlyKills: MomentPick? = null,
 )
 
 /** [reused] : analyse reprise de la mémoire, sans recalcul. */
@@ -180,7 +182,39 @@ class HighlightPipeline(
      * plus courts que [Statistics.MIN_GAME] écartés, et les jeux dont le profil ne voit aucun kill aussi. Les sessions
      * illisibles sont ignorées.
      */
-    fun statistics(): List<GameStats> {
+    fun statistics(): List<GameStats> = analyzedGames().flatMap { g -> g.sessions.map { (file, session) -> g.stats(file, session) } }
+
+    /**
+     * Moments (groupes de kills, comme le montage les forme) des parties analysées qui répondent à [query], du plus
+     * important au moins important. Mêmes parties que les statistiques : une même partie enregistrée deux fois ne
+     * donne pas deux fois ses moments.
+     */
+    fun search(query: MomentQuery): List<FoundMoment> {
+        val games = analyzedGames()
+        val kept = Statistics.distinctGames(games.flatMap { g -> g.sessions.map { (file, session) -> g.stats(file, session) } })
+            .map { it.sessionFile }.toSet()
+        return games.flatMap { g ->
+            g.sessions.filter { it.first in kept }.flatMap { (file, session) ->
+                dev.highlights.montage.MontagePlanner.groups(listOf(session), g.settings)
+                    .map { FoundMoment.of(file, g.name, g.profileId, session.media.recordedAt, it) }
+            }
+        }.filter { query.matches(it) }.sortedWith(compareByDescending<FoundMoment> { it.rank }.thenByDescending { it.playedAt })
+    }
+
+    /** Parties analysées d'un même profil, et ce qu'il sait détecter. */
+    private class AnalyzedGames(
+        val profileId: String,
+        val name: String,
+        val settings: dev.highlights.core.model.MontageSettings,
+        val sessions: List<Pair<Path, Session>>,
+    ) {
+        private val deaths = Statistics.sources(sessions.map { it.second }, settings.killStyle.deathEvent)
+        private val headshots = Statistics.sources(sessions.map { it.second }, settings.killStyle.headshotEvent)
+
+        fun stats(file: Path, session: Session) = Statistics.game(session, settings, file, name, deaths, headshots)
+    }
+
+    private fun analyzedGames(): List<AnalyzedGames> {
         val loaded = library.entries()
             .filter { it.duration >= Statistics.MIN_GAME }
             .distinctBy { it.source }
@@ -190,14 +224,11 @@ class HighlightPipeline(
                     .onFailure { log.warn { "Session illisible pour les statistiques (${e.sessionFile}) : ${it.message}" } }
                     .getOrNull()
             }
-        return loaded.groupBy { it.second.profileId }.flatMap { (profileId, list) ->
+        return loaded.groupBy { it.second.profileId }.mapNotNull { (profileId, list) ->
             val profile = runCatching { profiles.byId(profileId) }.getOrNull()
             val settings = profile?.montage ?: dev.highlights.core.model.MontageSettings()
-            val sessions = list.map { it.second }
-            if (Statistics.sources(sessions, settings.killEvent).isEmpty()) return@flatMap emptyList()
-            val deaths = Statistics.sources(sessions, settings.killStyle.deathEvent)
-            val headshots = Statistics.sources(sessions, settings.killStyle.headshotEvent)
-            list.map { (file, session) -> Statistics.game(session, settings, file, profile?.displayName ?: profileId, deaths, headshots) }
+            if (Statistics.sources(list.map { it.second }, settings.killEvent).isEmpty()) return@mapNotNull null
+            AnalyzedGames(profileId, profile?.displayName ?: profileId, settings, list)
         }
     }
 
@@ -483,7 +514,9 @@ class HighlightPipeline(
         val musicStep = progress.child(if (music.isDirectory()) "Musiques" else "Musique", 0.06)
         val musics = if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music))
         musicStep.complete()
-        val inspected = KillInspector(ffmpeg).inspect(MontagePlanner.groups(sessions, settings), settings, profile.audio, progress.child("Kills", 0.06))
+        val found = MontagePlanner.groups(sessions, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: all }
+        if (found.isEmpty()) throw InputException("Aucun des moments choisis ne se retrouve dans ces sessions")
+        val inspected = KillInspector(ffmpeg).inspect(found, settings, profile.audio, progress.child("Kills", 0.06))
         val groups = MatchCutter(ffmpeg).inspect(inspected, settings, progress.child("Visée", 0.02))
         val fromStart = options.fromStartMusics.map { it.toAbsolutePath().normalize() }.toSet()
         val (chosen, choice) = if (music.isDirectory()) {

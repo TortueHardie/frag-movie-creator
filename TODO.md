@@ -129,7 +129,11 @@ au montage plein, elle s'allonge par paliers.
 ## Analyse et suivi
 - [x] Statistiques par soirée : kills par partie, meilleur round, évolution dans le temps.
   `Statistics` (pipeline), `HighlightPipeline.statistics`, commande `stats`, vue « Statistiques ».
-- [ ] Recherche dans la bibliothèque (« tous mes aces », « headshots à l'Operator ») et montage à partir du résultat.
+- [x] Recherche dans la bibliothèque (« tous mes aces ») et montage à partir du résultat.
+  `MomentQuery`, `HighlightPipeline.search`, `MomentPick` (`MontageOptions.onlyKills`), commande `search`, vue « Rechercher ».
+  L'arme (« à l'Operator ») n'est pas connue : ni VALORANT ni Outplayed ne la transmettent ; il faudrait lire l'icône d'arme du killfeed.
+- [ ] Clutchs réels : Outplayed reçoit de VALORANT des événements `clutch` (et `clutchCount` par partie), non lus aujourd'hui
+  (`kinds` de valorant.yaml). Les utiliser à la place du clutch déduit, qui en compte trop (3 déduits contre 1 réel sur une partie).
 
 ## Plus ambitieux
 - [ ] Modèle ML personnalisé entraîné sur les moments gardés/décochés des sessions.
