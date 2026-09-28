@@ -174,6 +174,33 @@ class HighlightPipeline(
     /** Publication sur YouTube ; [browse] ouvre la page de connexion de Google. */
     fun youtube(browse: (java.net.URI) -> Unit): YouTubePublisher = YouTubePublisher(config, ffmpeg, { profiles }, browse)
 
+    /**
+     * Bilan de chaque partie analysée, pour les statistiques par soirée ([Statistics.evenings]). Une partie par capture
+     * (la plus récente analyse ; la même capture analysée sous deux chemins aussi : même instant, même durée), les clips
+     * plus courts que [Statistics.MIN_GAME] écartés, et les jeux dont le profil ne voit aucun kill aussi. Les sessions
+     * illisibles sont ignorées.
+     */
+    fun statistics(): List<GameStats> {
+        val loaded = library.entries()
+            .filter { it.duration >= Statistics.MIN_GAME }
+            .distinctBy { it.source }
+            .distinctBy { (it.recordedAt ?: it.analyzedAt) to it.duration }
+            .mapNotNull { e ->
+                runCatching { e.sessionFile to SessionStore.load(e.sessionFile) }
+                    .onFailure { log.warn { "Session illisible pour les statistiques (${e.sessionFile}) : ${it.message}" } }
+                    .getOrNull()
+            }
+        return loaded.groupBy { it.second.profileId }.flatMap { (profileId, list) ->
+            val profile = runCatching { profiles.byId(profileId) }.getOrNull()
+            val settings = profile?.montage ?: dev.highlights.core.model.MontageSettings()
+            val sessions = list.map { it.second }
+            if (Statistics.sources(sessions, settings.killEvent).isEmpty()) return@flatMap emptyList()
+            val deaths = Statistics.sources(sessions, settings.killStyle.deathEvent)
+            val headshots = Statistics.sources(sessions, settings.killStyle.headshotEvent)
+            list.map { (file, session) -> Statistics.game(session, settings, file, profile?.displayName ?: profileId, deaths, headshots) }
+        }
+    }
+
     /** Plateformes connues (app.yaml compris), par identifiant. */
     val platforms: Map<String, PlatformProfile> get() = config.platforms
 

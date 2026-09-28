@@ -79,7 +79,9 @@ fun App(state: UiState, actions: UiActions) {
                 state.job?.let { JobCard(it, actions) }
                 val session = state.session
                 if (session == null) {
-                    if (state.job == null) LibraryView(state, actions, Modifier.weight(1f))
+                    if (state.job == null) {
+                        state.stats?.let { StatsView(it, actions, Modifier.weight(1f)) } ?: LibraryView(state, actions, Modifier.weight(1f))
+                    }
                 } else {
                     SessionHeader(state, session, actions)
                     TimelineCard(session, state.settings.threshold, actions)

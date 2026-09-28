@@ -127,7 +127,8 @@ au montage plein, elle s'allonge par paliers.
   Piste : replacer aussi les éléments du HUD (`vertical.hud`) dans la zone sûre — score et capacités tombent sous l'interface de TikTok.
 
 ## Analyse et suivi
-- [ ] Statistiques par soirée : kills par partie, meilleur round, évolution dans le temps.
+- [x] Statistiques par soirée : kills par partie, meilleur round, évolution dans le temps.
+  `Statistics` (pipeline), `HighlightPipeline.statistics`, commande `stats`, vue « Statistiques ».
 - [ ] Recherche dans la bibliothèque (« tous mes aces », « headshots à l'Operator ») et montage à partir du résultat.
 
 ## Plus ambitieux

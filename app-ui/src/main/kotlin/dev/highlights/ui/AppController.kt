@@ -108,6 +108,11 @@ interface UiActions {
     fun editConfig()
     fun browse(uri: java.net.URI)
 
+    /** Statistiques des parties analysées, par soirée. */
+    fun showStats()
+    fun closeStats()
+    fun setStatsGame(game: String)
+
     /** Ferme l'analyse ouverte (elle reste enregistrée) et revient à la liste des analyses. */
     fun showLibrary()
     fun openLibraryItem(sessionFile: Path)
@@ -694,7 +699,10 @@ class AppController(
         refreshLibrary()
     }
 
-    override fun openLibraryItem(sessionFile: Path) = openSessions(listOf(sessionFile))
+    override fun openLibraryItem(sessionFile: Path) {
+        _state.update { it.copy(stats = null) }
+        openSessions(listOf(sessionFile))
+    }
 
     override fun toggleLibraryItem(sessionFile: Path) = _state.update { s ->
         s.copy(librarySelection = if (sessionFile in s.librarySelection) s.librarySelection - setOf(sessionFile) else s.librarySelection + setOf(sessionFile))
@@ -716,6 +724,28 @@ class AppController(
             }
         }
     }
+
+    // ---------------------------------------------------------------- statistiques
+
+    override fun showStats() {
+        val p = backend?.pipeline ?: return
+        _state.update { it.copy(stats = StatsState()) }
+        scope.launch {
+            try {
+                val games = withContext(Dispatchers.IO) { p.statistics() }
+                _state.update { s -> s.copy(stats = s.stats?.copy(loading = false, games = games)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(stats = null) }
+                reportFailure("Statistiques", e)
+            }
+        }
+    }
+
+    override fun closeStats() = _state.update { it.copy(stats = null) }
+
+    override fun setStatsGame(game: String) = _state.update { s -> s.copy(stats = s.stats?.copy(game = game)) }
 
     // ---------------------------------------------------------------- dossier surveillé
 

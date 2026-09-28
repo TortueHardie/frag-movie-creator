@@ -44,6 +44,8 @@ data class UiState(
     val lastUpload: UploadedVideo? = null,
     /** Dernière musique choisie, proposée à la prochaine ouverture. */
     val lastMusic: Path? = null,
+    /** Vue des statistiques, à la place des analyses enregistrées (null = fermée). */
+    val stats: StatsState? = null,
     /** Analyses déjà faites, la plus récente d'abord. */
     val library: List<LibraryItem> = emptyList(),
     /** Analyses cochées dans la liste, à ouvrir ensemble pour un seul montage (fichiers de session). */
