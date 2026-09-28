@@ -110,7 +110,9 @@ au montage plein, elle s'allonge par paliers.
 - [x] Bibliothèque musicale : analyser un dossier une fois (BPM, drop, sections), choisir automatiquement la musique selon le nombre de kills et la durée visée.
   `MusicLibrary` (analyses gardées dans `<workDir>/cache/music`) et `MusicChoice.rank` (note du plan × part des groupes
   gardés), `MusicHistory` : une musique des 3 derniers montages perd 0,03 de note, pour que les musiques proches tournent.
-- [ ] Caler le drop sur le kill principal (musique démarrée en cours si nécessaire).
+- [x] Caler le drop sur le kill principal (musique démarrée en cours si nécessaire).
+  Déjà fait en montée en puissance ; ajouté : montée minimale avant la drop (`cuts.dropLead`) et, en ordre
+  chronologique, passage de la musique choisi pour que la drop tombe sur le meilleur groupe (ou un qui le vaut).
 
 ## Publication et partage
 - [ ] Export direct YouTube / TikTok (API officielles, brouillon privé), titre et description générés depuis les événements.

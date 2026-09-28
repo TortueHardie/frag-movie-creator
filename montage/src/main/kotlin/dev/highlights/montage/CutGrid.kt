@@ -22,6 +22,12 @@ data class CutSlot(val startBeat: Int, val endBeat: Int, val section: Int, val d
  * la drop pour que le kill tombe dessus, la coupe suivant juste après.
  */
 object CutGrid {
+    /** Poids d'une drop qui arrive sans montée : plus que l'écart d'intensité d'une intro calme gardée (0,14 mesuré). */
+    private const val DROP_LEAD_WEIGHT = 0.5
+
+    /** Avance d'une fenêtre acceptée sur une refusée, bien au-delà des écarts de note entre échelles (au plus 2). */
+    private const val REFUSED_GAP = 10.0
+
     /** Longueur de plan (puissance de 2 entre [minBeats] et [maxBeats]) la plus proche d'une durée visée. */
     fun beatsFor(target: Duration, period: Duration, minBeats: Int, maxBeats: Int): Int {
         val ratio = (target / period).coerceAtLeast(1.0)
@@ -152,7 +158,7 @@ object CutGrid {
      * Choisit l'échelle de la grille (×1, ×2, ×4, ×8) d'après le nombre de clips disponibles : on cherche à utiliser tous
      * les clips (coupes plus rapides) avec une durée proche de [target] (par défaut [maxDuration], qui reste le plafond
      * dans tous les cas). Une durée visée courte garde les plans courts au lieu d'étirer peu de clips sur toute la
-     * musique. [scales] restreint les échelles essayées (variantes de plan).
+     * musique. [scales] restreint les échelles essayées (variantes de plan). [accept] : voir [window].
      */
     fun select(
         music: MusicAnalysis,
@@ -162,15 +168,17 @@ object CutGrid {
         clipCount: Int,
         scales: List<Double>? = null,
         target: Duration = maxDuration,
+        accept: (List<CutSlot>) -> Boolean = { true },
     ): Selection {
         var best: Selection? = null
         var bestScore = Double.NEGATIVE_INFINITY
         for (scale in scales ?: listOf(1.0, 2.0, 4.0, 8.0)) {
             val slots = build(music, cuts, minBeats, scale)
-            val window = window(slots, music, maxDuration, clipCount, cuts.dropPosition, target, cuts.fromStart)
+            val window = window(slots, music, maxDuration, clipCount, cuts.dropPosition, target, cuts.fromStart, cuts.dropLead, accept)
             if (window.isNotEmpty()) {
                 val length = music.beatTime(window.last().endBeat) - music.beatTime(window.first().startBeat)
-                val score = 1.5 * window.size / clipCount + 0.5 * closeness(length, target)
+                // Une fenêtre que [accept] refuse ne sert que faute de mieux, à toutes les échelles.
+                val score = 1.5 * window.size / clipCount + 0.5 * closeness(length, target) + (if (accept(window)) REFUSED_GAP else 0.0)
                 if (score > bestScore + 1e-9) {
                     bestScore = score
                     best = Selection(scale, slots, window)
@@ -187,7 +195,9 @@ object CutGrid {
     /**
      * Fenêtre du montage : suite de slots contigus, d'au plus [maxDuration] et [maxSlots], la mieux notée : sections
      * intenses, drop à la position voulue, début et fin sur une frontière de section, durée proche de [target].
-     * [fromStart] : la fenêtre commence au premier slot, le premier temps de la musique.
+     * [fromStart] : la fenêtre commence au premier slot, le premier temps de la musique. [dropLead] : montée minimale
+     * avant la drop, au plus [dropPosition] de la fenêtre. [accept] : la mieux notée des fenêtres qu'il accepte, la mieux
+     * notée tout court s'il n'en accepte aucune (montage chronologique : celles où le meilleur groupe tombe sur la drop).
      */
     fun window(
         slots: List<CutSlot>,
@@ -197,15 +207,17 @@ object CutGrid {
         dropPosition: Double,
         target: Duration = maxDuration,
         fromStart: Boolean = false,
+        dropLead: Duration = Duration.ZERO,
+        accept: (List<CutSlot>) -> Boolean = { true },
     ): List<CutSlot> {
         if (slots.isEmpty() || maxSlots <= 0) return emptyList()
         val sectionStarts = music.sections.map { it.startBeat }.toSet()
         val dropIndex = slots.indexOfFirst { it.dropBeat != null }
         val maxSeconds = maxDuration.inWholeMicroseconds / 1e6
+        val leadSeconds = dropLead.inWholeMicroseconds / 1e6
         fun time(beat: Int) = music.beatTime(beat).inWholeMicroseconds / 1e6
 
-        var best: IntRange? = null
-        var bestScore = Double.NEGATIVE_INFINITY
+        val candidates = mutableListOf<Pair<IntRange, Double>>()
         for (i in if (fromStart) 0..0 else slots.indices) {
             val startTime = time(slots[i].startBeat)
             var j = i
@@ -217,18 +229,20 @@ object CutGrid {
             val length = time(slots[j - 1].endBeat) - startTime
             var score = intensity + 0.05 * closeness(length.seconds, target)
             if (dropIndex in run) {
-                val fraction = (time(music.dropBeat) - startTime) / length
-                score += 1.0 - 0.6 * abs(fraction - dropPosition)
+                val lead = time(music.dropBeat) - startTime
+                score += 1.0 - 0.6 * abs(lead / length - dropPosition)
+                // Une drop sans montée : plus pénalisée que l'intro calme qu'il faudrait garder pour y mener.
+                val needed = minOf(leadSeconds, dropPosition * length)
+                if (needed > 0 && lead < needed) score -= DROP_LEAD_WEIGHT * (1 - lead / needed)
             }
             if (slots[i].startBeat in sectionStarts) score += 0.15
             // Ouvrir sur une intro ou une montée donne au montage la rampe qui mène à la drop.
             if (music.sections[slots[i].section].kind in setOf(SectionKind.INTRO, SectionKind.BUILD_UP)) score += 0.12
             if (j == slots.size || slots[j].startBeat in sectionStarts) score += 0.1
-            if (score > bestScore + 1e-9) {
-                bestScore = score
-                best = run
-            }
+            candidates += run to score
         }
-        return best?.map { slots[it] } ?: emptyList()
+        // À égalité, la première : le tri est stable.
+        val ranked = candidates.sortedByDescending { it.second }.map { (run, _) -> run.map { slots[it] } }
+        return ranked.firstOrNull(accept) ?: ranked.firstOrNull() ?: emptyList()
     }
 }

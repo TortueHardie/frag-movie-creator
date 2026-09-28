@@ -117,6 +117,12 @@ data class CutSettings(
     /** Position souhaitée de la drop dans le montage (0 = début, 1 = fin) : avant, la montée ; après, la fête. */
     val dropPosition: Double = 0.4,
     /**
+     * Montée minimale avant la drop (au plus [dropPosition] du montage) : sans elle, le passage le plus intense
+     * commençait parfois 2,6 s avant la drop (« life kinda sucks », drop sur le premier plan), faute de vouloir de
+     * l'intro calme qui y mène. C'est pourtant elle qui fait attendre le meilleur kill.
+     */
+    val dropLead: SerialDuration = 6.seconds,
+    /**
      * Images d'avance de chaque coupe sur son temps : l'œil met quelques images à enregistrer un nouveau plan, si bien
      * qu'une coupe pile sur le temps paraît en retard. Le kill, lui, ne bouge pas : seule la coupe avance.
      */

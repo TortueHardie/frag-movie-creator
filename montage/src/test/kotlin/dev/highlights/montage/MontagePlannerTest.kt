@@ -187,6 +187,49 @@ class MontagePlannerTest : FunSpec({
         p.clips.map { it.kills.first().inWholeSeconds } shouldBe listOf(100L, 500L, 900L)
     }
 
+    test("ordre chronologique : le meilleur groupe tombe sur la drop sans changer l'ordre") {
+        val chrono = settings.copy(order = MontageOrder.CHRONOLOGICAL)
+        // Le triple kill (le meilleur) est joué en 3e : deux groupes avant lui, deux après.
+        val kills = listOf(100, 200, 300, 302, 304, 400, 500)
+        val p = plan(kills, s = chrono)
+        check(p)
+        p.clips.map { it.group.kills.first().inWholeSeconds } shouldBe listOf(100L, 200L, 300L, 400L, 500L)
+        val drop = p.clips.single { it.slot.dropBeat != null }
+        drop.group.kills shouldHaveSize 3
+        drop.anchorBeat shouldBe p.music.dropBeat
+    }
+
+    test("ordre chronologique : sans place pour aligner, aucun groupe n'est sacrifié à la drop") {
+        val chrono = settings.copy(order = MontageOrder.CHRONOLOGICAL)
+        // Quatre groupes avant le meilleur, quatre après : trop pour la grille de cette musique autour de la drop.
+        val kills = listOf(100, 200, 300, 400, 500, 502, 504, 600, 700, 800, 900)
+        val p = plan(kills, s = chrono)
+        check(p)
+        p.clips.map { it.group.kills.first().inWholeSeconds } shouldBe listOf(100L, 200L, 300L, 400L, 500L, 600L, 700L, 800L, 900L)
+    }
+
+    test("montée avant la drop : un passage qui s'ouvre sur la drop n'est pris qu'à défaut") {
+        // Comme « life kinda sucks » à 187,5 BPM : longue intro calme, puis la drop. Variante qui la veut tôt (25 %).
+        val n = 360
+        val m = music().copy(
+            beats = List(n) { (it * 0.32).seconds }, bpm = 187.5, duration = (n * 0.32).seconds,
+            sections = listOf(
+                MusicSection(0, 84, -17.0, 0.14, kind = SectionKind.INTRO),
+                MusicSection(84, 148, -10.0, 0.81, kind = SectionKind.DROP),
+                MusicSection(148, n, -8.0, 0.79),
+            ),
+            dropBeat = 84,
+        )
+        fun lead(s: MontageSettings): Double {
+            val slots = CutGrid.build(m, s.cuts, 4, 2.0)
+            val w = CutGrid.window(slots, m, 30.seconds, 12, 0.25, 25.seconds, dropLead = s.cuts.dropLead)
+            return seconds(m.beatTime(m.dropBeat) - m.beatTime(w.first().startBeat))
+        }
+        val none = settings.copy(cuts = settings.cuts.copy(dropLead = Duration.ZERO))
+        withClue("sans montée minimale : ${lead(none)} s avant la drop") { (lead(none) < 4.0) shouldBe true }
+        withClue("avec : ${lead(settings)} s") { (lead(settings) >= 5.0) shouldBe true }
+    }
+
     test("musique depuis le début : le montage commence au premier temps, même loin de la drop") {
         // Longue intro calme (4 minutes à 120 BPM) : sans l'option, le montage part autour de la drop.
         val m = music(seconds = 300, intro = 480, build = 32)
