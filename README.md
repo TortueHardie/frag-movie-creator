@@ -333,6 +333,26 @@ détecte les kills). En ligne de commande :
 - Réglages détaillés : section `montage:` d'un profil (voir `core/.../model/Montage.kt`), notamment `cuts:` (durées
   visées par intensité `low`/`mid`/`high`, `maxBeats`, `minLead`/`minTail`, `dropPosition`, `dropLead`).
 
+## Statistiques par soirée
+
+Bouton **Statistiques** au-dessus des analyses enregistrées (ou `app stats`) : les parties analysées, un jeu à la
+fois, soirée par soirée — kills par partie, K/D, part de tirs à la tête, meilleur round, doublés / triplés / aces /
+clutchs, et un graphique des kills par partie d'une soirée à l'autre. Chaque partie se rouvre d'un clic.
+
+```powershell
+& $app stats                     # dix dernières soirées, jeu par jeu, et la tendance
+& $app stats --game valorant --games --last 30
+```
+
+- Rien à relancer : tout vient des sessions déjà enregistrées. Rounds, multi-kills, aces et clutchs suivent les règles
+  du montage kills (les chiffres concordent avec ce qu'il monte ; le clutch reste déduit, voir `TODO.md`).
+- Une **soirée** va jusqu'à 6 h du matin : la partie de 1 h compte pour la veille. Deux jeux ne se mélangent pas.
+- Une **partie** dure au moins 5 minutes : les clips d'Outplayed (1 min 30) n'en sont pas. La même partie enregistrée
+  deux fois (deux captures qui se chevauchent de plus de moitié) ne compte qu'une, la plus riche en kills.
+- Morts et tirs à la tête ne comptent que là où ils sont vus : un profil qui ne détecte pas les morts (Wardogs) n'a ni
+  K/D ni rounds, et une partie dont les kills viennent du killfeed de secours (qui ne voit pas les tirs à la tête) est
+  laissée hors du taux de headshots au lieu d'y compter pour 0 %.
+
 ## Plateformes (TikTok, Shorts, Reels, YouTube)
 
 Le choix **Plateforme** (sous « Formats de sortie », et dans le dialogue du montage kills ; `--platform` en ligne de
@@ -490,6 +510,7 @@ $app = ".\app-cli\build\install\app\bin\app.bat"
 & $app music D:\Musique\son.mp3 --max 60s --clips 12         # tempo, sections, drop et grille de coupes d'un montage
 & $app music D:\Musique\TikTok                         # analyse d'avance chaque musique d'un dossier (bibliothèque)
 & $app publish output\partie_killmontage_9x16.mp4 --dry-run   # titre, description et tags proposés pour YouTube
+& $app stats --games                                  # statistiques par soirée, partie par partie
 & $app process "D:\Videos\...\partie.mp4"         # analyse + montage
 & $app process partie.mp4 --profile valorant --duration 5m --format 16:9,9:16
 & $app process partie1.mp4 partie2.mp4 partie3.mp4 --top 10   # toute une soirée : un seul montage, parties dans l'ordre joué

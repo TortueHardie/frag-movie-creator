@@ -205,6 +205,29 @@ class UiSnapshotTest : FunSpec({
         render("13_plateforme_reglages", state.copy(montage = null)).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("statistiques par soirée") {
+        fun game(at: String, name: String, kills: Int, deaths: Int?, hs: Int?, best: Int?, multi: Map<Int, Int> = emptyMap(), clutches: Int = 0) =
+            dev.highlights.pipeline.GameStats(
+                Path("D:/Highlights/sessions/${at.take(10)}-$kills.session.json"), Path("partie.mp4"), name.lowercase(), name,
+                Instant.parse(at), 40.minutes, kills, deaths, hs, multi, 0, clutches, best, best?.let { 24 },
+            )
+        val games = listOf(
+            game("2026-09-21T19:45:00Z", "VALORANT", 10, 11, 1, 3, mapOf(2 to 1)),
+            game("2026-09-22T16:45:00Z", "VALORANT", 7, 5, 2, 3, mapOf(2 to 1)),
+            game("2026-09-22T16:59:00Z", "VALORANT", 6, 3, 2, 2),
+            game("2026-09-25T20:24:00Z", "VALORANT", 14, 14, 4, 4, mapOf(2 to 1, 3 to 1), 1),
+            game("2026-09-25T21:07:00Z", "VALORANT", 9, 17, 5, 2),
+            game("2026-09-26T20:33:00Z", "VALORANT", 13, 17, 7, 3, mapOf(2 to 2)),
+            game("2026-09-26T21:26:00Z", "VALORANT", 23, 15, 13, 2, mapOf(2 to 3), 2),
+            game("2026-09-27T14:14:00Z", "VALORANT", 19, 16, 11, 2, mapOf(2 to 1)),
+            game("2026-09-27T16:08:00Z", "VALORANT", 23, 13, null, 3, mapOf(2 to 5), 3),
+            game("2026-09-27T20:26:00Z", "VALORANT", 19, 18, 13, 3, mapOf(2 to 4), 3),
+            game("2026-09-23T19:55:00Z", "Wardogs", 5, null, null, null),
+        )
+        val state = UiState(config = ready, stats = StatsState(loading = false, games = games))
+        render("14_statistiques", state).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("plusieurs captures pour un seul montage") {
         // Trois parties de la même soirée : la deuxième est sélectionnée, sa courbe est affichée.
         val parts = listOf("18-4-11-925" to 0, "19-1-23-983" to 3, "20-12-2-114" to 6).mapIndexed { n, (stamp, from) ->
@@ -287,6 +310,9 @@ private object NoopActions : UiActions {
     override fun closeMontage() = Unit
     override fun chooseMusic() = Unit
     override fun chooseMusicLibrary() = Unit
+    override fun showStats() = Unit
+    override fun closeStats() = Unit
+    override fun setStatsGame(game: String) = Unit
     override fun openPublish(video: java.nio.file.Path) = Unit
     override fun closePublish() = Unit
     override fun updatePublish(change: (PublishUiState) -> PublishUiState) = Unit

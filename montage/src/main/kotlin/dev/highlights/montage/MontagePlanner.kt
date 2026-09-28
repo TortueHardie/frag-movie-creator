@@ -292,13 +292,13 @@ object MontagePlanner {
     }
 
     /** Round déduit des événements du joueur : ses kills, et s'il y est mort. */
-    internal data class Round(val kills: List<Duration>, val died: Boolean)
+    data class Round(val kills: List<Duration>, val died: Boolean)
 
     /**
      * Découpe les kills et les morts en rounds : une mort clôt le sien, un silence de plus de [gap] aussi. Les kills
      * d'avant la première mort et d'après la dernière forment leurs propres rounds, survécus.
      */
-    internal fun rounds(kills: List<Duration>, deaths: List<Duration>, gap: Duration): List<Round> {
+    fun rounds(kills: List<Duration>, deaths: List<Duration>, gap: Duration): List<Round> {
         val events = (kills.map { it to false } + deaths.map { it to true }).sortedBy { it.first }
         val rounds = mutableListOf<Round>()
         var current = mutableListOf<Duration>()
