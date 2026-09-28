@@ -166,6 +166,9 @@ class HighlightPipeline(
     /** Analyses déjà faites : une capture inchangée n'est pas réanalysée. */
     val library = AnalysisLibrary(config.outputDir.resolve("sessions").resolve("library.json"))
 
+    /** Publication sur YouTube ; [browse] ouvre la page de connexion de Google. */
+    fun youtube(browse: (java.net.URI) -> Unit): YouTubePublisher = YouTubePublisher(config, ffmpeg, { profiles }, browse)
+
     /** Relit les profils sur disque (après modification d'un YAML). */
     fun reloadProfiles() {
         profiles = ProfileRepository.loadDirectory(config.profilesDir)

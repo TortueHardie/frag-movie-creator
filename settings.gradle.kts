@@ -23,6 +23,7 @@ include(
     "editing",
     "export",
     "montage",
+    "publish",
     "pipeline",
     "analysis-vision",
     "analysis-ml",

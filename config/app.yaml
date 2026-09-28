@@ -25,3 +25,24 @@ encoder:
   # Surcharge des arguments d'un encodeur, par exemple :
   # videoArgs:
   #   h264_amf: ["-c:v", "h264_amf", "-quality", "quality", "-rc", "qvbr", "-qvbr_quality_level", "20"]
+
+# Publication sur YouTube (bouton « YouTube » après un export, ou « app publish »). Par défaut, envoi manuel assisté :
+# titre, description et tags préparés, page d'envoi de YouTube ouverte dans le navigateur. Envoi direct par l'API
+# (api: true) : il faut un identifiant OAuth « application de bureau » d'un projet Google Cloud où l'API YouTube Data v3
+# est activée ; déposer le fichier client_secret_….json téléchargé depuis la console dans ce dossier suffit (voir le
+# README, « Publier sur YouTube »). Tout le reste sert de valeur de départ, modifiable avant chaque envoi.
+publish:
+  youtube:
+    api: false
+    # clientSecretFile: client_secret_1234.apps.googleusercontent.com.json
+    privacy: private          # private, unlisted ou public
+    categoryId: "20"          # 20 = Jeux vidéo
+    madeForKids: false
+    tags: [gaming, highlights]
+    language: fr
+    shortsHashtag: true       # #Shorts sur les vidéos verticales de 3 minutes au plus
+    notifySubscribers: true
+    # Modèles (sinon texte écrit d'après la vidéo). Champs : {jeu} {date} {accroche} {kills} {headshots} {detail}
+    # {moments} {duree} {musique} {hashtags}, et {titre} dans la description.
+    # titleTemplate: "{accroche} — {kills} kills en {duree} | {jeu}"
+    # descriptionTemplate: "{titre}\n\nMusique : {musique}\n\n{hashtags}"

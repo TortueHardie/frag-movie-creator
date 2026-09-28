@@ -72,6 +72,9 @@ au montage plein, elle s'allonge par paliers.
 - [ ] Vérifier l'icône du chargeur VALORANT sur une capture 16:9 (mesurée en 21:9 seulement).
 - [ ] Fin du plan sortant : couper plus tôt après le kill seulement quand la coupe suivante est un raccord sur la pose.
 - [ ] Clutch réel : compter les alliés en vie à partir des morts alliées du killfeed.
+- [ ] VALORANT : écarter du montage les kills à la capacité (molly, flèche, drone…), peu lisibles à l'image, sauf les
+  « beaux » kills aux ultis d'arme (couteaux de Jett, Tour de force de Chamber…). Piste : lire l'icône d'arme/capacité
+  de la ligne du killfeed (`KillfeedDetector`) et une liste blanche des capacités gardées dans le profil.
 
 ## Interface : retoucher les moments
 - [ ] Ajuster début/fin d'un moment (poignées sur `TimelineCard` ou boutons ±1 s).
@@ -115,7 +118,10 @@ au montage plein, elle s'allonge par paliers.
   chronologique, passage de la musique choisi pour que la drop tombe sur le meilleur groupe (ou un qui le vaut).
 
 ## Publication et partage
-- [ ] Export direct YouTube / TikTok (API officielles, brouillon privé), titre et description générés depuis les événements.
+- [x] Publication YouTube : titre, description et tags générés depuis les événements, tout modifiable. Envoi manuel
+  assisté par défaut (textes à copier, page d'envoi ouverte) ; envoi direct par l'API en option (`publish.youtube.api`,
+  désactivé : projet Google à créer, vidéos verrouillées en privé tant qu'il n'est pas audité).
+- [ ] Export TikTok (Content Posting API, brouillon dans la boîte de réception) : demande une application TikTok validée.
 - [ ] Profils de plateforme : durée max, débit, loudness, zones de sécurité de l'UI TikTok pour le texte.
 
 ## Analyse et suivi

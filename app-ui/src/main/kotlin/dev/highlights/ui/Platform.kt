@@ -24,6 +24,10 @@ interface Platform {
     fun open(path: Path)
     fun reveal(path: Path)
     fun edit(path: Path)
+    /** Page web dans le navigateur (connexion à YouTube, vidéo mise en ligne). */
+    fun browse(uri: java.net.URI) = Unit
+    /** Texte dans le presse-papiers. */
+    fun copy(text: String) = Unit
 }
 
 class DesktopPlatform(private val owner: () -> Frame?) : Platform {
@@ -61,6 +65,17 @@ class DesktopPlatform(private val owner: () -> Frame?) : Platform {
     override fun reveal(path: Path) {
         val args = if (path.isDirectory()) listOf("explorer.exe", path.toString()) else listOf("explorer.exe", "/select,$path")
         runCatching { ProcessBuilder(args).start() }.onFailure { log.warn { "Explorateur indisponible : ${it.message}" } }
+    }
+
+    override fun browse(uri: java.net.URI) {
+        runCatching { Desktop.getDesktop().browse(uri) }
+            .recoverCatching { ProcessBuilder("rundll32", "url.dll,FileProtocolHandler", uri.toString()).start() }
+            .onFailure { log.warn { "Navigateur indisponible pour $uri : ${it.message}" } }
+    }
+
+    override fun copy(text: String) {
+        runCatching { java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(text), null) }
+            .onFailure { log.warn { "Presse-papiers indisponible : ${it.message}" } }
     }
 
     /** Fichiers texte (YAML) : éditeur associé, sinon Bloc-notes. */

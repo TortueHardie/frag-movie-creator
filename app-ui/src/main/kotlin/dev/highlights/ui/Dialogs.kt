@@ -298,7 +298,7 @@ private fun fmtDb(db: Double) = if (db % 1.0 == 0.0) "%.0f".format(db) else "%.1
 
 /** Un bloc du dialogue : un intitulé discret et ses réglages, séparés du bloc suivant. */
 @Composable
-private fun DialogGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun DialogGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title.uppercase(), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
         content()
@@ -306,7 +306,7 @@ private fun DialogGroup(title: String, content: @Composable ColumnScope.() -> Un
 }
 
 @Composable
-private fun MontageToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun MontageToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().clickable { onChange(!checked) }, verticalAlignment = Alignment.CenterVertically) {
         Checkbox(checked = checked, onCheckedChange = onChange)
         Text(label, style = MaterialTheme.typography.bodyMedium)

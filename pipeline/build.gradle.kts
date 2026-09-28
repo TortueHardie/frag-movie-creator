@@ -9,6 +9,7 @@ dependencies {
     api(project(":editing"))
     api(project(":export"))
     api(project(":montage"))
+    api(project(":publish"))
 
     // Les détecteurs sont découverts au runtime (ServiceLoader) : pas de dépendance de compilation.
     testRuntimeOnly(project(":analysis"))

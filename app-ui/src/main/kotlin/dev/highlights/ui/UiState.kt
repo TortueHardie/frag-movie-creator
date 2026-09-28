@@ -11,6 +11,10 @@ import dev.highlights.core.model.aspectLabel
 import dev.highlights.core.serialization.Durations
 import dev.highlights.core.session.Session
 import dev.highlights.export.ExportResult
+import dev.highlights.core.config.YouTubePrivacy
+import dev.highlights.publish.UploadedVideo
+import dev.highlights.publish.YouTubeMetadata
+import dev.highlights.publish.YouTubeText
 import java.nio.file.Path
 import java.time.Instant
 import kotlin.math.roundToInt
@@ -31,6 +35,10 @@ data class UiState(
     val busyVerticalPreview: String? = null,
     /** Fenêtre de réglage du montage kills (null = fermée). */
     val montage: MontageUiState? = null,
+    /** Fenêtre de publication sur YouTube (null = fermée). */
+    val publish: PublishUiState? = null,
+    /** Dernière vidéo mise en ligne. */
+    val lastUpload: UploadedVideo? = null,
     /** Dernière musique choisie, proposée à la prochaine ouverture. */
     val lastMusic: Path? = null,
     /** Analyses déjà faites, la plus récente d'abord. */
@@ -241,4 +249,64 @@ data class MontageUiState(
     /** Musique ou dossier de musiques passé au montage, selon le mode. */
     val musicSource: Path? get() = if (useLibrary) musicLibrary else music
     val canCreate: Boolean get() = musicSource != null && maxDuration != null && formats.isNotEmpty()
+}
+
+/**
+ * Publication d'une vidéo sur YouTube : chaque champ part de ce que propose [YouTubeText] et se modifie. [api] : envoi
+ * direct par l'API ; sinon envoi manuel assisté (textes à copier, page d'envoi de YouTube ouverte). [configured] :
+ * identifiant OAuth trouvé ; [connected] : compte déjà connecté (sinon connexion au premier envoi).
+ */
+data class PublishUiState(
+    val video: Path,
+    val api: Boolean = false,
+    val loading: Boolean = true,
+    val configured: Boolean = true,
+    val connected: Boolean = false,
+    val title: String = "",
+    val description: String = "",
+    val tagsText: String = "",
+    val privacy: YouTubePrivacy = YouTubePrivacy.PRIVATE,
+    val categoryText: String = "20",
+    val language: String = "fr",
+    val madeForKids: Boolean = false,
+    val notify: Boolean = true,
+    /** Mise en ligne programmée, heure locale ; vide : tout de suite. */
+    val publishAtText: String = "",
+    /** Texte proposé, pour y revenir. */
+    val suggested: YouTubeMetadata? = null,
+) {
+    val tags: List<String> get() = tagsText.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+    val publishAt: Instant? get() = publishAtText.takeIf { it.isNotBlank() }?.let(YouTubeText::parseSchedule)
+    private val scheduleInvalid: Boolean get() = publishAtText.isNotBlank() && publishAt == null
+
+    fun metadata() = YouTubeMetadata(
+        title = title.trim(),
+        description = description.trim(),
+        tags = tags,
+        privacy = privacy,
+        categoryId = categoryText.trim(),
+        madeForKids = madeForKids,
+        language = language.trim().ifEmpty { "fr" },
+        publishAt = publishAt,
+        notifySubscribers = notify,
+    )
+
+    val problems: List<String>
+        get() = if (scheduleInvalid) listOf("Heure de mise en ligne illisible (ex. 2026-10-01 18:00)") else metadata().problems()
+
+    val canPublish: Boolean get() = api && !loading && configured && problems.isEmpty()
+
+    /** Champs remplis avec le texte proposé (à l'ouverture, ou pour y revenir). */
+    fun withSuggestion(m: YouTubeMetadata) = copy(
+        loading = false,
+        title = m.title,
+        description = m.description,
+        tagsText = m.tags.joinToString(", "),
+        privacy = m.privacy,
+        categoryText = m.categoryId,
+        language = m.language,
+        madeForKids = m.madeForKids,
+        notify = m.notifySubscribers,
+        suggested = m,
+    )
 }

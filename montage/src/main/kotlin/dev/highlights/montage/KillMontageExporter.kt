@@ -62,6 +62,8 @@ data class MontageReport(
     val variant: String? = null,
     /** Musiques essayées, la retenue d'abord, quand elle a été choisie dans une bibliothèque (voir [MusicChoice]). */
     val musicCandidates: List<MontageReportMusic> = emptyList(),
+    /** Profil (jeu) du montage ; null dans les rapports écrits avant. */
+    val profile: String? = null,
 )
 
 /** Musique d'une bibliothèque essayée pour le montage ; [error] : aucun plan possible sur elle. */
@@ -113,6 +115,9 @@ data class MontageReportClip(
     val flick: Boolean = false,
     /** Correction de chaque kill visible par le recalage sur le son du tir (ms, négatif : le tir précède la notification). */
     val shotShiftMs: List<Long> = emptyList(),
+    /** Le groupe finit un round de tous les kills (voir [RoundOutcome]). */
+    val ace: Boolean = false,
+    val clutch: Boolean = false,
 )
 
 class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoders: EncoderSelector) {
@@ -191,6 +196,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             score = MontageScorer.score(plan),
             variant = plan.variant.toString(),
             musicCandidates = request.musicChoice,
+            profile = request.gameName,
             clips = plan.clips.zip(plan.clipOffsets()).map { (c, offset) ->
                 MontageReportClip(
                     c.group.media.path.toString(), c.start.toTimecode(), c.end.toTimecode(), c.kills.map { it.toTimecode() },
@@ -200,6 +206,8 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                     headshots = c.kills.count { c.group.traitsOf(it).headshot },
                     flick = c.flick,
                     shotShiftMs = c.kills.map { c.group.traitsOf(it).shift.inWholeMilliseconds },
+                    ace = c.group.outcome.ace,
+                    clutch = c.group.outcome.clutch,
                 )
             },
         )

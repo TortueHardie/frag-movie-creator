@@ -495,9 +495,19 @@ fun ExportBar(state: UiState, session: SessionState, actions: UiActions) {
                     result.music?.let { music ->
                         Text("Musique : ${music.fileName}", style = MaterialTheme.typography.bodyMedium, color = Palette.textMuted)
                     }
+                    state.lastUpload?.let { uploaded ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Sur YouTube : ${uploaded.url}", color = Palette.success, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { actions.browse(uploaded.url) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Voir") }
+                            TextButton(onClick = { actions.browse(uploaded.studio) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Studio") }
+                        }
+                    }
                     (result.videos.values + listOf(result.report)).forEach { file ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(file.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (file != result.report) {
+                                TextButton(onClick = { actions.openPublish(file) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("YouTube") }
+                            }
                             TextButton(onClick = { actions.open(file) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Ouvrir") }
                             TextButton(onClick = { actions.reveal(file) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Dans le dossier") }
                         }
