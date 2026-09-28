@@ -12,6 +12,9 @@ import dev.highlights.core.serialization.Durations
 import dev.highlights.core.session.Session
 import dev.highlights.export.ExportResult
 import dev.highlights.core.config.YouTubePrivacy
+import dev.highlights.core.model.PlatformProfile
+import dev.highlights.core.model.SafeArea
+import dev.highlights.core.serialization.toShortText
 import dev.highlights.publish.UploadedVideo
 import dev.highlights.publish.YouTubeMetadata
 import dev.highlights.publish.YouTubeText
@@ -55,16 +58,34 @@ data class UiState(
     val source: SourceInfo? get() = sources.firstOrNull()
 
     val canAnalyze: Boolean get() = config is ConfigStatus.Ready && sources.isNotEmpty() && job == null
-    val canExport: Boolean get() = session != null && job == null && session.enabledCount > 0 && settings.formats.isNotEmpty()
+    val canExport: Boolean get() = session != null && job == null && session.enabledCount > 0 && (settings.formats.isNotEmpty() || settings.platform != null)
+
+    /** Plateformes proposées (config chargée). */
+    val platforms: List<PlatformInfo> get() = (config as? ConfigStatus.Ready)?.platforms.orEmpty()
 }
 
 sealed interface ConfigStatus {
     data object Loading : ConfigStatus
-    data class Ready(val configFile: Path, val profilesDir: Path, val profiles: List<ProfileInfo>) : ConfigStatus
+    data class Ready(val configFile: Path, val profilesDir: Path, val profiles: List<ProfileInfo>, val platforms: List<PlatformInfo> = emptyList()) : ConfigStatus
     data class Failed(val message: String) : ConfigStatus
 }
 
 data class ProfileInfo(val id: String, val displayName: String)
+
+/** Plateforme visée à l'export : [id] (app.yaml), nom affiché et ce qu'elle impose, en clair. */
+data class PlatformInfo(val id: String, val name: String, val format: OutputFormat, val summary: String) {
+    companion object {
+        fun of(id: String, p: PlatformProfile) = PlatformInfo(
+            id, p.name, p.format,
+            listOfNotNull(
+                "format ${p.format.label}",
+                p.maxDuration?.let { d -> (if (d.inWholeSeconds % 60 == 0L) "${d.inWholeMinutes} min" else d.toShortText()) + " au plus" },
+                "${String.format(java.util.Locale.ROOT, "%.0f", p.loudnessLufs)} LUFS",
+                "textes hors de l'interface de l'appli".takeIf { p.safeArea != SafeArea.NONE },
+            ).joinToString(" · "),
+        )
+    }
+}
 
 /** [alreadyAnalyzed] : l'analyse de cette capture est en mémoire et sera reprise sans recalcul. */
 data class SourceInfo(val path: Path, val media: MediaInfo, val detectedProfileId: String, val alreadyAnalyzed: Boolean = false)
@@ -111,6 +132,8 @@ data class SettingsState(
     val topNText: String = "8",
     val threshold: Double = 0.6,
     val outputDir: Path? = null,
+    /** Plateforme visée (id) : impose le format et adapte volume, débit, textes ; null : les formats cochés. */
+    val platform: String? = null,
 ) {
     val targetDuration: Duration? get() = Durations.parseOrNull(durationText)?.takeIf { it.isPositive() }
     val topN: Int? get() = topNText.trim().toIntOrNull()?.takeIf { it > 0 }
@@ -229,6 +252,8 @@ data class MontageUiState(
     val fitKills: Boolean = true,
     val buildUp: Boolean = true,
     val formats: Set<OutputFormat> = setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
+    /** Plateforme visée : impose le format, et sa durée maximale devient un plafond. */
+    val platform: String? = null,
     val density: EffectDensity = EffectDensity.BALANCED,
     val zoom: Boolean = true,
     val flash: Boolean = true,
@@ -248,7 +273,7 @@ data class MontageUiState(
     val maxDuration: Duration? get() = Durations.parseOrNull(maxDurationText)?.takeIf { it.isPositive() }
     /** Musique ou dossier de musiques passé au montage, selon le mode. */
     val musicSource: Path? get() = if (useLibrary) musicLibrary else music
-    val canCreate: Boolean get() = musicSource != null && maxDuration != null && formats.isNotEmpty()
+    val canCreate: Boolean get() = musicSource != null && maxDuration != null && (formats.isNotEmpty() || platform != null)
 }
 
 /**

@@ -46,3 +46,17 @@ publish:
     # {moments} {duree} {musique} {hashtags}, et {titre} dans la description.
     # titleTemplate: "{accroche} — {kills} kills en {duree} | {jeu}"
     # descriptionTemplate: "{titre}\n\nMusique : {musique}\n\n{hashtags}"
+
+# Plateformes visées à l'export (choix « Plateforme » dans l'application, --platform en ligne de commande) : format,
+# durée maximale, volume, plafond de débit et d'images par seconde, et zone sûre (parts de l'image recouvertes par
+# l'interface de l'appli : les textes du montage restent en dehors). Connues sans rien écrire : tiktok, shorts, reels,
+# youtube. Une entrée ici remplace celle du même nom, ou en ajoute une. Exemple :
+# platforms:
+#   tiktok:
+#     name: TikTok
+#     format: "9:16"
+#     maxDuration: 10m
+#     loudnessLufs: -14
+#     maxBitrate: 16M
+#     fps: 60
+#     safeArea: { top: 0.10, bottom: 0.22, left: 0.05, right: 0.14 }

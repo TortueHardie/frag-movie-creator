@@ -54,6 +54,19 @@ class MontageRenderBuilderTest : FunSpec({
         MontageRenderRequest(p, format, edit, EncoderProfile("h264_amf", listOf("-c:v", "h264_amf"), true), Path("out.mp4"), Path("f.txt"), cuts = cuts),
     )
 
+    test("zone sûre de la plateforme : DOUBLÉ centré dans la largeur utile, gardé entre ses marges") {
+        val safe = dev.highlights.core.model.SafeArea(top = 0.10, bottom = 0.22, left = 0.05, right = 0.14)
+        val graph = MontageRenderBuilder.build(
+            MontageRenderRequest(plan(), OutputFormat.VERTICAL, edit.copy(safeArea = safe), EncoderProfile("h264_amf", listOf("-c:v", "h264_amf"), true), Path("out.mp4"), Path("f.txt")),
+        ).filterGraph
+        val label = graph.substring(graph.indexOf("text='DOUBL")).take(400)
+        label.contains("x=w*0.0500+(w*0.8100-text_w)/2") shouldBe true
+        label.contains("h*0.1000") shouldBe true
+        label.contains("h*0.7800-text_h") shouldBe true
+        // Sans plateforme : centré sur toute la largeur, comme avant.
+        build(plan()).filterGraph.let { it.substring(it.indexOf("text='DOUBL")).take(300) }.contains(":x=(w-text_w)/2:y=h*0.25") shouldBe true
+    }
+
     test("captures de tailles différentes : tout est ramené au format du premier clip") {
         val small = media.copy(path = Path("autre.mp4"), video = VideoStream(0, "h264", 1920, 1080, 60.0))
         val groups = listOf(

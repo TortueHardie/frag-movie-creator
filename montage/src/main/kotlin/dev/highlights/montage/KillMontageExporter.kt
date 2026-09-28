@@ -42,6 +42,8 @@ data class MontageExportRequest(
     val audioLayout: AudioLayout = AudioLayout(),
     /** Musiques essayées quand elle a été choisie dans une bibliothèque, de la retenue à la moins bonne. */
     val musicChoice: List<MontageReportMusic> = emptyList(),
+    /** Plateforme visée : dans le nom des fichiers. */
+    val platform: String? = null,
 )
 
 @Serializable
@@ -125,10 +127,11 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
 
     suspend fun export(plan: MontagePlan, request: MontageExportRequest, progress: ProgressReporter): ExportResult {
         if (request.formats.isEmpty()) throw HighlightsException("Aucun format de sortie demandé")
-        val encoder = encoders.select()
+        val encoder = encoders.select().withMaxBitrate(request.edit.maxBitrate)
         request.outputDir.createDirectories()
         request.workDir.createDirectories()
-        val paths = OutputNamer.reserve(request.outputDir, request.gameName, request.date, request.formats, kind = "killmontage")
+        val kind = request.platform?.let { "killmontage_${OutputNamer.slug(it)}" } ?: "killmontage"
+        val paths = OutputNamer.reserve(request.outputDir, request.gameName, request.date, request.formats, kind = kind)
         val sources = plan.clips.map { it.group.media.path.toAbsolutePath().normalize().toString().lowercase() }.toSet() +
             plan.music.file.toAbsolutePath().normalize().toString().lowercase()
         paths.all.forEach {

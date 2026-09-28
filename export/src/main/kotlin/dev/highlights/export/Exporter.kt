@@ -1,6 +1,7 @@
 package dev.highlights.export
 
 import dev.highlights.core.HighlightsException
+import dev.highlights.core.InputException
 import dev.highlights.core.ffmpeg.EncoderSelector
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegException
@@ -14,21 +15,22 @@ import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.TimeRange
-import dev.highlights.core.serialization.Durations
-import dev.highlights.core.serialization.toTimecode
 import dev.highlights.core.progress.ProgressReporter
+import dev.highlights.core.serialization.Durations
+import dev.highlights.core.serialization.toShortText
+import dev.highlights.core.serialization.toTimecode
 import dev.highlights.core.session.Session
+import dev.highlights.editing.EditPlan
 import dev.highlights.editing.EditPlanner
 import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.RenderRequest
 import dev.highlights.editing.SourceCutter
-import dev.highlights.editing.EditPlan
 import dev.highlights.editing.story.Caption
+import dev.highlights.editing.story.SfxBank
 import dev.highlights.editing.story.StoryPlan
 import dev.highlights.editing.story.StoryPlanner
 import dev.highlights.editing.story.StoryRenderBuilder
-import dev.highlights.editing.story.SfxBank
 import dev.highlights.editing.story.StoryRenderRequest
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Path
@@ -57,6 +59,9 @@ data class ExportRequest(
     val audioLayout: AudioLayout = AudioLayout(),
     /** Cache des transcriptions (sous-titres) ; null = pas de cache. */
     val captionCache: Path? = null,
+    /** Plateforme visée (identifiant, dans le nom des fichiers) et sa durée maximale, vérifiée avant le rendu. */
+    val platform: String? = null,
+    val maxDuration: Duration? = null,
 )
 
 data class ExportResult(
@@ -99,11 +104,21 @@ class Exporter(
         }
         story?.let { log.info { "Montage story : ${plan.clips.size} moments, ${it.shots.size} plans, ${it.removed.inWholeMilliseconds / 1000.0} s de temps morts retirés" } }
         val duration = story?.outputDuration ?: plan.outputDuration
-        val encoder = encoders.select()
+        // Trop long pour la plateforme : on le dit avant le rendu, plutôt que de livrer une vidéo qu'elle refusera.
+        request.maxDuration?.let { max ->
+            if (duration > max) {
+                throw InputException(
+                    "Montage de ${duration.toShortText()} : la plateforme visée (${request.platform}) accepte ${max.toShortText()} au plus. " +
+                        "Réduis la durée visée ou décoche des moments.",
+                )
+            }
+        }
+        val encoder = encoders.select().withMaxBitrate(settings.maxBitrate)
 
         request.outputDir.createDirectories()
         request.workDir.createDirectories()
-        val paths = OutputNamer.reserve(request.outputDir, request.gameName, recordingDate(sessions), settings.formats)
+        val kind = request.platform?.let { "highlights_${OutputNamer.slug(it)}" } ?: "highlights"
+        val paths = OutputNamer.reserve(request.outputDir, request.gameName, recordingDate(sessions), settings.formats, kind)
         val sources = plan.clips.map { it.media.path }.toSet()
         paths.all.forEach { ensureNotSource(it, sources) }
 

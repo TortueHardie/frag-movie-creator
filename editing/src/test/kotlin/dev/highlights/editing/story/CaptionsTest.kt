@@ -162,4 +162,18 @@ class CaptionsTest : FunSpec({
         filter shouldContain ":language=fr:format=json:max_len=18:queue=20:use_gpu=1:destination='D\\:/tmp/out.jsonl'"
         filter shouldNotContain "\\\\"
     }
+    test("zone sûre : sous-titre centré dans la largeur utile et remonté au-dessus de la légende de l'appli") {
+        val safe = dev.highlights.core.model.SafeArea(top = 0.10, bottom = 0.22, left = 0.05, right = 0.14)
+        val caption = Caption(ms(0, 1500), "on y va")
+        val plain = Captions.drawText(caption, CaptionSettings(), 1080, 1920, 0.90).single()
+        plain shouldContain "x='(w-text_w)/2'"
+        plain shouldContain "y=h*0.900-lh/2"
+        val safeText = Captions.drawText(caption, CaptionSettings(), 1080, 1920, 0.90, safe).single()
+        safeText shouldContain "x='w*0.0500+(w*0.8100-text_w)/2'"
+        // Centre ramené au-dessus de la marge du bas (0,78), moins une demi-ligne.
+        val y = Regex("""y=h\*([0-9.]+)-lh/2""").find(safeText)!!.groupValues[1].toDouble()
+        (y < 0.78 && y > 0.70) shouldBe true
+        Captions.drawLabel("DOUBLÉ", ms(0, 1000), CaptionSettings().font, 0.08, "yellow", 1080, 1920, 0.3, 200.milliseconds, safe) shouldContain
+            "x='w*0.0500+(w*0.8100-text_w)/2'"
+    }
 })
