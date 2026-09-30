@@ -200,10 +200,11 @@ class MontageCommand : PipelineCommand("montage") {
     private val reactions by option("--reactions", help = "Mettre en avant voix et rires : plans prolongés jusqu'à la fin de la phrase, micro monté, musique baissée dessous").flag()
     private val gameAudio by option("--game-audio", help = "Son du jeu : full (défaut) ou kills (le son du kill seul, musique baissée dessous)")
         .choice("full" to GameAudio.FULL, "kills" to GameAudio.KILLS)
+    private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
 
     override fun help(context: Context) =
-        "Montage de tous les kills calé sur une musique : coupes sur le beat, chaque kill sur un temps, zoom, flash, ralenti, textes (--reactions pour mettre en avant voix et rires)."
+        "Montage de tous les kills calé sur une musique : coupes sur le beat, chaque kill sur un temps, zoom, flash, ralenti, textes (--reactions pour mettre en avant voix et rires, --onetaps pour ne garder que les one taps)."
 
     override fun run() {
         val progress = ConsoleProgress()
@@ -235,6 +236,7 @@ class MontageCommand : PipelineCommand("montage") {
                         audioBalance = balance,
                         gameAudio = gameAudio,
                         reactions = if (reactions) true else null,
+                        oneTaps = oneTaps,
                     ),
                     ProgressTracker(listener = progress).root,
                 )

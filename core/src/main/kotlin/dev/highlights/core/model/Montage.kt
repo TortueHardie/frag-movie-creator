@@ -3,6 +3,7 @@ package dev.highlights.core.model
 import dev.highlights.core.serialization.SerialDuration
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -67,9 +68,59 @@ data class MontageSettings(
     val text: TextEffect = TextEffect(),
     val audio: MontageAudio = MontageAudio(),
     val formats: List<OutputFormat> = listOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
+    /** Réglages du montage « onetaps », appliqués par [forOneTaps] quand on le demande. */
+    val oneTaps: OneTapMontage = OneTapMontage(),
 ) {
     init {
         require(minScore in 0.0..1.0) { "montage.minScore doit être entre 0 et 1" }
+    }
+
+    /**
+     * Les mêmes réglages, pour un montage « onetaps » : chaque kill est son propre plan, très court, coupé juste
+     * après l'impact, sans ralenti ni accroche. Le rythme vient des coupes, pas des effets.
+     */
+    fun forOneTaps(): MontageSettings {
+        val o = oneTaps
+        return copy(
+            mergeGap = Duration.ZERO,
+            preRoll = o.preRoll,
+            postRoll = o.postRoll,
+            hook = false,
+            reactions = false,
+            length = length.copy(perClip = o.perClip, perExtraKill = Duration.ZERO, min = o.min),
+            cuts = cuts.copy(low = o.cut, mid = o.cut, high = o.cut, minLead = o.minLead, minTail = o.minTail),
+            slowMotion = slowMotion.copy(enabled = false),
+            speedRamp = speedRamp.copy(enabled = false),
+        )
+    }
+}
+
+/**
+ * Montage « onetaps » : que des kills d'une balle à la tête, enchaînés au rythme de la musique comme les edits TikTok.
+ * Un plan dure 2 temps (moins d'une seconde à 130 BPM) : le kill tombe sur le premier, la coupe sur le suivant.
+ */
+@Serializable
+data class OneTapMontage(
+    /** Contexte gardé avant le kill (la visée qui se pose) et après (l'impact). */
+    val preRoll: SerialDuration = 700.milliseconds,
+    val postRoll: SerialDuration = 350.milliseconds,
+    /** Longueur visée d'un plan, quelle que soit l'intensité de la musique : ramenée au plus proche nombre de temps. */
+    val cut: SerialDuration = 500.milliseconds,
+    val minLead: SerialDuration = 350.milliseconds,
+    val minTail: SerialDuration = 150.milliseconds,
+    /** Durée visée par kill, et durée minimale du montage. */
+    val perClip: SerialDuration = 900.milliseconds,
+    val min: SerialDuration = 6.seconds,
+    /**
+     * Sans source de tirs à la tête (ni Outplayed, ni gabarit du son), garder les kills d'une seule balle plutôt que ne
+     * rien monter : un kill au corps à l'Operator passe alors pour un one tap.
+     */
+    val allowWithoutHeadshots: Boolean = true,
+) {
+    init {
+        require(preRoll >= minLead) { "montage.oneTaps.preRoll doit couvrir minLead" }
+        require(postRoll >= minTail) { "montage.oneTaps.postRoll doit couvrir minTail" }
+        require(cut.isPositive() && perClip.isPositive() && min.isPositive()) { "montage.oneTaps : durées positives attendues" }
     }
 }
 

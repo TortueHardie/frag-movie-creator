@@ -196,6 +196,9 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     MontageToggle("Montée en puissance (meilleur kill sur la drop)", montage.buildUp) { v ->
                         actions.updateMontage { it.copy(buildUp = v) }
                     }
+                    MontageToggle("Onetaps : que les kills d'une balle à la tête, enchaînés très vite", montage.oneTaps) { v ->
+                        actions.updateMontage { it.copy(oneTaps = v) }
+                    }
                 }
 
                 DialogGroup("Formats") {

@@ -357,13 +357,14 @@ clutchs, et un graphique des kills par partie d'une soirée à l'autre. Chaque p
 
 Bouton **Rechercher** au-dessus des analyses enregistrées (ou `app search`) : tous les moments (groupes de kills,
 comme le montage kills les forme) des parties analysées, filtrés par jeu, période (7 jours, 30 jours, tout), taille
-(doublés et plus, triplés et plus), aces, clutchs, ou « tout en headshot ». On coche ceux qu'on veut, puis **Montage
+(doublés et plus, triplés et plus), aces, clutchs, « tout en headshot » ou « one taps ». On coche ceux qu'on veut, puis **Montage
 kills de N moment(s)** ouvre leurs parties et le dialogue du montage, limité à ces moments.
 
 ```powershell
 & $app search --clutch                                  # tous les clutchs, du plus fort au moins fort
 & $app search --min-kills 2 --headshots --last 7        # doublés et plus, tout en headshot, 7 dernières soirées
 & $app search --min-kills 3 --montage D:\Musique --platform tiktok   # montage des triplés et plus
+& $app search --onetaps --montage D:\Musique --platform tiktok       # montage onetaps
 ```
 
 - L'arme n'est pas un critère : ni VALORANT ni Outplayed ne la transmettent (les événements n'ont qu'un numéro d'ordre).
@@ -529,6 +530,18 @@ l'image :
   journal donne les meilleures ressemblances pour régler `threshold`.
 
 Les réglages par défaut viennent de signaux synthétiques et restent à vérifier sur de vraies parties.
+
+## Montage onetaps
+
+Case « Onetaps » du dialogue du montage kills, `montage --onetaps` ou `search --onetaps --montage` : que les kills
+d'une balle à la tête, un plan chacun, enchaînés au rythme de la musique comme les edits TikTok. Les réglages du
+montage kills restent ceux du profil, sauf ce que `montage.oneTaps` impose : un kill par plan, 2 temps par plan
+(moins d'une seconde à 130 BPM, la drop garde son élan), 0,7 s avant le kill et 0,35 s après, ni ralenti ni accroche.
+Fichiers `…_onetaps.mp4`.
+
+- Les balles viennent du détecteur `game-sounds` : une partie analysée avant lui est à réanalyser.
+- Sans tirs à la tête connus (ni Outplayed, ni gabarit du son), tout kill d'une balle compte, et le journal le dit ;
+  `montage.oneTaps.allowWithoutHeadshots: false` refuse plutôt.
 
 ## Ligne de commande
 

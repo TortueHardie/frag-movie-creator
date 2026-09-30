@@ -118,10 +118,12 @@ au montage plein, elle s'allonge par paliers.
   - [ ] Icône headshot du killfeed : le profil la dit absente des lignes du joueur, à revérifier.
   - Sans source fiable pour le headshot, repli sur « un seul tir » : le montage reste possible, un peu moins strict
     (un one-shot au corps à l'Operator passerait). Le dire dans l'interface plutôt que de ne rien proposer.
-  - [ ] Filtre « One tap » dans la recherche (`MomentQuery`), puis le type de montage lui-même.
-  - Rythme : plans très courts (0,4 à 1 s), coupe juste après le kill, sans accroche ni ralenti long ; un kill par
-    temps (ou demi-temps) de la musique, BPM élevé favorisé dans `MusicChoice`. Réglages dans un `montage.onetap`
-    (`perClip`, `preRoll`, `postRoll`) plutôt que de tordre `montage.length`.
+  - Fait : filtre « One taps » de la recherche (`MomentQuery.oneTaps`, `search --onetaps`) et montage onetaps
+    (`MontageOptions.oneTaps`, `montage --onetaps`, case du dialogue). `OneTaps.select` garde les kills d'une balle à
+    la tête ; `MontageSettings.forOneTaps` (réglages `montage.oneTaps`) : un kill par plan, plans de 2 temps, ni
+    ralenti ni accroche. Testé sur un plan synthétique : 12 kills en moins de 15 s. Interface non compilée ici.
+  - [ ] Plans d'un seul temps (un kill par temps) : `CutGrid.beatsFor` ne descend pas sous 2.
+  - [ ] Favoriser les musiques rapides dans `MusicChoice` pour ce montage.
   - Habillage possible : flash blanc ou punch-in sur l'impact, son du headshot mis en avant, compteur qui défile.
 
 ## Habillage
@@ -162,7 +164,7 @@ au montage plein, elle s'allonge par paliers.
 
 ## Priorités suggérées
 1. Clip unique vertical.
-2. Montage « onetaps » (commencer par l'audio du jeu : détonations et son du headshot, sans Outplayed).
+2. Montage « onetaps » : le valider sur de vraies parties (gabarit du headshot, réglage des tirs).
 3. Compteur de kills à l'écran.
 4. ~~Bibliothèque musicale avec choix automatique.~~ (fait)
 5. Whoosh sur les whip pans.

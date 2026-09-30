@@ -32,6 +32,7 @@ class SearchCommand : PipelineCommand("search") {
     private val ace by option("--ace", help = "Aces seulement").flag()
     private val clutch by option("--clutch", help = "Clutchs seulement").flag()
     private val headshots by option("--headshots", help = "Moments dont chaque kill est un tir à la tête").flag()
+    private val oneTaps by option("--onetaps", help = "Moments avec au moins un one tap (une balle, à la tête) ; avec --montage, un montage onetaps").flag()
     private val limit by option("--limit", help = "Nombre de moments affichés (défaut : 30)").int().restrictTo(min = 1).default(30)
     private val montage by option("--montage", help = "Montage kills des moments trouvés, sur cette musique (ou un dossier de musiques)").path(mustExist = true)
     private val max by option("--max", help = "Durée maximale du montage, ex. 60s").convert { Durations.parseOrNull(it) ?: throw BadParameterValue("durée invalide '$it'") }
@@ -44,7 +45,7 @@ class SearchCommand : PipelineCommand("search") {
     override fun run() {
         val pipeline = Pipelines.create(env.config)
         val since = last?.let { n -> pipeline.statistics().mapNotNull { it.playedAt }.map { dev.highlights.pipeline.Statistics.eveningOf(it) }.distinct().sortedDescending().take(n).lastOrNull() }
-        val query = MomentQuery(game, from ?: since, to, minKills, ace, clutch, headshots)
+        val query = MomentQuery(game, from ?: since, to, minKills, ace, clutch, headshots, oneTaps)
         val found = execute { pipeline.search(query) }
         if (found.isEmpty()) {
             echo("Aucun moment ne répond à ces critères.")
@@ -57,6 +58,7 @@ class SearchCommand : PipelineCommand("search") {
                 "ACE".takeIf { m.ace }, "CLUTCH".takeIf { m.clutch },
                 "${m.kills.size} kills".takeIf { m.kills.size > 1 } ?: "1 kill",
                 "${m.headshots} HS".takeIf { m.headshots > 0 },
+                "${m.oneTaps} one tap${if (m.oneTaps > 1) "s" else ""}".takeIf { m.oneTaps > 0 },
             ).joinToString(" · ")
             val date = m.playedAt?.atZone(ZoneId.systemDefault())?.format(day) ?: "?"
             echo("  %-20s %-10s %-26s à %s  (%s)".format(date, m.game, labels, m.kills.first().toTimecode(), m.source.fileName))
@@ -70,7 +72,7 @@ class SearchCommand : PipelineCommand("search") {
             try {
                 pipeline.killMontage(
                     sessions, music,
-                    MontageOptions(maxDuration = max, platform = platform, outputDir = out, onlyKills = MomentPick.of(found)),
+                    MontageOptions(maxDuration = max, platform = platform, outputDir = out, onlyKills = MomentPick.of(found), oneTaps = oneTaps),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {

@@ -44,6 +44,8 @@ data class MontageExportRequest(
     val musicChoice: List<MontageReportMusic> = emptyList(),
     /** Plateforme visée : dans le nom des fichiers. */
     val platform: String? = null,
+    /** Genre de montage, dans le nom des fichiers : killmontage, onetaps. */
+    val kind: String = "killmontage",
 )
 
 @Serializable
@@ -130,7 +132,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         val encoder = encoders.select().withMaxBitrate(request.edit.maxBitrate)
         request.outputDir.createDirectories()
         request.workDir.createDirectories()
-        val kind = request.platform?.let { "killmontage_${OutputNamer.slug(it)}" } ?: "killmontage"
+        val kind = request.platform?.let { "${request.kind}_${OutputNamer.slug(it)}" } ?: request.kind
         val paths = OutputNamer.reserve(request.outputDir, request.gameName, request.date, request.formats, kind = kind)
         val sources = plan.clips.map { it.group.media.path.toAbsolutePath().normalize().toString().lowercase() }.toSet() +
             plan.music.file.toAbsolutePath().normalize().toString().lowercase()

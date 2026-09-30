@@ -59,11 +59,12 @@ data class SearchState(
     val ace: Boolean = false,
     val clutch: Boolean = false,
     val headshots: Boolean = false,
+    val oneTaps: Boolean = false,
     /** Moments décochés (par défaut, tout ce qui répond aux critères est coché). */
     val unpicked: Set<String> = emptySet(),
 ) {
     fun query(today: LocalDate = Statistics.eveningOf(java.time.Instant.now())) =
-        MomentQuery(game, period.days?.let { today.minusDays(it - 1) }, null, minKills, ace, clutch, headshots)
+        MomentQuery(game, period.days?.let { today.minusDays(it - 1) }, null, minKills, ace, clutch, headshots, oneTaps)
 
     val results: List<FoundMoment> get() = query().let { q -> moments.filter { q.matches(it) } }
     val picked: List<FoundMoment> get() = results.filter { key(it) !in unpicked }
@@ -151,6 +152,7 @@ private fun Filters(search: SearchState, actions: UiActions) {
         FilterChip(selected = search.ace, onClick = { actions.updateSearch { it.copy(ace = !it.ace) } }, label = { Text("Aces") })
         FilterChip(selected = search.clutch, onClick = { actions.updateSearch { it.copy(clutch = !it.clutch) } }, label = { Text("Clutchs") })
         FilterChip(selected = search.headshots, onClick = { actions.updateSearch { it.copy(headshots = !it.headshots) } }, label = { Text("Tout en headshot") })
+        FilterChip(selected = search.oneTaps, onClick = { actions.updateSearch { it.copy(oneTaps = !it.oneTaps) } }, label = { Text("One taps") })
     }
 }
 
@@ -172,6 +174,7 @@ private fun MomentRow(m: FoundMoment, checked: Boolean, actions: UiActions) {
                         "CLUTCH".takeIf { m.clutch },
                         multiKillName(m.kills.size),
                         "${m.headshots} headshot${if (m.headshots > 1) "s" else ""}".takeIf { m.headshots > 0 },
+                        "${m.oneTaps} one tap${if (m.oneTaps > 1) "s" else ""}".takeIf { m.oneTaps > 0 },
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.titleSmall,
                     color = if (m.ace || m.clutch || m.kills.size >= 3) Palette.accent else Palette.text,
