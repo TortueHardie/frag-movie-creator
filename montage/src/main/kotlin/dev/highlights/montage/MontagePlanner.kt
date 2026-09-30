@@ -48,10 +48,18 @@ data class KillGroup(
  */
 data class KillTraits(
     val headshot: Boolean = false,
+    /**
+     * Tirs entendus sur la cible, celui qui tue compris (voir [KillStyle.oneTapWindow]). null : on ne sait pas (pas de
+     * détecteur de tirs, ou aucun tir entendu à l'instant du kill).
+     */
+    val shots: Int? = null,
     val flick: Double = 0.0,
     val shift: Duration = Duration.ZERO,
     val direction: FlickDirection? = null,
 ) {
+    /** Un seul tir, à la tête : le kill des edits « onetaps ». */
+    val oneTap: Boolean get() = headshot && shots == 1
+
     companion object {
         val NONE = KillTraits()
 
@@ -253,6 +261,7 @@ object MontagePlanner {
         val headshots = if (style.headshotEvent.isEmpty()) emptyList()
         else timeline.events.filter { it.kind == style.headshotEvent }.map { it.at + settings.killOffset }
         fun headshot(k: Duration) = headshots.any { (it - k).absoluteValue <= HEADSHOT_MATCH }
+        val shots = shotCounts(kills, timeline.events.filter { style.shotEvent.isNotEmpty() && it.kind == style.shotEvent }.map { it.at }, settings)
         val deaths = if (style.deathEvent.isEmpty()) emptyList()
         else timeline.events.filter { it.kind == style.deathEvent }.map { it.at + settings.killOffset }.sorted()
         val rounds = rounds(kills, deaths, style.roundGap)
@@ -277,7 +286,7 @@ object MontagePlanner {
         grouped.mapIndexed { i, ks ->
             val window = TimeRange(ks.first() - settings.preRoll, ks.last() + settings.postRoll)
             val indices = timeline.grid.let { g -> (0 until g.count).filter { g.rangeOf(it).isWithin(window) } }
-            val traits = ks.map { KillTraits(headshot = headshot(it)) }
+            val traits = ks.map { KillTraits(headshot = headshot(it), shots = shots[it]) }
             KillGroup(
                 media = session.media,
                 kills = ks,
@@ -289,6 +298,33 @@ object MontagePlanner {
                 style = style(ks, traits, outcomes[i], style),
             )
         }
+    }
+
+    /**
+     * Tirs sur la cible de chaque kill, d'après les tirs entendus ([shots], instants réels du son). Le tir qui tue est
+     * celui le plus proche de l'instant annoncé, dans la fenêtre de recalage ([MontageSettings.shotAlign]) : la
+     * notification suit le tir. Comptent avec lui les tirs des [KillStyle.oneTapWindow] d'avant, sans remonter au-delà
+     * du tir qui a tué la cible précédente. Un kill sans tir entendu reste inconnu, comme tous si aucun tir n'est connu.
+     */
+    fun shotCounts(kills: List<Duration>, shots: List<Duration>, settings: MontageSettings): Map<Duration, Int> {
+        if (shots.isEmpty()) return emptyMap()
+        val sorted = shots.sorted()
+        val align = settings.shotAlign
+        val window = settings.killStyle.oneTapWindow
+        val counts = mutableMapOf<Duration, Int>()
+        var previous: Duration? = null
+        for (kill in kills.sorted()) {
+            val fatal = sorted.filter { it in (kill - align.before)..(kill + align.after) }.minByOrNull { (it - kill).absoluteValue }
+            if (fatal == null) {
+                // Tir non entendu : la cible précédente a été tuée au plus tard à l'annonce.
+                previous = kill
+                continue
+            }
+            val from = previous?.let { maxOf(it, fatal - window) } ?: (fatal - window)
+            counts[kill] = sorted.count { it > from && it <= fatal }
+            previous = fatal
+        }
+        return counts
     }
 
     /** Round déduit des événements du joueur : ses kills, et s'il y est mort. */

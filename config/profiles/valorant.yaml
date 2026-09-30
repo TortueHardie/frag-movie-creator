@@ -57,6 +57,28 @@ detectors:
       # 0,23 s en médiane après les kills d'Outplayed recalés sur le killfeed (la troisième : 0,5 s avant).
       offset: -150ms
 
+  # Tirs du joueur dans le son du jeu : les attaques les plus fortes de la partie (son arme ; tirs adverses, pas et
+  # capacités arrivent atténués). Avec ou sans Outplayed, qui ne transmet pas les tirs : c'est ce qui dit si un kill
+  # s'est fait d'une seule balle (one tap). Réglages non encore mesurés sur de vraies parties.
+  - id: game-shots
+    type: game-sounds
+    weight: 0
+    params:
+      shots: { minRiseDb: 9, percentile: 0.9, belowDb: 10 }
+
+  # Tirs à la tête sans Outplayed : le son de l'impact à la tête, reconnu à son empreinte. Le gabarit est à extraire
+  # une fois d'une capture, au ras du début du son, par exemple :
+  #   ffmpeg -ss 754.32 -t 0.25 -i partie.mp4 -map 0:a:0 -ac 1 config/templates/valorant/headshot.wav
+  # Sans ce fichier, le détecteur le signale et ne cherche rien.
+  - id: headshot-sound
+    type: game-sounds
+    fallbackFor: game-events
+    weight: 0
+    params:
+      shots: null
+      sounds:
+        headshot: { file: templates/valorant/headshot.wav, threshold: 0.75, minHz: 1000, maxHz: 12000 }
+
   # Prises de parole sur la piste micro : un moment n'est jamais coupé au milieu d'une phrase ou d'un rire.
   - id: voice
     type: voice-activity

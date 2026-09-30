@@ -175,6 +175,16 @@ data class KillStyle(
     /** Événement émis par le détecteur pour un tir à la tête (VALORANT via Outplayed). Vide : pas de recherche. */
     val headshotEvent: String = "headshot",
     val headshotBonus: Double = 0.3,
+    /**
+     * Événement émis pour chaque tir du joueur entendu dans le son du jeu (détecteur `game-sounds`). Vide : les tirs ne
+     * sont pas comptés, et aucun kill n'est un one tap.
+     */
+    val shotEvent: String = "shot",
+    /**
+     * Temps pendant lequel un tir avant celui qui tue empêche le one tap : c'est la même cible qu'on arrosait. Un kill
+     * plus proche que ça coupe la fenêtre (deux cibles tuées d'une balle chacune font deux one taps).
+     */
+    val oneTapWindow: SerialDuration = 800.milliseconds,
     /** Mesure de la rotation de la caméra juste avant le kill (décodage d'une demi-seconde d'image par kill). */
     val flick: Boolean = true,
     /** Vitesse de balayage (largeurs d'écran par seconde) en dessous de laquelle ce n'est pas un flick… */
@@ -208,6 +218,7 @@ data class KillStyle(
         require(roundGap.isPositive()) { "montage.killStyle.roundGap doit être positif" }
         require(aceKills >= 2) { "montage.killStyle.aceKills doit valoir au moins 2" }
         require(clutchKills >= 1) { "montage.killStyle.clutchKills doit valoir au moins 1" }
+        require(oneTapWindow.isPositive()) { "montage.killStyle.oneTapWindow doit être positif" }
     }
 }
 

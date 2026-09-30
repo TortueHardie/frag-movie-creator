@@ -515,6 +515,21 @@ Windows (rien à installer), par lots et en parallèle pendant le décodage de l
 - `audio-events` : rires et exclamations détectés par YAMNet (Google, hors ligne, `config/models/`), qui deviennent
   des moments à garder (`eventBoosts`). Le journal indique les meilleurs scores pour régler les seuils.
 
+## Tirs et tirs à la tête dans le son du jeu
+
+Le détecteur `game-sounds` lit la piste du jeu une fois (48 kHz mono, en flux) et ne dépend ni d'Outplayed ni de
+l'image :
+
+- `shots` : chaque tir du joueur devient un événement `shot`. Ce sont les attaques les plus fortes de la partie (son
+  arme), les tirs lointains, les pas et les capacités étant plus faibles (`percentile`, `belowDb`). Le montage en tire
+  le nombre de balles de chaque kill (`KillTraits.shots`) : un kill d'une balle à la tête est un one tap.
+- `sounds` : un son précis reconnu à son empreinte (spectre en bandes, corrélation normalisée), par exemple le son de
+  l'impact à la tête pour les captures sans Outplayed. Le gabarit s'extrait une fois d'une capture, au ras du début
+  du son : `ffmpeg -ss 754.32 -t 0.25 -i partie.mp4 -map 0:a:0 -ac 1 config/templates/valorant/headshot.wav`. Le
+  journal donne les meilleures ressemblances pour régler `threshold`.
+
+Les réglages par défaut viennent de signaux synthétiques et restent à vérifier sur de vraies parties.
+
 ## Ligne de commande
 
 ```powershell
@@ -571,7 +586,7 @@ accroché, ce qui est deviné par défaut d'après sa position.
 |---|---|
 | `core` | Modèle, interfaces (`SignalDetector`, `FfmpegService`, `EncoderSelector`…), config YAML, progression + ETA, session, décodage vidéo partagé (`FrameSampler`), FFT |
 | `ffmpeg` | Exécution FFmpeg/ffprobe via ProcessBuilder, détection des encodeurs |
-| `analysis` | Détecteurs audio et Outplayed (`audio-loudness`, `voice-activity`, `outplayed-events`), enregistrés par `ServiceLoader` |
+| `analysis` | Détecteurs audio et Outplayed (`audio-loudness`, `voice-activity`, `game-sounds`, `outplayed-events`), enregistrés par `ServiceLoader` |
 | `analysis-vision` | Détecteurs d'image (`hud-template`, `killfeed`, `ocr-log` via l'OCR de Windows) |
 | `analysis-ml` | Rires et exclamations (`audio-events`, YAMNet via ONNX Runtime) |
 | `scoring` | Normalisation par percentiles, fusion pondérée, sélection des moments |

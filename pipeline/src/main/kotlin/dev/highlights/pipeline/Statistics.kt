@@ -98,8 +98,13 @@ object Statistics {
         // Sans kill, la partie ne dit rien de son détecteur : on se fie à ce que le profil sait voir.
         fun known(sources: Set<String>?) = sources == null || (sources.isNotEmpty() && (killSources.isEmpty() || killSources.any { it in sources }))
         val deaths = if (style.deathEvent.isEmpty() || !known(deathSources)) null else events.filter { it.kind == style.deathEvent }.map { it.at }.sorted()
-        val headshots = if (style.headshotEvent.isEmpty() || !known(headshotSources)) null else events.count { it.kind == style.headshotEvent }
         val groups = MontagePlanner.groups(listOf(session), settings)
+        // Les tirs à la tête peuvent venir d'un autre détecteur que les kills (le son du jeu, avec le killfeed) : il
+        // suffit qu'il ait entendu quelque chose dans cette partie. On compte les kills à la tête, pas les événements :
+        // un tir à la tête qui ne tue pas s'entend aussi.
+        val heard = headshotSources != null && events.any { it.kind == style.headshotEvent && it.detectorId in headshotSources }
+        val headshots = if (style.headshotEvent.isEmpty() || !(known(headshotSources) || heard)) null
+        else groups.sumOf { g -> g.kills.count { g.traitsOf(it).headshot } }
         val rounds = MontagePlanner.rounds(kills, deaths.orEmpty(), style.roundGap)
         return GameStats(
             sessionFile = sessionFile,

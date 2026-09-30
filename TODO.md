@@ -106,16 +106,19 @@ au montage plein, elle s'allonge par paliers.
   les armes comptent : un tir, un headshot, un kill.
   - Deux choses à savoir par kill : le headshot et le nombre de tirs. Aucune ne doit dépendre d'Outplayed seul, sinon
     le montage n'existe pas pour une capture OBS ou ShadowPlay (et jamais pour WARDOGS).
-  - Headshot, par ordre de préférence : événement `headshot` d'Outplayed quand il est là (`KillTraits.headshot`) ;
-    sinon le son de l'impact à la tête dans l'audio du jeu (le « dink » de VALORANT, distinct de l'impact au corps),
-    reconnu par gabarit audio comme on reconnaît les gabarits du HUD ; à défaut, l'icône headshot du killfeed, que le
-    profil dit absente des lignes du joueur (à revérifier, VALORANT en affiche une à côté de l'arme).
-  - Nombre de tirs : détonations dans l'audio du jeu sur ~1 s avant le kill (une seule), recoupées avec le compteur de
-    munitions du HUD (une balle en moins) ou le recul de l'arme à l'image. Marche avec ou sans Outplayed, qui ne
-    transmet pas les tirs.
+  - Commencé : détecteur `game-sounds` (module `analysis`). Profil VALORANT : `game-shots` émet un `shot` par tir du
+    joueur (toujours, Outplayed ne donne pas les tirs) ; `headshot-sound` reconnaît le son de l'impact à la tête sur
+    gabarit, en secours d'Outplayed. `MontagePlanner.shotCounts` compte les balles de chaque kill jusqu'au tir qui tue
+    (`KillTraits.shots`, `oneTap`, réglage `killStyle.oneTapWindow`) ; les stats comptent les kills à la tête entendus.
+    Testé sur des signaux synthétiques seulement.
+  - [ ] Extraire le gabarit `config/templates/valorant/headshot.wav` d'une vraie capture et régler `threshold`.
+  - [ ] Valider les tirs sur de vraies parties : `percentile`/`belowDb` (tirs adverses proches, capacités bruyantes),
+    kills en rafale bien comptés, one taps au Sheriff, à l'Operator, au Vandal.
+  - [ ] Recouper avec le compteur de munitions du HUD (une balle en moins) si l'audio ne suffit pas.
+  - [ ] Icône headshot du killfeed : le profil la dit absente des lignes du joueur, à revérifier.
   - Sans source fiable pour le headshot, repli sur « un seul tir » : le montage reste possible, un peu moins strict
     (un one-shot au corps à l'Operator passerait). Le dire dans l'interface plutôt que de ne rien proposer.
-  - Nouveau trait `KillTraits.oneTap`, filtre « One tap » dans la recherche (`MomentQuery`).
+  - [ ] Filtre « One tap » dans la recherche (`MomentQuery`), puis le type de montage lui-même.
   - Rythme : plans très courts (0,4 à 1 s), coupe juste après le kill, sans accroche ni ralenti long ; un kill par
     temps (ou demi-temps) de la musique, BPM élevé favorisé dans `MusicChoice`. Réglages dans un `montage.onetap`
     (`perClip`, `preRoll`, `postRoll`) plutôt que de tordre `montage.length`.
