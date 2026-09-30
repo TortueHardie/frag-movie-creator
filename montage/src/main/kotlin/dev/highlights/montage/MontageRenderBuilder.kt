@@ -315,8 +315,9 @@ object MontageRenderBuilder {
         fun flickOf(clip: MontageClip, kill: Duration?) =
             kill?.let { clip.group.traitsOf(it) }?.takeIf { it.flick >= KillTraits.STRONG_FLICK }?.direction
         return plan.clips.mapIndexed { i, clip ->
-            // Le raccord sur une animation a déjà son mouvement : le whip le couvrirait.
-            if (i == 0 || clip.matchCut) return@mapIndexed null
+            // Le raccord sur une animation a déjà son mouvement : le whip le couvrirait. Un plan d'un temps n'a que son
+            // contexte avant le kill : le whip le brouillerait en entier.
+            if (i == 0 || clip.matchCut || clip.leadIn.isPositive()) return@mapIndexed null
             val previous = plan.clips[i - 1]
             flickOf(previous, previous.kills.lastOrNull()) ?: flickOf(clip, clip.kills.firstOrNull())
         }
@@ -385,7 +386,8 @@ object MontageRenderBuilder {
         return plan.clips.mapIndexed { i, clip ->
             if (i == 0) return@mapIndexed Duration.ZERO
             val available = (clip.start - clip.group.media.bounds.start).coerceAtLeast(Duration.ZERO)
-            frame * plan.settings.cuts.preBeatFrames.coerceAtMost((available / frame).toInt())
+            val wanted = frame * plan.settings.cuts.preBeatFrames + clip.leadIn
+            frame * ((wanted / frame).roundToLong().toInt()).coerceAtMost((available / frame).toInt())
         }
     }
 

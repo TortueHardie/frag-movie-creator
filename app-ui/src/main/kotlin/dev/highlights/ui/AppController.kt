@@ -629,6 +629,7 @@ class AppController(
                     fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
                     platform = montage.platform,
                     onlyKills = montage.pick,
+                    oneTaps = montage.oneTaps,
                 ),
                 progress,
             )
@@ -763,12 +764,14 @@ class AppController(
 
     /** Ouvre les parties des moments cochés, puis le montage kills limité à ces moments. */
     override fun montageFromSearch() {
-        val picked = state.value.search?.picked?.takeIf { it.isNotEmpty() } ?: return
+        val search = state.value.search ?: return
+        val picked = search.picked.takeIf { it.isNotEmpty() } ?: return
         val pick = dev.highlights.pipeline.MomentPick.of(picked)
         _state.update { it.copy(search = null) }
         openSessions(picked.map { it.sessionFile }.distinct()) {
             openMontage()
-            _state.update { s -> s.copy(montage = s.montage?.copy(pick = pick)) }
+            // Des one taps cherchés : le montage qui va avec, que l'on peut encore décocher.
+            _state.update { s -> s.copy(montage = s.montage?.let { m -> m.copy(pick = pick, oneTaps = search.oneTaps || m.oneTaps) }) }
         }
     }
 

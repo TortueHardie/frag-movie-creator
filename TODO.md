@@ -102,6 +102,39 @@ au montage plein, elle s'allonge par paliers.
 - [ ] Récap de soirée : plusieurs captures, intercalaire par partie (« Partie 3 – 14 kills »).
 - [ ] Montage « fails / morts » : morts du killfeed/Outplayed, musique comique, ralenti sur la mort.
 - [ ] Montage « réactions » : segments `laughter`/`shout` de YAMNet, micro en avant, sous-titres whisper.
+- [ ] Montage « onetaps » : que des kills en un seul tir à la tête, enchaînés très vite comme les edits TikTok. Toutes
+  les armes comptent : un tir, un headshot, un kill.
+  - Deux choses à savoir par kill : le headshot et le nombre de tirs. Aucune ne doit dépendre d'Outplayed seul, sinon
+    le montage n'existe pas pour une capture OBS ou ShadowPlay (et jamais pour WARDOGS).
+  - Commencé : détecteur `game-sounds` (module `analysis`). Profil VALORANT : `game-shots` émet un `shot` par tir du
+    joueur (toujours, Outplayed ne donne pas les tirs) ; `headshot-sound` reconnaît le son de l'impact à la tête sur
+    gabarit, en secours d'Outplayed. `MontagePlanner.shotCounts` compte les balles de chaque kill jusqu'au tir qui tue
+    (`KillTraits.shots`, `oneTap`, réglage `killStyle.oneTapWindow`) ; les stats comptent les kills à la tête entendus.
+    Testé sur des signaux synthétiques seulement.
+  - Fait : gabarit `config/templates/valorant/headshot.wav` tiré d'une vraie capture, seuil 0,7 : 4 headshots sur 8
+    reconnus, aucun faux sur 14 kills au corps (deux parties du 25/09).
+    - [ ] Le revoir sur d'autres parties (pris dans l'une des deux mesurées) ; la moitié des headshots manqués.
+  - Mesuré sur deux parties : les tirs isolés sont entendus, pas les rafales du Vandal (jusqu'à 4 balles sur 5
+    manquées, 1706 « tirs » par partie dont des sons qui n'en sont pas). Deux sprays passaient pour des one taps.
+  - Fait : compteur de munitions du HUD (`AmmoCounter`, `killStyle.ammo`) relu autour des one taps entendus avant le
+    montage : 111 balles sur 111 autour de 14 kills. Les deux faux one taps écartés.
+    - [ ] Aucun vrai one tap dans ces deux parties : valider sur une partie qui en a (Sheriff, Vandal en tap, Operator).
+    - [ ] Zone mesurée en 3440x1440 : vérifier en 16:9.
+    - [ ] Filtre « One taps » de la recherche : il s'appuie sur les tirs entendus seulement (faux positifs possibles
+      dans la liste, écartés au montage) ; confirmer au compteur à l'affichage si c'est gênant.
+    - [ ] WARDOGS et captures sans compteur lisible : rester sur le son, moins sûr dans les rafales.
+  - [ ] Icône headshot du killfeed : le profil la dit absente des lignes du joueur, à revérifier.
+  - Sans source fiable pour le headshot, repli sur « un seul tir » : le montage reste possible, un peu moins strict
+    (un one-shot au corps à l'Operator passerait). Le dire dans l'interface plutôt que de ne rien proposer.
+  - Fait : filtre « One taps » de la recherche (`MomentQuery.oneTaps`, `search --onetaps`) et montage onetaps
+    (`MontageOptions.oneTaps`, `montage --onetaps`, case du dialogue). `OneTaps.select` garde les kills d'une balle à
+    la tête ; `MontageSettings.forOneTaps` (réglages `montage.oneTaps`) : un kill par plan, plans de 2 temps, ni
+    ralenti ni accroche. Testé sur un plan synthétique : 12 kills en moins de 15 s. Interface non compilée ici.
+  - Fait : plans d'un seul temps (`cuts.singleBeat`, `MontageClip.leadIn`) : le kill sur le temps qui ouvre le plan, la
+    coupe avancée de `minLead` sur la fin du précédent ; deux temps au-delà de 142 BPM. Testé sur plan synthétique.
+    - [ ] À voir sur un vrai rendu : 0,3 s de visée avant l'impact suffit-il à lire le one tap ?
+  - Fait : `MusicChoice` favorise les musiques qui gardent des plans courts (`MusicPace`, mesuré sur le plan obtenu).
+  - Habillage possible : flash blanc ou punch-in sur l'impact, son du headshot mis en avant, compteur qui défile.
 
 ## Habillage
 - [ ] Webcam en incrustation : seconde source synchronisée, disposition 9:16 webcam au-dessus du jeu.
@@ -141,7 +174,8 @@ au montage plein, elle s'allonge par paliers.
 
 ## Priorités suggérées
 1. Clip unique vertical.
-2. Compteur de kills à l'écran.
-3. ~~Bibliothèque musicale avec choix automatique.~~ (fait)
-4. Whoosh sur les whip pans.
-5. Ajuster début/fin d'un moment dans l'UI.
+2. Montage « onetaps » : le valider sur de vraies parties (gabarit du headshot, réglage des tirs).
+3. Compteur de kills à l'écran.
+4. ~~Bibliothèque musicale avec choix automatique.~~ (fait)
+5. Whoosh sur les whip pans.
+6. Ajuster début/fin d'un moment dans l'UI.

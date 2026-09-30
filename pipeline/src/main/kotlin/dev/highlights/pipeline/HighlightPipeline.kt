@@ -31,6 +31,7 @@ import dev.highlights.core.video.FrameSampler
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
+import dev.highlights.montage.AmmoCounter
 import dev.highlights.montage.KillInspector
 import dev.highlights.montage.KillMontageExporter
 import dev.highlights.montage.MatchCutter
@@ -42,6 +43,7 @@ import dev.highlights.montage.MusicAnalyzer
 import dev.highlights.montage.MusicChoice
 import dev.highlights.montage.MusicHistory
 import dev.highlights.montage.MusicLibrary
+import dev.highlights.montage.OneTaps
 import dev.highlights.montage.ScopeCuts
 import dev.highlights.scoring.HighlightMerge
 import dev.highlights.scoring.ScoringEngine
@@ -130,6 +132,8 @@ data class MontageOptions(
     val platform: String? = null,
     /** Seulement ces moments (résultat d'une recherche, voir [MomentPick]) ; null : tous les kills des sessions. */
     val onlyKills: MomentPick? = null,
+    /** Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun ([MontageSettings.forOneTaps]). */
+    val oneTaps: Boolean = false,
 )
 
 /** [reused] : analyse reprise de la mémoire, sans recalcul. */
@@ -510,12 +514,22 @@ class HighlightPipeline(
                 game = options.gameAudio ?: base.audio.game,
                 loudnessLufs = platform?.loudnessLufs ?: base.audio.loudnessLufs,
             ),
-        )
+        ).let { if (options.oneTaps) it.forOneTaps() else it }
         val musicStep = progress.child(if (music.isDirectory()) "Musiques" else "Musique", 0.06)
         val musics = if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music))
         musicStep.complete()
-        val found = MontagePlanner.groups(sessions, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: all }
-        if (found.isEmpty()) throw InputException("Aucun des moments choisis ne se retrouve dans ces sessions")
+        val picked = MontagePlanner.groups(sessions, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: all }
+        if (picked.isEmpty()) throw InputException("Aucun des moments choisis ne se retrouve dans ces sessions")
+        val found = if (options.oneTaps) {
+            // Les tirs entendus désignent les candidats ; le compteur de munitions, quand le profil le décrit, les
+            // confirme : le son manque des balles dans les rafales, et une rafale n'est pas un one tap.
+            val heard = OneTaps.select(picked, sessions, settings).groups
+            settings.killStyle.ammo?.let { hud ->
+                OneTaps.select(AmmoCounter(ffmpeg).recount(heard, picked, hud, progress.child("Munitions", 0.02)), sessions, settings).groups
+            } ?: heard
+        } else {
+            picked
+        }
         val inspected = KillInspector(ffmpeg).inspect(found, settings, profile.audio, progress.child("Kills", 0.06))
         val groups = MatchCutter(ffmpeg).inspect(inspected, settings, progress.child("Visée", 0.02))
         val fromStart = options.fromStartMusics.map { it.toAbsolutePath().normalize() }.toSet()
@@ -548,6 +562,7 @@ class HighlightPipeline(
                     audioLayout = profile.audio,
                     musicChoice = choice,
                     platform = options.platform,
+                    kind = if (options.oneTaps) "onetaps" else "killmontage",
                 ),
                 progress.child("Rendu", 0.86),
             )

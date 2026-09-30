@@ -467,6 +467,28 @@ class MontagePlannerTest : FunSpec({
         (groups[1].rank > groups[0].rank) shouldBe true
     }
 
+    test("one taps : tirs entendus comptés jusqu'au tir qui tue, sans remonter au kill d'avant") {
+        fun event(at: Double, kind: String) = TimelineEvent(at.seconds, kind, 1.0, "n")
+        val shots = listOf(99.9, 100.45, 199.6, 199.7, 199.8, 199.9, 399.95).map { event(it, "shot") }
+        val headshots = listOf(100.0, 100.5, 199.9).map { event(it, "headshot") }
+        val s = session(listOf(100, 200, 300, 400)).let {
+            it.copy(timeline = it.timeline.copy(events = (it.timeline.events + event(100.5, settings.killEvent) + shots + headshots).sortedBy { e -> e.at }))
+        }
+        val traits = MontagePlanner.groups(listOf(s), settings).flatMap { g -> g.kills.map { g.traitsOf(it) } }
+        // Double kill d'une balle chacun, rafale finie à la tête, kill sans tir entendu, one-shot au corps.
+        traits.map { it.shots } shouldBe listOf(1, 1, 4, null, 1)
+        traits.map { it.oneTap } shouldBe listOf(true, true, false, false, false)
+    }
+
+    test("one taps : sans tir entendu dans la partie, le nombre de tirs reste inconnu") {
+        val s = session(listOf(100)).let {
+            it.copy(timeline = it.timeline.copy(events = it.timeline.events + TimelineEvent(100.seconds, "headshot", 1.0, "n")))
+        }
+        val traits = MontagePlanner.groups(listOf(s), settings).single().traits.single()
+        traits.shots shouldBe null
+        traits.oneTap shouldBe false
+    }
+
     fun withDeaths(s: Session, deaths: List<Double>) =
         s.copy(timeline = s.timeline.copy(events = (s.timeline.events + deaths.map { TimelineEvent(it.seconds, "death", 1.0, "n") }).sortedBy { it.at }))
 

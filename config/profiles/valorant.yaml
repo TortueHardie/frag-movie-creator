@@ -57,6 +57,31 @@ detectors:
       # 0,23 s en médiane après les kills d'Outplayed recalés sur le killfeed (la troisième : 0,5 s avant).
       offset: -150ms
 
+  # Tirs du joueur dans le son du jeu : les attaques les plus fortes de la partie (son arme ; tirs adverses, pas et
+  # capacités arrivent atténués). Avec ou sans Outplayed, qui ne transmet pas les tirs : c'est ce qui désigne les kills
+  # d'une seule balle (one taps). Mesuré sur deux parties : les rafales du Vandal (une balle toutes les 0,1 s) ne
+  # redescendent que de 6 à 10 dB entre deux balles, une sur deux à quatre sur cinq y échappe ; deux sprays sur 23 kills
+  # passaient pour des one taps. Le compteur de munitions (montage.killStyle.ammo) les confirme donc avant le montage.
+  - id: game-shots
+    type: game-sounds
+    weight: 0
+    params:
+      shots: { minRiseDb: 9, percentile: 0.9, belowDb: 10 }
+
+  # Tirs à la tête sans Outplayed : le son de l'impact à la tête, reconnu à son empreinte. Gabarit de 90 ms pris
+  # 66 ms après un kill à la tête (partie du 25/09, 548,05 s, piste du jeu), le motif qui revenait le plus dans les
+  # 9 headshots d'Outplayed de deux parties et le moins dans les 14 kills au corps. Mesuré autour des 23 kills : les
+  # headshots montent à 0,72-0,78 (4 sur les 8 autres), les kills au corps plafonnent à 0,64. Seuil 0,7 : aucun faux
+  # headshot, la moitié des vrais manqués (le son se perd dans la rafale). À revoir sur d'autres parties.
+  - id: headshot-sound
+    type: game-sounds
+    fallbackFor: game-events
+    weight: 0
+    params:
+      shots: null
+      sounds:
+        headshot: { file: templates/valorant/headshot.wav, threshold: 0.7, minHz: 1000, maxHz: 12000 }
+
   # Prises de parole sur la piste micro : un moment n'est jamais coupé au milieu d'une phrase ou d'un rire.
   - id: voice
     type: voice-activity
@@ -116,6 +141,12 @@ edit:
 montage:
   # Les instants des kills sont déjà corrigés du retard d'Outplayed (offsets de game-events) : rien à compenser.
   killOffset: 0ms
+  # Montage onetaps : les one taps entendus sont confirmés sur le compteur de munitions du chargeur (les chiffres, à
+  # gauche de l'icône du chargeur ; zone mesurée en 16:9, accrochée au centre). Mesuré sur une partie en 3440x1440 :
+  # 111 balles sur 111 retrouvées autour de 14 kills, là où le son en manquait dans les rafales. Non vérifié en 16:9.
+  killStyle:
+    ammo:
+      region: { x: 0.650, y: 0.925, width: 0.050, height: 0.045 }
   # Raccords sur la pose de l'arme : dans VALORANT, on tire à la hanche, l'arme immobile en bas à droite. Une coupe
   # se raccorde quand les deux plans tiennent la même arme de la même façon : elle reste en place, le décor change.
   # Zone serrée sur l'arme (mesurée en 16:9), comparée en entier : au kill, l'arme tremble sous le recul et ce sont

@@ -71,7 +71,8 @@ class KillInspector(private val ffmpeg: FfmpegService) {
         log.info {
             "Kills inspectés : $total, ${shifted.size} recalés sur le tir" +
                 (if (shifted.isEmpty()) "" else " (écart moyen ${shifted.map { it.shift.inWholeMilliseconds }.average().roundToInt()} ms)") +
-                ", ${kills.count { it.flick >= KillTraits.STRONG_FLICK }} flick(s), ${kills.count { it.headshot }} tir(s) à la tête"
+                ", ${kills.count { it.flick >= KillTraits.STRONG_FLICK }} flick(s), ${kills.count { it.headshot }} tir(s) à la tête" +
+                (if (kills.none { it.shots != null }) "" else ", ${kills.count { it.oneTap }} one tap(s)")
         }
         progress.complete()
         return inspected

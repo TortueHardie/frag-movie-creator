@@ -61,6 +61,18 @@ class StatisticsTest : FunSpec({
         Statistics.sources(listOf(session("2026-09-27T20:00:00Z", events = killfeed)), "death") shouldBe setOf("killfeed")
     }
 
+    test("kills du killfeed, tirs à la tête entendus dans le son du jeu : seuls ceux qui tuent comptent") {
+        val killfeed = events.filter { it.kind != "headshot" }.map { it.copy(detectorId = "killfeed") }
+        // Deux tirs à la tête sur des kills, un troisième qui n'a pas tué (240 s, loin de tout kill).
+        val heard = listOf(ev(100, "headshot", "headshot-sound"), ev(102, "headshot", "headshot-sound"), ev(240, "headshot", "headshot-sound"))
+        val g = Statistics.game(
+            session("2026-09-27T20:00:00Z", events = (killfeed + heard).sortedBy { it.at }), settings, Path("d"), "VALORANT",
+            setOf("game-events", "killfeed"), setOf("game-events", "headshot-sound"),
+        )
+        g.headshots shouldBe 2
+        g.headshotRate!! shouldBe (0.5 plusOrMinus 1e-9)
+    }
+
     test("soirées : une partie après minuit compte pour la veille, un jeu par soirée") {
         fun game(at: String, name: String, kills: Int, deaths: Int?, headshots: Int? = null) = GameStats(
             Path("${at.replace(':', '-')}.json"), Path("${at.replace(':', '-')}.mp4"), name.lowercase(), name, Instant.parse(at), 40.minutes, kills, deaths, headshots, emptyMap(), 0, 0, null, null,

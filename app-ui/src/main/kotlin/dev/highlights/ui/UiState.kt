@@ -275,6 +275,8 @@ data class MontageUiState(
     val gameAudio: GameAudio = GameAudio.FULL,
     /** Voix et rires mis en avant ; sinon le micro reste au niveau du jeu et l'écran décide seul. */
     val reactions: Boolean = false,
+    /** Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun. */
+    val oneTaps: Boolean = false,
 ) {
     val maxDuration: Duration? get() = Durations.parseOrNull(maxDurationText)?.takeIf { it.isPositive() }
     /** Musique ou dossier de musiques passé au montage, selon le mode. */

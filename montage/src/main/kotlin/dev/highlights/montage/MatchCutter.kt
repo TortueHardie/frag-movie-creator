@@ -296,6 +296,8 @@ object ScopeCuts {
         for (i in 1 until clips.size) {
             val out = plan.clips[i - 1]
             val into = plan.clips[i]
+            // Plan d'un temps : le kill ouvre le plan, rien à retailler avant lui.
+            if (into.leadIn.isPositive()) continue
             val tail = out.group.aim.tail
             // La pose mesurée précède le premier kill du groupe : sans lui à l'écran, elle ne dit rien du début du plan.
             val head = into.group.aim.head?.takeIf { into.kills.firstOrNull() == into.group.kills.first() }

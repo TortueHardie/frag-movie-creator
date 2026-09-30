@@ -25,6 +25,8 @@ data class MomentQuery(
     val clutch: Boolean = false,
     /** Tous les kills du groupe tirés à la tête. */
     val allHeadshots: Boolean = false,
+    /** Au moins un kill d'une balle à la tête dans le groupe (voir [dev.highlights.montage.KillTraits.oneTap]). */
+    val oneTaps: Boolean = false,
 ) {
     init {
         require(minKills >= 1) { "minKills doit être ≥ 1" }
@@ -37,7 +39,8 @@ data class MomentQuery(
             (to == null || (evening != null && evening <= to)) &&
             m.kills.size >= minKills &&
             (!ace || m.ace) && (!clutch || m.clutch) &&
-            (!allHeadshots || m.headshots == m.kills.size)
+            (!allHeadshots || m.headshots == m.kills.size) &&
+            (!oneTaps || m.oneTaps > 0)
     }
 }
 
@@ -54,11 +57,13 @@ data class FoundMoment(
     val clutch: Boolean,
     /** Importance (celle du montage kills : kills, score, style). */
     val rank: Double,
+    /** Kills d'une balle à la tête (0 si les balles n'ont pas été comptées). */
+    val oneTaps: Int = 0,
 ) {
     companion object {
         fun of(sessionFile: Path, game: String, profileId: String, playedAt: Instant?, g: KillGroup) = FoundMoment(
             sessionFile, g.media.path, profileId, game, playedAt, g.kills, g.kills.count { g.traitsOf(it).headshot },
-            g.outcome.ace, g.outcome.clutch, g.rank,
+            g.outcome.ace, g.outcome.clutch, g.rank, g.kills.count { g.traitsOf(it).oneTap },
         )
     }
 }

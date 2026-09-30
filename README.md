@@ -357,13 +357,14 @@ clutchs, et un graphique des kills par partie d'une soirée à l'autre. Chaque p
 
 Bouton **Rechercher** au-dessus des analyses enregistrées (ou `app search`) : tous les moments (groupes de kills,
 comme le montage kills les forme) des parties analysées, filtrés par jeu, période (7 jours, 30 jours, tout), taille
-(doublés et plus, triplés et plus), aces, clutchs, ou « tout en headshot ». On coche ceux qu'on veut, puis **Montage
+(doublés et plus, triplés et plus), aces, clutchs, « tout en headshot » ou « one taps ». On coche ceux qu'on veut, puis **Montage
 kills de N moment(s)** ouvre leurs parties et le dialogue du montage, limité à ces moments.
 
 ```powershell
 & $app search --clutch                                  # tous les clutchs, du plus fort au moins fort
 & $app search --min-kills 2 --headshots --last 7        # doublés et plus, tout en headshot, 7 dernières soirées
 & $app search --min-kills 3 --montage D:\Musique --platform tiktok   # montage des triplés et plus
+& $app search --onetaps --montage D:\Musique --platform tiktok       # montage onetaps
 ```
 
 - L'arme n'est pas un critère : ni VALORANT ni Outplayed ne la transmettent (les événements n'ont qu'un numéro d'ordre).
@@ -515,6 +516,49 @@ Windows (rien à installer), par lots et en parallèle pendant le décodage de l
 - `audio-events` : rires et exclamations détectés par YAMNet (Google, hors ligne, `config/models/`), qui deviennent
   des moments à garder (`eventBoosts`). Le journal indique les meilleurs scores pour régler les seuils.
 
+## Tirs et tirs à la tête dans le son du jeu
+
+Le détecteur `game-sounds` lit la piste du jeu une fois (48 kHz mono, en flux) et ne dépend ni d'Outplayed ni de
+l'image :
+
+- `shots` : chaque tir du joueur devient un événement `shot`. Ce sont les attaques les plus fortes de la partie (son
+  arme), les tirs lointains, les pas et les capacités étant plus faibles (`percentile`, `belowDb`). Le montage en tire
+  le nombre de balles de chaque kill (`KillTraits.shots`) : un kill d'une balle à la tête est un one tap.
+- `sounds` : un son précis reconnu à son empreinte (spectre en bandes, corrélation normalisée), par exemple le son de
+  l'impact à la tête pour les captures sans Outplayed. Le gabarit s'extrait une fois d'une capture, au ras du début
+  du son : `ffmpeg -ss 548.054 -t 0.09 -i partie.mp4 -map 0:a:1 -ac 1 config/templates/valorant/headshot.wav`. Le
+  journal donne les meilleures ressemblances pour régler `threshold`.
+
+Mesuré sur deux parties VALORANT (23 kills, dont 9 headshots selon Outplayed) :
+
+- Les tirs isolés sont bien entendus, pas les rafales : entre deux balles du Vandal (0,1 s), le son ne redescend que
+  de 6 à 10 dB, et une balle sur deux à quatre sur cinq passe inaperçue. Deux sprays passaient ainsi pour des one taps.
+  Le montage onetaps les confirme sur le compteur de munitions (ci-dessous).
+- Le gabarit du son headshot livré reconnaît la moitié des headshots (0,72 à 0,78) sans aucun faux (kills au corps à
+  0,64 au plus), au seuil 0,7. Un premier réglage, pris dans l'une de ces deux parties : à revoir sur d'autres.
+
+## Montage onetaps
+
+Case « Onetaps » du dialogue du montage kills, `montage --onetaps` ou `search --onetaps --montage` : que les kills
+d'une balle à la tête, un plan chacun, enchaînés au rythme de la musique comme les edits TikTok. Les réglages du
+montage kills restent ceux du profil, sauf ce que `montage.oneTaps` impose : un kill par plan, ni ralenti ni accroche,
+et un kill par temps de musique. Dans un plan d'un temps (0,46 s à 130 BPM), le kill tombe sur le temps qui l'ouvre et
+la coupe le précède de 0,3 s, prises sur la fin du plan précédent : on voit la visée se poser, l'impact tombe sur le
+temps. Au-delà de 142 BPM, un temps ne laisse plus assez de contexte (0,3 s avant, 0,12 s après) : deux temps par plan.
+La drop garde son plan d'élan, le premier plan en fait deux. Fichiers `…_onetaps.mp4`.
+
+- Musique : dans un dossier, celles qui gardent des plans courts passent devant (`oneTaps.musicPace` : longueur
+  médiane des plans de 0,5 s ou moins, +0,1 à la valeur de la musique ; rien à partir d'une seconde). Le journal
+  l'affiche (« rythme +0,100 »).
+- Balles confirmées sur le compteur de munitions du HUD (`montage.killStyle.ammo`, VALORANT) : pour chaque one tap
+  entendu, une seconde d'image de la zone des chiffres est relue à 60 images/s, et chaque changement des chiffres
+  compte une balle. Mesuré : 111 balles sur 111 autour de 14 kills. Une rafale ou un compteur immobile (capacité,
+  couteau) n'est pas un one tap. Zone mesurée en 3440x1440 seulement.
+
+- Les balles viennent du détecteur `game-sounds` : une partie analysée avant lui est à réanalyser.
+- Sans tirs à la tête connus (ni Outplayed, ni gabarit du son), tout kill d'une balle compte, et le journal le dit ;
+  `montage.oneTaps.allowWithoutHeadshots: false` refuse plutôt.
+
 ## Ligne de commande
 
 ```powershell
@@ -571,7 +615,7 @@ accroché, ce qui est deviné par défaut d'après sa position.
 |---|---|
 | `core` | Modèle, interfaces (`SignalDetector`, `FfmpegService`, `EncoderSelector`…), config YAML, progression + ETA, session, décodage vidéo partagé (`FrameSampler`), FFT |
 | `ffmpeg` | Exécution FFmpeg/ffprobe via ProcessBuilder, détection des encodeurs |
-| `analysis` | Détecteurs audio et Outplayed (`audio-loudness`, `voice-activity`, `outplayed-events`), enregistrés par `ServiceLoader` |
+| `analysis` | Détecteurs audio et Outplayed (`audio-loudness`, `voice-activity`, `game-sounds`, `outplayed-events`), enregistrés par `ServiceLoader` |
 | `analysis-vision` | Détecteurs d'image (`hud-template`, `killfeed`, `ocr-log` via l'OCR de Windows) |
 | `analysis-ml` | Rires et exclamations (`audio-events`, YAMNet via ONNX Runtime) |
 | `scoring` | Normalisation par percentiles, fusion pondérée, sélection des moments |

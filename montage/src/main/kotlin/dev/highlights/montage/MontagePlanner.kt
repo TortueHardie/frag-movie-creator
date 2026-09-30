@@ -48,10 +48,18 @@ data class KillGroup(
  */
 data class KillTraits(
     val headshot: Boolean = false,
+    /**
+     * Tirs entendus sur la cible, celui qui tue compris (voir [KillStyle.oneTapWindow]). null : on ne sait pas (pas de
+     * détecteur de tirs, ou aucun tir entendu à l'instant du kill).
+     */
+    val shots: Int? = null,
     val flick: Double = 0.0,
     val shift: Duration = Duration.ZERO,
     val direction: FlickDirection? = null,
 ) {
+    /** Un seul tir, à la tête : le kill des edits « onetaps ». */
+    val oneTap: Boolean get() = headshot && shots == 1
+
     companion object {
         val NONE = KillTraits()
 
@@ -117,6 +125,11 @@ data class MontageClip(
     val outputLength: Duration,
     /** La coupe qui ouvre ce plan raccorde sur une animation du plan précédent (voir [MatchCutter]). */
     val matchCut: Boolean = false,
+    /**
+     * Plan d'un seul temps, le kill sur le temps qui l'ouvre : la coupe qui y mène avance d'autant, et le plan montre
+     * ce contexte, pris sur la fin du précédent (voir [CutSettings.singleBeat]).
+     */
+    val leadIn: Duration = Duration.ZERO,
 ) {
     val beats: Int get() = slot.beats
     val beatsPre: Int get() = anchorBeat - slot.startBeat
@@ -253,6 +266,7 @@ object MontagePlanner {
         val headshots = if (style.headshotEvent.isEmpty()) emptyList()
         else timeline.events.filter { it.kind == style.headshotEvent }.map { it.at + settings.killOffset }
         fun headshot(k: Duration) = headshots.any { (it - k).absoluteValue <= HEADSHOT_MATCH }
+        val shots = shotCounts(kills, timeline.events.filter { style.shotEvent.isNotEmpty() && it.kind == style.shotEvent }.map { it.at }, settings)
         val deaths = if (style.deathEvent.isEmpty()) emptyList()
         else timeline.events.filter { it.kind == style.deathEvent }.map { it.at + settings.killOffset }.sorted()
         val rounds = rounds(kills, deaths, style.roundGap)
@@ -277,7 +291,7 @@ object MontagePlanner {
         grouped.mapIndexed { i, ks ->
             val window = TimeRange(ks.first() - settings.preRoll, ks.last() + settings.postRoll)
             val indices = timeline.grid.let { g -> (0 until g.count).filter { g.rangeOf(it).isWithin(window) } }
-            val traits = ks.map { KillTraits(headshot = headshot(it)) }
+            val traits = ks.map { KillTraits(headshot = headshot(it), shots = shots[it]) }
             KillGroup(
                 media = session.media,
                 kills = ks,
@@ -289,6 +303,33 @@ object MontagePlanner {
                 style = style(ks, traits, outcomes[i], style),
             )
         }
+    }
+
+    /**
+     * Tirs sur la cible de chaque kill, d'après les tirs entendus ([shots], instants réels du son). Le tir qui tue est
+     * celui le plus proche de l'instant annoncé, dans la fenêtre de recalage ([MontageSettings.shotAlign]) : la
+     * notification suit le tir. Comptent avec lui les tirs des [KillStyle.oneTapWindow] d'avant, sans remonter au-delà
+     * du tir qui a tué la cible précédente. Un kill sans tir entendu reste inconnu, comme tous si aucun tir n'est connu.
+     */
+    fun shotCounts(kills: List<Duration>, shots: List<Duration>, settings: MontageSettings): Map<Duration, Int> {
+        if (shots.isEmpty()) return emptyMap()
+        val sorted = shots.sorted()
+        val align = settings.shotAlign
+        val window = settings.killStyle.oneTapWindow
+        val counts = mutableMapOf<Duration, Int>()
+        var previous: Duration? = null
+        for (kill in kills.sorted()) {
+            val fatal = sorted.filter { it in (kill - align.before)..(kill + align.after) }.minByOrNull { (it - kill).absoluteValue }
+            if (fatal == null) {
+                // Tir non entendu : la cible précédente a été tuée au plus tard à l'annonce.
+                previous = kill
+                continue
+            }
+            val from = previous?.let { maxOf(it, fatal - window) } ?: (fatal - window)
+            counts[kill] = sorted.count { it > from && it <= fatal }
+            previous = fatal
+        }
+        return counts
     }
 
     /** Round déduit des événements du joueur : ses kills, et s'il y est mort. */
@@ -447,7 +488,8 @@ object MontagePlanner {
         val period = music.beatPeriod
         val minLeadBeats = beatsCeil(cuts.minLead, period).coerceAtLeast(1)
         val minTailBeats = beatsCeil(cuts.minTail, period).coerceAtLeast(1)
-        val minBeats = maxOf(2, minLeadBeats + minTailBeats)
+        val single = singleBeat(settings, period)
+        val minBeats = if (single) 1 else maxOf(2, minLeadBeats + minTailBeats)
 
         // Grille : plus grossière quand il y a moins de clips que de plans dans la durée visée. Un montage raccourci
         // garde un plan de réserve par multi-kill et par réaction à garder : ils s'étendent sur un voisin, sans prendre
@@ -461,10 +503,10 @@ object MontagePlanner {
         // Le compter d'avance ne marche pas : un groupe prend des plans entiers, deux plans courts s'il déborde d'un.
         // Sans perdre de groupe face au passage qu'on aurait pris sans cela.
         fun select(accept: (List<CutSlot>) -> Boolean = { true }) =
-            CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size + spare, variant.scale?.let(::listOf), target, accept)
+            CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size + spare + (if (single) 1 else 0), variant.scale?.let(::listOf), target, accept)
         fun assigned(w: List<CutSlot>) = runCatching { assign(w, groups, music, settings, minLeadBeats, minTailBeats) }.getOrNull()
         val best = groups.maxByOrNull { it.rank }
-        val (scale, _, window) = if (settings.order == MontageOrder.CHRONOLOGICAL && best != null) {
+        val (scale, _, selected) = if (settings.order == MontageOrder.CHRONOLOGICAL && best != null) {
             val shown = assigned(select().window)?.size ?: 0
             // Le meilleur, ou un groupe qui le vaut ([ORDER_TOLERANCE]) : exiger le meilleur seul envoyait la drop à 95 %
             // du montage quand il est joué en dernier, alors qu'un double kill de même valeur la tenait à 41 %.
@@ -476,7 +518,14 @@ object MontagePlanner {
         } else {
             select()
         }
-        if (window.isEmpty()) throw HighlightsException("Musique trop courte pour un seul clip (${music.duration.inWholeSeconds} s)")
+        if (selected.isEmpty()) throw HighlightsException("Musique trop courte pour un seul clip (${music.duration.inWholeSeconds} s)")
+        // Le premier plan n'a pas de précédent sur lequel prendre le contexte d'avant le kill : pas d'un seul temps. Il
+        // prend le suivant, d'où le slot de plus demandé à la grille.
+        val window = if (selected.size > 1 && selected.first().beats == 1) {
+            listOf(selected[1].copy(startBeat = selected[0].startBeat)) + selected.drop(2)
+        } else {
+            selected
+        }
 
         val cells = assign(window, groups, music, settings, minLeadBeats, minTailBeats)
         val preferred = preferredOffsets(cells.map { it.first }, music, minLeadBeats, minTailBeats)
@@ -562,11 +611,20 @@ object MontagePlanner {
         return AimFit(pre, post)
     }
 
+    /**
+     * Plans d'un seul temps possibles : demandés, et un temps couvre le contexte voulu avant et après le kill (au-delà
+     * de 142 BPM avec les réglages onetaps, deux temps).
+     */
+    internal fun singleBeat(settings: MontageSettings, period: Duration): Boolean =
+        settings.cuts.singleBeat && period >= settings.cuts.minLead + settings.cuts.minTail
+
     /** Temps nécessaires pour montrer tous les kills du groupe (et finir une réaction) sans couper. */
     private fun need(g: KillGroup, settings: MontageSettings, period: Duration, minLeadBeats: Int, minTailBeats: Int): Int {
         val cuts = settings.cuts
         val slowTail = if (settings.slowMotion.enabled) settings.slowMotion.after / settings.slowMotion.factor else Duration.ZERO
         val reaction = g.protectedSegments.filter { it.end > g.kills.last() }.maxOfOrNull { it.end - g.kills.last() } ?: Duration.ZERO
+        // Un kill seul tient dans un temps : le contexte d'avant est pris sur le plan précédent.
+        if (singleBeat(settings, period) && g.span == Duration.ZERO && slowTail == Duration.ZERO && reaction + cuts.minTail <= period) return 1
         val post = maxOf(minTailBeats, beatsCeil(maxOf(reaction + cuts.minTail, slowTail + cuts.minTail), period))
         return beatsCeil(g.span + cuts.minLead, period).coerceAtLeast(minLeadBeats) + post
     }
@@ -875,7 +933,9 @@ object MontagePlanner {
                 (if (aim.post != null && slotEnd - at in aim.post) MATCH_BONUS else 0.0)
         }
         val bestMatch = candidates.maxOfOrNull(::matches) ?: 0.0
+        val single = slot.beats == 1
         val anchorBeat = when {
+            single -> slot.startBeat
             slot.dropBeat != null && slot.dropBeat in candidates -> slot.dropBeat
             candidates.isEmpty() -> slot.startBeat + maxOf(1, slot.beats / 2)
             preferred != null && preferred in candidates && fits(preferred) && matches(preferred) >= bestMatch -> preferred
@@ -977,7 +1037,10 @@ object MontagePlanner {
         val padAfter = (end - media.duration).coerceAtLeast(Duration.ZERO)
         start = start.coerceAtLeast(media.bounds.start)
         end = end.coerceAtMost(media.duration)
-        return MontageClip(group, slot, anchorBeat, anchor, start, end, padBefore, padAfter, speeds, slotEnd - slotStart)
+        return MontageClip(
+            group, slot, anchorBeat, anchor, start, end, padBefore, padAfter, speeds, slotEnd - slotStart,
+            leadIn = if (single) cuts.minLead else Duration.ZERO,
+        )
     }
 
     /**
