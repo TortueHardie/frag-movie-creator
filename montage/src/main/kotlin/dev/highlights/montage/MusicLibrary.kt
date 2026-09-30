@@ -4,6 +4,7 @@ import dev.highlights.core.HighlightsException
 import dev.highlights.core.InputException
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.model.MontageSettings
+import dev.highlights.core.model.MusicPace
 import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.serialization.SerialInstant
 import dev.highlights.core.serialization.SerialPath
@@ -174,8 +175,9 @@ internal data class StoredMusic(
 
 /**
  * Musique d'une bibliothèque essayée pour un montage. [score] : note du plan ([MontageScorer]) ; [groups] : groupes de
- * kills qu'il montre ; [recency] : retenue pour avoir servi à un montage récent ; [value] : la note rapportée aux kills
- * gardés, moins la retenue, ce qui départage les musiques. [error] : aucun plan possible sur cette musique.
+ * kills qu'il montre ; [recency] : retenue pour avoir servi à un montage récent ; [pace] : avance pour des plans courts
+ * ([MontageSettings.musicPace]) ; [value] : la note rapportée aux kills gardés, plus l'avance, moins la retenue, ce qui
+ * départage les musiques. [error] : aucun plan possible sur cette musique.
  */
 data class MusicCandidate(
     val music: MusicAnalysis,
@@ -185,6 +187,7 @@ data class MusicCandidate(
     val value: Double,
     val error: String? = null,
     val recency: Double = 0.0,
+    val pace: Double = 0.0,
 )
 
 /**
@@ -288,15 +291,28 @@ object MusicChoice {
         val most = tried.maxOf { it.groups }.coerceAtLeast(1)
         val ranked = tried.map { c ->
             val recency = recency(c.music.file, recent)
-            c.copy(value = if (c.plan == null) 0.0 else c.score * c.groups / most - recency, recency = recency)
+            val pace = c.plan?.let { pace(it, settings.musicPace) } ?: 0.0
+            c.copy(value = if (c.plan == null) 0.0 else c.score * c.groups / most + pace - recency, recency = recency, pace = pace)
         }
             .sortedWith(compareBy<MusicCandidate> { it.plan == null }.thenByDescending { it.value }.thenBy { it.music.file.toString().lowercase() })
         log.info {
             "Choix de la musique : " + ranked.joinToString(", ") { c ->
-                "${c.music.file.fileName} " + (c.error?.let { "(aucun plan : $it)" } ?: "%.3f (note %.3f, %d groupe(s)%s)".format(c.value, c.score, c.groups, if (c.recency > 0) ", récente -%.3f".format(c.recency) else ""))
+                "${c.music.file.fileName} " + (c.error?.let { "(aucun plan : $it)" } ?: "%.3f (note %.3f, %d groupe(s)%s)".format(c.value, c.score, c.groups, (if (c.pace > 0) ", rythme +%.3f".format(c.pace) else "") + if (c.recency > 0) ", récente -%.3f".format(c.recency) else ""))
             }
         }
         return ranked
+    }
+
+    /**
+     * Avance d'un plan pour la longueur médiane de ses plans hors drop (celui de la drop garde son élan quel que soit le
+     * tempo) : [MusicPace.weight] jusqu'à [MusicPace.fast], rien à partir de [MusicPace.slow].
+     */
+    fun pace(plan: MontagePlan, preference: MusicPace?): Double {
+        val p = preference ?: return 0.0
+        val lengths = plan.clips.filter { it.slot.dropBeat == null }.map { it.outputLength }.sorted()
+        if (lengths.isEmpty()) return 0.0
+        val median = lengths[lengths.size / 2]
+        return p.weight * (1.0 - ((median - p.fast) / (p.slow - p.fast)).coerceIn(0.0, 1.0))
     }
 
     /** Réglages du montage pour une musique : prise depuis son début ou non. */

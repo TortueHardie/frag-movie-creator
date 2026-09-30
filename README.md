@@ -526,18 +526,34 @@ l'image :
   le nombre de balles de chaque kill (`KillTraits.shots`) : un kill d'une balle à la tête est un one tap.
 - `sounds` : un son précis reconnu à son empreinte (spectre en bandes, corrélation normalisée), par exemple le son de
   l'impact à la tête pour les captures sans Outplayed. Le gabarit s'extrait une fois d'une capture, au ras du début
-  du son : `ffmpeg -ss 754.32 -t 0.25 -i partie.mp4 -map 0:a:0 -ac 1 config/templates/valorant/headshot.wav`. Le
+  du son : `ffmpeg -ss 548.054 -t 0.09 -i partie.mp4 -map 0:a:1 -ac 1 config/templates/valorant/headshot.wav`. Le
   journal donne les meilleures ressemblances pour régler `threshold`.
 
-Les réglages par défaut viennent de signaux synthétiques et restent à vérifier sur de vraies parties.
+Mesuré sur deux parties VALORANT (23 kills, dont 9 headshots selon Outplayed) :
+
+- Les tirs isolés sont bien entendus, pas les rafales : entre deux balles du Vandal (0,1 s), le son ne redescend que
+  de 6 à 10 dB, et une balle sur deux à quatre sur cinq passe inaperçue. Deux sprays passaient ainsi pour des one taps.
+  Le montage onetaps les confirme sur le compteur de munitions (ci-dessous).
+- Le gabarit du son headshot livré reconnaît la moitié des headshots (0,72 à 0,78) sans aucun faux (kills au corps à
+  0,64 au plus), au seuil 0,7. Un premier réglage, pris dans l'une de ces deux parties : à revoir sur d'autres.
 
 ## Montage onetaps
 
 Case « Onetaps » du dialogue du montage kills, `montage --onetaps` ou `search --onetaps --montage` : que les kills
 d'une balle à la tête, un plan chacun, enchaînés au rythme de la musique comme les edits TikTok. Les réglages du
-montage kills restent ceux du profil, sauf ce que `montage.oneTaps` impose : un kill par plan, 2 temps par plan
-(moins d'une seconde à 130 BPM, la drop garde son élan), 0,7 s avant le kill et 0,35 s après, ni ralenti ni accroche.
-Fichiers `…_onetaps.mp4`.
+montage kills restent ceux du profil, sauf ce que `montage.oneTaps` impose : un kill par plan, ni ralenti ni accroche,
+et un kill par temps de musique. Dans un plan d'un temps (0,46 s à 130 BPM), le kill tombe sur le temps qui l'ouvre et
+la coupe le précède de 0,3 s, prises sur la fin du plan précédent : on voit la visée se poser, l'impact tombe sur le
+temps. Au-delà de 142 BPM, un temps ne laisse plus assez de contexte (0,3 s avant, 0,12 s après) : deux temps par plan.
+La drop garde son plan d'élan, le premier plan en fait deux. Fichiers `…_onetaps.mp4`.
+
+- Musique : dans un dossier, celles qui gardent des plans courts passent devant (`oneTaps.musicPace` : longueur
+  médiane des plans de 0,5 s ou moins, +0,1 à la valeur de la musique ; rien à partir d'une seconde). Le journal
+  l'affiche (« rythme +0,100 »).
+- Balles confirmées sur le compteur de munitions du HUD (`montage.killStyle.ammo`, VALORANT) : pour chaque one tap
+  entendu, une seconde d'image de la zone des chiffres est relue à 60 images/s, et chaque changement des chiffres
+  compte une balle. Mesuré : 111 balles sur 111 autour de 14 kills. Une rafale ou un compteur immobile (capacité,
+  couteau) n'est pas un one tap. Zone mesurée en 3440x1440 seulement.
 
 - Les balles viennent du détecteur `game-sounds` : une partie analysée avant lui est à réanalyser.
 - Sans tirs à la tête connus (ni Outplayed, ni gabarit du son), tout kill d'une balle compte, et le journal le dit ;

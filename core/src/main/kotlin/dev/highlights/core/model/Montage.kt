@@ -70,6 +70,8 @@ data class MontageSettings(
     val formats: List<OutputFormat> = listOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
     /** Réglages du montage « onetaps », appliqués par [forOneTaps] quand on le demande. */
     val oneTaps: OneTapMontage = OneTapMontage(),
+    /** Choix automatique de la musique : préférence pour celles qui donnent des plans courts. null : aucune. */
+    val musicPace: MusicPace? = null,
 ) {
     init {
         require(minScore in 0.0..1.0) { "montage.minScore doit être entre 0 et 1" }
@@ -88,16 +90,37 @@ data class MontageSettings(
             hook = false,
             reactions = false,
             length = length.copy(perClip = o.perClip, perExtraKill = Duration.ZERO, min = o.min),
-            cuts = cuts.copy(low = o.cut, mid = o.cut, high = o.cut, minLead = o.minLead, minTail = o.minTail),
+            cuts = cuts.copy(low = o.cut, mid = o.cut, high = o.cut, minLead = o.minLead, minTail = o.minTail, singleBeat = o.singleBeat),
             slowMotion = slowMotion.copy(enabled = false),
             speedRamp = speedRamp.copy(enabled = false),
+            musicPace = o.musicPace,
         )
     }
 }
 
 /**
+ * Préférence pour les musiques qui permettent des plans courts, dans le choix automatique de la musique : des plans
+ * (hors drop) d'une longueur médiane de [fast] ou moins gagnent [weight], de [slow] ou plus rien. Mesuré sur le plan que
+ * chaque musique donne plutôt que sur son tempo : à 160 BPM, un plan d'un temps ne laisse plus assez de contexte autour
+ * du kill et redevient un plan de deux temps (0,75 s), plus lent qu'un temps à 140 BPM (0,43 s).
+ */
+@Serializable
+data class MusicPace(
+    val fast: SerialDuration = 500.milliseconds,
+    val slow: SerialDuration = 1.seconds,
+    /** À comparer à la valeur d'une musique : sa note (0,85 environ) × la part des groupes qu'elle garde. */
+    val weight: Double = 0.1,
+) {
+    init {
+        require(fast < slow) { "montage.musicPace : fast doit être plus court que slow" }
+        require(weight >= 0) { "montage.musicPace.weight doit être positif" }
+    }
+}
+
+/**
  * Montage « onetaps » : que des kills d'une balle à la tête, enchaînés au rythme de la musique comme les edits TikTok.
- * Un plan dure 2 temps (moins d'une seconde à 130 BPM) : le kill tombe sur le premier, la coupe sur le suivant.
+ * Un plan dure un temps quand la musique le permet (0,46 s à 130 BPM) : le kill tombe sur le temps qui l'ouvre, la coupe
+ * le précède de [minLead]. Sinon (au-delà de 1 / ([minLead] + [minTail]), 142 BPM), deux temps.
  */
 @Serializable
 data class OneTapMontage(
@@ -106,16 +129,24 @@ data class OneTapMontage(
     val postRoll: SerialDuration = 350.milliseconds,
     /** Longueur visée d'un plan, quelle que soit l'intensité de la musique : ramenée au plus proche nombre de temps. */
     val cut: SerialDuration = 500.milliseconds,
-    val minLead: SerialDuration = 350.milliseconds,
-    val minTail: SerialDuration = 150.milliseconds,
+    /**
+     * Contexte avant le kill et après : la visée qui se pose, puis l'impact. Leur somme borne le tempo des plans d'un
+     * temps : 0,42 s, un temps à 142 BPM.
+     */
+    val minLead: SerialDuration = 300.milliseconds,
+    val minTail: SerialDuration = 120.milliseconds,
+    /** Plans d'un seul temps permis (voir [CutSettings.singleBeat]) : un kill par temps de musique. */
+    val singleBeat: Boolean = true,
     /** Durée visée par kill, et durée minimale du montage. */
-    val perClip: SerialDuration = 900.milliseconds,
+    val perClip: SerialDuration = 500.milliseconds,
     val min: SerialDuration = 6.seconds,
     /**
      * Sans source de tirs à la tête (ni Outplayed, ni gabarit du son), garder les kills d'une seule balle plutôt que ne
      * rien monter : un kill au corps à l'Operator passe alors pour un one tap.
      */
     val allowWithoutHeadshots: Boolean = true,
+    /** Choix de la musique : les musiques rapides, qui gardent des plans d'un temps, passent devant. */
+    val musicPace: MusicPace = MusicPace(),
 ) {
     init {
         require(preRoll >= minLead) { "montage.oneTaps.preRoll doit couvrir minLead" }
@@ -180,6 +211,12 @@ data class CutSettings(
     val preBeatFrames: Int = 1,
     /** Dans une montée de la musique, les plans raccourcissent au fur et à mesure : les coupes accélèrent avec elle. */
     val accelerateBuildUp: Boolean = true,
+    /**
+     * Plans d'un seul temps permis, quand un temps couvre [minLead] + [minTail] : le kill tombe sur le temps qui ouvre le
+     * plan, et la coupe qui y mène le précède de [minLead], pris sur la fin du plan précédent. Sans cela, un plan dure au
+     * moins deux temps, le kill tombant à l'intérieur.
+     */
+    val singleBeat: Boolean = false,
 ) {
     init {
         require(maxBeats in 4..64) { "montage.cuts.maxBeats doit être entre 4 et 64" }
@@ -236,6 +273,11 @@ data class KillStyle(
      * plus proche que ça coupe la fenêtre (deux cibles tuées d'une balle chacune font deux one taps).
      */
     val oneTapWindow: SerialDuration = 800.milliseconds,
+    /**
+     * Compteur de munitions du HUD, relu autour des one taps entendus avant de les monter : le son du jeu manque les
+     * balles d'une rafale (voir [AmmoHud]). null : on s'en tient aux tirs entendus.
+     */
+    val ammo: AmmoHud? = null,
     /** Mesure de la rotation de la caméra juste avant le kill (décodage d'une demi-seconde d'image par kill). */
     val flick: Boolean = true,
     /** Vitesse de balayage (largeurs d'écran par seconde) en dessous de laquelle ce n'est pas un flick… */
@@ -367,6 +409,32 @@ data class WeaponHud(
     init {
         require(width in 8..256 && height in 8..256) { "montage.matchCut.weapon : zone réduite entre 8 et 256 pixels" }
         require(minScore in -1.0..1.0) { "montage.matchCut.weapon.minScore doit être entre -1 et 1" }
+    }
+}
+
+/**
+ * Compteur de munitions du chargeur dans le HUD : chaque balle tirée change ses chiffres, relus image par image (blanc
+ * franc, au-dessus de [brightness] sur 255) autour d'un kill. Une image dont plus de [minChange] des pixels blancs
+ * diffèrent de la précédente compte une balle. [region] : mesurée en 16:9, accrochée au centre comme le HUD, assez large
+ * pour trois chiffres (alignés à droite contre l'icône du chargeur).
+ *
+ * Mesuré sur une partie VALORANT en 3440x1440 (14 kills, 111 balles lues à l'œil sur le compteur) : toutes les balles
+ * retrouvées, là où le son du jeu en manquait jusqu'à 4 sur 5 dans les rafales du Vandal (deux faux one taps sur 14).
+ * Le compteur descend jusqu'à 0,1 s après l'instant du kill : [after] couvre la balle qui tue et la rafale qui continue.
+ */
+@Serializable
+data class AmmoHud(
+    val region: CropRegion,
+    val brightness: Int = 200,
+    val minChange: Double = 0.15,
+    /** Balles comptées avant le kill (au plus jusqu'au kill précédent) et après (jusqu'au suivant). */
+    val before: SerialDuration = 800.milliseconds,
+    val after: SerialDuration = 300.milliseconds,
+) {
+    init {
+        require(brightness in 1..254) { "montage.killStyle.ammo.brightness doit être entre 1 et 254" }
+        require(minChange > 0 && minChange < 1) { "montage.killStyle.ammo.minChange doit être entre 0 et 1" }
+        require(before.isPositive() && !after.isNegative()) { "montage.killStyle.ammo : before positif, after positif ou nul" }
     }
 }
 

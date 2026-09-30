@@ -31,6 +31,7 @@ import dev.highlights.core.video.FrameSampler
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
+import dev.highlights.montage.AmmoCounter
 import dev.highlights.montage.KillInspector
 import dev.highlights.montage.KillMontageExporter
 import dev.highlights.montage.MatchCutter
@@ -519,7 +520,16 @@ class HighlightPipeline(
         musicStep.complete()
         val picked = MontagePlanner.groups(sessions, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: all }
         if (picked.isEmpty()) throw InputException("Aucun des moments choisis ne se retrouve dans ces sessions")
-        val found = if (options.oneTaps) OneTaps.select(picked, sessions, settings).groups else picked
+        val found = if (options.oneTaps) {
+            // Les tirs entendus désignent les candidats ; le compteur de munitions, quand le profil le décrit, les
+            // confirme : le son manque des balles dans les rafales, et une rafale n'est pas un one tap.
+            val heard = OneTaps.select(picked, sessions, settings).groups
+            settings.killStyle.ammo?.let { hud ->
+                OneTaps.select(AmmoCounter(ffmpeg).recount(heard, picked, hud, progress.child("Munitions", 0.02)), sessions, settings).groups
+            } ?: heard
+        } else {
+            picked
+        }
         val inspected = KillInspector(ffmpeg).inspect(found, settings, profile.audio, progress.child("Kills", 0.06))
         val groups = MatchCutter(ffmpeg).inspect(inspected, settings, progress.child("Visée", 0.02))
         val fromStart = options.fromStartMusics.map { it.toAbsolutePath().normalize() }.toSet()
