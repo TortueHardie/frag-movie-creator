@@ -532,6 +532,31 @@ class MontagePlannerTest : FunSpec({
         died.map { it.outcome } shouldBe listOf(RoundOutcome.NONE, RoundOutcome(traded = true))
     }
 
+    test("clutch annoncé par le jeu : il revient au groupe qui finit le round, la déduction ne compte plus") {
+        val announced = settings.copy(killStyle = settings.killStyle.copy(clutchEvent = "clutch"))
+        fun withClutches(s: Session, at: List<Double>) =
+            s.copy(timeline = s.timeline.copy(events = (s.timeline.events + at.map { TimelineEvent(it.seconds, "clutch", 1.0, "n") }).sortedBy { it.at }))
+        val base = withDeaths(session(listOf(100, 130, 132, 200)), listOf(300.0))
+        // Déduit : 130-132 serait un clutch (round survécu fini sur un doublé). Annoncé : seul ce que le jeu dit compte.
+        MontagePlanner.groups(listOf(base), settings).map { it.outcome.clutch } shouldBe listOf(false, true, false)
+        MontagePlanner.groups(listOf(base), announced).map { it.outcome.clutch } shouldBe listOf(false, false, false)
+        // 20 ms après le kill qui conclut, ou au désamorçage du spike 10 s plus tard : même groupe.
+        MontagePlanner.groups(listOf(withClutches(base, listOf(200.02))), announced).map { it.outcome.clutch } shouldBe listOf(false, false, true)
+        MontagePlanner.groups(listOf(withClutches(base, listOf(210.0))), announced).map { it.outcome.clutch } shouldBe listOf(false, false, true)
+        // Un kill entre le groupe et l'annonce : c'est le groupe suivant qui a conclu.
+        MontagePlanner.groups(listOf(withClutches(base, listOf(201.0))), announced).map { it.outcome.clutch } shouldBe listOf(false, false, true)
+        // Une mort entre les deux, ou trop tard (au-delà de l'écart entre rounds) : pas ce groupe.
+        MontagePlanner.announcedClutch(listOf(100.seconds), listOf(120.seconds), listOf(100.seconds), listOf(110.seconds), 40.seconds) shouldBe false
+        MontagePlanner.announcedClutch(listOf(100.seconds), listOf(150.seconds), listOf(100.seconds), emptyList(), 40.seconds) shouldBe false
+        // Sans mort détectée (pas de killfeed), le clutch annoncé compte quand même, et monte le groupe.
+        val noDeaths = withClutches(session(listOf(100, 101)), listOf(101.02))
+        MontagePlanner.groups(listOf(noDeaths), announced).single().let {
+            it.outcome.clutch shouldBe true
+            // Bonus du clutch, plus celui des kills enchaînés (à 1 s d'écart).
+            it.style shouldBe (announced.killStyle.clutchBonus + announced.killStyle.quickBonus plusOrMinus 1e-9)
+        }
+    }
+
     test("une mort sépare deux kills rapprochés en deux groupes") {
         val groups = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 103)), listOf(101.0))), settings)
         groups.map { g -> g.kills.map { it.inWholeSeconds } } shouldBe listOf(listOf(100L), listOf(103L))

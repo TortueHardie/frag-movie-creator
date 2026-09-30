@@ -299,11 +299,18 @@ data class KillStyle(
     val aceKills: Int = 5,
     val aceBonus: Double = 1.5,
     /**
-     * Clutch : round survécu, fini sur un groupe d'au moins [clutchKills] kills. Sans le nombre d'alliés en vie, c'est
-     * l'approche la plus proche : le joueur termine le round seul face aux derniers adversaires.
+     * Clutch déduit, faute de mieux : round survécu, fini sur un groupe d'au moins [clutchKills] kills. Sans le nombre
+     * d'alliés en vie, c'est l'approche la plus proche, mais elle en compte trop (3 déduits contre 1 réel sur une
+     * partie de VALORANT). Ignoré quand le jeu annonce ses clutchs ([clutchEvent]).
      */
     val clutchKills: Int = 2,
     val clutchBonus: Double = 0.5,
+    /**
+     * Événement de clutch annoncé par le jeu (VALORANT via Outplayed : « clutch ») ; vide : clutch déduit. Il arrive
+     * 15 à 30 ms après le kill qui conclut le round, ou au désamorçage du spike (10 s plus tard) : il revient au groupe
+     * dont le dernier kill le précède, sans kill ni mort entre les deux, à moins de [roundGap].
+     */
+    val clutchEvent: String = "",
 ) {
     init {
         require(flickTo > flickFrom) { "montage.killStyle.flickTo doit dépasser flickFrom" }

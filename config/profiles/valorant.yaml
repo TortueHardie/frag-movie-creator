@@ -31,10 +31,12 @@ detectors:
     weight: 0
     eventBoosts: { kill: 0.8, assist: 0.3 }
     params:
-      kinds: { kill: kill, death: death, assist: assist, headshot: headshot }
+      # clutch : annoncé par le jeu à la fin du round (4 parties sur 12, un par partie, comme le tableau de fin).
+      kinds: { kill: kill, death: death, assist: assist, headshot: headshot, clutch: clutch }
       # Outplayed reçoit chaque événement après son apparition dans le killfeed : 0,39 s pour les kills (22 mesurés,
-      # ±10 ms), 0,39 s en médiane pour les morts ; même retard supposé pour les assistances.
-      offsets: { kill: -390ms, death: -390ms, assist: -390ms, headshot: -390ms }
+      # ±10 ms), 0,39 s en médiane pour les morts ; même retard supposé pour les assistances. Le clutch suit le kill
+      # qui le conclut de 15 à 30 ms : même retard, pour qu'il reste après lui.
+      offsets: { kill: -390ms, death: -390ms, assist: -390ms, headshot: -390ms, clutch: -390ms }
 
   # Sans Outplayed (capture OBS, ShadowPlay…), kills et morts sont lus dans le killfeed : le portrait du joueur y est
   # pris dans un cadre jaune, à gauche quand il tue, à droite quand il meurt, quels que soient l'agent, l'arme, le skin
@@ -144,7 +146,9 @@ montage:
   # Montage onetaps : les one taps entendus sont confirmés sur le compteur de munitions du chargeur (les chiffres, à
   # gauche de l'icône du chargeur ; zone mesurée en 16:9, accrochée au centre). Mesuré sur une partie en 3440x1440 :
   # 111 balles sur 111 retrouvées autour de 14 kills, là où le son en manquait dans les rafales. Non vérifié en 16:9.
+  # Les clutchs annoncés par le jeu (game-events), plutôt que déduits : la déduction en comptait 3 pour 1 réel.
   killStyle:
+    clutchEvent: clutch
     ammo:
       region: { x: 0.650, y: 0.925, width: 0.050, height: 0.045 }
   # Raccords sur la pose de l'arme : dans VALORANT, on tire à la hanche, l'arme immobile en bas à droite. Une coupe

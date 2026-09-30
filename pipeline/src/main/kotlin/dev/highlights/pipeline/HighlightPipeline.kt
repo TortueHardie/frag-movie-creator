@@ -205,21 +205,41 @@ class HighlightPipeline(
         }.filter { query.matches(it) }.sortedWith(compareByDescending<FoundMoment> { it.rank }.thenByDescending { it.playedAt })
     }
 
-    /** Parties analysées d'un même profil, et ce qu'il sait détecter. */
+    /**
+     * Parties analysées d'un même profil, et ce qu'il sait détecter. [outdated] : sessions analysées avec d'autres
+     * réglages de détection que ceux du profil aujourd'hui (empreinte de la bibliothèque).
+     */
     private class AnalyzedGames(
         val profileId: String,
         val name: String,
         val settings: dev.highlights.core.model.MontageSettings,
         val sessions: List<Pair<Path, Session>>,
+        val outdated: Set<Path>,
     ) {
         private val deaths = Statistics.sources(sessions.map { it.second }, settings.killStyle.deathEvent)
         private val headshots = Statistics.sources(sessions.map { it.second }, settings.killStyle.headshotEvent)
+        private val clutches = Statistics.sources(sessions.map { it.second }, settings.killStyle.clutchEvent)
 
-        fun stats(file: Path, session: Session) = Statistics.game(session, settings, file, name, deaths, headshots)
+        fun stats(file: Path, session: Session) = Statistics.game(session, settings, file, name, deaths, headshots, file in outdated, clutches)
+    }
+
+    /**
+     * Réanalyse les captures dont l'analyse date d'anciens réglages de détection (voir [GameStats.outdated]), pour que
+     * leurs statistiques soient à jour. Leur session est remplacée (les moments décochés redeviennent cochés). Renvoie
+     * le nombre de captures réanalysées ; celles qui n'existent plus sont passées.
+     */
+    suspend fun refreshOutdated(progress: ProgressReporter): Int {
+        val outdated = statistics().filter { it.outdated && it.source.isRegularFile() }
+        outdated.forEachIndexed { i, g ->
+            analyze(g.source, AnalyzeOptions(profileId = g.profileId, reuse = false), progress.child("${g.source.fileName} (${i + 1}/${outdated.size})", 1.0 / outdated.size))
+        }
+        return outdated.size
     }
 
     private fun analyzedGames(): List<AnalyzedGames> {
-        val loaded = library.entries()
+        val entries = library.entries()
+        val fingerprints = entries.associate { it.sessionFile to it.fingerprint }
+        val loaded = entries
             .filter { it.duration >= Statistics.MIN_GAME }
             .distinctBy { it.source }
             .distinctBy { (it.recordedAt ?: it.analyzedAt) to it.duration }
@@ -232,7 +252,9 @@ class HighlightPipeline(
             val profile = runCatching { profiles.byId(profileId) }.getOrNull()
             val settings = profile?.montage ?: dev.highlights.core.model.MontageSettings()
             if (Statistics.sources(list.map { it.second }, settings.killEvent).isEmpty()) return@mapNotNull null
-            AnalyzedGames(profileId, profile?.displayName ?: profileId, settings, list)
+            val current = profile?.let(AnalysisLibrary::fingerprint)
+            val outdated = list.map { it.first }.filter { file -> current != null && fingerprints[file] != null && fingerprints[file] != current }.toSet()
+            AnalyzedGames(profileId, profile?.displayName ?: profileId, settings, list, outdated)
         }
     }
 

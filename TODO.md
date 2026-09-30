@@ -7,8 +7,8 @@ Pistes pour le montage « tous les kills », dans l'ordre où on compte les trai
 Un kill suivi de sa propre mort recule dans le classement ; les aces et les clutchs montent. Voir `RoundOutcome` et
 `MontagePlanner.rounds` ; réglages dans `KillStyle` (`deathPenalty`, `aceBonus`, `clutchBonus`, `roundGap`).
 
-- Reste ouvert : le clutch est déduit (round survécu, fini sur un multi-kill) faute de connaître le nombre d'alliés en
-  vie. À affiner si une source donne les rounds ou l'état de l'équipe.
+- Clutch : annoncé par le jeu quand il le transmet (VALORANT via Outplayed, `killStyle.clutchEvent`) ; sinon déduit
+  (round survécu, fini sur un multi-kill), qui en compte trop.
 
 ## 2. Transitions dans le sens du mouvement (fait)
 
@@ -165,8 +165,8 @@ au montage plein, elle s'allonge par paliers.
 - [x] Recherche dans la bibliothèque (« tous mes aces ») et montage à partir du résultat.
   `MomentQuery`, `HighlightPipeline.search`, `MomentPick` (`MontageOptions.onlyKills`), commande `search`, vue « Rechercher ».
   L'arme (« à l'Operator ») n'est pas connue : ni VALORANT ni Outplayed ne la transmettent ; il faudrait lire l'icône d'arme du killfeed.
-- [ ] Clutchs réels : Outplayed reçoit de VALORANT des événements `clutch` (et `clutchCount` par partie), non lus aujourd'hui
-  (`kinds` de valorant.yaml). Les utiliser à la place du clutch déduit, qui en compte trop (3 déduits contre 1 réel sur une partie).
+- [x] Clutchs réels : les événements `clutch` de VALORANT (via Outplayed) remplacent le clutch déduit (`killStyle.clutchEvent`),
+  qui en comptait 3 pour 1 réel. Parties analysées avant : clutchs inconnus, « Mettre à jour les analyses » / `stats --refresh`.
 
 ## Plus ambitieux
 - [ ] Modèle ML personnalisé entraîné sur les moments gardés/décochés des sessions.

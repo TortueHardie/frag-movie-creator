@@ -270,6 +270,8 @@ object MontagePlanner {
         val deaths = if (style.deathEvent.isEmpty()) emptyList()
         else timeline.events.filter { it.kind == style.deathEvent }.map { it.at + settings.killOffset }.sorted()
         val rounds = rounds(kills, deaths, style.roundGap)
+        val clutches = if (style.clutchEvent.isEmpty()) null
+        else timeline.events.filter { it.kind == style.clutchEvent }.map { it.at + settings.killOffset }.sorted()
         val roundOf = rounds.flatMapIndexed { i, r -> r.kills.map { it to i } }.toMap()
         // Un groupe ne déborde jamais sur le round suivant : une mort entre deux kills les sépare.
         val grouped = mutableListOf<MutableList<Duration>>()
@@ -278,7 +280,11 @@ object MontagePlanner {
             if (last != null && k - last.last() <= settings.mergeGap && roundOf[k] == roundOf[last.last()]) last += k else grouped += mutableListOf(k)
         }
         // Sans aucune mort annoncée, on ne sait pas si le joueur survit : ni round survécu, ni clutch, ni ace à déduire.
-        val outcomes = grouped.map { if (deaths.isEmpty()) RoundOutcome.NONE else outcome(it, deaths, rounds, style) }
+        // Un clutch annoncé par le jeu, lui, vaut même sans mort.
+        val outcomes = grouped.map { g ->
+            val base = if (deaths.isEmpty()) RoundOutcome.NONE else outcome(g, deaths, rounds, style)
+            if (clutches == null) base else base.copy(clutch = announcedClutch(g, clutches, kills, deaths, style.roundGap))
+        }
         if (outcomes.any { it != RoundOutcome.NONE }) {
             log.info {
                 "${session.media.path.fileName} : ${rounds.size} round(s) déduit(s), ${outcomes.count { it.ace }} ace(s), " +
@@ -373,6 +379,17 @@ object MontagePlanner {
             ace = closes && round.kills.size >= style.aceKills,
             clutch = closes && !round.died && group.size >= style.clutchKills,
         )
+    }
+
+    /**
+     * Le jeu annonce-t-il un clutch conclu par ce groupe ? Un clutch de [clutches] le suit à moins de [gap], sans kill
+     * ni mort entre son dernier kill et lui : c'est ce groupe qui a fini le round.
+     */
+    internal fun announcedClutch(group: List<Duration>, clutches: List<Duration>, kills: List<Duration>, deaths: List<Duration>, gap: Duration): Boolean {
+        val last = group.last()
+        return clutches.any { c ->
+            c >= last && c - last <= gap && kills.none { it > last && it <= c } && deaths.none { it > last && it <= c }
+        }
     }
 
     /** Bonus de spectacle d'un groupe, en kills : tirs à la tête, flicks, kills enchaînés, ace, clutch ; une mort aussitôt après le coûte. */

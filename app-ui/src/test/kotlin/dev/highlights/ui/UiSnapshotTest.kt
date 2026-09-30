@@ -336,6 +336,7 @@ private object NoopActions : UiActions {
     override fun montageFromSearch() = Unit
     override fun closeStats() = Unit
     override fun setStatsGame(game: String) = Unit
+    override fun refreshOutdated() = Unit
     override fun openPublish(video: java.nio.file.Path) = Unit
     override fun closePublish() = Unit
     override fun updatePublish(change: (PublishUiState) -> PublishUiState) = Unit

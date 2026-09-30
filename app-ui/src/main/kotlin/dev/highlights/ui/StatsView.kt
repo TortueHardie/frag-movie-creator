@@ -74,6 +74,22 @@ fun StatsView(stats: StatsState, actions: UiActions, modifier: Modifier = Modifi
             }
         }
         val evenings = stats.shown
+        val outdatedGames = evenings.flatMap { e -> e.games.filter { it.outdated } }
+        val outdated = outdatedGames.size
+        if (outdated > 0) {
+            val unknown = outdatedGames.count { it.clutches == null }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "$outdated partie(s) analysée(s) avec d'anciens réglages de détection" +
+                        (if (unknown > 0) ", dont $unknown aux clutchs inconnus" else "") +
+                        ". La mise à jour les réanalyse (quelques secondes chacune ; les moments décochés redeviennent cochés).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Palette.textMuted,
+                    modifier = Modifier.weight(1f),
+                )
+                androidx.compose.material3.OutlinedButton(onClick = actions::refreshOutdated) { Text("Mettre à jour les analyses") }
+            }
+        }
         Summary(evenings)
         KillsChart(evenings.take(CHART_EVENINGS).reversed())
         LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -188,11 +204,11 @@ private fun GameRow(g: GameStats, best: Boolean, actions: UiActions) {
 private fun multiKillsLabel(e: EveningStats) = multiKillsLabel(e.multiKills, e.aces, e.clutches)
 
 /** « 2 doublés, 1 triplé, 1 ace » : du plus petit multi-kill au plus gros, puis aces et clutchs. */
-internal fun multiKillsLabel(multi: Map<Int, Int>, aces: Int, clutches: Int): String = buildList {
+internal fun multiKillsLabel(multi: Map<Int, Int>, aces: Int, clutches: Int?): String = buildList {
     val labels = mapOf(2 to "doublé", 3 to "triplé", 4 to "quadruplé", 5 to "quintuplé")
     multi.toSortedMap().forEach { (size, n) -> labels[size.coerceAtMost(5)]?.let { add("$n $it${if (n > 1) "s" else ""}") } }
     if (aces > 0) add("$aces ace${if (aces > 1) "s" else ""}")
-    if (clutches > 0) add("$clutches clutch${if (clutches > 1) "s" else ""}")
+    if (clutches != null && clutches > 0) add("$clutches clutch${if (clutches > 1) "s" else ""}")
 }.joinToString(", ")
 
 private fun decimal(v: Double) = String.format(Locale.FRENCH, "%.1f", v)
