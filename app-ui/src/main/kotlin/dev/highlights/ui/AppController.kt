@@ -119,6 +119,8 @@ interface UiActions {
     fun showStats()
     fun closeStats()
     fun setStatsGame(game: String)
+    /** Réanalyse les parties analysées avec d'anciens réglages de détection, puis rouvre les statistiques. */
+    fun refreshOutdated()
 
     /** Ferme l'analyse ouverte (elle reste enregistrée) et revient à la liste des analyses. */
     fun showLibrary()
@@ -793,6 +795,17 @@ class AppController(
     override fun closeStats() = _state.update { it.copy(stats = null) }
 
     override fun setStatsGame(game: String) = _state.update { s -> s.copy(stats = s.stats?.copy(game = game)) }
+
+    override fun refreshOutdated() {
+        val p = backend?.pipeline ?: return
+        val game = state.value.stats?.game
+        runTask("Mise à jour des analyses") { progress ->
+            p.refreshOutdated(progress)
+            refreshLibrary()
+            showStats()
+            _state.update { s -> s.copy(stats = s.stats?.copy(game = game)) }
+        }
+    }
 
     // ---------------------------------------------------------------- dossier surveillé
 

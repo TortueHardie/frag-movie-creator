@@ -61,6 +61,22 @@ class StatisticsTest : FunSpec({
         Statistics.sources(listOf(session("2026-09-27T20:00:00Z", events = killfeed)), "death") shouldBe setOf("killfeed")
     }
 
+    test("clutchs annoncés : connus d'une analyse à jour dont les kills viennent du jeu, inconnus sinon") {
+        val announced = settings.copy(killStyle = settings.killStyle.copy(clutchEvent = "clutch"))
+        val withClutch = session("2026-09-27T20:00:00Z", events = events + ev(102, "clutch").copy(at = 102.02.seconds))
+        val sources = Statistics.sources(listOf(withClutch), "clutch")
+        Statistics.game(withClutch, announced, Path("a"), "VALORANT", clutchSources = sources).clutches shouldBe 1
+        // Partie à jour sans clutch : 0, pas inconnu.
+        Statistics.game(session("2026-09-27T21:00:00Z", events = events), announced, Path("b"), "VALORANT", clutchSources = sources).clutches shouldBe 0
+        // Analysée avant que le profil lise les clutchs : inconnus.
+        Statistics.game(session("2026-09-27T21:00:00Z", events = events), announced, Path("c"), "VALORANT", outdated = true, clutchSources = sources).clutches shouldBe null
+        // Capture OBS : kills du killfeed, qui n'annonce pas les clutchs.
+        val obs = session("2026-09-27T21:00:00Z", events = events.map { it.copy(detectorId = "killfeed") })
+        Statistics.game(obs, announced, Path("d"), "VALORANT", clutchSources = sources).clutches shouldBe null
+        // Clutchs déduits (profil sans clutchEvent) : toujours connus, même d'une analyse ancienne (ici, le triplé d'un round survécu).
+        Statistics.game(obs, settings, Path("e"), "VALORANT", outdated = true, clutchSources = emptySet()).clutches shouldBe 1
+    }
+
     test("soirées : une partie après minuit compte pour la veille, un jeu par soirée") {
         fun game(at: String, name: String, kills: Int, deaths: Int?, headshots: Int? = null) = GameStats(
             Path("${at.replace(':', '-')}.json"), Path("${at.replace(':', '-')}.mp4"), name.lowercase(), name, Instant.parse(at), 40.minutes, kills, deaths, headshots, emptyMap(), 0, 0, null, null,

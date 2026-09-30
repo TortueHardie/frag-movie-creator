@@ -30,11 +30,17 @@ data class GameStats(
     /** Groupes de kills par taille : 2 → doublés, 3 → triplés… */
     val multiKills: Map<Int, Int>,
     val aces: Int,
-    val clutches: Int,
+    /**
+     * null : inconnus. Clutchs annoncés par le jeu, mais partie analysée avant de les lire ([outdated]), ou kills venus
+     * d'un détecteur qui ne les annonce pas (le killfeed d'une capture OBS).
+     */
+    val clutches: Int?,
     /** Le plus de kills dans un même round ; null sans rounds connus (pas d'événement de mort). */
     val bestRound: Int?,
     /** Rounds déduits des morts ; null sans événement de mort. */
     val rounds: Int?,
+    /** Analysée avec d'autres réglages de détection que ceux du profil aujourd'hui : à réanalyser pour être à jour. */
+    val outdated: Boolean = false,
 ) {
     /** Kills par mort (les kills seuls sans mort). */
     val kd: Double? get() = deaths?.let { kills.toDouble() / it.coerceAtLeast(1) }
@@ -63,7 +69,8 @@ data class EveningStats(val date: LocalDate, val game: String, val games: List<G
     val bestRound: Int? get() = games.mapNotNull { it.bestRound }.maxOrNull()
     val multiKills: Map<Int, Int> get() = games.flatMap { it.multiKills.entries }.groupBy({ it.key }, { it.value }).mapValues { it.value.sum() }
     val aces: Int get() = games.sumOf { it.aces }
-    val clutches: Int get() = games.sumOf { it.clutches }
+    /** Clutchs connus (ceux des parties à réanalyser n'y sont pas). */
+    val clutches: Int get() = games.sumOf { it.clutches ?: 0 }
     val playTime: Duration get() = games.fold(Duration.ZERO) { acc, g -> acc + g.duration }
     /** La partie au plus de kills. */
     val bestGame: GameStats? get() = games.maxByOrNull { it.kills }
@@ -89,6 +96,8 @@ object Statistics {
         game: String,
         deathSources: Set<String>? = null,
         headshotSources: Set<String>? = null,
+        outdated: Boolean = false,
+        clutchSources: Set<String>? = null,
     ): GameStats {
         val style = settings.killStyle
         val events = session.timeline.events
@@ -113,9 +122,12 @@ object Statistics {
             headshots = headshots,
             multiKills = groups.map { it.kills.size }.filter { it > 1 }.groupingBy { it }.eachCount(),
             aces = groups.count { it.outcome.ace },
-            clutches = groups.count { it.outcome.clutch },
+            // Clutchs annoncés par le jeu : connus seulement d'une analyse à jour dont les kills viennent d'un détecteur
+            // qui les annonce ; sinon inconnus plutôt que 0. Clutchs déduits : toujours connus.
+            clutches = if (style.clutchEvent.isEmpty() || (!outdated && known(clutchSources))) groups.count { it.outcome.clutch } else null,
             bestRound = if (deaths != null) rounds.maxOfOrNull { it.kills.size } ?: 0 else null,
             rounds = if (deaths != null) rounds.size else null,
+            outdated = outdated,
         )
     }
 

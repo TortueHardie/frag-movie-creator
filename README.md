@@ -345,7 +345,10 @@ clutchs, et un graphique des kills par partie d'une soirée à l'autre. Chaque p
 ```
 
 - Rien à relancer : tout vient des sessions déjà enregistrées. Rounds, multi-kills, aces et clutchs suivent les règles
-  du montage kills (les chiffres concordent avec ce qu'il monte ; le clutch reste déduit, voir `TODO.md`).
+  du montage kills (les chiffres concordent avec ce qu'il monte).
+- **Clutchs** : en VALORANT, ceux que le jeu annonce (via Outplayed), et non plus déduits (la déduction en comptait 3
+  pour 1 réel). Une partie analysée avant ce réglage a ses clutchs « inconnus » : **Mettre à jour les analyses** (ou
+  `app stats --refresh`) la réanalyse, en quelques secondes. Une capture OBS, lue dans le killfeed, n'en a jamais.
 - Une **soirée** va jusqu'à 6 h du matin : la partie de 1 h compte pour la veille. Deux jeux ne se mélangent pas.
 - Une **partie** dure au moins 5 minutes : les clips d'Outplayed (1 min 30) n'en sont pas. La même partie enregistrée
   deux fois (deux captures qui se chevauchent de plus de moitié) ne compte qu'une, la plus riche en kills.
