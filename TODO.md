@@ -102,6 +102,16 @@ au montage plein, elle s'allonge par paliers.
 - [ ] Récap de soirée : plusieurs captures, intercalaire par partie (« Partie 3 – 14 kills »).
 - [ ] Montage « fails / morts » : morts du killfeed/Outplayed, musique comique, ralenti sur la mort.
 - [ ] Montage « réactions » : segments `laughter`/`shout` de YAMNet, micro en avant, sous-titres whisper.
+- [ ] Montage « onetaps » : que des kills en un seul tir à la tête, enchaînés très vite comme les edits TikTok.
+  - Détection : le headshot est déjà connu (`KillTraits.headshot`, événement `headshot` d'Outplayed), pas le nombre de
+    tirs. Compter les tirs avant le kill : transitoires du coup de feu dans l'audio du jeu (une seule détonation dans
+    la fenêtre ~1 s avant le kill), recoupés avec le compteur de munitions du HUD (une balle en moins) ou le recul de
+    l'arme à l'image. Nouveau trait `KillTraits.oneTap`, filtre « One tap » dans la recherche (`MomentQuery`).
+  - Rythme : plans très courts (0,4 à 1 s), coupe juste après le kill, sans accroche ni ralenti long ; un kill par
+    temps (ou demi-temps) de la musique, BPM élevé favorisé dans `MusicChoice`. Réglages dans un `montage.onetap`
+    (`perClip`, `preRoll`, `postRoll`) plutôt que de tordre `montage.length`.
+  - Habillage possible : flash blanc ou punch-in sur l'impact, son du headshot mis en avant, compteur qui défile.
+  - À trancher : les onetaps au Sheriff/Guardian/Vandal comptent tous, ou seulement les armes « tap » (liste dans le profil).
 
 ## Habillage
 - [ ] Webcam en incrustation : seconde source synchronisée, disposition 9:16 webcam au-dessus du jeu.
@@ -141,7 +151,8 @@ au montage plein, elle s'allonge par paliers.
 
 ## Priorités suggérées
 1. Clip unique vertical.
-2. Compteur de kills à l'écran.
-3. ~~Bibliothèque musicale avec choix automatique.~~ (fait)
-4. Whoosh sur les whip pans.
-5. Ajuster début/fin d'un moment dans l'UI.
+2. Montage « onetaps » (commencer par le comptage des tirs dans l'audio).
+3. Compteur de kills à l'écran.
+4. ~~Bibliothèque musicale avec choix automatique.~~ (fait)
+5. Whoosh sur les whip pans.
+6. Ajuster début/fin d'un moment dans l'UI.
