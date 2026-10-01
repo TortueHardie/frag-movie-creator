@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.core.model.DropBurst
 import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
@@ -17,6 +18,7 @@ import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.doubles.plusOrMinus
+import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
@@ -636,4 +638,62 @@ class MontagePlannerTest : FunSpec({
         (early.dropAt!! / early.duration < late.dropAt!! / late.duration) shouldBe true
     }
 
+    test("grille : la drop en rafale découpe sa section en plans d'un temps, après le plan de la drop") {
+        val m = music()
+        val slots = CutGrid.build(m, settings.cuts, 2, burst = true)
+        val drop = slots.indexOfFirst { it.dropBeat != null }
+        slots.drop(drop + 1).forEach {
+            it.beats shouldBe 1
+            it.burst shouldBe true
+        }
+        slots.take(drop + 1).none { it.burst } shouldBe true
+        CutGrid.build(m, settings.cuts, 2).none { it.burst } shouldBe true
+    }
+
+    test("drop en rafale : un kill par temps, posé sur la frappe forte, la coupe juste avant le kill") {
+        val base = music()
+        val n = base.beats.size
+        // Grosse caisse syncopée : frappe forte au milieu des temps pairs, sur le temps des impairs.
+        val m = base.copy(sixteenthAccent = DoubleArray(4 * n) { k ->
+            val b = k / 4
+            val q = k % 4
+            if ((b % 2 == 0 && q == 2) || (b % 2 == 1 && q == 0)) 0.9 else 0.1
+        })
+        val s = settings.copy(burst = DropBurst(enabled = true), slowMotion = settings.slowMotion.copy(enabled = false))
+        val kills = (0 until 14).map { 60 + 40 * it }
+        val p = plan(kills, m, s)
+        val burst = p.clips.filter { it.slot.burst && it.beats == 1 }
+        burst.size shouldBeGreaterThan 3
+        burst.forEach { c ->
+            withClue("clip ${c.slot}") {
+                c.kills shouldHaveSize 1
+                val kill = seconds(m.beatTime(c.slot.startBeat) + c.toOutput(c.anchor))
+                val start = seconds(m.beatTime(c.slot.startBeat))
+                if (c.slot.startBeat % 2 == 0) {
+                    // Frappe à mi-temps : 250 ms après la coupe, déjà plus que burst.lead, la coupe ne recule pas.
+                    kill shouldBe (start + 0.25 plusOrMinus 1e-6)
+                    c.leadIn shouldBe Duration.ZERO
+                } else {
+                    // Frappe sur le temps : la coupe le précède de burst.lead, pris sur la fin du plan précédent.
+                    kill shouldBe (start plusOrMinus 1e-6)
+                    c.leadIn shouldBe 120.milliseconds
+                }
+            }
+        }
+        // Le scoreur compte ces kills comme synchronisés : la frappe est leur repère.
+        MontageScorer.score(p).sync shouldBe (1.0 plusOrMinus 1e-6)
+        // Sans rafale, la même musique garde ses plans de plusieurs temps.
+        plan(kills, m, settings.copy(slowMotion = s.slowMotion)).clips.none { it.slot.burst } shouldBe true
+    }
+
+    test("drop en rafale : frappe trop tardive pour laisser voir l'impact, le kill reste sur le temps") {
+        val base = music()
+        val n = base.beats.size
+        // Frappe au dernier quart du temps : 125 ms avant la coupe suivante, moins que burst.minTail.
+        val m = base.copy(sixteenthAccent = DoubleArray(4 * n) { k -> if (k % 4 == 3) 0.9 else 0.1 })
+        val s = settings.copy(burst = DropBurst(enabled = true), slowMotion = settings.slowMotion.copy(enabled = false))
+        val slot = CutSlot(70, 71, 2, burst = true)
+        MontagePlanner.burstHit(m, slot, s) shouldBe m.beatTime(70)
+        MontagePlanner.burstHit(m, slot, s.copy(burst = s.burst.copy(minTail = 100.milliseconds))) shouldBe m.beatTime(70) + 375.milliseconds
+    }
 })

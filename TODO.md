@@ -76,10 +76,19 @@ plans d'un kill coupés juste avant l'impact, des effets d'impact qui anticipent
   +138, +115, +72, +28, +13). Descente longue sur la coupe de la drop seulement ; reste à la donner au dernier groupe.
 - [x] **Densité d'effets par section** : une transition sur presque chaque coupe du drop, seulement les coupes fortes
   ailleurs. Fait : `flash.onDropCuts` (hors densité `sober`).
-- [ ] **Frappes fortes de la musique** : attaques des basses à la double-croche (pas seulement temps et contretemps),
+- [x] **Frappes fortes de la musique** : attaques des basses à la double-croche (pas seulement temps et contretemps),
   avec leur force. Ce sont elles que le drop habille, pas la grille.
-- [ ] **Drop en rafale** : dans la section du drop, un kill par frappe forte, la coupe 0 à 150 ms avant le kill (au
+  Fait : `MusicAnalysis.sixteenthAccent` et `strongHits` (analyse en version 2, la bibliothèque se réanalyse). Testé
+  sur une grosse caisse 3-3-2 synthétique : chaque coup syncopé retrouvé à moins de 30 ms, aucun charleston.
+- [x] **Drop en rafale** : dans la section du drop, un kill par frappe forte, la coupe 0 à 150 ms avant le kill (au
   lieu de `cuts.minLead` = 700 ms) ; une frappe forte sans kill reçoit une coupe ou une transition.
+  Fait : `montage.burst` (activé dans `valorant.yaml`) ; `CutGrid` découpe la drop en plans d'un temps,
+  `MontagePlanner.burstHit` pose le kill sur la frappe, `leadIn` ramène la coupe à `burst.lead` avant lui ; le scoreur
+  compte ces kills synchronisés sur leur frappe, et les flashs de la drop n'entament plus sa sobriété.
+  - [ ] Une frappe forte sans kill (plus de frappes que de kills) : aujourd'hui le plan d'un temps garde son kill sur
+    la frappe la plus forte, les autres frappes du temps ne reçoivent rien. Leur donner une coupe ou un flash.
+  - [ ] À voir sur un vrai rendu : 120 ms avant le kill suffisent-ils à lire l'action ? (référence : 0 à 150 ms).
+  - [ ] Désactivée par défaut hors VALORANT : l'essayer sur WARDOGS et LoL avant de l'activer ailleurs.
 - [ ] **Surexposition sur un kill** en milieu de plan, quand il tombe sur une frappe forte (même forme que la
   transition, sans coupe).
 - [ ] **Lignes de vitesse** : traits blancs partant du centre, 3 à 5 images, environ 250 ms avant la frappe, par-dessus

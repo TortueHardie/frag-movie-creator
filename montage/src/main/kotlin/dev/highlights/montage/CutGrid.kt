@@ -12,7 +12,11 @@ import kotlin.time.Duration.Companion.seconds
  * Emplacement d'un clip dans la musique : temps [startBeat] inclus à [endBeat] exclu, coupes sur les temps.
  * [dropBeat] : la drop tombe dans ce slot, le kill doit y atterrir.
  */
-data class CutSlot(val startBeat: Int, val endBeat: Int, val section: Int, val dropBeat: Int? = null) {
+/**
+ * Plan de la grille, de [startBeat] à [endBeat] (exclu). [burst] : plan d'un temps de la drop en rafale, son kill tombe
+ * sur la frappe la plus forte du temps (voir `DropBurst`).
+ */
+data class CutSlot(val startBeat: Int, val endBeat: Int, val section: Int, val dropBeat: Int? = null, val burst: Boolean = false) {
     val beats: Int get() = endBeat - startBeat
 }
 
@@ -45,8 +49,11 @@ object CutGrid {
         return beatsFor(target * scale, period, minBeats, cuts.maxBeats)
     }
 
-    /** Grille sur toute la musique. [scale] multiplie les durées visées : grille plus grossière quand il y a peu de clips. */
-    fun build(music: MusicAnalysis, cuts: CutSettings, minBeats: Int, scale: Double = 1.0): List<CutSlot> {
+    /**
+     * Grille sur toute la musique. [scale] multiplie les durées visées : grille plus grossière quand il y a peu de clips.
+     * [burst] : après le plan de la drop, la section de la drop est découpée en plans d'un temps (drop en rafale).
+     */
+    fun build(music: MusicAnalysis, cuts: CutSettings, minBeats: Int, scale: Double = 1.0, burst: Boolean = false): List<CutSlot> {
         val sections = music.sections
         val period = music.beatPeriod
         val lengths = sections.map { sectionBeats(it.level, cuts, period, minBeats, scale) }
@@ -69,13 +76,20 @@ object CutGrid {
                 dropSlot != null && si == dropSection - 1 -> tileBackward(slots, s.startBeat, dropSlot.startBeat, l, si, minBeats, if (accelerate) cuts.maxBeats else null)
                 dropSlot != null && si == dropSection -> {
                     slots += dropSlot
-                    tileForward(slots, dropSlot.endBeat, s.endBeat, l, si, minBeats)
+                    if (burst) tileBurst(slots, dropSlot.endBeat, s.endBeat, si)
+                    else tileForward(slots, dropSlot.endBeat, s.endBeat, l, si, minBeats)
                 }
+                burst && s.kind == SectionKind.DROP -> tileBurst(slots, s.startBeat, s.endBeat, si)
                 accelerate -> tileAccelerating(slots, s.startBeat, s.endBeat, l, si, minBeats, cuts.maxBeats)
                 else -> tileForward(slots, s.startBeat, s.endBeat, l, si, minBeats)
             }
         }
         return slots
+    }
+
+    /** Drop en rafale : un plan par temps. */
+    private fun tileBurst(slots: MutableList<CutSlot>, from: Int, to: Int, section: Int) {
+        for (k in from until to) slots += CutSlot(k, k + 1, section, burst = true)
     }
 
     private fun tileForward(slots: MutableList<CutSlot>, from: Int, to: Int, length: Int, section: Int, minBeats: Int) {
@@ -169,11 +183,12 @@ object CutGrid {
         scales: List<Double>? = null,
         target: Duration = maxDuration,
         accept: (List<CutSlot>) -> Boolean = { true },
+        burst: Boolean = false,
     ): Selection {
         var best: Selection? = null
         var bestScore = Double.NEGATIVE_INFINITY
         for (scale in scales ?: listOf(1.0, 2.0, 4.0, 8.0)) {
-            val slots = build(music, cuts, minBeats, scale)
+            val slots = build(music, cuts, minBeats, scale, burst)
             val window = window(slots, music, maxDuration, clipCount, cuts.dropPosition, target, cuts.fromStart, cuts.dropLead, accept)
             if (window.isNotEmpty()) {
                 val length = music.beatTime(window.last().endBeat) - music.beatTime(window.first().startBeat)

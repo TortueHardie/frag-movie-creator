@@ -59,6 +59,7 @@ data class MontageSettings(
     val shotAlign: ShotAlign = ShotAlign(),
     val killStyle: KillStyle = KillStyle(),
     val cuts: CutSettings = CutSettings(),
+    val burst: DropBurst = DropBurst(),
     val zoom: ZoomEffect = ZoomEffect(),
     val flash: FlashEffect = FlashEffect(),
     val whip: WhipPanEffect = WhipPanEffect(),
@@ -93,6 +94,7 @@ data class MontageSettings(
             cuts = cuts.copy(low = o.cut, mid = o.cut, high = o.cut, minLead = o.minLead, minTail = o.minTail, singleBeat = o.singleBeat),
             slowMotion = slowMotion.copy(enabled = false),
             speedRamp = speedRamp.copy(enabled = false),
+            burst = burst.copy(enabled = false),
             musicPace = o.musicPace,
         )
     }
@@ -222,6 +224,30 @@ data class CutSettings(
         require(maxBeats in 4..64) { "montage.cuts.maxBeats doit être entre 4 et 64" }
         require(dropPosition in 0.0..1.0) { "montage.cuts.dropPosition doit être entre 0 et 1" }
         require(preBeatFrames in 0..4) { "montage.cuts.preBeatFrames doit être entre 0 et 4" }
+    }
+}
+
+/**
+ * Drop en rafale : après le plan de la drop, le reste de sa section est découpé en plans d'un temps. Un kill seul par
+ * plan, posé sur la frappe la plus forte du temps (à la double-croche près, voir `MusicAnalysis.strongHits`) plutôt
+ * que sur le temps lui-même, et la coupe ne le précède que de [lead] : le kill arrive presque avec le plan. C'est ce
+ * qui fait tomber les kills « sur les drums » dans les edits TikTok (`docs/analyse-edit-reference.md` : 0 à 150 ms
+ * entre la coupe et le kill, un kill par frappe forte). Un multi-kill ou une réaction gardent des plans plus longs.
+ */
+@Serializable
+data class DropBurst(
+    /** Désactivée par défaut : elle change tout le découpage de la drop. Activée dans les profils livrés. */
+    val enabled: Boolean = false,
+    /** Contexte montré avant le kill au plus : la coupe tombe juste avant l'impact. */
+    val lead: SerialDuration = 120.milliseconds,
+    /** Après le kill, avant la coupe suivante : l'impact et la notification. */
+    val minTail: SerialDuration = 150.milliseconds,
+    /** Force minimale d'une frappe (0..1, échelle des accents de la musique) pour y poser le kill ; sinon le temps. */
+    val minHit: Double = 0.5,
+) {
+    init {
+        require(lead.isPositive() && minTail.isPositive()) { "montage.burst : durées positives attendues" }
+        require(minHit in 0.0..1.0) { "montage.burst.minHit doit être entre 0 et 1" }
     }
 }
 

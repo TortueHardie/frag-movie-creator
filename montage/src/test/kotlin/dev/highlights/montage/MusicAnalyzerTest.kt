@@ -200,4 +200,43 @@ class MusicAnalyzerTest : FunSpec({
         hits.count { !it.onBeat } shouldBeGreaterThan 4
         hits.zipWithNext().forEach { (a, b) -> (a.at < b.at) shouldBe true }
     }
+
+    test("frappes fortes : une grosse caisse syncopée (3-3-2) est trouvée entre les temps, pas le charleston") {
+        val sr = MusicAnalyzer.SAMPLE_RATE
+        val plain = beatLoop(120.0, 30)
+        val period = 0.5
+        // Par mesure, trois coups forts à 0, 1,5 et 3 temps du premier temps (1,5 + 1,5 + 1).
+        val synco = plain.copyOf()
+        val expected = mutableListOf<Double>()
+        var bar = 0.25
+        while (bar < 30) {
+            for (offset in listOf(0.0, 1.5, 3.0)) {
+                val t = bar + offset * period
+                if (offset == 1.5) expected += t
+                val start = (t * sr).toInt()
+                for (i in 0 until (0.12 * sr).toInt()) {
+                    if (start + i >= synco.size) break
+                    val x = i.toDouble() / sr
+                    synco[start + i] += (sin(2 * PI * (55 + 80 * exp(-x * 30)) * x) * exp(-x * 20) * 0.6).toFloat()
+                }
+            }
+            bar += 4 * period
+        }
+        val a = MusicAnalyzer.analyzeSamples(synco)
+        a.bpm shouldBe (120.0 plusOrMinus 1.0)
+        a.sixteenthAccent.size shouldBe 4 * a.beats.size
+        val hits = a.strongHits(8, a.beats.size - 8, 0.5)
+        hits.zipWithNext().forEach { (x, y) -> (x.at < y.at) shouldBe true }
+        // Chaque coup syncopé du milieu du morceau est une frappe forte, à moins de 30 ms.
+        val inside = expected.filter { it > a.beatTime(9).inWholeMicroseconds / 1e6 && it < a.beatTime(a.beats.size - 9).inWholeMicroseconds / 1e6 }
+        inside.size shouldBeGreaterThan 8
+        inside.forEach { t ->
+            withClue("coup à $t s") {
+                hits.any { kotlin.math.abs(it.at.inWholeMicroseconds / 1e6 - t) < 0.03 && !it.onBeat } shouldBe true
+            }
+        }
+        // Sans grosse caisse syncopée, le charleston des contretemps ne passe pas pour une frappe forte.
+        val loop = MusicAnalyzer.analyzeSamples(plain)
+        loop.strongHits(8, loop.beats.size - 8, 0.5).count { !it.onBeat } shouldBe 0
+    }
 })

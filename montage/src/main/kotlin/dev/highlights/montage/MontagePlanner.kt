@@ -503,7 +503,7 @@ object MontagePlanner {
         // Le compter d'avance ne marche pas : un groupe prend des plans entiers, deux plans courts s'il déborde d'un.
         // Sans perdre de groupe face au passage qu'on aurait pris sans cela.
         fun select(accept: (List<CutSlot>) -> Boolean = { true }) =
-            CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size + spare + (if (single) 1 else 0), variant.scale?.let(::listOf), target, accept)
+            CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size + spare + (if (single) 1 else 0), variant.scale?.let(::listOf), target, accept, burst(settings, period))
         fun assigned(w: List<CutSlot>) = runCatching { assign(w, groups, music, settings, minLeadBeats, minTailBeats) }.getOrNull()
         val best = groups.maxByOrNull { it.rank }
         val (scale, _, selected) = if (settings.order == MontageOrder.CHRONOLOGICAL && best != null) {
@@ -618,6 +618,16 @@ object MontagePlanner {
     internal fun singleBeat(settings: MontageSettings, period: Duration): Boolean =
         settings.cuts.singleBeat && period >= settings.cuts.minLead + settings.cuts.minTail
 
+    /** Drop en rafale possible : demandée, et un temps laisse l'impact se voir après un kill posé sur sa frappe. */
+    internal fun burst(settings: MontageSettings, period: Duration): Boolean =
+        settings.burst.enabled && period >= settings.burst.minTail * 2
+
+    /** Un groupe tient-il dans un plan d'un temps de la rafale : un kill seul, sans réaction à finir ni ralenti. */
+    private fun burstFits(g: KillGroup, settings: MontageSettings, period: Duration): Boolean {
+        val reaction = g.protectedSegments.filter { it.end > g.kills.last() }.maxOfOrNull { it.end - g.kills.last() } ?: Duration.ZERO
+        return g.span == Duration.ZERO && reaction + settings.burst.minTail <= period
+    }
+
     /** Temps nécessaires pour montrer tous les kills du groupe (et finir une réaction) sans couper. */
     private fun need(g: KillGroup, settings: MontageSettings, period: Duration, minLeadBeats: Int, minTailBeats: Int): Int {
         val cuts = settings.cuts
@@ -633,10 +643,10 @@ object MontagePlanner {
     private fun chronological(groups: List<KillGroup>): List<KillGroup> =
         groups.sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { g: KillGroup -> g.media }.thenBy { it.kills.first() })
 
-    private class Cell(var startBeat: Int, var endBeat: Int, val section: Int, val dropBeat: Int?) {
+    private class Cell(var startBeat: Int, var endBeat: Int, val section: Int, val dropBeat: Int?, val burst: Boolean = false) {
         var group: KillGroup? = null
         val beats: Int get() = endBeat - startBeat
-        fun toSlot() = CutSlot(startBeat, endBeat, section, dropBeat)
+        fun toSlot() = CutSlot(startBeat, endBeat, section, dropBeat, burst)
     }
 
     /** Attribue un groupe à chaque slot ; les multi-kills et réactions fusionnent des slots libres voisins. */
@@ -650,9 +660,13 @@ object MontagePlanner {
     ): List<Pair<CutSlot, KillGroup>> {
         val cuts = settings.cuts
         val period = music.beatPeriod
-        val cells = window.map { Cell(it.startBeat, it.endBeat, it.section, it.dropBeat) }.toMutableList()
+        val cells = window.map { Cell(it.startBeat, it.endBeat, it.section, it.dropBeat, it.burst) }.toMutableList()
 
         fun need(g: KillGroup): Int = need(g, settings, period, minLeadBeats, minTailBeats)
+
+        /** Dans un plan d'un temps de la rafale, un kill seul n'a besoin que de ce temps ; ailleurs, comme partout. */
+        fun need(g: KillGroup, cell: Cell): Int =
+            if (cell.burst && cell.beats == 1 && burstFits(g, settings, period)) 1 else need(g)
 
         fun importance(c: Cell) = (if (c.dropBeat != null) 10.0 else 0.0) + music.sections[c.section].intensity + 1e-4 * c.startBeat
 
@@ -711,7 +725,7 @@ object MontagePlanner {
         }
 
         fun place(index: Int, g: KillGroup) {
-            val i = grow(index, need(g))
+            val i = grow(index, need(g, cells[index]))
             cells[i].group = g
         }
 
@@ -729,7 +743,7 @@ object MontagePlanner {
                 // Multi-kills : le slot le plus important qui peut les contenir entièrement.
                 for (g in remaining.filter { it.kills.size > 1 }) {
                     val free = cells.indices.filter { cells[it].group == null }.sortedByDescending { importance(cells[it]) - monotony(it, g) }
-                    val index = free.firstOrNull { canGrow(it, need(g)) } ?: free.firstOrNull() ?: break
+                    val index = free.firstOrNull { canGrow(it, need(g, cells[it])) } ?: free.firstOrNull() ?: break
                     place(index, g)
                     remaining -= g
                 }
@@ -747,12 +761,12 @@ object MontagePlanner {
                 val before = ordered.indexOf(best)
                 // Le meilleur groupe sur la drop, les autres dans l'ordre de part et d'autre : possible si chaque côté a
                 // assez de plans. Sinon (grille qui ne s'y prête pas), l'ordre seul, comme avant.
-                val snapshot = cells.map { Cell(it.startBeat, it.endBeat, it.section, it.dropBeat) }
+                val snapshot = cells.map { Cell(it.startBeat, it.endBeat, it.section, it.dropBeat, it.burst) }
                 fun sequential(from: Int, until: () -> Int, list: List<KillGroup>): Boolean {
                     var i = from
                     for (g in list) {
                         if (i >= until()) return false
-                        i = grow(i, need(g))
+                        i = grow(i, need(g, cells[i]))
                         if (cells[i].group != null) return false
                         cells[i].group = g
                         i++
@@ -934,6 +948,8 @@ object MontagePlanner {
         }
         val bestMatch = candidates.maxOfOrNull(::matches) ?: 0.0
         val single = slot.beats == 1
+        // Drop en rafale : le kill tombe sur la frappe la plus forte du temps, pas forcément sur le temps lui-même.
+        val burst = single && slot.burst && burst(settings, music.beatPeriod)
         val anchorBeat = when {
             single -> slot.startBeat
             slot.dropBeat != null && slot.dropBeat in candidates -> slot.dropBeat
@@ -947,7 +963,7 @@ object MontagePlanner {
                     (if (tail >= reaction + cuts.minTail) 0.3 else 0.0)
             }
         }
-        val anchorTime = music.beatTime(anchorBeat)
+        val anchorTime = if (burst) burstHit(music, slot, settings, reaction) else music.beatTime(anchorBeat)
         val preOut = anchorTime - slotStart
         val postOut = slotEnd - anchorTime
 
@@ -1039,8 +1055,26 @@ object MontagePlanner {
         end = end.coerceAtMost(media.duration)
         return MontageClip(
             group, slot, anchorBeat, anchor, start, end, padBefore, padAfter, speeds, slotEnd - slotStart,
-            leadIn = if (single) cuts.minLead else Duration.ZERO,
+            // Rafale : la coupe précède le kill de burst.lead en tout, frappe tardive comprise.
+            leadIn = when {
+                burst -> (settings.burst.lead - preOut).coerceAtLeast(Duration.ZERO)
+                single -> cuts.minLead
+                else -> Duration.ZERO
+            },
         )
+    }
+
+    /**
+     * Instant du kill d'un plan de la rafale : la frappe forte la plus marquée du temps (la première à égalité), à
+     * condition que l'impact et la réaction tiennent avant la coupe suivante ; sinon le temps qui ouvre le plan.
+     */
+    internal fun burstHit(music: MusicAnalysis, slot: CutSlot, settings: MontageSettings, reaction: Duration = Duration.ZERO): Duration {
+        val start = music.beatTime(slot.startBeat)
+        val end = music.beatTime(slot.endBeat)
+        val tail = reaction + settings.burst.minTail
+        return music.strongHits(slot.startBeat, slot.startBeat, settings.burst.minHit)
+            .filter { it.at >= start && end - it.at >= tail }
+            .maxByOrNull { it.strength }?.at ?: start
     }
 
     /**

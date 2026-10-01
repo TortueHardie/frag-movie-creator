@@ -106,6 +106,11 @@ data class MusicAnalysis(
     val dropBeat: Int,
     /** Force de l'attaque au milieu de chaque temps (contretemps), sur la même échelle que [beatAccent]. Vide : inconnue. */
     val halfAccent: DoubleArray = DoubleArray(0),
+    /**
+     * Force de l'attaque à chaque double-croche (4 par temps : indice 4 × temps + quart), même échelle que [beatAccent].
+     * Une grosse caisse syncopée (3-3-2) tombe entre les temps et les contretemps. Vide : inconnue.
+     */
+    val sixteenthAccent: DoubleArray = DoubleArray(0),
 ) {
     /** Période moyenne (régression sur les temps détectés) : sert à extrapoler au-delà des temps détectés. */
     val beatPeriod: Duration get() = (60.0 / bpm).seconds
@@ -118,6 +123,26 @@ data class MusicAnalysis(
         for (b in from..to) {
             add(MusicHit(beatTime(b), beatAccent.getOrElse(b) { 0.0 }, b.toDouble()))
             if (b < to && isHalfHit(b)) add(MusicHit((beatTime(b) + beatTime(b + 1)) / 2, halfAccent[b], b + 0.5))
+        }
+    }
+
+    /**
+     * Frappes fortes de [from] à [to] inclus, à la double-croche : les attaques d'au moins [min] qui dominent leurs
+     * voisines (entre deux temps, aussi marquées que ces temps), dans l'ordre. Ce sont elles qu'un edit fait tomber avec un kill, une coupe ou un flash, pas la grille
+     * (`docs/analyse-edit-reference.md`). Sans accent à la double-croche (analyse ancienne), les frappes de [hits].
+     */
+    fun strongHits(from: Int, to: Int, min: Double): List<MusicHit> {
+        if (sixteenthAccent.isEmpty()) return hits(from, to).filter { it.strength >= min }
+        return buildList {
+            for (b in from..to) for (q in 0 until 4) {
+                val k = 4 * b + q
+                val a = sixteenthAccent.getOrElse(k) { 0.0 }
+                if (a < min || a < sixteenthAccent.getOrElse(k - 1) { 0.0 } || a < sixteenthAccent.getOrElse(k + 1) { 0.0 }) continue
+                // Entre deux temps, aussi marquée qu'eux : une grosse caisse syncopée, pas un charleston qui remplit.
+                val around = minOf(sixteenthAccent.getOrElse(4 * b) { 0.0 }, sixteenthAccent.getOrElse(4 * b + 4) { 0.0 })
+                if (q != 0 && a < HALF_HIT_RATIO * around) continue
+                add(MusicHit(beatTime(b) + (beatTime(b + 1) - beatTime(b)) * q / 4, a, b + q / 4.0))
+            }
         }
     }
 
@@ -150,7 +175,7 @@ data class MusicAnalysis(
 
 object MusicAnalyzer {
     /** À augmenter quand l'analyse change de calcul : les analyses gardées par [MusicLibrary] sont alors refaites. */
-    const val VERSION = 1
+    const val VERSION = 2
 
     /** Part de la durée du montage avant laquelle une drop doit tomber pour y compter, avec de quoi la suivre. */
     private const val REACH = 0.7
@@ -256,6 +281,13 @@ object MusicAnalyzer {
             if (mid - 2 > onset.lastIndex) 0.0
             else ((maxOf(0, mid - 2)..minOf(onset.lastIndex, mid + 2)).maxOf { onset[it] } / accentScale).coerceIn(0.0, 1.0)
         }
+        // Double-croches : même mesure à chaque quart de temps (le premier quart est le temps lui-même).
+        val sixteenthAccent = DoubleArray(4 * n) { k ->
+            val i = k / 4
+            val at = frameOf[i] + (frameOf[i + 1] - frameOf[i]) * (k % 4) / 4
+            if (at - 2 > onset.lastIndex) 0.0
+            else ((maxOf(0, at - 2)..minOf(onset.lastIndex, at + 2)).maxOf { onset[it] } / accentScale).coerceIn(0.0, 1.0)
+        }
         val low = DoubleArray(n) { i -> (frameOf[i]..minOf(frameOf[i] + 2, spec.frames - 1)).sumOf { spec.lowEnergy[it] } }
         val novelty = DoubleArray(n) { i -> if (i == 0) 0.0 else 1 - cosine(beatMel[i], beatMel[i - 1]) }
 
@@ -272,7 +304,7 @@ object MusicAnalyzer {
         log.info {
             "Structure : " + sections.joinToString(" ") { "${it.kind.name.lowercase()}(${it.beats}t, ${"%.2f".format(it.intensity)})" }
         }
-        return MusicAnalysis(file, duration, bpm, beats, phase, energy, accent, sections, drop, halfAccent)
+        return MusicAnalysis(file, duration, bpm, beats, phase, energy, accent, sections, drop, halfAccent, sixteenthAccent)
     }
 
     // ------------------------------------------------------------------ spectre

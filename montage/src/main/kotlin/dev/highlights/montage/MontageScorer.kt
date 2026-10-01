@@ -95,7 +95,13 @@ object MontageScorer {
             1.0 - ((gap - ON_BEAT) / (OFF_BEAT - ON_BEAT)).coerceIn(0.0, 1.0)
 
         // --- synchronisation : les kills d'ancrage d'abord, ce sont eux que le moteur promet sur un temps.
-        val anchorGaps = plan.clips.mapIndexed { i, c -> toBeat(offsets[i] + c.toOutput(c.anchor)) }
+        // Un plan de la drop en rafale promet son kill sur une frappe forte, qui peut tomber entre les temps.
+        val strong = music.strongHits(plan.startBeat, plan.endBeat, plan.settings.burst.minHit).map { it.at }
+        val anchorGaps = plan.clips.mapIndexed { i, c ->
+            val at = offsets[i] + c.toOutput(c.anchor)
+            val onHit = if (c.slot.burst && c.beats == 1) strong.minOfOrNull { (it - (plan.musicStart + at)).absoluteValue } else null
+            minOf(toBeat(at), onHit ?: Duration.INFINITE)
+        }
         val allGaps = plan.clips.flatMapIndexed { i, c -> c.outputKills().map { toBeat(offsets[i] + it) } }
         val sync = anchorGaps.map(::onBeat).average()
         // Les kills intermédiaires d'un multi-kill peuvent aussi viser un contretemps marqué : une frappe compte autant.
@@ -116,7 +122,8 @@ object MontageScorer {
         val emphases = plan.clips.mapIndexed { i, c -> (if (c.slow != null) 1 else 0) + (if (zooms[i]) 1 else 0) }
         val stacked = emphases.count { it > 1 }.toDouble() / plan.clips.size
         val cuts = (plan.clips.size - 1).coerceAtLeast(1)
-        val flashRate = flashes.count { it }.toDouble() / cuts
+        // Les flashs de la drop sont voulus (flash.onDropCuts) : seuls ceux d'ailleurs entament la sobriété.
+        val flashRate = flashes.indices.count { flashes[it] && !plan.clips[it].slot.burst }.toDouble() / cuts
         val restraint = (1.0 - 0.6 * stacked - 0.4 * ((flashRate - FLASH_BUDGET) / (1 - FLASH_BUDGET)).coerceIn(0.0, 1.0))
             .coerceIn(0.0, 1.0)
 

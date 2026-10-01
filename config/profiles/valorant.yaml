@@ -141,6 +141,10 @@ edit:
 montage:
   # Les instants des kills sont déjà corrigés du retard d'Outplayed (offsets de game-events) : rien à compenser.
   killOffset: 0ms
+  # Drop en rafale, comme les edits TikTok (docs/analyse-edit-reference.md) : après le plan de la drop, un kill par
+  # temps, posé sur la frappe la plus forte du temps (grosse caisse syncopée comprise), la coupe 120 ms avant.
+  burst:
+    enabled: true
   # Montage onetaps : les one taps entendus sont confirmés sur le compteur de munitions du chargeur (les chiffres, à
   # gauche de l'icône du chargeur ; zone mesurée en 16:9, accrochée au centre). Mesuré sur une partie en 3440x1440 :
   # 111 balles sur 111 retrouvées autour de 14 kills, là où le son en manquait dans les rafales. Non vérifié en 16:9.

@@ -307,6 +307,11 @@ détecte les kills). En ligne de commande :
   fluide, rendu bien plus lent). Le flash ne tombe qu'aux coupes fortes — nouvelle section, drop, multi-kill
   (`--flash-every-cut` pour toutes) — et à chaque coupe de la section de la drop (`flash.onDropCuts`) ;
   `zoom.onEveryKill: false` réserve le zoom au kill calé sur le temps.
+- **Drop en rafale** (`burst`, activée dans le profil VALORANT) : après le plan de la drop, le reste de sa section est
+  découpé en plans d'un temps. Chaque kill isolé y prend un temps, posé sur la frappe la plus forte de ce temps à la
+  double-croche près (une grosse caisse syncopée 3-3-2 tombe entre les temps), et la coupe ne le précède que de
+  `lead` (120 ms) : le kill arrive presque avec le plan. Un multi-kill ou une réaction gardent un plan plus long.
+  `minHit` : force minimale d'une frappe ; `minTail` : impact laissé visible avant la coupe suivante.
 - **Transition lumineuse** (`flash.style: glow`, par défaut ; `fade` redonne l'ancien fondu depuis le blanc) : l'image
   entière monte vers le blanc sur la fin du plan qui sort (`rise`, 100 ms), culmine sur la coupe, surexposée et floue,
   puis redescend au début du plan qui entre (`fall`, 150 ms ; `longFall`, 330 ms, sur la coupe de la drop). Profil
