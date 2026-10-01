@@ -62,6 +62,31 @@ au montage plein, elle s'allonge par paliers.
   adapté garde tous les groupes là où le montage plein en perdait jusqu'à 5 sur 20.
 - À vérifier sur de vraies parties : `perClip` (2,5 s) et `min` (12 s) sont des estimations.
 
+## 6. Style de l'edit de référence (« Unranked → Radiant »)
+
+Analyse complète : `docs/analyse-edit-reference.md`. Ce qui fait le style : chaque frappe forte du drop reçoit un
+événement à l'image (kill, coupe ou flash), une transition lumineuse de 5 images centrée sur les coupes fortes, des
+plans d'un kill coupés juste avant l'impact, des effets d'impact qui anticipent la frappe. Dans l'ordre de traitement :
+
+- [ ] **Transition lumineuse** à la place du fondu depuis le blanc : montée sur 2 images avant la coupe, pic sur la
+  coupe, descente sur 3 à 4 images ; surexposition (l'image reste lisible) et flou au pic ; version longue
+  (10 images) pour les grands moments (drop, dernier groupe).
+- [ ] **Densité d'effets par section** : une transition sur presque chaque coupe du drop, seulement les coupes fortes
+  ailleurs.
+- [ ] **Frappes fortes de la musique** : attaques des basses à la double-croche (pas seulement temps et contretemps),
+  avec leur force. Ce sont elles que le drop habille, pas la grille.
+- [ ] **Drop en rafale** : dans la section du drop, un kill par frappe forte, la coupe 0 à 150 ms avant le kill (au
+  lieu de `cuts.minLead` = 700 ms) ; une frappe forte sans kill reçoit une coupe ou une transition.
+- [ ] **Surexposition sur un kill** en milieu de plan, quand il tombe sur une frappe forte (même forme que la
+  transition, sans coupe).
+- [ ] **Lignes de vitesse** : traits blancs partant du centre, 3 à 5 images, environ 250 ms avant la frappe, par-dessus
+  la coupe.
+- [ ] **Étirement en bandes** verticales pendant la descente de quelques transitions (rare).
+- [ ] Bruitage d'impact sur la transition (creux de 200 ms puis attaque claire mesurés autour des pics) : à confirmer à
+  l'oreille avant de le brancher sur `SfxBank`.
+- [ ] Plus tard (voir « Habillage ») : écran partagé facecam / jeu, étiquette de rang qui suit la progression,
+  sous-titres mot à mot à mots-clés colorés dans le montage kills.
+
 ---
 
 # Améliorations
