@@ -29,6 +29,9 @@ object CutGrid {
     /** Poids d'une drop qui arrive sans montée : plus que l'écart d'intensité d'une intro calme gardée (0,14 mesuré). */
     private const val DROP_LEAD_WEIGHT = 0.5
 
+    /** Temps gardés après le kill de la drop quand la suite part en rafale. */
+    private const val BURST_DROP_POST = 2
+
     /** Avance d'une fenêtre acceptée sur une refusée, bien au-delà des écarts de note entre échelles (au plus 2). */
     private const val REFUSED_GAP = 10.0
 
@@ -61,7 +64,8 @@ object CutGrid {
         val dropSlot = if (dropSection > 0 && sections[dropSection].startBeat == music.dropBeat) {
             val before = sections[dropSection - 1]
             val pre = lengths[dropSection - 1].coerceIn(4, 8).coerceAtMost(before.beats)
-            val post = lengths[dropSection].coerceAtMost(8).coerceAtMost(sections[dropSection].beats)
+            // En rafale, le kill de la drop laisse vite la place aux plans d'un temps : deux temps après lui.
+            val post = (if (burst) BURST_DROP_POST else lengths[dropSection].coerceAtMost(8)).coerceAtMost(sections[dropSection].beats)
             CutSlot(music.dropBeat - pre, music.dropBeat + post, dropSection, dropBeat = music.dropBeat)
         } else {
             null

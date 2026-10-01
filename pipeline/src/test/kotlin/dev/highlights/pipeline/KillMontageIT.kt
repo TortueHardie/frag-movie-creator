@@ -94,6 +94,60 @@ class KillMontageIT : FunSpec({
         report.sections.isNotEmpty() shouldBe true
     }
 
+    test("style edit TikTok (profil VALORANT) : drop en rafale, lignes de vitesse et surexposition rendues").config(enabledIf = { TestMedia.available }, timeout = 5.seconds * 60) {
+        val root = tempdir().toPath()
+        val ffmpeg = TestMedia.requireFfmpeg()
+        val video = TestMedia.generate(Files.createDirectories(root.resolve("VALORANT")).resolve("partie.mp4"), durationSeconds = 120)
+        val music = root.resolve("musique.wav")
+        ffmpeg.run(
+            FfmpegCommand(
+                listOf(
+                    "-y", "-f", "lavfi",
+                    "-i", "aevalsrc='0.7*sin(2*PI*(50+90*exp(-mod(t\\,0.5)*28))*mod(t\\,0.5))*exp(-mod(t\\,0.5)*12)*(0.4+0.6*gte(t\\,30))':s=44100:d=70",
+                    music.toString(),
+                ),
+                "musique de test",
+            ),
+        )
+        val media = ffmpeg.probe(video)
+        val grid = WindowGrid(1.seconds, 1.seconds, media.duration)
+        // Des kills isolés, assez espacés pour ne pas former de multi-kills : de quoi remplir la rafale.
+        val session = Session(
+            createdAt = Instant.EPOCH,
+            media = media,
+            profileId = "valorant",
+            timeline = ScoredTimeline(grid, List(grid.count) { 0.5 }, emptyMap(), events = (1..10).map { TimelineEvent((10 * it).seconds, "kill", 1.0, "notifications") }),
+            highlights = emptyList(),
+        )
+        val config = LoadedConfig(
+            app = AppConfig(
+                ffmpeg = FfmpegSettings(hwaccelDecode = null),
+                outputDir = root.resolve("out").toString(),
+                profilesDir = Path("../config/profiles").toAbsolutePath().toString(),
+                workDir = root.resolve("work").toString(),
+            ),
+            baseDir = Path("../config").toAbsolutePath().normalize(),
+            source = null,
+        )
+        val result = Pipelines.create(config, ffmpeg).killMontage(
+            listOf(session), music, MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds), ProgressReporter.NONE,
+        )
+
+        val out = ffmpeg.probe(result.videos.getValue(OutputFormat.VERTICAL))
+        val report = Json { ignoreUnknownKeys = true }.decodeFromString(MontageReport.serializer(), result.report.readText())
+        report.profile shouldBe "valorant"
+        (out.duration.inWholeMilliseconds / 1000.0) shouldBe (report.durationSeconds plusOrMinus 0.1)
+        // Après le plan de la drop, des plans d'un temps (0,5 s) d'un kill chacun.
+        val burst = report.clips.filter { it.burst }
+        (burst.size >= 2) shouldBe true
+        burst.forEach {
+            it.beats shouldBe 1
+            it.kills shouldHaveSize 1
+        }
+        val drop = report.clips.indexOfFirst { it.onDrop }
+        report.clips.indexOfFirst { it.burst } shouldBe drop + 1
+    }
+
     test("musique choisie dans un dossier, analyses gardées d'un montage à l'autre").config(enabledIf = { TestMedia.available }, timeout = 5.seconds * 60) {
         val root = tempdir().toPath()
         val ffmpeg = TestMedia.requireFfmpeg()

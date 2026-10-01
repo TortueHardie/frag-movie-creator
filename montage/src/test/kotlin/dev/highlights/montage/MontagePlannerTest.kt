@@ -642,6 +642,8 @@ class MontagePlannerTest : FunSpec({
         val m = music()
         val slots = CutGrid.build(m, settings.cuts, 2, burst = true)
         val drop = slots.indexOfFirst { it.dropBeat != null }
+        // Le plan de la drop laisse vite la place à la rafale : deux temps après son kill.
+        slots[drop].endBeat shouldBe m.dropBeat + 2
         slots.drop(drop + 1).forEach {
             it.beats shouldBe 1
             it.burst shouldBe true

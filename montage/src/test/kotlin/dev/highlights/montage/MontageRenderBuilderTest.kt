@@ -3,14 +3,17 @@ package dev.highlights.montage
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.model.AudioStream
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.DropBurst
 import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.FlashEffect
 import dev.highlights.core.model.FlashStyle
 import dev.highlights.core.model.GameAudio
+import dev.highlights.core.model.KillFlash
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SlowAudio
+import dev.highlights.core.model.SpeedLines
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.VideoStream
 import dev.highlights.core.model.WhipPanEffect
@@ -403,5 +406,44 @@ class MontageRenderBuilderTest : FunSpec({
     test("compteur de kills : absent par défaut, présent sur demande") {
         build(plan()).filterGraph shouldNotContain "text='KILL"
         build(plan(settings.copy(text = settings.text.copy(killCounter = true)))).filterGraph shouldContain "text='KILL 3'"
+    }
+
+    test("lignes de vitesse : deux tirages d'une image, superposés une image sur deux avant chaque kill de la drop") {
+        val lines = SpeedLines(enabled = true)
+        MontageRenderBuilder.speedLineWindows(lines, listOf(100.milliseconds, 1.seconds), 30).let { w ->
+            // Kill à 0,1 s : la fenêtre commence à la coupe, pas avant.
+            w.first() shouldBe (Duration.ZERO to 100.milliseconds + 33_333.microseconds)
+            w.last() shouldBe (800.milliseconds to 1.seconds + 33_333.microseconds)
+        }
+        val source = MontageRenderBuilder.speedLinesSource(lines, 1080, 1920, 30, seed = 3, out = "r")
+        source shouldContain "color=c=black@0:s=1080x1920:r=30:d=0.0333,format=rgba,geq=r=255:g=255:b=255:a='229.5000*"
+        source shouldContain "*120"
+        source.endsWith("[r]") shouldBe true
+
+        // Plan de la drop en rafale : chaque plan d'un temps reçoit ses lignes et sa surexposition.
+        val dropMusic = music.copy(sections = listOf(MusicSection(0, 96, -14.0, 0.4), MusicSection(96, 240, -8.0, 1.0, kind = SectionKind.DROP)))
+        val s = settings.copy(
+            burst = DropBurst(enabled = true), speedLines = lines, killFlash = KillFlash(enabled = true),
+            slowMotion = settings.slowMotion.copy(enabled = false),
+        )
+        val groups = (0 until 8).map { KillGroup(media, listOf((100 + 60 * it).seconds), 1.0 - 0.05 * it, emptyList(), emptyList()) }
+        val p = MontagePlanner.plan(groups, dropMusic, s)
+        val burst = p.clips.indices.filter { p.clips[it].slot.burst && p.clips[it].beats == 1 }
+        check(burst.size >= 2) { "le plan doit avoir des plans de rafale" }
+        val graph = build(p).filterGraph
+        burst.forEach { i ->
+            graph shouldContain "[l${i}e][l${i}r0]overlay=enable='(between(t\\,"
+            graph shouldContain "[l${i}o][l${i}r1]overlay=enable='("
+        }
+        // Sans les effets, plus aucune superposition.
+        build(MontagePlanner.plan(groups, dropMusic, s.copy(speedLines = SpeedLines(), killFlash = KillFlash()))).filterGraph shouldNotContain "geq="
+    }
+
+    test("surexposition d'un kill : une image de montée, pic sur le kill, descente") {
+        MontageRenderBuilder.killFlashFilter(KillFlash(enabled = true), emptyList()) shouldBe null
+        MontageRenderBuilder.killFlashFilter(KillFlash(enabled = true), listOf(300.milliseconds)) shouldBe
+            "eq=brightness='0.4000*if(gte(t\\,0.3000)\\,max(1-(t-0.3000)/0.2000\\,0)^1.3\\,if(gte(t\\,0.2670)\\,0.5\\,0))':" +
+            "contrast='1-0.3*if(gte(t\\,0.3000)\\,max(1-(t-0.3000)/0.2000\\,0)^1.3\\,if(gte(t\\,0.2670)\\,0.5\\,0))':eval=frame"
+        MontageRenderBuilder.killFlashFilter(KillFlash(enabled = true), listOf(300.milliseconds, 900.milliseconds))!! shouldContain "brightness='0.4000*min("
     }
 })

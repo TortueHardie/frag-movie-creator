@@ -311,7 +311,12 @@ détecte les kills). En ligne de commande :
   découpé en plans d'un temps. Chaque kill isolé y prend un temps, posé sur la frappe la plus forte de ce temps à la
   double-croche près (une grosse caisse syncopée 3-3-2 tombe entre les temps), et la coupe ne le précède que de
   `lead` (120 ms) : le kill arrive presque avec le plan. Un multi-kill ou une réaction gardent un plan plus long.
-  `minHit` : force minimale d'une frappe ; `minTail` : impact laissé visible avant la coupe suivante.
+  `minHit` : force minimale d'une frappe ; `minTail` : impact laissé visible avant la coupe suivante. Le plan de la
+  drop ne garde alors que deux temps après son kill.
+- **Lignes de vitesse** (`speedLines`, activées dans le profil VALORANT) : traits blancs partant du centre, façon
+  manga, dans les 200 ms (`before`) qui précèdent chaque kill de la drop ; deux tirages alternent d'une image à
+  l'autre. **Surexposition du kill** (`killFlash`) : un kill de la drop qui tombe en cours de plan éclaire l'image
+  d'un coup, qui redescend sur 200 ms (`fall`).
 - **Transition lumineuse** (`flash.style: glow`, par défaut ; `fade` redonne l'ancien fondu depuis le blanc) : l'image
   entière monte vers le blanc sur la fin du plan qui sort (`rise`, 100 ms), culmine sur la coupe, surexposée et floue,
   puis redescend au début du plan qui entre (`fall`, 150 ms ; `longFall`, 330 ms, sur la coupe de la drop). Profil

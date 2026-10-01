@@ -108,6 +108,8 @@ data class MontageReportClip(
     /** Temps du slot où tombe le dernier kill (0 = coupe). */
     val anchorBeat: Int = 0,
     val onDrop: Boolean = false,
+    /** Plan d'un temps de la drop en rafale : son kill tombe sur une frappe forte (voir `DropBurst`). */
+    val burst: Boolean = false,
     val slowMotion: Boolean,
     /** Vitesse ajustée entre les kills pour les mettre tous sur un temps. */
     val speedRamped: Boolean = false,
@@ -206,7 +208,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                 MontageReportClip(
                     c.group.media.path.toString(), c.start.toTimecode(), c.end.toTimecode(), c.kills.map { it.toTimecode() },
                     c.outputKills().map { ((offset + it).inWholeMilliseconds / 1000.0).roundTo(3) }, c.beats,
-                    anchorBeat = c.beatsPre, onDrop = c.slot.dropBeat != null, slowMotion = c.slow != null, speedRamped = c.ramps.isNotEmpty(),
+                    anchorBeat = c.beatsPre, onDrop = c.slot.dropBeat != null, burst = c.slot.burst && c.beats == 1, slowMotion = c.slow != null, speedRamped = c.ramps.isNotEmpty(),
                     frozenSeconds = ((c.padBefore + c.padAfter).inWholeMilliseconds / 1000.0).roundTo(3),
                     headshots = c.kills.count { c.group.traitsOf(it).headshot },
                     flick = c.flick,

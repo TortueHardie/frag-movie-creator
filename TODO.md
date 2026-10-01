@@ -89,10 +89,17 @@ plans d'un kill coupés juste avant l'impact, des effets d'impact qui anticipent
     la frappe la plus forte, les autres frappes du temps ne reçoivent rien. Leur donner une coupe ou un flash.
   - [ ] À voir sur un vrai rendu : 120 ms avant le kill suffisent-ils à lire l'action ? (référence : 0 à 150 ms).
   - [ ] Désactivée par défaut hors VALORANT : l'essayer sur WARDOGS et LoL avant de l'activer ailleurs.
-- [ ] **Surexposition sur un kill** en milieu de plan, quand il tombe sur une frappe forte (même forme que la
-  transition, sans coupe).
-- [ ] **Lignes de vitesse** : traits blancs partant du centre, 3 à 5 images, environ 250 ms avant la frappe, par-dessus
-  la coupe.
+- [x] **Surexposition sur un kill** en milieu de plan, quand il tombe sur une frappe forte (même forme que la
+  transition, sans coupe). Fait : `montage.killFlash` (activé dans `valorant.yaml`), sur les kills de la drop hors de
+  la descente d'une transition d'entrée.
+- [x] **Lignes de vitesse** : traits blancs partant du centre, 3 à 5 images, environ 250 ms avant la frappe, par-dessus
+  la coupe. Fait : `montage.speedLines` (activé dans `valorant.yaml`), image calculée une fois par `geq`, deux tirages
+  en alternance, 200 ms avant chaque kill de la drop. Rendu vérifié dans `KillMontageIT` (profil VALORANT) : plan de la
+  drop puis 9 plans d'un temps, plus long trou ramené de 6 s à 1 s une fois le plan de la drop raccourci à deux temps
+  après son kill.
+  - [ ] Elles restent dans leur plan : les faire enjamber la coupe (fin du plan précédent) quand le kill suit la coupe
+    de près, comme sur la référence.
+  - [ ] Pas de lignes sur un plan qui a un whip pan (les deux superpositions ne sont pas combinées).
 - [ ] **Étirement en bandes** verticales pendant la descente de quelques transitions (rare).
 - [ ] Bruitage d'impact sur la transition (creux de 200 ms puis attaque claire mesurés autour des pics) : à confirmer à
   l'oreille avant de le brancher sur `SfxBank`.

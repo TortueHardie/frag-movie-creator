@@ -145,6 +145,12 @@ montage:
   # temps, posé sur la frappe la plus forte du temps (grosse caisse syncopée comprise), la coupe 120 ms avant.
   burst:
     enabled: true
+  # Sur les kills de la drop : lignes de vitesse (traits blancs partant du centre) dans les 200 ms qui précèdent, et
+  # surexposition quand le kill tombe en cours de plan.
+  speedLines:
+    enabled: true
+  killFlash:
+    enabled: true
   # Montage onetaps : les one taps entendus sont confirmés sur le compteur de munitions du chargeur (les chiffres, à
   # gauche de l'icône du chargeur ; zone mesurée en 16:9, accrochée au centre). Mesuré sur une partie en 3440x1440 :
   # 111 balles sur 111 retrouvées autour de 14 kills, là où le son en manquait dans les rafales. Non vérifié en 16:9.

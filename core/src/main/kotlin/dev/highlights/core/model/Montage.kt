@@ -62,6 +62,8 @@ data class MontageSettings(
     val burst: DropBurst = DropBurst(),
     val zoom: ZoomEffect = ZoomEffect(),
     val flash: FlashEffect = FlashEffect(),
+    val speedLines: SpeedLines = SpeedLines(),
+    val killFlash: KillFlash = KillFlash(),
     val whip: WhipPanEffect = WhipPanEffect(),
     val matchCut: MatchCut = MatchCut(),
     val slowMotion: SlowMotionEffect = SlowMotionEffect(),
@@ -420,6 +422,45 @@ data class FlashEffect(
         require(strength in 0.0..1.0) { "montage.flash.strength doit être entre 0 et 1" }
         require(blur in 0.0..0.05) { "montage.flash.blur doit être entre 0 et 0,05" }
         require(rise.isPositive() && fall.isPositive() && longFall.isPositive()) { "montage.flash : durées positives attendues" }
+    }
+}
+
+/**
+ * Lignes de vitesse sur les kills de la drop : traits blancs fins qui partent du centre de l'image, façon manga, sur les
+ * [before] qui précèdent le kill. Elles annoncent la frappe (`docs/analyse-edit-reference.md` : 3 à 5 images, environ
+ * 250 ms avant). Deux tirages alternent d'une image à l'autre : les traits vibrent au lieu de rester figés.
+ */
+@Serializable
+data class SpeedLines(
+    val enabled: Boolean = false,
+    val before: SerialDuration = 200.milliseconds,
+    /** Secteurs autour du centre ; un sur deux environ porte un trait. */
+    val rays: Int = 120,
+    /** Début des traits, en part de la diagonale de l'image (plus 0 à 18 % selon le trait) : le centre reste dégagé. */
+    val inner: Double = 0.22,
+    val opacity: Double = 0.9,
+) {
+    init {
+        require(rays in 16..400) { "montage.speedLines.rays doit être entre 16 et 400" }
+        require(inner in 0.0..0.5) { "montage.speedLines.inner doit être entre 0 et 0,5" }
+        require(opacity in 0.0..1.0) { "montage.speedLines.opacity doit être entre 0 et 1" }
+        require(before.isPositive()) { "montage.speedLines.before doit être positif" }
+    }
+}
+
+/**
+ * Surexposition sur les kills de la drop qui tombent en cours de plan : la même forme que la transition lumineuse
+ * ([FlashStyle.GLOW]), sans coupe. L'image s'éclaircit d'un coup sur le kill puis redescend sur [fall].
+ */
+@Serializable
+data class KillFlash(
+    val enabled: Boolean = false,
+    val strength: Double = 0.4,
+    val fall: SerialDuration = 200.milliseconds,
+) {
+    init {
+        require(strength in 0.0..1.0) { "montage.killFlash.strength doit être entre 0 et 1" }
+        require(fall.isPositive()) { "montage.killFlash.fall doit être positif" }
     }
 }
 

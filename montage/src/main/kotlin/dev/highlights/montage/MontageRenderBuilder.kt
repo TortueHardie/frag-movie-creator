@@ -10,10 +10,12 @@ import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.FlashEffect
 import dev.highlights.core.model.FlashStyle
 import dev.highlights.core.model.GameAudio
+import dev.highlights.core.model.KillFlash
 import dev.highlights.core.model.MontageAudio
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SafeArea
 import dev.highlights.core.model.SlowAudio
+import dev.highlights.core.model.SpeedLines
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.WhipPanEffect
 import dev.highlights.core.serialization.Durations
@@ -179,13 +181,30 @@ object MontageRenderBuilder {
             if (settings.flash.enabled && settings.flash.style == FlashStyle.GLOW) {
                 effects += glowFilters(settings.flash, enter = flashes[i], exit = flashes.getOrElse(i + 1) { false }, long = clip.slot.dropBeat != null, length = length, h = h)
             }
+            // Kills de la drop : surexposés quand ils tombent en cours de plan (la transition couvre ceux de la coupe),
+            // annoncés par des lignes de vitesse.
+            val dropKills = if (inDrop(clip)) outKills.filter { it < length } else emptyList()
+            if (settings.killFlash.enabled) {
+                // Un kill encore dans la descente de la transition lumineuse d'entrée n'est pas surexposé une seconde fois.
+                val glowEnd = if (settings.flash.enabled && settings.flash.style == FlashStyle.GLOW && flashes[i]) settings.flash.fall else Duration.ZERO
+                killFlashFilter(settings.killFlash, dropKills.filter { it >= glowEnd })?.let { effects += it }
+            }
+            val lines = if (settings.speedLines.enabled) speedLineWindows(settings.speedLines, dropKills, fps) else emptyList()
             // Le zoom arrondit largeur et hauteur séparément : `scale` modifie alors la forme des pixels (SAR), que
             // concat refuse si elle diffère d'un plan à l'autre.
             effects += "setsar=1"
             val finish = "format=yuv420p,settb=AVTB"
             val stages = whipStages(settings.whip, whips[i], whips.getOrNull(i + 1), length, w, h)
-            if (stages.isEmpty()) {
+            if (stages.isEmpty() && lines.isEmpty()) {
                 graph += "[$base]${(effects + finish).joinToString(",")}[v$i]"
+            } else if (stages.isEmpty()) {
+                // Lignes de vitesse : deux tirages d'une image, superposés une image sur deux pendant leurs fenêtres.
+                val on = lines.joinToString("+") { (a, b) -> "between(t\\,${num(secs(a))}\\,${num(secs(b))})" }
+                graph += "[$base]${effects.joinToString(",")}[l${i}e]"
+                graph += speedLinesSource(settings.speedLines, w, h, fps, seed = 3, out = "l${i}r0")
+                graph += speedLinesSource(settings.speedLines, w, h, fps, seed = 7, out = "l${i}r1")
+                graph += "[l${i}e][l${i}r0]overlay=enable='($on)*eq(mod(n\\,2)\\,0)'[l${i}o]"
+                graph += "[l${i}o][l${i}r1]overlay=enable='($on)*eq(mod(n\\,2)\\,1)',$finish[v$i]"
             } else {
                 // Whip pan : chaque étape superpose deux copies décalées du plan, puis la dernière rend le plan fini.
                 var label = "w${i}e"
@@ -348,6 +367,45 @@ object MontageRenderBuilder {
             filters += "gblur=sigma=${num(sigma)}:enable='${windows.joinToString("+")}'"
         }
         return filters
+    }
+
+    /** Plan de la drop : celui qui s'ouvre sur elle, ou un plan d'un temps de la rafale qui la suit. */
+    private fun inDrop(clip: MontageClip) = clip.slot.dropBeat != null || clip.slot.burst
+
+    /**
+     * Surexposition sur des kills en cours de plan ([kills], temps du plan) : une image de montée juste avant le kill,
+     * le pic sur le kill, puis la descente sur [KillFlash.fall]. Null sans kill.
+     */
+    internal fun killFlashFilter(flash: KillFlash, kills: List<Duration>): String? {
+        if (kills.isEmpty()) return null
+        val f = num(secs(flash.fall))
+        val e = kills.joinToString("+") { k ->
+            val tk = num(secs(k))
+            val before = num(secs(k - 33.milliseconds))
+            "if(gte(t\\,$tk)\\,max(1-(t-$tk)/$f\\,0)^1.3\\,if(gte(t\\,$before)\\,0.5\\,0))"
+        }
+        val env = if (kills.size == 1) e else "min($e\\,1)"
+        return "eq=brightness='${num(flash.strength)}*$env':contrast='1-0.3*$env':eval=frame"
+    }
+
+    /** Fenêtres des lignes de vitesse (temps du plan) : les [SpeedLines.before] qui précèdent chaque kill, jusqu'à lui. */
+    internal fun speedLineWindows(lines: SpeedLines, kills: List<Duration>, fps: Int): List<Pair<Duration, Duration>> {
+        val frame = (1_000_000L / fps).microseconds
+        return kills.map { k -> (k - lines.before).coerceAtLeast(Duration.ZERO) to k + frame }
+    }
+
+    /**
+     * Image des lignes de vitesse en [w]×[h], calculée une fois (overlay la répète ensuite) : autour du centre, des
+     * secteurs étroits tirés au hasard ([seed]) portent un trait blanc qui part d'un rayon propre à chacun. La largeur
+     * angulaire est fixe : les traits s'épaississent vers les bords, comme les traits de vitesse dessinés.
+     */
+    internal fun speedLinesSource(lines: SpeedLines, w: Int, h: Int, fps: Int, seed: Int, out: String): String {
+        val theta = "(atan2(Y-H*0.5\\,X-W/2)+PI)/(2*PI)*${lines.rays}"
+        val ray = "floor($theta)"
+        fun hash(k: String) = "(sin($ray*$k+$seed)*43758.5453-floor(sin($ray*$k+$seed)*43758.5453))"
+        val inner = "hypot(W\\,H)*(${num(lines.inner)}+0.18*${hash("78.233")})"
+        val alpha = "${num(255 * lines.opacity)}*gt(hypot(X-W/2\\,Y-H*0.5)\\,$inner)*lt(abs($theta-$ray-0.5)\\,0.07)*gt(${hash("12.9898")}\\,0.5)"
+        return "color=c=black@0:s=${w}x$h:r=$fps:d=${num(1.0 / fps)},format=rgba,geq=r=255:g=255:b=255:a='$alpha'[$out]"
     }
 
     /**
