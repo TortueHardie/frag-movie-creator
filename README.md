@@ -304,8 +304,14 @@ détecte les kills). En ligne de commande :
   kill (seulement s'il tient dans le plan), textes « DOUBLÉ / TRIPLÉ », fondu au noir final. Le ralenti s'installe par
   paliers avant le kill et le plein régime revient exactement sur un temps, au lieu d'un changement de vitesse net ;
   `slowMotion.interpolate` calcule de vraies images intermédiaires au lieu de répéter celles de la source (mouvement
-  fluide, rendu bien plus lent). Le flash blanc ne tombe qu'aux coupes fortes — nouvelle section, drop, multi-kill
-  (`--flash-every-cut` pour toutes) ; `zoom.onEveryKill: false` réserve le zoom au kill calé sur le temps.
+  fluide, rendu bien plus lent). Le flash ne tombe qu'aux coupes fortes — nouvelle section, drop, multi-kill
+  (`--flash-every-cut` pour toutes) — et à chaque coupe de la section de la drop (`flash.onDropCuts`) ;
+  `zoom.onEveryKill: false` réserve le zoom au kill calé sur le temps.
+- **Transition lumineuse** (`flash.style: glow`, par défaut ; `fade` redonne l'ancien fondu depuis le blanc) : l'image
+  entière monte vers le blanc sur la fin du plan qui sort (`rise`, 100 ms), culmine sur la coupe, surexposée et floue,
+  puis redescend au début du plan qui entre (`fall`, 150 ms ; `longFall`, 330 ms, sur la coupe de la drop). Profil
+  relevé image par image sur un edit TikTok de référence (`docs/analyse-edit-reference.md`) ; `strength` règle la
+  luminosité du pic, `blur` le flou.
 - **Son** : musique au premier plan ; le jeu remonte sur les kills. C'est l'écran qui compte : le micro reste au niveau
   du jeu, sans rien décider du montage. Avec `--reactions` (`montage.reactions`, case « Mettre en avant les
   réactions » du dialogue), voix et rires sont montés, la musique baisse pendant qu'on les entend et le plan dure

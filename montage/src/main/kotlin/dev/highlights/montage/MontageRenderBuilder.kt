@@ -7,6 +7,8 @@ import dev.highlights.core.model.AudioLayout
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.FlashEffect
+import dev.highlights.core.model.FlashStyle
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.MontageAudio
 import dev.highlights.core.model.OutputFormat
@@ -152,7 +154,7 @@ object MontageRenderBuilder {
                 effects += "scale=w='trunc($w*$z/2)*2':h='trunc($h*$z/2)*2':eval=frame:flags=${settings.zoom.scaleFlags}"
                 effects += "crop=$w:$h:(iw-$w)/2:(ih-$h)/2"
             }
-            if (settings.flash.enabled && flashes[i]) {
+            if (settings.flash.enabled && settings.flash.style == FlashStyle.FADE && flashes[i]) {
                 effects += "fade=t=in:st=0:d=${sec(settings.flash.duration)}:color=white"
             }
             if (settings.text.enabled) {
@@ -173,6 +175,10 @@ object MontageRenderBuilder {
             effects += "tpad=stop_mode=clone:stop_duration=${sec(clip.padAfter + 500.milliseconds)}"
             effects += "trim=duration=${sec(length)}"
             effects += "setpts=PTS-STARTPTS"
+            // Transition lumineuse : évaluée sur le temps du plan fini, sa montée tombe sur les dernières images.
+            if (settings.flash.enabled && settings.flash.style == FlashStyle.GLOW) {
+                effects += glowFilters(settings.flash, enter = flashes[i], exit = flashes.getOrElse(i + 1) { false }, long = clip.slot.dropBeat != null, length = length, h = h)
+            }
             // Le zoom arrondit largeur et hauteur séparément : `scale` modifie alors la forme des pixels (SAR), que
             // concat refuse si elle diffère d'un plan à l'autre.
             effects += "setsar=1"
@@ -301,9 +307,48 @@ object MontageRenderBuilder {
             clip.slot.section != plan.clips[i - 1].slot.section -> true
             // Au minimum, seules la drop et les frontières de section méritent encore un flash.
             plan.settings.effectDensity == EffectDensity.SOBER -> false
+            // Dans la section de la drop, le montage frappe avec la musique : chaque coupe est soulignée.
+            plan.settings.flash.onDropCuts && plan.music.sections.getOrNull(clip.slot.section)?.kind == SectionKind.DROP -> true
             // Les kills visibles, pas ceux du groupe : un multi-kill dont le début a été coupé n'en est plus un à l'écran.
             else -> clip.kills.size > 1
         }
+
+    /**
+     * Filtres de la transition lumineuse ([FlashStyle.GLOW]) d'un plan de [length], sur son propre temps : [enter], la
+     * coupe qui l'ouvre en porte une (l'image part du pic et redescend sur [FlashEffect.fall], ou [FlashEffect.longFall]
+     * pour le plan de la drop) ; [exit], celle qui le ferme (l'image monte sur [FlashEffect.rise] jusqu'à la coupe).
+     * Au pic, l'image est éclaircie, son contraste et ses couleurs écrasés, et floutée sur les images les plus claires.
+     * Profil mesuré sur l'edit de référence : `docs/analyse-edit-reference.md`.
+     */
+    internal fun glowFilters(flash: FlashEffect, enter: Boolean, exit: Boolean, long: Boolean, length: Duration, h: Int): List<String> {
+        if (!enter && !exit) return emptyList()
+        // Un plan très court partage ses images entre la descente et la montée.
+        val fall = minOf(if (long) flash.longFall else flash.fall, length / 2)
+        val rise = minOf(flash.rise, length / 2)
+        val f = num(secs(fall))
+        val r = num(secs(rise))
+        val from = num(secs(length - rise))
+        val x = "(t-$from)/$r"
+        val curves = listOfNotNull(
+            // Descente : rapide d'abord, puis la queue (80, 50, 20, 10 % du pic image après image à 30 img/s).
+            if (enter) "if(lt(t\\,$f)\\,pow(1-t/$f\\,1.3)\\,0)" else null,
+            // Montée en S : presque rien deux images avant la coupe, déjà l'essentiel sur la dernière.
+            if (exit) "if(gte(t\\,$from)\\,pow($x\\,2)*(3-2*$x)\\,0)" else null,
+        )
+        val e = curves.singleOrNull() ?: "max(${curves[0]}\\,${curves[1]})"
+        val filters = mutableListOf(
+            "eq=brightness='${num(flash.strength)}*$e':contrast='1-0.35*$e':saturation='1-0.5*$e':eval=frame",
+        )
+        val sigma = flash.blur * h
+        if (sigma > 0) {
+            val windows = listOfNotNull(
+                if (enter) "lt(t\\,${num(secs(fall) * 0.3)})" else null,
+                if (exit) "gte(t\\,${num(secs(length - rise * 0.4))})" else null,
+            )
+            filters += "gblur=sigma=${num(sigma)}:enable='${windows.joinToString("+")}'"
+        }
+        return filters
+    }
 
     /**
      * Sens du whip pan à la coupe qui ouvre chaque clip, ou null : coupe franche. Le plan qui s'achève sur un flick

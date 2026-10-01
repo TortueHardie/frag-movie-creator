@@ -363,15 +363,51 @@ data class ZoomEffect(
 )
 
 /**
- * Flash blanc à la coupe. Par défaut seulement aux coupes fortes (changement de section, drop, multi-kill) : à chaque
- * coupe, l'effet se retourne contre le montage et rend l'action plus difficile à suivre.
+ * Flash à la coupe. Par défaut seulement aux coupes fortes (changement de section, drop, multi-kill) : à chaque
+ * coupe, l'effet se retourne contre le montage et rend l'action plus difficile à suivre. Dans la section de la drop en
+ * revanche ([onDropCuts]), presque chaque coupe en reçoit un : c'est là que le montage frappe avec la musique.
  */
 @Serializable
 data class FlashEffect(
     val enabled: Boolean = true,
+    val style: FlashStyle = FlashStyle.GLOW,
+    /** Durée du fondu depuis le blanc ([FlashStyle.FADE]). */
     val duration: SerialDuration = 60.milliseconds,
     val onEveryCut: Boolean = false,
-)
+    /** Chaque coupe de la section de la drop reçoit un flash, pas seulement les coupes fortes. */
+    val onDropCuts: Boolean = true,
+    /**
+     * [FlashStyle.GLOW] : montée avant la coupe, sur la fin du plan qui sort. Mesuré sur l'edit de référence
+     * (`docs/analyse-edit-reference.md`) : 25 % du pic deux images avant la coupe, 80 % une image avant.
+     */
+    val rise: SerialDuration = 100.milliseconds,
+    /** [FlashStyle.GLOW] : retour à l'image normale après la coupe (référence : 80, 50, 20 puis 10 % du pic). */
+    val fall: SerialDuration = 150.milliseconds,
+    /** Retour plus lent pour les grands moments : la coupe de la drop. */
+    val longFall: SerialDuration = 330.milliseconds,
+    /** Luminosité ajoutée au pic (0..1, `eq` de FFmpeg) : l'image reste lisible dessous, ce n'est pas un écran blanc. */
+    val strength: Double = 0.5,
+    /** Flou au pic, en part de la hauteur de l'image (0 : sans flou). */
+    val blur: Double = 0.008,
+) {
+    init {
+        require(strength in 0.0..1.0) { "montage.flash.strength doit être entre 0 et 1" }
+        require(blur in 0.0..0.05) { "montage.flash.blur doit être entre 0 et 0,05" }
+        require(rise.isPositive() && fall.isPositive() && longFall.isPositive()) { "montage.flash : durées positives attendues" }
+    }
+}
+
+@Serializable
+enum class FlashStyle {
+    /** Le plan qui entre part du blanc et s'en dégage en [FlashEffect.duration]. */
+    @SerialName("fade") FADE,
+
+    /**
+     * Transition lumineuse centrée sur la coupe, celle des edits TikTok : l'image entière monte vers le blanc sur la fin
+     * du plan qui sort, culmine sur la coupe (surexposée, contraste écrasé, floue), puis le plan qui entre redescend.
+     */
+    @SerialName("glow") GLOW,
+}
 
 /**
  * Raccord en whip pan dans le sens du flick : le plan qui finit sur un flick file dans la direction où la vue tournait,

@@ -68,11 +68,14 @@ Analyse complète : `docs/analyse-edit-reference.md`. Ce qui fait le style : cha
 événement à l'image (kill, coupe ou flash), une transition lumineuse de 5 images centrée sur les coupes fortes, des
 plans d'un kill coupés juste avant l'impact, des effets d'impact qui anticipent la frappe. Dans l'ordre de traitement :
 
-- [ ] **Transition lumineuse** à la place du fondu depuis le blanc : montée sur 2 images avant la coupe, pic sur la
+- [x] **Transition lumineuse** à la place du fondu depuis le blanc : montée sur 2 images avant la coupe, pic sur la
   coupe, descente sur 3 à 4 images ; surexposition (l'image reste lisible) et flou au pic ; version longue
   (10 images) pour les grands moments (drop, dernier groupe).
-- [ ] **Densité d'effets par section** : une transition sur presque chaque coupe du drop, seulement les coupes fortes
-  ailleurs.
+  Fait : `flash.style: glow` (par défaut), `MontageRenderBuilder.glowFilters` ; `eq` évalué à chaque image et `gblur`
+  au pic. Vérifié dans FFmpeg sur l'edit lui-même : +146, +108, +71, +36, +9 de luminance après la coupe (référence
+  +138, +115, +72, +28, +13). Descente longue sur la coupe de la drop seulement ; reste à la donner au dernier groupe.
+- [x] **Densité d'effets par section** : une transition sur presque chaque coupe du drop, seulement les coupes fortes
+  ailleurs. Fait : `flash.onDropCuts` (hors densité `sober`).
 - [ ] **Frappes fortes de la musique** : attaques des basses à la double-croche (pas seulement temps et contretemps),
   avec leur force. Ce sont elles que le drop habille, pas la grille.
 - [ ] **Drop en rafale** : dans la section du drop, un kill par frappe forte, la coupe 0 à 150 ms avant le kill (au

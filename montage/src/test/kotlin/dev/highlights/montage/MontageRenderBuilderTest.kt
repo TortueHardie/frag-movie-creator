@@ -4,6 +4,8 @@ import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.model.AudioStream
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.FlashEffect
+import dev.highlights.core.model.FlashStyle
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageSettings
@@ -227,9 +229,62 @@ class MontageRenderBuilderTest : FunSpec({
         MontageRenderBuilder.flashes(p) shouldBe listOf(false, false)
         build(p).filterGraph shouldNotContain "fade=t=in"
 
-        val every = plan(settings.copy(flash = settings.flash.copy(onEveryCut = true)))
+        val every = plan(settings.copy(flash = settings.flash.copy(onEveryCut = true, style = FlashStyle.FADE)))
         MontageRenderBuilder.flashes(every) shouldBe listOf(false, true)
         build(every).filterGraph shouldContain "fade=t=in:st=0:d=0.060:color=white"
+    }
+
+    test("transition lumineuse : montée sur la fin du plan qui sort, descente au début du plan qui entre") {
+        val every = plan(settings.copy(flash = settings.flash.copy(onEveryCut = true)))
+        val graph = build(every).filterGraph
+        graph shouldNotContain "fade=t=in"
+        val outgoing = graph.split(";\n").single { it.endsWith("[v0]") }
+        val incoming = graph.split(";\n").single { it.endsWith("[v1]") }
+        fun brightness(chain: String) = chain.substringAfter("eq=brightness='").substringBefore("'")
+        // Le plan qui sort ne redescend de rien : il monte seulement, jusqu'à la coupe.
+        brightness(outgoing) shouldContain "0.5000*if(gte(t\\,"
+        brightness(outgoing) shouldNotContain "if(lt(t\\,"
+        // Le plan qui entre part du pic et redescend ; il ne remonte pas, aucune coupe flashée ne le ferme.
+        brightness(incoming) shouldBe "0.5000*if(lt(t\\,0.1500)\\,pow(1-t/0.1500\\,1.3)\\,0)"
+        // Flou au pic : 0,8 % de la hauteur du 9:16 (1920), sur les premières images seulement.
+        incoming shouldContain "gblur=sigma=15.3600:enable='lt(t\\,0.0450)'"
+    }
+
+    test("transition lumineuse : descente longue sur la drop, montée et descente partagées dans un plan court") {
+        val flash = FlashEffect()
+        val both = MontageRenderBuilder.glowFilters(flash, enter = true, exit = true, long = false, length = 2.seconds, h = 1000)
+        both.first() shouldContain "max(if(lt(t\\,0.1500)"
+        both.first() shouldContain "if(gte(t\\,1.9000)\\,pow((t-1.9000)/0.1000\\,2)*(3-2*(t-1.9000)/0.1000)\\,0)"
+        both.last() shouldBe "gblur=sigma=8.0000:enable='lt(t\\,0.0450)+gte(t\\,1.9600)'"
+
+        MontageRenderBuilder.glowFilters(flash, enter = true, exit = false, long = true, length = 2.seconds, h = 1000)
+            .first() shouldContain "if(lt(t\\,0.3300)"
+        // Plan de 0,2 s : chaque moitié de la transition tient dans la moitié du plan.
+        MontageRenderBuilder.glowFilters(flash, enter = true, exit = true, long = true, length = 200.milliseconds, h = 1000)
+            .first().let {
+                it shouldContain "if(lt(t\\,0.1000)"
+                it shouldContain "if(gte(t\\,0.1000)"
+            }
+        MontageRenderBuilder.glowFilters(flash, enter = false, exit = false, long = false, length = 2.seconds, h = 1000) shouldBe emptyList()
+        MontageRenderBuilder.glowFilters(flash.copy(blur = 0.0), enter = true, exit = false, long = false, length = 2.seconds, h = 1000).size shouldBe 1
+    }
+
+    test("flash : chaque coupe de la section de la drop, pas seulement les coupes fortes") {
+        val dropMusic = music.copy(sections = listOf(MusicSection(0, 96, -14.0, 0.4), MusicSection(96, 240, -8.0, 1.0, kind = SectionKind.DROP)))
+        val groups = listOf(
+            KillGroup(media, listOf(100.seconds), 1.0, emptyList(), emptyList()),
+            KillGroup(media, listOf(500.seconds), 0.9, emptyList(), emptyList()),
+            KillGroup(media, listOf(300.seconds), 0.8, emptyList(), emptyList()),
+        )
+        val p = MontagePlanner.plan(groups, dropMusic, settings)
+        // Des coupes dans la section de la drop, entre deux kills isolés : sans la règle, aucune n'est forte.
+        val inDrop = p.clips.indices.filter { it > 0 && p.clips[it].slot.section == 1 && p.clips[it - 1].slot.section == 1 && p.clips[it].slot.dropBeat == null }
+        check(inDrop.isNotEmpty()) { "le plan doit avoir une coupe dans la section de la drop" }
+        val flashes = MontageRenderBuilder.flashes(p)
+        inDrop.forEach { flashes[it] shouldBe true }
+
+        val off = MontagePlanner.plan(groups, dropMusic, settings.copy(flash = settings.flash.copy(onDropCuts = false)))
+        inDrop.forEach { MontageRenderBuilder.flashes(off)[it] shouldBe false }
     }
 
     test("flash : une coupe forte le déclenche, les autres non") {
