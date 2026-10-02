@@ -215,6 +215,12 @@ object MontagePlanner {
     /** Groupes gardés malgré le plancher de qualité, pour ne jamais rendre un montage vide. */
     private const val MIN_KEPT = 3
 
+    /**
+     * Plans comptés en plus de ceux que la durée maximale permet ([placeable]) : le premier plan d'un temps qui prend le
+     * suivant, le temps entamé au bout de la fenêtre.
+     */
+    private const val PLACEABLE_MARGIN = 2
+
     /** Recul d'importance d'un slot dont un voisin porte déjà un clip qui se ressemble. */
     private const val MONOTONY_PENALTY = 0.5
 
@@ -532,6 +538,28 @@ object MontagePlanner {
                 "${winner.clips.size} clips contre ${base.clips.size})"
         }
         return winner
+    }
+
+    /**
+     * Groupes que [plan] peut mettre à l'écran sur l'une de [musics], quelles que soient la grille et la variante : les
+     * autres n'ont pas besoin de leur pose de l'arme ([MatchCutter]), qu'on ne lit alors que pour ceux-ci. Un plan ne
+     * dépasse pas [MontageSettings.maxDuration] et dure au moins un temps : il en a au plus autant que de temps (les plus
+     * courts de la musique) dans cette durée. Les multi-kills sont placés les premiers par ordre de [KillGroup.rank],
+     * puis les kills seuls par ordre de rank (montée en puissance), ou les meilleurs tous ensemble (chronologique) : au
+     * plus autant de chaque sorte que de plans, les premiers par rank, égalités comprises.
+     */
+    fun placeable(all: List<KillGroup>, musics: List<MusicAnalysis>, settings: MontageSettings): List<KillGroup> {
+        val shortest = musics.mapNotNull { m -> m.beats.zipWithNext { a, b -> b - a }.filter { it.isPositive() }.minOrNull() }.minOrNull()
+            ?: return all
+        val slots = (settings.maxDuration / shortest).toInt() + PLACEABLE_MARGIN
+        val groups = if (settings.minScore > 0.0) all.filter { it.score >= settings.minScore }.ifEmpty { all.sortedByDescending { it.rank }.take(MIN_KEPT) } else all
+        fun best(kind: List<KillGroup>): List<KillGroup> {
+            if (kind.size <= slots) return kind
+            val floor = kind.map { it.rank }.sortedDescending()[slots - 1]
+            return kind.filter { it.rank >= floor }
+        }
+        val kept = (best(groups.filter { it.kills.size > 1 }) + best(groups.filter { it.kills.size <= 1 })).toSet()
+        return all.filter { it in kept }
     }
 
     fun plan(all: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings, variant: PlanVariant = PlanVariant.BASE): MontagePlan {
@@ -900,54 +928,96 @@ object MontagePlanner {
         val scope = settings.matchCut
         if (!scope.enabled || cells.size < 3) return
         val groups = cells.map { it.group!! }
-        val compatible = Array(groups.size) { a -> BooleanArray(groups.size) { b -> a != b && ScopeCuts.compatible(groups[a], groups[b], scope) } }
+        val n = groups.size
+        val compatible = Array(n) { a -> BooleanArray(n) { b -> a != b && ScopeCuts.compatible(groups[a], groups[b], scope) } }
         if (compatible.none { row -> row.any { it } }) return
+        val similar = Array(n) { a ->
+            BooleanArray(n) { b ->
+                settings.varietyGap.isPositive() && groups[a].media.path == groups[b].media.path &&
+                    (groups[a].kills.first() - groups[b].kills.first()).absoluteValue < settings.varietyGap
+            }
+        }
+        val needs = IntArray(n) { need(groups[it]) }
+        val ranks = DoubleArray(n) { groups[it].rank }
+        val beats = IntArray(n) { cells[it].beats }
+        val fixed = BooleanArray(n) { it == 0 || cells[it].dropBeat != null }
         // Place de chaque groupe (indice dans [groups]) le long du montage.
-        val order = groups.indices.toMutableList()
-        fun links() = order.zipWithNext().count { (a, b) -> compatible[a][b] }
-        fun similar(a: Int, b: Int) = settings.varietyGap.isPositive() && groups[a].media.path == groups[b].media.path &&
-            (groups[a].kills.first() - groups[b].kills.first()).absoluteValue < settings.varietyGap
-        fun monotony() = order.zipWithNext().count { (a, b) -> similar(a, b) }
-        val fixed = cells.indices.filter { it == 0 || cells[it].dropBeat != null }.toSet()
+        val order = IntArray(n) { it }
+        fun links() = (0 until n - 1).count { compatible[order[it]][order[it + 1]] }
+        fun monotony() = (0 until n - 1).count { similar[order[it]][order[it + 1]] }
+        // Un échange ne change que les coupes de part et d'autre des deux places : on ne recompte qu'elles. Recompter
+        // tout le montage à chaque essai (des millions d'essais pour 76 plans) prenait 10 s par plan.
+        val edges = IntArray(4)
+        fun touched(i: Int, j: Int): Int {
+            var count = 0
+            for (e in intArrayOf(i - 1, i, j - 1, j)) {
+                if (e < 0 || e >= n - 1) continue
+                var seen = false
+                for (k in 0 until count) if (edges[k] == e) seen = true
+                if (!seen) edges[count++] = e
+            }
+            return count
+        }
+        fun linksAt(count: Int): Int {
+            var l = 0
+            for (k in 0 until count) if (compatible[order[edges[k]]][order[edges[k] + 1]]) l++
+            return l
+        }
+        fun alikeAt(count: Int): Int {
+            var m = 0
+            for (k in 0 until count) if (similar[order[edges[k]]][order[edges[k] + 1]]) m++
+            return m
+        }
+        fun swap(i: Int, j: Int) {
+            order[i] = order[j].also { order[j] = order[i] }
+        }
+        fun allowed(i: Int, j: Int): Boolean {
+            if (fixed[i] || fixed[j]) return false
+            val a = order[i]
+            val b = order[j]
+            if (abs(ranks[a] - ranks[b]) > ORDER_TOLERANCE) return false
+            // Un groupe ne perd pas de place à l'échange : le nouveau slot le contient, ou n'est pas plus court que l'ancien.
+            return (needs[a] <= beats[j] || beats[j] >= beats[i]) && (needs[b] <= beats[i] || beats[i] >= beats[j])
+        }
+        /** Échange [i] et [j], et l'effet sur les raccords et la monotonie ([Pair] des écarts). */
+        fun swapDelta(i: Int, j: Int): Pair<Int, Int> {
+            val count = touched(i, j)
+            val l = linksAt(count)
+            val m = alikeAt(count)
+            swap(i, j)
+            return (linksAt(count) - l) to (alikeAt(count) - m)
+        }
         val before = links()
+        var current = before
+        var alike = monotony()
         while (true) {
-            val current = links()
-            val alike = monotony()
-            fun swap(i: Int, j: Int) {
-                order[i] = order[j].also { order[j] = order[i] }
-            }
-            fun allowed(i: Int, j: Int): Boolean {
-                if (i in fixed || j in fixed) return false
-                val a = groups[order[i]]
-                val b = groups[order[j]]
-                if (abs(a.rank - b.rank) > ORDER_TOLERANCE) return false
-                // Un groupe ne perd pas de place à l'échange : le nouveau slot le contient, ou n'est pas plus court que l'ancien.
-                return (need(a) <= cells[j].beats || cells[j].beats >= cells[i].beats) &&
-                    (need(b) <= cells[i].beats || cells[i].beats >= cells[j].beats)
-            }
-            val swaps = cells.indices.flatMap { i -> (i + 1 until cells.size).map { i to it } }.filter { (i, j) -> allowed(i, j) }
+            val swaps = (0 until n).flatMap { i -> (i + 1 until n).map { i to it } }.filter { (i, j) -> allowed(i, j) }
             // Le meilleur échange ; faute d'échange qui aide seul, la meilleure paire d'échanges (l'un prépare l'autre).
             var best: List<Pair<Int, Int>>? = null
             var bestLinks = current
-            fun consider(moves: List<Pair<Int, Int>>) {
-                val l = links()
-                if (l > bestLinks && monotony() <= alike) {
-                    best = moves
-                    bestLinks = l
-                }
-            }
+            var bestAlike = alike
+            fun better(l: Int, m: Int) = l > bestLinks && m <= alike
             for ((i, j) in swaps) {
-                swap(i, j)
-                consider(listOf(i to j))
+                val (dl, dm) = swapDelta(i, j)
+                if (better(current + dl, alike + dm)) {
+                    best = listOf(i to j)
+                    bestLinks = current + dl
+                    bestAlike = alike + dm
+                }
                 swap(i, j)
             }
             if (best == null) {
                 for ((k, first) in swaps.withIndex()) {
-                    swap(first.first, first.second)
-                    for (second in swaps.subList(k + 1, swaps.size)) {
+                    val (dl1, dm1) = swapDelta(first.first, first.second)
+                    for (s in k + 1 until swaps.size) {
+                        val second = swaps[s]
                         if (!allowed(second.first, second.second)) continue
-                        swap(second.first, second.second)
-                        consider(listOf(first, second))
+                        val (dl2, dm2) = swapDelta(second.first, second.second)
+                        if (better(current + dl1 + dl2, alike + dm1 + dm2)) {
+                            best = listOf(first, second)
+                            bestLinks = current + dl1 + dl2
+                            bestAlike = alike + dm1 + dm2
+                        }
                         swap(second.first, second.second)
                     }
                     swap(first.first, first.second)
@@ -955,8 +1025,10 @@ object MontagePlanner {
             }
             val moves = best ?: break
             moves.forEach { (i, j) -> swap(i, j) }
+            current = bestLinks
+            alike = bestAlike
         }
-        if (links() == before) return
+        if (current == before) return
         order.forEachIndexed { i, g -> cells[i].group = groups[g] }
         log.debug { "Ordre des plans : ${links()} coupe(s) raccordable(s) côte à côte au lieu de $before" }
     }

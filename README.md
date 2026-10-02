@@ -207,6 +207,14 @@ détecte les kills). En ligne de commande :
   rapport JSON (`musicCandidates`) et affichées par la commande. Pour ne pas ressortir toujours la même, une musique
   des 3 derniers montages (choisie ou imposée, `output/sessions/music-history.json`) perd 0,03 de note : les musiques
   qui collent presque aussi bien tournent, jamais une qui ferait perdre des kills (un groupe perdu coûte plus).
+- **Inspections gardées** : le recalage de chaque kill sur le tir, son flick et la pose de l'arme autour de chaque
+  groupe (quelques secondes de source décodées par kill, des minutes pour une soirée) sont gardés dans
+  `<workDir>/cache/kills`, un fichier par capture, refaits si la capture ou un réglage change. Un nouveau montage des
+  mêmes parties (autre musique, autre durée) ne décode que les kills jamais vus. La pose de l'arme n'est lue que pour
+  les groupes qui peuvent entrer dans le montage (pas plus de groupes de chaque sorte que de temps dans la durée
+  maximale), la visée et le repère d'arme d'un même décodage, avant et après le kill d'une seule lecture. Mesuré sur
+  15 parties (245 kills, montage de 30 s en 9:16 et source) : 9 min 20 avant, 5 min 10 au premier montage, 3 min aux
+  suivants, le rendu restant ; plan identique au bit près.
 
 - **Durée adaptée au nombre de kills** (`length`) : le montage dure ce qu'il faut pour montrer ses kills — 2,5 s par
   clip (`perClip`), 1 s de plus par kill supplémentaire d'un multi-kill (`perExtraKill`), la réaction gardée après le

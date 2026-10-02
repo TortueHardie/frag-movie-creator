@@ -39,7 +39,7 @@ private val log = KotlinLogging.logger {}
  * rotation de la caméra juste avant dit si c'est un flick ([FlickMeter]). Seule une demi-seconde de son et d'image est
  * décodée autour de chaque kill. Un kill qu'on n'arrive pas à lire garde ce qu'on en savait.
  */
-class KillInspector(private val ffmpeg: FfmpegService) {
+class KillInspector(private val ffmpeg: FfmpegService, private val cache: InspectionCache? = null) {
 
     suspend fun inspect(groups: List<KillGroup>, settings: MontageSettings, layout: AudioLayout, progress: ProgressReporter): List<KillGroup> {
         val align = settings.shotAlign
@@ -47,7 +47,7 @@ class KillInspector(private val ffmpeg: FfmpegService) {
         if (!align.enabled && !style.flick) return groups.map { g -> atFatal(g, style) }
         val total = groups.sumOf { it.kills.size }
         val done = AtomicInteger()
-        val semaphore = Semaphore(PARALLELISM)
+        val semaphore = Semaphore(SourceFrames.PARALLELISM)
         // Une capture déplacée ou effacée depuis l'analyse : on le dit une fois, pas à chaque kill.
         val missing = groups.map { it.media.path }.distinct().filterNot { it.isRegularFile() }.toSet()
         missing.forEach { log.warn { "Capture introuvable, kills gardés tels qu'analysés : $it" } }
@@ -56,16 +56,21 @@ class KillInspector(private val ffmpeg: FfmpegService) {
                 if (group.media.path in missing) return@map async { group }
                 async {
                     val results = group.kills.map { kill ->
-                        semaphore.withPermit {
-                            inspectKill(group.media, kill, group.traitsOf(kill), align, style, layout).also {
-                                progress.update(done.incrementAndGet().toDouble() / total, "kill ${done.get()}/$total")
-                            }
+                        val traits = group.traitsOf(kill)
+                        val result = cache?.kill(group.media, kill, traits, align, style, layout) ?: semaphore.withPermit {
+                            inspectKill(group.media, kill, traits, align, style, layout)
+                        }.let { (result, complete) ->
+                            if (complete) cache?.putKill(group.media, kill, traits, align, style, layout, result)
+                            result
                         }
+                        progress.update(done.incrementAndGet().toDouble() / total, "kill ${done.get()}/$total")
+                        result
                     }
                     MontagePlanner.withTraits(group, results.map { it.first }, results.map { it.second }, style)
                 }
             }.awaitAll()
         }
+        cache?.flush()
         val kills = inspected.flatMap { g -> g.kills.map { g.traitsOf(it) } }
         val shifted = kills.filter { it.shift != Duration.ZERO }
         log.info {
@@ -85,6 +90,7 @@ class KillInspector(private val ffmpeg: FfmpegService) {
         return MontagePlanner.withTraits(group, group.kills.map { k -> group.traitsOf(k).fatal ?: k }, traits, style)
     }
 
+    /** Instant recalé et traits mesurés du kill, et vrai si rien n'a échoué (mesure à garder pour les montages suivants). */
     private suspend fun inspectKill(
         media: MediaInfo,
         kill: Duration,
@@ -92,9 +98,10 @@ class KillInspector(private val ffmpeg: FfmpegService) {
         align: ShotAlign,
         style: KillStyle,
         layout: AudioLayout,
-    ): Pair<Duration, KillTraits> {
+    ): Pair<Pair<Duration, KillTraits>, Boolean> {
         var at = kill
         var result = traits
+        var complete = true
         if (traits.fatal != null) {
             // La balle vue sur le compteur de munitions : l'instant le plus sûr, le son ne ferait que s'en écarter.
             at = traits.fatal
@@ -110,6 +117,7 @@ class KillInspector(private val ffmpeg: FfmpegService) {
                 throw e
             } catch (e: Exception) {
                 log.warn { "Recalage du kill ${Durations.format(kill)} de ${media.path.fileName} impossible : ${e.message}" }
+                complete = false
             }
         }
         if (style.flick && media.video != null) {
@@ -120,9 +128,10 @@ class KillInspector(private val ffmpeg: FfmpegService) {
                 throw e
             } catch (e: Exception) {
                 log.warn { "Mesure du flick au kill ${Durations.format(at)} de ${media.path.fileName} impossible : ${e.message}" }
+                complete = false
             }
         }
-        return at to result
+        return (at to result) to complete
     }
 
     private suspend fun locateShot(media: MediaInfo, kill: Duration, align: ShotAlign, layout: AudioLayout): Duration? {
@@ -176,10 +185,6 @@ class KillInspector(private val ffmpeg: FfmpegService) {
         return FlickMeter.score(motions.map { it.speed }, killIndex, style) to FlickMeter.direction(motions, killIndex)
     }
 
-    companion object {
-        /** Décodages simultanés : de très courts extraits, surtout limités par le démarrage de FFmpeg. */
-        private const val PARALLELISM = 4
-    }
 }
 
 /**

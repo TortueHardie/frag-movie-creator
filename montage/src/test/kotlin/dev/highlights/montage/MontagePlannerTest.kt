@@ -694,4 +694,24 @@ class MontagePlannerTest : FunSpec({
         (early.dropAt!! / early.duration < late.dropAt!! / late.duration) shouldBe true
     }
 
+    test("groupes plaçables : tout groupe mis à l'écran en fait partie, quels que soient l'ordre, le rythme et la variante") {
+        // 160 kills seuls et une vingtaine de multi-kills, de notes variées : bien plus que de plans dans 30 s.
+        val kills = (0 until 160).map { 20 + it * 10 } + (0 until 20).flatMap { listOf(1700 + it * 6, 1701 + it * 6) }
+        val scores = { w: Int -> 0.2 + (w * 37 % 100) / 125.0 }
+        val music = music(bpm = 155.0, seconds = 180)
+        val base = settings.copy(maxDuration = 30.seconds)
+        for (s in listOf(base, base.forFast(), base.copy(order = MontageOrder.CHRONOLOGICAL), base.copy(length = base.length.copy(fitKills = false)))) {
+            val groups = MontagePlanner.groups(listOf(session(kills, scores = scores)), s)
+            val placeable = MontagePlanner.placeable(groups, listOf(music), s).toSet()
+            (placeable.size < groups.size) shouldBe true
+            var planned = 0
+            for (variant in listOf(PlanVariant.BASE, PlanVariant(2.0, 0.0), PlanVariant(dropShift = 0.3))) {
+                val shown = runCatching { MontagePlanner.plan(groups, music, s, variant) }.getOrNull() ?: continue
+                planned++
+                withClue("${s.order} ${s.cuts.singleBeat} $variant") { shown.clips.all { it.group in placeable } shouldBe true }
+            }
+            planned shouldBeGreaterThanOrEqual 2
+        }
+    }
+
 })

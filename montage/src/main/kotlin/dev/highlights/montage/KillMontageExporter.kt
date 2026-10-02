@@ -16,6 +16,8 @@ import dev.highlights.editing.SourceCutter
 import dev.highlights.export.ExportResult
 import dev.highlights.export.OutputNamer
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.nio.file.Path
@@ -140,16 +142,14 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             if (it.toAbsolutePath().normalize().toString().lowercase() in sources) throw HighlightsException("Refus d'écrire sur un fichier source : $it")
         }
 
-        // Découpe des extraits avant le rendu : une seule fois pour tous les formats. Voir SourceCuts.
-        val cuts = SourceCutter.prepare(
-            ffmpeg,
-            MontageRenderBuilder.sourceCuts(plan, request.edit.fps),
-            request.workDir.resolve("cuts"),
-            progress.child("Préparation des extraits", CUT_WEIGHT),
-        )
-
-        // Rotation de la caméra de chaque plan, mesurée une fois pour tous les formats : le flou par vecteurs.
-        val motion = if (plan.settings.motionBlur.usesVectors) CameraMotion(ffmpeg).measure(plan, progress.child("Mouvements de caméra", MOTION_WEIGHT)) else emptyList()
+        // Découpe des extraits avant le rendu (une seule fois pour tous les formats, voir SourceCuts) et rotation de la
+        // caméra de chaque plan (le flou par vecteurs) : l'une copie des flux, l'autre décode, elles vont ensemble.
+        val cutStep = progress.child("Préparation des extraits", CUT_WEIGHT)
+        val motionStep = progress.child("Mouvements de caméra", MOTION_WEIGHT)
+        val (cuts, motion) = coroutineScope {
+            val motion = async { if (plan.settings.motionBlur.usesVectors) CameraMotion(ffmpeg).measure(plan, motionStep) else emptyList() }
+            SourceCutter.prepare(ffmpeg, MontageRenderBuilder.sourceCuts(plan, request.edit.fps), request.workDir.resolve("cuts"), cutStep) to motion.await()
+        }
 
         val filterScriptOption = ffmpeg.filterScriptOption()
         for (format in request.formats) {

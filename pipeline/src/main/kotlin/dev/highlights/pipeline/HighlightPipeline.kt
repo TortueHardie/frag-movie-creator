@@ -32,6 +32,7 @@ import dev.highlights.core.video.FrameSampler
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
+import dev.highlights.montage.InspectionCache
 import dev.highlights.montage.KillInspector
 import dev.highlights.montage.KillMontageExporter
 import dev.highlights.montage.MatchCutter
@@ -176,6 +177,9 @@ class HighlightPipeline(
 
     /** Musiques déjà analysées : une bibliothèque se réessaie à chaque montage sans tout redécoder. */
     private val musicLibrary = MusicLibrary(config.workDir.resolve("cache").resolve("music"))
+
+    /** Kills et poses de l'arme déjà inspectés : un nouveau montage des mêmes parties ne redécode que les nouveaux. */
+    private val inspections = InspectionCache(config.workDir.resolve("cache").resolve("kills"))
 
     /** Musiques des derniers montages : une bibliothèque ne ressort pas toujours la même. */
     val musicHistory = MusicHistory(config.outputDir.resolve("sessions").resolve("music-history.json"))
@@ -567,8 +571,9 @@ class HighlightPipeline(
         val available = picked.filterNot { it.media.path in missing }
         if (available.isEmpty()) throw InputException("Captures introuvables (effacées ou déplacées depuis l'analyse) : ${missing.joinToString()}")
         val found = if (options.oneTaps) OneTaps.select(available, sessions, settings).groups else available
-        val inspected = KillInspector(ffmpeg).inspect(found, settings, profile.audio, progress.child("Kills", 0.06))
-        val groups = MatchCutter(ffmpeg).inspect(inspected, settings, progress.child("Visée", 0.02))
+        val inspected = KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child("Kills", 0.06))
+        // La pose de l'arme ne sert qu'aux groupes qui peuvent entrer dans le montage : la lire coûte un décodage par groupe.
+        val groups = MatchCutter(ffmpeg, inspections).inspect(inspected, settings, progress.child("Visée", 0.02), MontagePlanner.placeable(inspected, musics, settings))
         val fromStart = options.fromStartMusics.map { it.toAbsolutePath().normalize() }.toSet()
         val (chosen, choice) = if (music.isDirectory()) {
             // Le réglage « depuis le début » de chaque musique, sauf si l'appel l'impose à toutes.
