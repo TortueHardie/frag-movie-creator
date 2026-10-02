@@ -173,6 +173,26 @@ class MusicAnalyzerTest : FunSpec({
         }
     }
 
+    test("saillance : la note de piano qui ressort, pas les notes régulières qui l'entourent") {
+        // Intro au piano à 120 BPM : une petite note toutes les demi-temps, et une grosse note aux temps 6, 14, 22, 30.
+        val sr = MusicAnalyzer.SAMPLE_RATE
+        val out = FloatArray(sr * 20)
+        fun note(at: Double, amp: Double, hz: Double) {
+            val start = (at * sr).toInt()
+            for (i in 0 until (0.4 * sr).toInt()) {
+                if (start + i >= out.size) break
+                out[start + i] += (sin(2 * PI * hz * i / sr) * amp * exp(-i / (0.15 * sr))).toFloat()
+            }
+        }
+        val beats = List(36) { (0.25 + it * 0.5).seconds }
+        for (k in 0 until 72) note(0.25 + k * 0.25, 0.04, 494.0)
+        val loud = listOf(6, 14, 22, 30)
+        loud.forEach { note(0.25 + it * 0.5, 0.6, 349.0) }
+        val salience = MusicAnalyzer.salience(out, beats)
+        loud.forEach { b -> withClue("temps $b") { (salience[b] >= MusicAnalyzer.SALIENT) shouldBe true } }
+        beats.indices.filter { it !in loud && it > 0 }.forEach { b -> withClue("temps $b") { (salience[b] < MusicAnalyzer.SALIENT) shouldBe true } }
+    }
+
     test("contretemps : une caisse claire entre les temps devient une frappe, pas le charleston") {
         val sr = MusicAnalyzer.SAMPLE_RATE
         val plain = beatLoop(120.0, 30)

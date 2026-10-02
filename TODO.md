@@ -65,6 +65,21 @@ au montage plein, elle s'allonge par paliers.
   adapté garde tous les groupes là où le montage plein en perdait jusqu'à 5 sur 20.
 - À vérifier sur de vraies parties : `perClip` (2,5 s) et `min` (12 s) sont des estimations.
 
+## 7. Monter sur la musique, pas sur la grille (en cours, branche `montage-sur-la-musique`)
+
+Demande : « le moteur devrait reconnaître au début les notes de piano et caler les kills par-dessus ». Fait : saillance
+de chaque temps (`MusicAnalysis.salience`) et découpage sur les notes qui ressortent (`CutGrid.tileOnNotes`).
+
+- Fausse piste écartée : la grille n'était pas décalée. Le piano de « Rome Is Burning » frappe sur le temps et au
+  contretemps ; les basses sur le temps. Recaler la grille sur l'attaque dominante d'une section ne se déclenchait pas.
+- Fait : cadence continue par section (`CutGrid.cadence`), coupes calées sur les notes (`tileOnNotes`), ralenti sans
+  place réservée hors drop, multi-kills étalés séparés au montage (`MontagePlanner.split`, `splitGap`). Drop de
+  « Rome Is Burning » : un kill par temps au rythme rapide (avant : un toutes les 3,8 s), un toutes les 1,6 s au normal.
+- [ ] Rythme normal : les doublés d'environ 1 s prennent 8 temps dans la drop (5 nécessaires), et le critère « rythme »
+  du scoreur reste bas (0,13) : intro et drop ont encore des plans de longueurs voisines.
+- [ ] Notes entre les temps (contretemps marqués, triolets) : la saillance n'est mesurée que sur les temps.
+- [ ] Autres événements : entrée d'un instrument, voix, montée (riser) qui s'arrête juste avant la drop.
+
 ## 6. Se mesurer à des montages de référence (en cours)
 
 Quatre kill montages VALORANT de TikTok dans `exemples/` (non versionné), mesurés le 02/10 (16:9, 1024x576, 30 img/s,

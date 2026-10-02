@@ -156,6 +156,7 @@ internal data class StoredMusic(
     val beatEnergy: DoubleArray = DoubleArray(0),
     val beatAccent: DoubleArray = DoubleArray(0),
     val halfAccent: DoubleArray = DoubleArray(0),
+    val salience: DoubleArray = DoubleArray(0),
     val sections: List<MusicSection> = emptyList(),
     val dropBeat: Int = 0,
 ) {
@@ -170,6 +171,7 @@ internal data class StoredMusic(
         sections = sections,
         dropBeat = dropBeat,
         halfAccent = halfAccent,
+        salience = salience,
     )
 
     companion object {
@@ -184,6 +186,7 @@ internal data class StoredMusic(
             beatEnergy = a.beatEnergy,
             beatAccent = a.beatAccent,
             halfAccent = a.halfAccent,
+            salience = a.salience,
             sections = a.sections,
             dropBeat = a.dropBeat,
         )

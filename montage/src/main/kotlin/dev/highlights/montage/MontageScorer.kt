@@ -106,7 +106,7 @@ object MontageScorer {
 
         // --- accentuation : tomber sur une attaque forte, mieux encore sur un premier temps de mesure.
         val accent = plan.clips.map { c ->
-            val strength = music.beatAccent.getOrElse(c.anchorBeat) { 0.0 }.coerceIn(0.0, 1.0)
+            val strength = music.strength(c.anchorBeat).coerceIn(0.0, 1.0)
             0.7 * strength + 0.3 * (if (music.isDownbeat(c.anchorBeat)) 1.0 else 0.0)
         }.average()
 

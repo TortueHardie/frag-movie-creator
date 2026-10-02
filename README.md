@@ -597,6 +597,29 @@ ou le killfeed d'une capture OBS). La balle qui tue est la dernière vue entre 1
 - Le gabarit du son headshot livré reconnaît la moitié des headshots (0,72 à 0,78) sans aucun faux (kills au corps à
   0,64 au plus), au seuil 0,7. Un premier réglage, pris dans l'une de ces deux parties : à revoir sur d'autres.
 
+## Monter sur la musique : les notes qui ressortent
+
+La grille des temps vient de la pulsation du morceau (la grosse caisse). Mais ce qu'on entend, ce sont les notes qui
+ressortent : dans l'intro de « Rome Is Burning », le piano joue une phrase de 8 temps dont deux notes jaillissent (un mi
+au temps 0, un fa au temps 6, jusqu'à +33 dB), au milieu de petites notes régulières. Le moteur les repère sur n'importe
+quel morceau, sans réglage par musique :
+
+- Saillance de chaque temps (`MusicAnalysis.salience`) : la montée du volume à l'attaque comparée à celle des temps
+  voisins (8 de part et d'autre), et le niveau du temps face au plus fort alentour. Sur une drop à grosse caisse
+  régulière, aucun temps ne ressort (0 % sur deux morceaux) ; sur « Rome Is Burning », toute la phrase du piano.
+  Le journal l'affiche (« Notes qui ressortent : intro 5/18 … »).
+- Cadence : la longueur des plans vient de l'intensité de chaque section, en continu (de `cuts.low` pour la plus calme à
+  `cuts.high` pour la plus intense ; au rythme rapide, de `fast.calm` 1,6 s à `fast.cut` 0,4 s). Les notes ne font que
+  placer les coupes : chaque coupe se cale juste avant la note la plus marquante à une demi-longueur de plan, et le kill
+  tombe dessus ; sans note à portée, la coupe régulière.
+- Un plan ne s'allonge que pour montrer ses kills : le ralenti n'a de place réservée que sur le plan de la drop, et n'est
+  gardé ailleurs que s'il tient. Les multi-kills étalés (deux kills à plus de 1,5 s, `montage.splitGap`) deviennent
+  plusieurs plans, chacun sur la musique ; le groupe reste entier pour le classement, les aces et les clutchs.
+- Le temps du kill d'ancrage préfère les notes qui ressortent, et les rampes qui recalent les autres kills aussi.
+- Mesuré sur « Rome Is Burning » (17 parties, une minute depuis le début) : au rythme rapide, un kill tous les 2 temps
+  dans l'intro (sur le piano), un par temps dans la drop, contre un toutes les 3,8 s dans la drop avant ; au rythme
+  normal, la drop passe d'un kill toutes les 2,9 s à un toutes les 1,6 s.
+
 ## Kills confirmés par le killfeed (VALORANT)
 
 L'annonce d'un kill par Outplayed s'écarte du vrai kill de -0,55 à +0,47 s. Dans un plan d'un temps, qui commence 0,2 s

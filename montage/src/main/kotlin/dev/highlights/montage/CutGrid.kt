@@ -6,6 +6,7 @@ import kotlin.math.ln
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.microseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -36,20 +37,25 @@ object CutGrid {
         return power.coerceIn(floor, maxBeats).coerceAtLeast(minBeats)
     }
 
-    fun sectionBeats(level: Intensity, cuts: CutSettings, period: Duration, minBeats: Int, scale: Double): Int {
-        val target = when (level) {
-            Intensity.LOW -> cuts.low
-            Intensity.MID -> cuts.mid
-            Intensity.HIGH -> cuts.high
-        }
-        return beatsFor(target * scale, period, minBeats, cuts.maxBeats)
+    fun sectionBeats(section: MusicSection, cuts: CutSettings, period: Duration, minBeats: Int, scale: Double): Int =
+        beatsFor(cadence(section.intensity, cuts) * scale, period, minBeats, cuts.maxBeats)
+
+    /**
+     * Durée visée d'un plan pour une section d'intensité [intensity] (0 = la plus calme du morceau, 1 = la plus intense) :
+     * de [CutSettings.low] à [CutSettings.mid] puis [CutSettings.high], en progression géométrique continue. Avec trois
+     * paliers, une drop à 0,74 gardait des plans de section moyenne, et le rythme rapide les écrasait en un seul.
+     */
+    fun cadence(intensity: Double, cuts: CutSettings): Duration {
+        val i = intensity.coerceIn(0.0, 1.0)
+        fun between(a: Duration, b: Duration, t: Double) = (a.inWholeMicroseconds.toDouble().pow(1 - t) * b.inWholeMicroseconds.toDouble().pow(t)).toLong().microseconds
+        return if (i <= 0.5) between(cuts.low, cuts.mid, i * 2) else between(cuts.mid, cuts.high, i * 2 - 1)
     }
 
     /** Grille sur toute la musique. [scale] multiplie les durées visées : grille plus grossière quand il y a peu de clips. */
     fun build(music: MusicAnalysis, cuts: CutSettings, minBeats: Int, scale: Double = 1.0): List<CutSlot> {
         val sections = music.sections
         val period = music.beatPeriod
-        val lengths = sections.map { sectionBeats(it.level, cuts, period, minBeats, scale) }
+        val lengths = sections.map { sectionBeats(it, cuts, period, minBeats, scale) }
         val dropSection = music.sectionIndexAt(music.dropBeat)
         val dropSlot = if (dropSection > 0 && sections[dropSection].startBeat == music.dropBeat) {
             val before = sections[dropSection - 1]
@@ -61,21 +67,59 @@ object CutGrid {
         }
 
         val slots = mutableListOf<CutSlot>()
+        val lead = leadBeats(cuts, period)
         sections.forEachIndexed { si, s ->
             val l = lengths[si]
             // Dans une montée, les plans raccourcissent au fur et à mesure : les coupes accélèrent avec la musique.
             val accelerate = cuts.accelerateBuildUp && s.kind == SectionKind.BUILD_UP
+            // Une section qui a des notes marquantes (une phrase de piano, un riff) se découpe sur elles.
+            fun onNotes(from: Int, to: Int) = tileOnNotes(slots, music, from, to, l, si, minBeats, lead)
             when {
-                dropSlot != null && si == dropSection - 1 -> tileBackward(slots, s.startBeat, dropSlot.startBeat, l, si, minBeats, if (accelerate) cuts.maxBeats else null)
+                dropSlot != null && si == dropSection - 1 ->
+                    if (!onNotes(s.startBeat, dropSlot.startBeat)) tileBackward(slots, s.startBeat, dropSlot.startBeat, l, si, minBeats, if (accelerate) cuts.maxBeats else null)
                 dropSlot != null && si == dropSection -> {
                     slots += dropSlot
-                    tileForward(slots, dropSlot.endBeat, s.endBeat, l, si, minBeats)
+                    if (!onNotes(dropSlot.endBeat, s.endBeat)) tileForward(slots, dropSlot.endBeat, s.endBeat, l, si, minBeats)
                 }
+                onNotes(s.startBeat, s.endBeat) -> Unit
                 accelerate -> tileAccelerating(slots, s.startBeat, s.endBeat, l, si, minBeats, cuts.maxBeats)
                 else -> tileForward(slots, s.startBeat, s.endBeat, l, si, minBeats)
             }
         }
         return slots
+    }
+
+    /** Temps de contexte avant un kill ([CutSettings.minLead]), au moins un. */
+    internal fun leadBeats(cuts: CutSettings, period: Duration): Int = kotlin.math.ceil(cuts.minLead / period).toInt().coerceAtLeast(1)
+
+    /**
+     * Découpe [from]..[to] à la cadence de la section ([length] temps par plan), chaque coupe calée sur une note qui
+     * ressort ([MusicAnalysis.salience] au moins [MusicAnalyzer.SALIENT]) : la coupe se pose [lead] temps avant la note
+     * la plus marquante à une demi-longueur de plan de la coupe régulière, de quoi voir le kill arriver, et le kill y
+     * tombe (le choix du temps du kill préfère ces notes). Sans note à portée, la coupe régulière. La cadence vient de
+     * l'intensité de la section, les notes ne font que placer les coupes : découpée sur ses notes seules, une drop où
+     * quelques notes ressortent de loin en loin gardait un plan de 31 temps, un kill toutes les 3,8 s quand la musique
+     * accélérait. Une intro au piano, elle, coupe sur sa phrase. Faux (rien n'est posé) si la section n'a aucune note.
+     */
+    internal fun tileOnNotes(
+        slots: MutableList<CutSlot>, music: MusicAnalysis, from: Int, to: Int, length: Int, section: Int, minBeats: Int, lead: Int,
+    ): Boolean {
+        if (music.salience.isEmpty()) return false
+        val cuts = (from + minBeats until to).filter { music.salience.getOrElse(it + lead) { 0.0 } >= MusicAnalyzer.SALIENT }
+        if (cuts.isEmpty()) return false
+        val reach = maxOf(1, length / 2)
+        var k = from
+        while (k < to) {
+            val ideal = k + length
+            val snapped = cuts.filter { it >= k + minBeats && it <= ideal + reach && it >= ideal - reach }
+                .maxByOrNull { music.salience[it + lead] - abs(it - ideal).toDouble() / (2 * length) }
+            var e = (snapped ?: ideal).coerceAtMost(to)
+            // Reste trop court pour un plan : absorbé par le dernier plan.
+            if (to - e in 1 until minBeats) e = to
+            slots += CutSlot(k, e, section)
+            k = e
+        }
+        return true
     }
 
     private fun tileForward(slots: MutableList<CutSlot>, from: Int, to: Int, length: Int, section: Int, minBeats: Int) {
