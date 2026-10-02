@@ -225,9 +225,12 @@ class MontagePlannerTest : FunSpec({
             val w = CutGrid.window(slots, m, 30.seconds, 12, 0.25, 25.seconds, dropLead = s.cuts.dropLead)
             return seconds(m.beatTime(m.dropBeat) - m.beatTime(w.first().startBeat))
         }
+        // Le réglage garantit la montée, quelle que soit la fenêtre que le reste de la note préférerait.
         val none = settings.copy(cuts = settings.cuts.copy(dropLead = Duration.ZERO))
-        withClue("sans montée minimale : ${lead(none)} s avant la drop") { (lead(none) < 4.0) shouldBe true }
-        withClue("avec : ${lead(settings)} s") { (lead(settings) >= 5.0) shouldBe true }
+        withClue("avec : ${lead(settings)} s, sans : ${lead(none)} s") { (lead(settings) >= 5.0 && lead(settings) >= lead(none) - 1e-9) shouldBe true }
+        // Une montée exigée plus longue que tout passage possible ne bloque rien : la meilleure fenêtre reste.
+        val tooLong = settings.copy(cuts = settings.cuts.copy(dropLead = 60.seconds))
+        (lead(tooLong) >= 0.0) shouldBe true
     }
 
     test("musique depuis le début : le montage commence au premier temps, même loin de la drop") {
@@ -357,9 +360,12 @@ class MontagePlannerTest : FunSpec({
         }
         fun tooClose(order: List<Long>, gap: Long) = order.zipWithNext().count { (a, b) -> kotlin.math.abs(a - b) < gap }
 
-        // Sans la règle, deux kills séparés de 30 s finissent côte à côte ; avec, plus aucun voisin semblable.
-        (tooClose(neighbours(Duration.ZERO), 45) > 0) shouldBe true
-        tooClose(neighbours(45.seconds), 45) shouldBe 0
+        // Sans la règle, des kills séparés de 30 s finissent côte à côte ; avec, moins, et au plus un voisinage : quand il
+        // y a autant de plans que de groupes, le dernier placé prend la seule place libre, à côté de l'accroche.
+        val without = tooClose(neighbours(Duration.ZERO), 45)
+        val with = tooClose(neighbours(45.seconds), 45)
+        (without > 0) shouldBe true
+        (with < without && with <= 1) shouldBe true
     }
 
     test("montée : les plans raccourcissent en approchant de la drop") {
@@ -481,6 +487,49 @@ class MontagePlannerTest : FunSpec({
         traits.map { it.shots } shouldBe listOf(1, 4, 0, 1, 1, 2)
         // La balle qui tue, où le montage calera le kill.
         traits.map { it.fatal?.inWholeMilliseconds } shouldBe listOf(99_500L, 200_200L, null, 399_950L, 400_350L, 499_900L)
+    }
+
+    test("cadence de la section, coupes calées sur les notes qui ressortent, le kill sur la note") {
+        val n = 40
+        // Notes entre deux coupes régulières (temps 7, 15, 23) : la coupe recule pour les précéder de deux temps.
+        val salience = DoubleArray(n) { if (it in listOf(7, 15, 23)) 0.9 else 0.0 }
+        val music = MusicAnalysis(
+            Path("piano.wav"), 20.seconds, 120.0, List(n) { (it * 0.5).seconds }, 0, DoubleArray(n) { 0.1 }, DoubleArray(n) { 0.3 },
+            listOf(MusicSection(0, n, -20.0, 0.2)), 0, salience = salience,
+        )
+        val slots = mutableListOf<CutSlot>()
+        CutGrid.tileOnNotes(slots, music, 0, 32, length = 4, section = 0, minBeats = 3, lead = 2) shouldBe true
+        slots.map { it.startBeat to it.endBeat } shouldBe listOf(0 to 5, 5 to 9, 9 to 13, 13 to 17, 17 to 21, 21 to 25, 25 to 29, 29 to 32)
+        // Les plans qui commencent avant une note la portent à leur temps de contexte : c'est leur temps le plus marquant.
+        slots.filter { it.startBeat in listOf(5, 13, 21) }.forEach { s ->
+            (s.startBeat + 2) shouldBe (s.startBeat until s.endBeat).maxBy { music.strength(it) }
+        }
+        // Sans notes marquantes, rien n'est posé : le découpage régulier s'applique.
+        CutGrid.tileOnNotes(mutableListOf(), music.copy(salience = DoubleArray(n)), 0, 32, 4, 0, 3, 2) shouldBe false
+    }
+
+    test("multi-kill étalé : un plan par kill au montage, le groupe entier pour le classement et le clutch") {
+        // Trois kills à 100, 102,5 et 103 s : les deux derniers enchaînés restent ensemble, le premier part seul.
+        val g = KillGroup(media, listOf(100.seconds, 102.5.seconds, 103.seconds), 0.8, emptyList(), emptyList(),
+            outcome = RoundOutcome(clutch = true), style = 0.4)
+        val parts = MontagePlanner.split(listOf(g), settings)
+        parts.map { it.kills } shouldBe listOf(listOf(100.seconds), listOf(102.5.seconds, 103.seconds))
+        parts.forEach { it.rank shouldBe (g.rank plusOrMinus 1e-9) }
+        parts.map { it.outcome.clutch } shouldBe listOf(false, true)
+        // Désactivé, ou kills enchaînés : rien ne change.
+        MontagePlanner.split(listOf(g), settings.copy(splitGap = Duration.ZERO)) shouldBe listOf(g)
+        val tight = g.copy(kills = listOf(100.seconds, 100.8.seconds, 101.5.seconds))
+        MontagePlanner.split(listOf(tight), settings) shouldBe listOf(tight)
+    }
+
+    test("cadence continue : de la section la plus calme à la plus intense, sans paliers") {
+        val cuts = settings.cuts
+        CutGrid.cadence(0.0, cuts) shouldBe cuts.low
+        CutGrid.cadence(0.5, cuts) shouldBe cuts.mid
+        CutGrid.cadence(1.0, cuts) shouldBe cuts.high
+        val a = CutGrid.cadence(0.6, cuts)
+        val b = CutGrid.cadence(0.9, cuts)
+        (a < cuts.mid && b < a && b > cuts.high) shouldBe true
     }
 
     test("kill confirmé par le killfeed : la balle qui tue est juste avant lui, pas dans la rafale qui continue") {

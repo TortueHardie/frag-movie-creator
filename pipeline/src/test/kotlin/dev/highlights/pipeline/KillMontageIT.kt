@@ -53,7 +53,8 @@ class KillMontageIT : FunSpec({
             profileId = "wardogs",
             timeline = ScoredTimeline(
                 grid, List(grid.count) { 0.5 }, emptyMap(),
-                events = listOf(20, 23, 60).map { TimelineEvent(it.seconds, "kill", 1.0, "notifications") },
+                // Un doublé enchaîné (1,4 s d'écart, en dessous de montage.splitGap) : un seul plan, sur la drop.
+                events = listOf(20.0, 21.4, 60.0).map { TimelineEvent(it.seconds, "kill", 1.0, "notifications") },
                 segments = listOf(TimelineSegment(TimeRange(61.seconds, 62.seconds), "laughter", 0.6, "reactions")),
             ),
             highlights = emptyList(),

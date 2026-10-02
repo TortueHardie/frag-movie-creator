@@ -244,6 +244,12 @@ object MontagePlanner {
     private val DEATH_TIE = 200.milliseconds
 
     /**
+     * Poids de la saillance dans le choix du temps du kill, face à l'attaque (0..1) et au premier temps de mesure (0,4) :
+     * une note qui ressort nettement (0,8 et plus) l'emporte sur un premier temps de mesure ordinaire.
+     */
+    private const val SALIENCE_WEIGHT = 1.0
+
+    /**
      * Prix d'un changement de vitesse dans une rampe, en force de frappe : 10 % de vitesse en plus ou en moins valent
      * 0,3 d'accent. Une frappe franchement plus forte justifie d'aller la chercher un peu plus loin.
      */
@@ -350,6 +356,43 @@ object MontagePlanner {
                 outcome = outcomes[i],
                 style = style(ks, traits, outcomes[i], style),
             )
+        }
+    }
+
+    /**
+     * Multi-kills découpés pour le montage (voir [MontageSettings.splitGap]) : un groupe dont deux kills consécutifs sont
+     * plus éloignés que l'écart voulu devient autant de parties, chacune un plan calé sur la musique. Chaque partie garde
+     * l'importance du combat entier (un triplé reste mis en avant, découpé ou non) ; l'issue du round (ace, clutch)
+     * revient à la dernière, celle qui le finit, les précédentes ne gardent que l'échange. La visée avant le premier kill
+     * va à la première partie, celle après le dernier à la dernière.
+     */
+    fun split(groups: List<KillGroup>, settings: MontageSettings): List<KillGroup> {
+        if (!settings.splitGap.isPositive()) return groups
+        return groups.flatMap { g ->
+            if (g.kills.size < 2) return@flatMap listOf(g)
+            val parts = mutableListOf(mutableListOf(0))
+            for (i in 1 until g.kills.size) {
+                if (g.kills[i] - g.kills[i - 1] > settings.splitGap) parts += mutableListOf(i) else parts.last() += i
+            }
+            if (parts.size == 1) return@flatMap listOf(g)
+            parts.mapIndexed { p, idx ->
+                val kills = idx.map { g.kills[it] }
+                val last = p == parts.lastIndex
+                val window = TimeRange(kills.first() - settings.preRoll, kills.last() + settings.postRoll)
+                g.copy(
+                    kills = kills,
+                    traits = if (g.traits.isEmpty()) emptyList() else idx.map { g.traits[it] },
+                    protectedSegments = g.protectedSegments.filter { it.isWithin(window, settings.postRoll * 4) },
+                    voiceSegments = g.voiceSegments.filter { it.isWithin(window, settings.postRoll * 4) },
+                    outcome = if (last) g.outcome else RoundOutcome(traded = g.outcome.traded),
+                    // Même rang que le combat entier : rank = kills + score / 10 + style.
+                    style = g.style + (g.kills.size - kills.size),
+                    aim = g.aim.copy(
+                        head = g.aim.head.takeIf { p == 0 }, headPose = g.aim.headPose.takeIf { p == 0 },
+                        tail = g.aim.tail.takeIf { last }, tailPose = g.aim.tailPose.takeIf { last },
+                    ),
+                )
+            }
         }
     }
 
@@ -743,10 +786,17 @@ object MontagePlanner {
     internal fun singleBeat(settings: MontageSettings, period: Duration): Boolean =
         settings.cuts.singleBeat && period >= settings.cuts.minLead + settings.cuts.minTail
 
-    /** Temps nécessaires pour montrer tous les kills du groupe (et finir une réaction) sans couper. */
-    private fun need(g: KillGroup, settings: MontageSettings, period: Duration, minLeadBeats: Int, minTailBeats: Int): Int {
+    /**
+     * Temps nécessaires pour montrer tous les kills du groupe (et finir une réaction) sans couper ; [onDrop] : le plan de la
+     * drop, dont le ralenti a sa place réservée.
+     */
+    private fun need(g: KillGroup, settings: MontageSettings, period: Duration, minLeadBeats: Int, minTailBeats: Int, onDrop: Boolean = false): Int {
         val cuts = settings.cuts
-        val slowTail = if (settings.slowMotion.enabled) settings.slowMotion.after / settings.slowMotion.factor else Duration.ZERO
+        // Pas de place réservée au ralenti (sauf sur la drop et en effets appuyés) : c'est la musique qui donne la longueur des plans, un
+        // plan ne s'allonge que pour montrer ses kills, et le ralenti n'est gardé que s'il tient (voir [clipFor]), sur le
+        // plan de la drop ou dans une section calme. Réservé aux meilleurs groupes, placés en premier dans la drop, il en
+        // faisait des plans de 8 temps quand la musique en voulait 4 : un kill toutes les 2,4 à 3,8 s.
+        val slowTail = if (settings.slowMotion.enabled && (onDrop || settings.effectDensity == EffectDensity.HEAVY)) settings.slowMotion.after / settings.slowMotion.factor else Duration.ZERO
         val reaction = g.protectedSegments.filter { it.end > g.kills.last() }.maxOfOrNull { it.end - g.kills.last() } ?: Duration.ZERO
         // Un kill seul tient dans un temps : le contexte d'avant est pris sur le plan précédent.
         if (singleBeat(settings, period) && g.span == Duration.ZERO && slowTail == Duration.ZERO && reaction + cuts.minTail <= period) return 1
@@ -777,7 +827,7 @@ object MontagePlanner {
         val period = music.beatPeriod
         val cells = window.map { Cell(it.startBeat, it.endBeat, it.section, it.dropBeat) }.toMutableList()
 
-        fun need(g: KillGroup): Int = need(g, settings, period, minLeadBeats, minTailBeats)
+        fun need(g: KillGroup, onDrop: Boolean = false): Int = need(g, settings, period, minLeadBeats, minTailBeats, onDrop)
 
         fun importance(c: Cell) = (if (c.dropBeat != null) 10.0 else 0.0) + music.sections[c.section].intensity + 1e-4 * c.startBeat
 
@@ -836,7 +886,7 @@ object MontagePlanner {
         }
 
         fun place(index: Int, g: KillGroup) {
-            val i = grow(index, need(g))
+            val i = grow(index, need(g, cells[index].dropBeat != null))
             cells[i].group = g
         }
 
@@ -1049,9 +1099,14 @@ object MontagePlanner {
             EffectDensity.HEAVY -> true
         }
 
-    /** Score musical d'un temps d'ancrage dans un slot : attaque, premier temps de mesure, un peu tard dans le plan. */
+    /**
+     * Score musical d'un temps d'ancrage dans un slot : attaque, note qui ressort ([MusicAnalysis.salience] : le kill se
+     * pose sur la note de piano qu'on entend, pas sur le temps régulier d'à côté), premier temps de mesure, un peu tard
+     * dans le plan.
+     */
     private fun anchorScore(music: MusicAnalysis, slot: CutSlot, beat: Int): Double =
         music.beatAccent[beat.coerceIn(0, music.beatAccent.lastIndex)] +
+            SALIENCE_WEIGHT * music.salience.getOrElse(beat) { 0.0 } +
             (if (music.isDownbeat(beat)) 0.4 else 0.0) +
             0.15 * (beat - slot.startBeat).toDouble() / slot.beats
 

@@ -571,7 +571,8 @@ class HighlightPipeline(
         val available = picked.filterNot { it.media.path in missing }
         if (available.isEmpty()) throw InputException("Captures introuvables (effacées ou déplacées depuis l'analyse) : ${missing.joinToString()}")
         val found = if (options.oneTaps) OneTaps.select(available, sessions, settings).groups else available
-        val inspected = KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child("Kills", 0.06))
+        // Les multi-kills étalés deviennent plusieurs plans (classement, aces et clutchs déjà tirés du groupe entier).
+        val inspected = MontagePlanner.split(KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child("Kills", 0.06)), settings)
         // La pose de l'arme ne sert qu'aux groupes qui peuvent entrer dans le montage : la lire coûte un décodage par groupe.
         val groups = MatchCutter(ffmpeg, inspections).inspect(inspected, settings, progress.child("Visée", 0.02), MontagePlanner.placeable(inspected, musics, settings))
         val fromStart = options.fromStartMusics.map { it.toAbsolutePath().normalize() }.toSet()

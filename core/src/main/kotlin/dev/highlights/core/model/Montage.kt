@@ -19,6 +19,13 @@ data class MontageSettings(
     val killOffset: SerialDuration = (-400).milliseconds,
     /** Kills plus proches que ça : un seul clip (multi-kill). */
     val mergeGap: SerialDuration = 5.seconds,
+    /**
+     * Au montage, un multi-kill dont deux kills sont plus éloignés que ça devient plusieurs plans, chacun calé sur la
+     * musique (zéro : jamais). Le groupe reste entier pour le classement, les aces et les clutchs. Trois kills d'un
+     * combat sur 5 s faisaient un plan de 8 à 16 temps dont seul le dernier tombait sur la musique, et une drop rapide
+     * ne montrait plus qu'un kill toutes les 2,9 s.
+     */
+    val splitGap: SerialDuration = 1500.milliseconds,
     /** Fenêtre autour d'un groupe de kills dans laquelle on cherche score et réactions (voix, rires). */
     val preRoll: SerialDuration = 2500.milliseconds,
     val postRoll: SerialDuration = 1200.milliseconds,
@@ -100,7 +107,7 @@ data class MontageSettings(
             postRoll = f.postRoll,
             reactions = false,
             length = length.copy(perClip = f.perClip, perExtraKill = Duration.ZERO, min = f.min),
-            cuts = cuts.copy(low = f.cut, mid = f.cut, high = f.cut, minLead = f.minLead, minTail = f.minTail, singleBeat = true),
+            cuts = cuts.copy(low = f.calm, mid = f.mid, high = f.cut, minLead = f.minLead, minTail = f.minTail, singleBeat = true),
             slowMotion = slowMotion.copy(enabled = false),
             speedRamp = speedRamp.copy(enabled = false),
             whip = whip.copy(enabled = false),
@@ -161,8 +168,14 @@ data class FastMontage(
     val enabled: Boolean = false,
     val preRoll: SerialDuration = 600.milliseconds,
     val postRoll: SerialDuration = 300.milliseconds,
-    /** Longueur visée d'un plan dans toutes les sections : ramenée au plus proche nombre de temps (un, en général). */
+    /**
+     * Longueur visée d'un plan dans la section la plus intense ([cut], un temps en général), une section moyenne ([mid])
+     * et la plus calme ([calm]), ramenée au plus proche nombre de temps. La même longueur partout faisait d'une intro au
+     * piano un kill par temps, et d'une drop qui accélère à peine plus.
+     */
     val cut: SerialDuration = 400.milliseconds,
+    val mid: SerialDuration = 800.milliseconds,
+    val calm: SerialDuration = 1600.milliseconds,
     val minLead: SerialDuration = 200.milliseconds,
     val minTail: SerialDuration = 150.milliseconds,
     /** Durée visée par kill, et durée minimale du montage. */

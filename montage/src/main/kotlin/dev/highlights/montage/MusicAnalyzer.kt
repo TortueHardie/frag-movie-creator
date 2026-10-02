@@ -25,6 +25,7 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 private val log = KotlinLogging.logger {}
@@ -106,7 +107,17 @@ data class MusicAnalysis(
     val dropBeat: Int,
     /** Force de l'attaque au milieu de chaque temps (contretemps), sur la même échelle que [beatAccent]. Vide : inconnue. */
     val halfAccent: DoubleArray = DoubleArray(0),
+    /**
+     * Saillance de chaque temps (0..1) : la musique y ressort-elle ? Montée du son à l'attaque (le volume juste après
+     * contre juste avant) et niveau face aux passages les plus forts de sa section. Là où un instrument frappe à chaque
+     * temps (une grosse caisse), aucun ne ressort ; dans une intro au piano, ce sont les notes de la phrase qu'on
+     * retient. Vide : inconnue.
+     */
+    val salience: DoubleArray = DoubleArray(0),
 ) {
+    /** Force musicale d'un temps : son attaque, ou sa saillance si elle le distingue davantage. */
+    fun strength(beat: Int): Double = maxOf(beatAccent.getOrElse(beat) { 0.0 }, salience.getOrElse(beat) { 0.0 })
+
     /** Période moyenne (régression sur les temps détectés) : sert à extrapoler au-delà des temps détectés. */
     val beatPeriod: Duration get() = (60.0 / bpm).seconds
 
@@ -116,7 +127,7 @@ data class MusicAnalysis(
      */
     fun hits(from: Int, to: Int): List<MusicHit> = buildList {
         for (b in from..to) {
-            add(MusicHit(beatTime(b), beatAccent.getOrElse(b) { 0.0 }, b.toDouble()))
+            add(MusicHit(beatTime(b), strength(b), b.toDouble()))
             if (b < to && isHalfHit(b)) add(MusicHit((beatTime(b) + beatTime(b + 1)) / 2, halfAccent[b], b + 0.5))
         }
     }
@@ -150,7 +161,7 @@ data class MusicAnalysis(
 
 object MusicAnalyzer {
     /** À augmenter quand l'analyse change de calcul : les analyses gardées par [MusicLibrary] sont alors refaites. */
-    const val VERSION = 1
+    const val VERSION = 3
 
     /** Part de la durée du montage avant laquelle une drop doit tomber pour y compter, avec de quoi la suivre. */
     private const val REACH = 0.7
@@ -272,8 +283,87 @@ object MusicAnalyzer {
         log.info {
             "Structure : " + sections.joinToString(" ") { "${it.kind.name.lowercase()}(${it.beats}t, ${"%.2f".format(it.intensity)})" }
         }
-        return MusicAnalysis(file, duration, bpm, beats, phase, energy, accent, sections, drop, halfAccent)
+        // Ce qui ressort : une note qui attaque fort, ou le son qui change de nature (un instrument qui entre, une coupure).
+        val notes = salience(samples, beats)
+        val changes = timbreChanges(beatMel)
+        val salience = DoubleArray(n) { maxOf(notes[it], changes[it]) }
+        log.info {
+            "Moments qui ressortent (notes + changements de son) : " + sections.joinToString(" ") { s ->
+                val range = s.startBeat until minOf(s.endBeat, n)
+                "${s.kind.name.lowercase()} ${range.count { notes[it] >= SALIENT }}+${range.count { changes[it] >= SALIENT && notes[it] < SALIENT }}/${s.beats}"
+            }
+        }
+        return MusicAnalysis(file, duration, bpm, beats, phase, energy, accent, sections, drop, halfAccent, salience)
     }
+
+    /**
+     * Saillance de chaque temps (voir [MusicAnalysis.salience]), jugée dans son voisinage ([SALIENCE_WINDOW] temps de
+     * part et d'autre) : montée du volume de [SALIENCE_BEFORE] avant le temps à [SALIENCE_AFTER] après, comparée à la
+     * montée médiane des temps voisins (comptée à partir de 3 dB de plus, pleine à 13 dB), multipliée par le niveau du
+     * temps face au plus fort de ses voisins (plein à ce niveau, nul 12 dB en dessous : une petite note qui sort du
+     * silence ne pèse pas autant qu'un accord). Jugée sur toute la section, une montée finale bien plus forte que le
+     * piano étouffait ses notes. Mesuré sur « Rome Is Burning » : les temps 0, 6, 8, 14, 16, 22, 30, 38, 46 (la phrase
+     * du piano, mi puis fa jusqu'à +33 dB) puis les frappes de la montée ; 0 % des temps des drops régulières de deux
+     * autres morceaux.
+     */
+    internal fun salience(samples: FloatArray, beats: List<Duration>): DoubleArray {
+        fun rms(from: Duration, to: Duration): Double {
+            val a = (from.inWholeMicroseconds * SAMPLE_RATE / 1_000_000).toInt().coerceIn(0, samples.size)
+            val b = (to.inWholeMicroseconds * SAMPLE_RATE / 1_000_000).toInt().coerceIn(a, samples.size)
+            if (b <= a) return 1e-6
+            return sqrt((a until b).sumOf { samples[it].toDouble() * samples[it] } / (b - a)) + 1e-6
+        }
+        val n = beats.size
+        val rise = DoubleArray(n) { 20 * log10(rms(beats[it], beats[it] + SALIENCE_AFTER) / rms(beats[it] - SALIENCE_BEFORE, beats[it] - SALIENCE_GAP)) }
+        val level = DoubleArray(n) { 20 * log10(rms(beats[it], beats[it] + SALIENCE_AFTER)) }
+        return DoubleArray(n) { i ->
+            val lo = maxOf(0, i - SALIENCE_WINDOW)
+            val hi = minOf(n, i + SALIENCE_WINDOW + 1)
+            val around = (lo until hi).filter { it != i }.map { rise[it] }.sorted()
+            if (around.isEmpty()) return@DoubleArray 0.0
+            val contrast = rise[i] - around[around.size / 2]
+            val loud = (1 + (level[i] - (lo until hi).maxOf { level[it] }) / 12).coerceIn(0.0, 1.0)
+            ((contrast - 3) / 10).coerceIn(0.0, 1.0) * loud
+        }
+    }
+
+    /**
+     * Changements de son de chaque temps (0..1) : le spectre du temps (bandes mel, en log) s'écarte de celui du temps
+     * d'avant au moins [CHANGE_RATIO] fois plus que d'habitude alentour ([SALIENCE_WINDOW] temps de part et d'autre),
+     * d'au moins [MIN_CHANGE], et durablement (le temps d'après ressemble au nouveau son plus qu'à l'ancien : pas un
+     * bruit isolé ; et le son d'avant-hier en diffère aussi : pas le retour à la normale après ce bruit). Un instrument qui entre, une voix, une coupure avant la drop. Plein à [CHANGE_RATIO] + 3 fois. Mesuré
+     * sur six morceaux : 9 à 50 par morceau, presque tous à l'intérieur des sections (sur « Rome Is Burning », l'arrivée
+     * du fa de chaque phrase de piano ; sur « Fortunate Son », les entrées de guitare et de voix).
+     */
+    internal fun timbreChanges(beatMel: Array<DoubleArray>): DoubleArray {
+        val n = beatMel.size
+        // Forme du spectre, indépendamment du volume : chaque temps centré sur sa moyenne (le spectre est déjà en log).
+        val shape = Array(n) { i -> val m = beatMel[i].average(); DoubleArray(beatMel[i].size) { k -> beatMel[i][k] - m } }
+        fun distance(a: Int, b: Int) = 1 - cosine(shape[a], shape[b])
+        val change = DoubleArray(n) { i -> if (i == 0) 0.0 else distance(i, i - 1) }
+        return DoubleArray(n) { i ->
+            if (i < 2 || i > n - 2) return@DoubleArray 0.0
+            val around = (maxOf(1, i - SALIENCE_WINDOW) until minOf(n, i + SALIENCE_WINDOW + 1)).filter { it != i }.map { change[it] }.sorted()
+            val usual = around[around.size / 2].coerceAtLeast(1e-6)
+            // Durable (le temps d'après ressemble au nouveau son), et nouveau pour de bon : pas le retour au son d'avant
+            // après un bruit d'un seul temps.
+            val lasting = distance(i + 1, i) < distance(i + 1, i - 1) && distance(i, i - 2) >= change[i] / 2
+            val ratio = change[i] / usual
+            if (!lasting || change[i] < MIN_CHANGE || ratio < CHANGE_RATIO) 0.0
+            else (SALIENT + (ratio - CHANGE_RATIO) / 5).coerceAtMost(1.0)
+        }
+    }
+
+    private const val CHANGE_RATIO = 3.0
+    private const val MIN_CHANGE = 0.02
+
+    private val SALIENCE_AFTER = 60.milliseconds
+    private val SALIENCE_BEFORE = 90.milliseconds
+    private val SALIENCE_GAP = 15.milliseconds
+    private const val SALIENCE_WINDOW = 8
+
+    /** Saillance à partir de laquelle une note « ressort » (journal, tests). */
+    const val SALIENT = 0.4
 
     // ------------------------------------------------------------------ spectre
 

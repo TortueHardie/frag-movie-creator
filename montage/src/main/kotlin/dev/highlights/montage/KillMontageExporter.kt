@@ -124,6 +124,8 @@ data class MontageReportClip(
     /** Le groupe finit un round de tous les kills (voir [RoundOutcome]). */
     val ace: Boolean = false,
     val clutch: Boolean = false,
+    /** Le kill d'ancrage tombe sur un moment qui ressort de la musique : note marquante, instrument qui entre. */
+    val onMusicMoment: Boolean = false,
 )
 
 class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoders: EncoderSelector) {
@@ -216,6 +218,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                     shotShiftMs = c.kills.map { c.group.traitsOf(it).shift.inWholeMilliseconds },
                     ace = c.group.outcome.ace,
                     clutch = c.group.outcome.clutch,
+                    onMusicMoment = plan.music.salience.getOrElse(c.anchorBeat) { 0.0 } >= MusicAnalyzer.SALIENT,
                 )
             },
         )
