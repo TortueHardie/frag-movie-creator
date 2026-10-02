@@ -191,14 +191,15 @@ class HighlightPipeline(
     /**
      * Moments (groupes de kills, comme le montage les forme) des parties analysées qui répondent à [query], du plus
      * important au moins important. Mêmes parties que les statistiques : une même partie enregistrée deux fois ne
-     * donne pas deux fois ses moments.
+     * donne pas deux fois ses moments. Les parties dont la capture n'existe plus (effacée depuis l'analyse) restent
+     * dans les statistiques, pas dans la recherche : leurs moments ne se monteraient pas.
      */
     fun search(query: MomentQuery): List<FoundMoment> {
         val games = analyzedGames()
         val kept = Statistics.distinctGames(games.flatMap { g -> g.sessions.map { (file, session) -> g.stats(file, session) } })
             .map { it.sessionFile }.toSet()
         return games.flatMap { g ->
-            g.sessions.filter { it.first in kept }.flatMap { (file, session) ->
+            g.sessions.filter { it.first in kept && it.second.media.path.isRegularFile() }.flatMap { (file, session) ->
                 dev.highlights.montage.MontagePlanner.groups(listOf(session), g.settings)
                     .map { FoundMoment.of(file, g.name, g.profileId, session.media.recordedAt, it) }
             }
