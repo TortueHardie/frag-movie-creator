@@ -23,11 +23,18 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.awt.image.BufferedImage
 import java.nio.file.Path
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.Locale
+import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import javax.imageio.ImageIO
 import kotlin.io.path.Path
 import kotlin.io.path.isRegularFile
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.microseconds
@@ -42,7 +49,7 @@ private val log = KotlinLogging.logger {}
  * leurs plans, puis [ScopeCuts.apply] ramène la fin du plan sortant et le début de l'entrant dans leur visée, ralentis
  * pour garder la durée du slot : le viseur reste au centre de l'écran par-dessus la coupe.
  */
-class MatchCutter(private val ffmpeg: FfmpegService) {
+class MatchCutter(private val ffmpeg: FfmpegService, private val cache: InspectionCache? = null) {
 
     /** Modèles du repère d'arme en main, chargés une fois par fichier. */
     private val templates = ConcurrentHashMap<String, WeaponTemplate>()
@@ -50,49 +57,151 @@ class MatchCutter(private val ffmpeg: FfmpegService) {
     /**
      * Visée autour des kills de chaque groupe (voir [Aim]) : avant le premier kill, sur [HEAD_REACH] au plus, et après
      * le dernier, sur [TAIL_REACH]. Mesurée avant la planification, qui s'en sert pour placer les kills dans leurs plans.
+     * [only] : les seuls groupes à lire (voir [MontagePlanner.placeable]), les autres restent sans pose.
      */
-    suspend fun inspect(groups: List<KillGroup>, settings: MontageSettings, progress: ProgressReporter): List<KillGroup> {
+    suspend fun inspect(groups: List<KillGroup>, settings: MontageSettings, progress: ProgressReporter, only: List<KillGroup>? = null): List<KillGroup> {
         val scope = settings.matchCut
         if (!scope.enabled || groups.size < 2) return groups.also { progress.complete() }
-        val semaphore = Semaphore(PARALLELISM)
-        var done = 0
+        val semaphore = Semaphore(SourceFrames.PARALLELISM)
+        val done = AtomicInteger()
+        val wanted = only?.let { Collections.newSetFromMap(IdentityHashMap<KillGroup, Boolean>()).apply { addAll(it) } }
+        val read = groups.count { wanted == null || it in wanted }
         val result = coroutineScope {
             groups.map { group ->
                 async {
-                    semaphore.withPermit {
-                        val head = read(group, head = true, scope)
-                        val tail = read(group, head = false, scope)
-                        val aim = Aim(head = head?.first, tail = tail?.first, headPose = head?.second, tailPose = tail?.second)
-                        synchronized(this@MatchCutter) { done++ }
-                        progress.update(done.toDouble() / groups.size, "groupe $done/${groups.size}")
-                        group.copy(aim = aim)
+                    if (wanted != null && group !in wanted) return@async group
+                    val aim = cache?.aim(group, scope) ?: read(group, scope, semaphore).let { read ->
+                        if (read.complete) cache?.putAim(group, scope, read.aim)
+                        read.aim
                     }
+                    progress.update(done.incrementAndGet().toDouble() / read, "groupe ${done.get()}/$read")
+                    group.copy(aim = aim)
                 }
             }.awaitAll()
         }
+        cache?.flush()
         log.info {
             "Pose de l'arme : tenue avant le premier kill dans ${result.count { it.aim.head != null }} groupe(s), " +
-                "après le dernier dans ${result.count { it.aim.tail != null }}, sur ${groups.size}"
+                "après le dernier dans ${result.count { it.aim.tail != null }}, sur $read" +
+                (if (read < groups.size) " (les ${groups.size - read} autres ne peuvent pas entrer dans le montage)" else "")
         }
         progress.complete()
         return result
     }
 
     /**
-     * Fenêtre où le plan peut commencer avant le premier kill ([head]) ou finir après le dernier, dans la source, et la
-     * pose de l'arme qu'on y voit ; null si la capture ne se lit pas ou si la pose attendue n'est pas tenue.
+     * Pose avant le premier kill et après le dernier (voir [pose]). Les deux fenêtres se recouvrent pour un kill seul et
+     * se suivent de près pour un multi-kill : une seule lecture les couvre, sauf si elles sont trop éloignées.
      */
-    private suspend fun read(group: KillGroup, head: Boolean, settings: MatchCut): Pair<TimeRange, Pose>? {
+    private suspend fun read(group: KillGroup, settings: MatchCut, decoding: Semaphore): Read {
+        val head = range(group, head = true, settings)
+        val tail = range(group, head = false, settings)
+        val media = group.media
+        // Une seule lecture seulement si la fenêtre d'après commence un nombre entier d'images après celle d'avant :
+        // `fps` choisit ses images d'après le début de la lecture, et sur une source à 60 i/s un décalage d'une
+        // demi-image en prend d'autres (pose un peu différente, raccords changés). C'est le cas d'un kill seul ; un
+        // multi-kill garde ses deux lectures.
+        val offset = (tail.start - head.start) / ScopeCuts.FRAME
+        val aligned = abs(offset - offset.roundToInt()) < ALIGNMENT
+        val spans = if (aligned && tail.start - head.end <= MERGE_GAP && tail.start >= media.bounds.start) {
+            listOf(TimeRange(minOf(head.start, tail.start), maxOf(head.end, tail.end)))
+        } else {
+            listOf(head, tail)
+        }
+        var failed = false
+        val footage = spans.map { span ->
+            span to try {
+                footage(media, span, settings, decoding)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.warn { "Pose de l'arme illisible de ${Durations.format(span.start)} à ${Durations.format(span.end)} : ${e.message}" }
+                failed = true
+                null
+            }
+        }
+        fun part(range: TimeRange) = footage.firstOrNull { (span, _) -> range.start >= span.start && range.end <= span.end }?.second?.slice(range)
+        val headPose = pose(group, head = true, settings, part(head))
+        val tailPose = pose(group, head = false, settings, part(tail))
+        return Read(Aim(head = headPose?.first, tail = tailPose?.first, headPose = headPose?.second, tailPose = tailPose?.second), complete = !failed)
+    }
+
+    /** Pose lue autour d'un groupe ; [complete] faux si une lecture a échoué (rien à garder pour le prochain montage). */
+    private class Read(val aim: Aim, val complete: Boolean)
+
+    /** Fenêtre de la source lue avant le premier kill ([head]) ou après le dernier. */
+    private fun range(group: KillGroup, head: Boolean, settings: MatchCut): TimeRange {
         val media = group.media
         val kill = if (head) group.kills.first() else group.kills.last()
+        return if (head) TimeRange(maxOf(media.bounds.start, kill - HEAD_REACH), kill)
+        else TimeRange(kill - settings.reference - ScopeCuts.FRAME, minOf(media.duration, kill + TAIL_REACH))
+    }
+
+    /**
+     * Images de la zone du viseur et repère d'arme en main sur [range], d'un seul décodage ; null si la capture ne se
+     * lit pas sur cette fenêtre.
+     */
+    private suspend fun footage(media: MediaInfo, range: TimeRange, settings: MatchCut, decoding: Semaphore): Footage? {
+        val zones = listOfNotNull(zone(media, settings.region, ScopeCuts.SIZE, ScopeCuts.SIZE), settings.weapon?.let { zone(media, it.region, it.width, it.height) })
+        if (zones.size < (if (settings.weapon != null) 2 else 1) || !media.path.isRegularFile() ||
+            range.start < media.bounds.start || range.end > media.duration || !range.length.isPositive()
+        ) {
+            return null
+        }
+        val label = if (settings.weapon != null) "visée et arme en main" else "visée"
+        // Seul le décodage attend son tour : les calculs qui suivent se font pendant que d'autres lectures décodent.
+        val read = decoding.withPermit { SourceFrames.read(ffmpeg, media.path, range, ScopeCuts.FPS, zones, "$label ${Durations.format(range.start)}") }
+        val pose = read[0].map { f -> FloatArray(f.size) { (f[it].toInt() and 0xFF).toFloat() } }
+        val armed = settings.weapon?.let { hud ->
+            val template = templates.getOrPut(hud.template) { WeaponTemplate.load(Path(hud.template)) }
+            BooleanArray(read[1].size) { i ->
+                val f = read[1][i]
+                template.matches(FloatArray(f.size) { (f[it].toInt() and 0xFF).toFloat() }, hud.width, hud.height, hud.minScore)
+            }
+        }
+        return Footage(range.start, pose, armed)
+    }
+
+    /** Recadrage de [region] (mesurée en 16:9) sur la capture, réduit à [width] x [height] ; null sans vidéo. */
+    private fun zone(media: MediaInfo, region: CropRegion, width: Int, height: Int): FrameZoneSpec? {
+        val video = media.video ?: return null
+        val zone = ScreenGeometry.rescale(region, REFERENCE_ASPECT, video.width.toDouble() / video.height, RegionAnchor.CENTER)
+        return FrameZoneSpec("crop=iw*${num(zone.width)}:ih*${num(zone.height)}:iw*${num(zone.x)}:ih*${num(zone.y)},scale=$width:$height:flags=area", width, height)
+    }
+
+    /**
+     * Images lues à partir de [start], une par [ScopeCuts.FRAME] : la zone du viseur ([pose]) et l'arme en main
+     * ([armed], null sans repère d'arme).
+     */
+    private class Footage(val start: Duration, val pose: List<FloatArray>, val armed: BooleanArray?) {
+        /**
+         * La part de [range] : ses images commencent à l'image de la lecture la plus proche de son début (à une
+         * demi-image près, comme une lecture de [range] seule), et [Footage.start] est l'instant de cette image.
+         */
+        fun slice(range: TimeRange): Footage {
+            val first = ((range.start - start) / ScopeCuts.FRAME).roundToInt().coerceIn(0, pose.size)
+            // Autant d'images qu'en sortirait la lecture de [range] seule : FFmpeg reçoit sa durée arrondie à la
+            // milliseconde (1,933 s : 58 images, pas 59), et la pose au repos est la médiane de toutes les images.
+            val millis = Math.round(range.length.inWholeMicroseconds / 1000.0)
+            val count = ceil(millis * ScopeCuts.FPS / 1000.0 - 1e-9).toInt().coerceIn(0, pose.size - first)
+            return Footage(start + ScopeCuts.FRAME * first, pose.subList(first, first + count), armed?.copyOfRange(first, minOf(armed.size, first + count)))
+        }
+    }
+
+    /**
+     * Fenêtre où le plan peut commencer avant le premier kill ([head]) ou finir après le dernier, dans la source, et la
+     * pose de l'arme qu'on y voit, d'après les images lues [footage] ; null si la capture ne se lit pas ou si la pose
+     * attendue n'est pas tenue.
+     */
+    private fun pose(group: KillGroup, head: Boolean, settings: MatchCut, footage: Footage?): Pair<TimeRange, Pose>? {
+        val kill = if (head) group.kills.first() else group.kills.last()
         val frame = ScopeCuts.FRAME
-        val range = if (head) TimeRange(maxOf(media.bounds.start, kill - HEAD_REACH), kill)
-        else TimeRange(kill - settings.reference - frame, minOf(media.duration, kill + TAIL_REACH))
         return try {
-            val frames = decode(media, range, settings.region) ?: return null
-            val killIndex = ((kill - range.start) / frame).toInt().coerceIn(0, frames.size)
-            val armed = settings.weapon?.let { armed(media, range, it) ?: return null }
-            fun at(i: Int) = range.start + frame * i
+            val frames = footage?.pose ?: return null
+            val start = footage.start
+            val killIndex = ((kill - start) / frame).toInt().coerceIn(0, frames.size)
+            val armed = if (settings.weapon != null) footage.armed ?: return null else null
+            fun at(i: Int) = start + frame * i
             // Les marges peuvent vider la fenêtre (repos ou visée plus courts qu'elles) : pas de raccord, pas d'erreur.
             fun window(from: Duration, to: Duration) = if (to > from) TimeRange(from, to) else null
             val margin = ScopeCuts.MARGIN
@@ -123,54 +232,14 @@ class MatchCutter(private val ffmpeg: FfmpegService) {
         }
     }
 
-    /**
-     * Arme en main image par image sur [range] (une par [ScopeCuts.FRAME]) : le repère du HUD [hud] y est-il ? Null si
-     * la zone ne se lit pas.
-     */
-    private suspend fun armed(media: MediaInfo, range: TimeRange, hud: WeaponHud): BooleanArray? {
-        val template = templates.getOrPut(hud.template) { WeaponTemplate.load(Path(hud.template)) }
-        val frames = decode(media, range, hud.region, hud.width, hud.height, "arme en main") ?: return null
-        return BooleanArray(frames.size) { template.score(frames[it], hud.width, hud.height) >= hud.minScore }
-    }
-
-    /** Petites images en niveaux de gris de la zone du viseur sur [range], une par [ScopeCuts.FRAME]. */
-    private suspend fun decode(
-        media: MediaInfo,
-        range: TimeRange,
-        region: CropRegion,
-        width: Int = ScopeCuts.SIZE,
-        height: Int = ScopeCuts.SIZE,
-        label: String = "visée",
-    ): List<FloatArray>? {
-        val video = media.video ?: return null
-        if (!media.path.isRegularFile()) return null
-        if (range.start < media.bounds.start || range.end > media.duration || !range.length.isPositive()) return null
-        val zone = ScreenGeometry.rescale(region, REFERENCE_ASPECT, video.width.toDouble() / video.height, RegionAnchor.CENTER)
-        val frames = mutableListOf<FloatArray>()
-        ffmpeg.run(
-            FfmpegCommand(
-                listOf(
-                    "-ss", Durations.ffmpegSecondsPrecise(range.start), "-t", Durations.ffmpegSeconds(range.length), "-i", media.path.toString(),
-                    "-an", "-vf",
-                    "fps=${ScopeCuts.FPS},crop=iw*${num(zone.width)}:ih*${num(zone.height)}:iw*${num(zone.x)}:ih*${num(zone.y)}," +
-                        "scale=$width:$height:flags=area,format=gray",
-                    "-f", "rawvideo", "pipe:1",
-                ),
-                "$label ${Durations.format(range.start)}",
-            ),
-            StdoutHandler.Binary { input ->
-                val bytes = input.readAllBytes()
-                val pixels = width * height
-                for (i in 0 until bytes.size / pixels) frames += FloatArray(pixels) { (bytes[i * pixels + it].toInt() and 0xFF).toFloat() }
-            },
-        )
-        return frames
-    }
-
     private fun num(v: Double) = String.format(Locale.ROOT, "%.4f", v)
 
     companion object {
-        private const val PARALLELISM = 4
+        /** Écart au-delà duquel les fenêtres d'avant et d'après sont lues séparément : décoder 1 s de plus coûte ~70 ms, une lecture ~400 ms. */
+        private val MERGE_GAP = 4.seconds
+
+        /** Écart toléré (en images) pour lire deux fenêtres d'une seule lecture : bien moins que la demi-image qui change le choix de `fps`. */
+        private const val ALIGNMENT = 0.01
 
         /** Visée cherchée avant le premier kill : de quoi couvrir le plus long début de plan qu'on voudrait raccorder. */
         private val HEAD_REACH = 2.seconds
@@ -187,7 +256,15 @@ class MatchCutter(private val ffmpeg: FfmpegService) {
  * Pose de l'arme : l'image de référence de la zone ([mean], [ScopeCuts.SIZE] de côté), la visée juste avant le kill
  * ou l'arme au repos, et les pixels qu'on compare ([still]) : l'arme plutôt que le décor.
  */
-class Pose(val mean: DoubleArray, val still: BooleanArray)
+class Pose(val mean: DoubleArray, val still: BooleanArray) {
+    /**
+     * Ressemblances déjà calculées ([ScopeCuts.similarity]) : la planification les redemande pour chaque paire de
+     * groupes, à chaque grille et chaque variante essayées. Clés faibles : rien ne survit aux poses elles-mêmes.
+     */
+    private val known = WeakHashMap<Pose, Double>()
+
+    internal fun similarity(other: Pose, compute: () -> Double): Double = synchronized(known) { known.getOrPut(other, compute) }
+}
 
 /** Ressemblance de chaque image à la pose ([curve]), et cette pose. */
 class HeldPose(val curve: DoubleArray, val pose: Pose)
@@ -205,26 +282,50 @@ class WeaponTemplate(val width: Int, val height: Int, pixels: FloatArray) {
         DoubleArray(centered.size) { centered[it] / norm }
     }
 
-    fun score(zone: FloatArray, zoneWidth: Int, zoneHeight: Int): Double {
+    /** Somme du modèle centré : nulle aux arrondis près, gardée pour que [score] reste la corrélation exacte. */
+    private val templateSum = template.sum()
+
+    fun score(zone: FloatArray, zoneWidth: Int, zoneHeight: Int): Double = scan(zone, zoneWidth, zoneHeight, Double.POSITIVE_INFINITY)
+
+    /** `score(zone) >= threshold`, sans chercher plus loin que la première position qui l'atteint. */
+    fun matches(zone: FloatArray, zoneWidth: Int, zoneHeight: Int, threshold: Double): Boolean = scan(zone, zoneWidth, zoneHeight, threshold) >= threshold
+
+    /** Meilleure corrélation, ou la première qui atteint [enough]. */
+    private fun scan(zone: FloatArray, zoneWidth: Int, zoneHeight: Int, enough: Double): Double {
+        // Sommes cumulées de la zone (valeurs et carrés) : moyenne et énergie de chaque position en temps constant ;
+        // seul le produit avec le modèle reste pixel par pixel. Σ(v - m)t = Σvt - m·Σt et Σ(v - m)² = Σv² - m·Σv :
+        // la même corrélation qu'en recentrant chaque position, trois fois moins de calcul (900 positions par image).
+        val stride = zoneWidth + 1
+        val sums = DoubleArray(stride * (zoneHeight + 1))
+        val squares = DoubleArray(stride * (zoneHeight + 1))
+        for (y in 0 until zoneHeight) {
+            var rowSum = 0.0
+            var rowSquares = 0.0
+            for (x in 0 until zoneWidth) {
+                val v = zone[y * zoneWidth + x].toDouble()
+                rowSum += v
+                rowSquares += v * v
+                sums[(y + 1) * stride + x + 1] = sums[y * stride + x + 1] + rowSum
+                squares[(y + 1) * stride + x + 1] = squares[y * stride + x + 1] + rowSquares
+            }
+        }
+        fun area(table: DoubleArray, x0: Int, y0: Int): Double =
+            table[(y0 + height) * stride + x0 + width] - table[y0 * stride + x0 + width] - table[(y0 + height) * stride + x0] + table[y0 * stride + x0]
         var best = -1.0
         val n = width * height
-        val patch = DoubleArray(n)
         for (y0 in 0..zoneHeight - height) for (x0 in 0..zoneWidth - width) {
-            var sum = 0.0
-            for (y in 0 until height) for (x in 0 until width) {
-                val v = zone[(y0 + y) * zoneWidth + x0 + x].toDouble()
-                patch[y * width + x] = v
-                sum += v
-            }
+            val sum = area(sums, x0, y0)
             val mean = sum / n
+            val sq = area(squares, x0, y0) - mean * sum
+            if (sq <= 1e-6) continue
             var dot = 0.0
-            var sq = 0.0
-            for (i in 0 until n) {
-                val c = patch[i] - mean
-                dot += c * template[i]
-                sq += c * c
+            for (y in 0 until height) {
+                val row = (y0 + y) * zoneWidth + x0
+                val t = y * width
+                for (x in 0 until width) dot += zone[row + x] * template[t + x]
             }
-            if (sq > 1e-6) best = maxOf(best, dot / sqrt(sq))
+            best = maxOf(best, (dot - mean * templateSum) / sqrt(sq))
+            if (best >= enough) return best
         }
         return best
     }
@@ -370,7 +471,12 @@ object ScopeCuts {
     fun restCurve(frames: List<FloatArray>, stillShare: Double, killIndex: Int, reference: Int, threshold: Double): HeldPose? {
         if (frames.size < MIN_RUN) return null
         val n = frames.first().size
-        val median = DoubleArray(n) { p -> frames.map { it[p] }.sorted()[frames.size / 2].toDouble() }
+        val column = FloatArray(frames.size)
+        val median = DoubleArray(n) { p ->
+            for (i in frames.indices) column[i] = frames[i][p]
+            column.sort()
+            column[frames.size / 2].toDouble()
+        }
         val spread = DoubleArray(n) { p -> sqrt(frames.sumOf { (it[p] - median[p]).let { d -> d * d } } / frames.size) }
         val cutoff = spread.sorted()[((n - 1) * stillShare).toInt()]
         val still = BooleanArray(n) { spread[it] <= cutoff }
@@ -409,7 +515,9 @@ object ScopeCuts {
      * Ressemblance (-1..1) de deux poses de l'arme, sur les pixels immobiles des deux : même arme tenue de la même façon
      * au même endroit de l'écran. 0 si elles n'ont pas assez de pixels en commun pour en juger.
      */
-    fun similarity(a: Pose, b: Pose): Double {
+    fun similarity(a: Pose, b: Pose): Double = a.similarity(b) { computeSimilarity(a, b) }
+
+    private fun computeSimilarity(a: Pose, b: Pose): Double {
         val common = a.still.indices.filter { a.still[it] && b.still[it] }
         if (common.size < a.still.size * MIN_COMMON) return 0.0
         val x = normalized(DoubleArray(common.size) { a.mean[common[it]] }) ?: return 0.0

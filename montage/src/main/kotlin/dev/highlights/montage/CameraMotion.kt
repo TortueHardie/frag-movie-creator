@@ -47,7 +47,7 @@ class CameraMotion(private val ffmpeg: FfmpegService) {
 
     suspend fun measure(plan: MontagePlan, progress: ProgressReporter): List<MotionTrack?> {
         val done = AtomicInteger()
-        val semaphore = Semaphore(PARALLELISM)
+        val semaphore = Semaphore(SourceFrames.PARALLELISM)
         val tracks = coroutineScope {
             plan.clips.map { clip ->
                 async {
@@ -101,7 +101,6 @@ class CameraMotion(private val ffmpeg: FfmpegService) {
     }
 
     companion object {
-        private const val PARALLELISM = 3
         private const val DECOR_TOP = 0.12
         private const val DECOR_HEIGHT = 0.43
         private val MARGIN = 500.milliseconds

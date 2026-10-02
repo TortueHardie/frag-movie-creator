@@ -10,12 +10,18 @@ import dev.highlights.core.serialization.SerialInstant
 import dev.highlights.core.serialization.SerialPath
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.extension
@@ -45,10 +51,18 @@ class MusicLibrary(private val cacheDir: Path) {
     suspend fun load(ffmpeg: FfmpegService, dir: Path, progress: ProgressReporter = ProgressReporter.NONE): List<MusicAnalysis> {
         val files = files(dir)
         if (files.isEmpty()) throw InputException("Aucune musique dans $dir (attendu : ${AUDIO_EXTENSIONS.joinToString()})")
-        val analyses = files.mapIndexedNotNull { i, file ->
-            progress.update(i.toDouble() / files.size, file.fileName.toString())
-            analysis(ffmpeg, file)
-        }
+        // Les musiques jamais vues s'analysent ensemble : décodage et calcul, chacune sur son cœur.
+        val semaphore = Semaphore(ANALYSIS_PARALLELISM)
+        val done = AtomicInteger()
+        val analyses = coroutineScope {
+            files.map { file ->
+                async {
+                    semaphore.withPermit { analysis(ffmpeg, file) }.also {
+                        progress.update(done.incrementAndGet().toDouble() / files.size, file.fileName.toString())
+                    }
+                }
+            }.awaitAll()
+        }.filterNotNull()
         progress.complete()
         if (analyses.isEmpty()) throw HighlightsException("Aucune musique exploitable dans $dir : aucun tempo détecté")
         log.info { "Bibliothèque $dir : ${analyses.size} musique(s) exploitable(s) sur ${files.size}" }
@@ -104,6 +118,9 @@ class MusicLibrary(private val cacheDir: Path) {
     }
 
     companion object {
+        /** Analyses simultanées d'une bibliothèque neuve : chacune décode sa musique puis calcule sur un cœur. */
+        private val ANALYSIS_PARALLELISM = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 6)
+
         /** Formats audio proposés dans l'application et lus dans une bibliothèque. */
         val AUDIO_EXTENSIONS = setOf("mp3", "wav", "flac", "ogg", "m4a", "aac", "opus")
 
@@ -276,7 +293,8 @@ object MusicChoice {
         fromStart: (Path) -> Boolean,
     ): List<MusicCandidate> {
         if (musics.isEmpty()) throw HighlightsException("Aucune musique à essayer")
-        val tried = musics.map { music ->
+        // Une planification par musique, indépendantes : sur tous les cœurs (l'ordre des musiques est gardé).
+        val tried = musics.parallelStream().map { music ->
             val own = settingsFor(settings, fromStart(music.file))
             val prepared = prepare(music, own)
             try {
@@ -287,7 +305,7 @@ object MusicChoice {
             } catch (e: IllegalArgumentException) {
                 MusicCandidate(prepared, null, 0.0, 0, value = 0.0, error = e.message)
             }
-        }
+        }.toList()
         val most = tried.maxOf { it.groups }.coerceAtLeast(1)
         val ranked = tried.map { c ->
             val recency = recency(c.music.file, recent)

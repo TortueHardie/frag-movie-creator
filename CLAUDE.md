@@ -67,7 +67,7 @@ par format : `StoryRenderBuilder.build` ou `RenderCommandBuilder.build` → filt
 `MontageOptions` surchargent `profile.montage` (bloc `settings = base.copy(...)`) →
 `MusicAnalyzer.analyze` (+ `fromStart`), ou si `music` est un dossier `MusicLibrary.load` puis `MusicChoice.rank` après l'inspection des kills → `MontagePlanner.groups(sessions)` (kills groupés par `mergeGap`, rounds/ace/clutch,
 style) → `KillInspector.inspect` (`ShotLocator` recale sur l'attaque du tir ; `FlickMeter` flick + direction) →
-`MatchCutter.inspect` (pose de l'arme `aim`/`rest`, `WeaponTemplate` arme en main) → `MontagePlanner.best`
+`MatchCutter.inspect` (pose de l'arme `aim`/`rest`, `WeaponTemplate` arme en main ; groupes `MontagePlanner.placeable` seulement) ; ces deux-là passent par `InspectionCache` → `MontagePlanner.best`
 (variantes échelle×dropShift notées par `MontageScorer`) → `ScopeCuts.apply` (raccords sur la pose, retiming) →
 `KillMontageExporter.export` (`MontageRenderBuilder.build`, `MontageReport` JSON avec `MontageScore`).
 
@@ -182,7 +182,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ### montage (montage kills)
 - `MusicLibrary.kt` : `MusicLibrary(cacheDir).load(ffmpeg, dir)` (analyses gardées en JSON par musique, `StoredMusic` en µs, échecs gardés aussi,
   invalidées par taille/date/`MusicAnalyzer.VERSION`), `files(dir)`, `AUDIO_EXTENSIONS` ; `MusicChoice.rank(groups, musics, settings, fromStart)`
-  (plan par musique, `value` = note × groupes gardés / max − `recency`), `recency` (`RECENT_PENALTY` 0,03 sur les `RECENT_DEPTH` 3 derniers montages),
+  (plan par musique, en parallèle, `value` = note × groupes gardés / max − `recency`), `recency` (`RECENT_PENALTY` 0,03 sur les `RECENT_DEPTH` 3 derniers montages),
   `settingsFor`, `prepare` ; `MusicCandidate` ; `MusicHistory` (`outputDir/sessions/music-history.json`, `recent/record`, alimenté par `killMontage`).
 - `MusicAnalyzer.kt` : `VERSION` (à incrémenter si l'analyse change), `analyze(ffmpeg, file)` (décode 22050 Hz mono) / `analyzeSamples` ; mel → onset → `estimateTempo` → `trackBeats` (DP) → accents, `detectSections` (novelty timbre+volume, alignées mesures),
   `findDrop`, `classify` (`SectionKind` INTRO/BUILD_UP/DROP/BREAKDOWN/BODY/OUTRO), `fromStart`. Modèle `MusicAnalysis(beats, bpm, downbeatPhase, beatAccent, halfAccent, sections, dropBeat)`, `hits()`, `beatTime()`, `Intensity{LOW,MID,HIGH}`.
@@ -191,7 +191,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `MontagePlanner.kt` : `KillGroup(media, kills, score, protectedSegments, voiceSegments, traits, outcome, style, aim)` (`rank = kills + score/10 + style`), `KillTraits(headshot, flick, shift, direction)`,
   `FlickDirection`, `Aim`, `RoundOutcome`, `SpeedSegment/SpeedKind`, `MontageClip` (`toOutput`, `outputKills`, `slow`, `ramps`), `PlanVariant`, `MontagePlan` (slots contigus obligatoires).
   Clutch : `killStyle.clutchEvent` (valorant : « clutch » d'Outplayed) → `announcedClutch` (groupe dont le dernier kill précède l'annonce, sans kill ni mort entre, ≤ roundGap) remplace la déduction.
-  `MontagePlanner.groups / rounds / outcome / style / targetDuration / best / plan / layout / arbitrate / aimFit / assign / pairUp / clipFor / slowCurve / isStrong / allowsSlow`.
+  `MontagePlanner.groups / rounds / outcome / style / targetDuration / placeable / best / plan / layout / arbitrate / aimFit / assign / pairUp / clipFor / slowCurve / isStrong / allowsSlow`.
+  `pairUp` recompte seulement les coupes touchées par un échange ; `placeable` = groupes que le plan peut placer (au plus autant de multi-kills et de kills seuls que de temps dans `maxDuration`, égalités de rank comprises).
   Chronologique : `layout` essaie les fenêtres (`accept`) jusqu'à celle où `assign` met sur la drop le meilleur groupe (± `ORDER_TOLERANCE`) sans en perdre.
   Constantes de réglage fin : `MIN_KEPT, MONOTONY_PENALTY, RAMP_COST, OFF_BEAT_DISCOUNT, MIN_CLIP_SHARE, TARGET_STEP, MATCH_BONUS, MATCH_VALUE, ORDER_TOLERANCE, MIN_GAIN, SCALES, DROP_SHIFTS`.
 - Rythme rapide : `MontageSettings.forFast` / `FastMontage` (un kill par plan, plans d'un temps via `cuts.singleBeat`, contexte 0,2 s + 0,15 s, ni ralenti ni rampe, échanges écartés par `skipDeathWithin` dans `MontagePlanner.groups`) ; `MontageOptions.fast`, `--fast` (montage, search), case « Rythme rapide ».
@@ -199,9 +200,11 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - Kill confirmé à l'image : détecteur `kill-confirm` (type `killfeed`, toujours actif, 30 img/s, événements `feed-kill`) → `KillStyle.confirmEvent` ; `MontagePlanner.groups` associe chaque kill à la confirmation la plus proche (`CONFIRM_WINDOW` 0,8 s), `hudShots(…, confirmed)` cherche la balle qui tue jusqu'à `CONFIRM_AFTER` (0,12 s) après elle, sinon `fatal` = confirmation − `CONFIRM_LAG`.
 - Balles d'un kill : `MontagePlanner.hudShotCounts` (événements `hud-shot` du compteur de munitions, préférés) ou `shotCounts` (tirs entendus) → `KillTraits.shots`.
 - Plans d'un temps : `CutSettings.singleBeat` → `MontagePlanner.singleBeat` (temps ≥ minLead+minTail), `MontageClip.leadIn` (kill sur `slot.startBeat`, coupe avancée dans `MontageRenderBuilder.leads`, pas de whip ni de raccord `ScopeCuts` sur ces plans). `MusicPace` + `MusicChoice.pace` : bonus aux musiques à plans courts.
-- `CameraMotion.kt` : `CameraMotion.measure` (rotation de la caméra sur chaque plan, décodage 256 px, `FlickMeter.motions`) → `MotionTrack` ; `VectorBlur.sigmas/sourceAt/filters` (flou orienté `gblur@vbN` piloté par `sendcmd`) ; mesuré dans `KillMontageExporter`, passé par `MontageRenderRequest.motion`.
-- `KillInspector.kt` : `inspect`, `ShotLocator.locate/rises`, `FlickMeter.motions/speeds/direction/score/shift`.
-- `MatchCutter.kt` : `MatchCutter.inspect/read/armed/decode`, `Pose`, `HeldPose`, `WeaponTemplate.score`, `ScopeCut`, `ScopeCuts.apply/count/aimCurve/restCurve/runs/similarity/compatible/aimStart/aimEnd/speeds/cut/retimeTail/retimeHead/disarm/symmetry`.
+- `CameraMotion.kt` : `CameraMotion.measure` (rotation de la caméra sur chaque plan, décodage 256 px, `FlickMeter.motions`) → `MotionTrack` ; `VectorBlur.sigmas/sourceAt/filters` (flou orienté `gblur@vbN` piloté par `sendcmd`) ; mesuré dans `KillMontageExporter` en même temps que la pré-découpe, passé par `MontageRenderRequest.motion`.
+- `SourceFrames.kt` : `SourceFrames.read` (plusieurs `FrameZoneSpec` d'une portion de source en un décodage : `split` + `pad` + `vstack`, mêmes octets que zone par zone), `PARALLELISM` (4 décodages courts à la fois, mesuré sur de vraies soirées).
+- `InspectionCache.kt` : inspections gardées d'un montage à l'autre (`<workDir>/cache/kills`, un `.json.gz` par capture, oublié si taille/date changent) : `kill/putKill` (KillInspector), `aim/putAim` (MatchCutter, poses en doubles bruts), clés = tout ce dont la mesure dépend ; `VERSION` à incrémenter si KillInspector ou MatchCutter changent.
+- `KillInspector.kt` : `inspect` (cache `InspectionCache`), `ShotLocator.locate/rises`, `FlickMeter.motions/speeds/direction/score/shift`.
+- `MatchCutter.kt` : `MatchCutter.inspect(only = MontagePlanner.placeable)/read/footage/pose` (une lecture `SourceFrames` visée + arme par groupe quand les fenêtres d'avant/après sont alignées à l'image près, sinon deux ; `Footage.slice` reproduit le compte d'images de FFmpeg), `Pose` (ressemblances mémorisées), `HeldPose`, `WeaponTemplate.score/matches` (sommes cumulées), `ScopeCut`, `ScopeCuts.apply/count/aimCurve/restCurve/runs/similarity/compatible/aimStart/aimEnd/speeds/cut/retimeTail/retimeHead/disarm/symmetry`.
 - `MontageRenderBuilder.kt` : graphe FFmpeg du montage : `build`, `sourceCuts`, `flashes`, `whips`/`whipStages`, `zooms`, `cutBlurStages` (flou radial des coupes), `leads` (preBeatFrames), `bleeds`, `speedParts`, `slowAudio`, `envelope`, `volumeExpression`.
 - `MontageScorer.kt` : `MontageScore(total, sync, accent, restraint, variety, fill, pacing, coverage, opening, lull, action, details)` ; critère null = exclu de la moyenne.
 - `KillMontageExporter.kt` : `MontageExportRequest(musicChoice)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates)`, `export`, `recordingDate`.
