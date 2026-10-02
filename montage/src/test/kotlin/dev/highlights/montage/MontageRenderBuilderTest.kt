@@ -262,6 +262,21 @@ class MontageRenderBuilderTest : FunSpec({
         MontageRenderBuilder.flashes(p)[p.clips.indexOf(trimmed)] shouldBe false
     }
 
+    test("fondu final : jamais sur le dernier kill, même dans un plan court") {
+        // Onetaps à 120 BPM : plans de deux temps, le dernier kill un temps (0,5 s) avant la fin.
+        val short = settings.forOneTaps()
+        val groups = (0 until 6).map { KillGroup(media, listOf((100 + it * 60).seconds), 0.5, emptyList(), emptyList()) }
+        val p = MontagePlanner.plan(groups, music, short)
+        val (start, length) = MontageRenderBuilder.finalFade(p, edit.fps)
+        val lastKill = p.clipOffsets().last() + p.clips.last().outputKills().max()
+        (start >= lastKill + short.cuts.minTail - 20.milliseconds) shouldBe true
+        ((start + length - p.duration).absoluteValue < 20.milliseconds) shouldBe true
+        // Montage ordinaire : même règle (son dernier kill tombait lui aussi dans le fondu de deux temps).
+        val full = plan()
+        val (fullStart, _) = MontageRenderBuilder.finalFade(full, edit.fps)
+        (fullStart >= full.clipOffsets().last() + full.clips.last().outputKills().max() + settings.cuts.minTail - 20.milliseconds) shouldBe true
+    }
+
     test("coupe en avance sur son temps : la coupe avance, le kill ne bouge pas") {
         val frame = (1_000_000L / edit.fps).microseconds
         MontageRenderBuilder.leads(plan(), edit.fps) shouldBe listOf(Duration.ZERO, frame)

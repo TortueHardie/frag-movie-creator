@@ -44,7 +44,7 @@ class KillInspector(private val ffmpeg: FfmpegService) {
     suspend fun inspect(groups: List<KillGroup>, settings: MontageSettings, layout: AudioLayout, progress: ProgressReporter): List<KillGroup> {
         val align = settings.shotAlign
         val style = settings.killStyle
-        if (!align.enabled && !style.flick) return groups
+        if (!align.enabled && !style.flick) return groups.map { g -> atFatal(g, style) }
         val total = groups.sumOf { it.kills.size }
         val done = AtomicInteger()
         val semaphore = Semaphore(PARALLELISM)
@@ -78,6 +78,13 @@ class KillInspector(private val ffmpeg: FfmpegService) {
         return inspected
     }
 
+    /** Kills calés sur la balle vue au compteur de munitions, sans rien décoder. */
+    private fun atFatal(group: KillGroup, style: KillStyle): KillGroup {
+        if (group.kills.none { group.traitsOf(it).fatal != null }) return group
+        val traits = group.kills.map { k -> group.traitsOf(k).let { t -> t.fatal?.let { f -> t.copy(shift = f - k) } ?: t } }
+        return MontagePlanner.withTraits(group, group.kills.map { k -> group.traitsOf(k).fatal ?: k }, traits, style)
+    }
+
     private suspend fun inspectKill(
         media: MediaInfo,
         kill: Duration,
@@ -88,7 +95,11 @@ class KillInspector(private val ffmpeg: FfmpegService) {
     ): Pair<Duration, KillTraits> {
         var at = kill
         var result = traits
-        if (align.enabled) {
+        if (traits.fatal != null) {
+            // La balle vue sur le compteur de munitions : l'instant le plus sûr, le son ne ferait que s'en écarter.
+            at = traits.fatal
+            result = result.copy(shift = traits.fatal - kill)
+        } else if (align.enabled) {
             try {
                 val shot = locateShot(media, kill, align, layout)
                 if (shot != null) {

@@ -103,6 +103,25 @@ class ProfileRepositoryTest : FunSpec({
         }.message shouldContain "lui-même détecteur de secours"
     }
 
+    test("dependsOn désigne d'autres détecteurs du profil, qui ne dépendent de personne") {
+        val ok = repoWith(
+            "p.yaml" to """
+                id: p
+                detectors:
+                  - { id: events, type: outplayed-events }
+                  - { id: feed, type: killfeed, fallbackFor: events }
+                  - { id: ammo, type: ammo-counter, dependsOn: [events, feed] }
+            """.trimIndent(),
+        )
+        ok.byId("p").detectors.last().dependsOn shouldBe listOf("events", "feed")
+        shouldThrow<ConfigException> {
+            repoWith("p.yaml" to "id: p\ndetectors:\n  - { id: ammo, dependsOn: [absent] }")
+        }.message shouldContain "absent"
+        shouldThrow<ConfigException> {
+            repoWith("p.yaml" to "id: p\ndetectors:\n  - { id: a, dependsOn: [b] }\n  - { id: b, dependsOn: [c] }\n  - { id: c }")
+        }.message shouldContain "dépend lui-même"
+    }
+
     test("les profils du dépôt sont valides") {
         val repo = ProfileRepository.loadDirectory(Path("../config/profiles"))
         repo.all().map { it.id }.toSet() shouldBe setOf("default", "lol", "valorant", "wardogs")

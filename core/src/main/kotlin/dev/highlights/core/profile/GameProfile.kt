@@ -35,6 +35,14 @@ data class GameProfile(
             require(replaced != null && target != d.id) { "profil '$id' : fallbackFor du détecteur '${d.id}' ne désigne aucun autre détecteur ('$target')" }
             require(replaced.fallbackFor == null) { "profil '$id' : '${d.id}' ne peut pas secourir '$target', lui-même détecteur de secours" }
         }
+        detectors.forEach { d ->
+            d.dependsOn.forEach { target ->
+                val source = detectors.find { it.id == target }
+                require(source != null && target != d.id) { "profil '$id' : dependsOn du détecteur '${d.id}' ne désigne aucun autre détecteur ('$target')" }
+                require(source.dependsOn.isEmpty()) { "profil '$id' : '${d.id}' ne peut pas dépendre de '$target', qui dépend lui-même d'autres détecteurs" }
+            }
+            require(d.dependsOn.isEmpty() || d.fallbackFor == null) { "profil '$id' : '${d.id}' ne peut pas être à la fois secours et dépendant" }
+        }
     }
 }
 
@@ -72,6 +80,12 @@ data class DetectorConfig(
      * quand la capture ne vient pas d'Outplayed). Les mêmes événements ne sont ainsi jamais comptés deux fois.
      */
     val fallbackFor: String? = null,
+    /**
+     * Détecteurs dont celui-ci lit les événements ([dev.highlights.core.analysis.AnalysisContext.events]) : il tourne
+     * après eux (ex. le compteur de munitions relu autour des kills d'Outplayed ou du killfeed). Ceux qui n'ont pas
+     * tourné (secours inutile) ou n'ont rien donné sont simplement ignorés.
+     */
+    val dependsOn: List<String> = emptyList(),
     val params: YamlNode? = null,
 ) {
     init {

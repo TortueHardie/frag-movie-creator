@@ -114,15 +114,21 @@ au montage plein, elle s'allonge par paliers.
   - Fait : gabarit `config/templates/valorant/headshot.wav` tiré d'une vraie capture, seuil 0,7 : 4 headshots sur 8
     reconnus, aucun faux sur 14 kills au corps (deux parties du 25/09).
     - [ ] Le revoir sur d'autres parties (pris dans l'une des deux mesurées) ; la moitié des headshots manqués.
+      Revu sur une partie du 01/10 sans Outplayed (killfeed) : 14 sons reconnus en 3 min, presque tous loin d'un kill
+      (impacts à la tête sans kill), aucun à moins de 250 ms des 4 kills : les 2 kills à la tête manqués, aucun faux.
   - Mesuré sur deux parties : les tirs isolés sont entendus, pas les rafales du Vandal (jusqu'à 4 balles sur 5
     manquées, 1706 « tirs » par partie dont des sons qui n'en sont pas). Deux sprays passaient pour des one taps.
-  - Fait : compteur de munitions du HUD (`AmmoCounter`, `killStyle.ammo`) relu autour des one taps entendus avant le
-    montage : 111 balles sur 111 autour de 14 kills. Les deux faux one taps écartés.
-    - [ ] Aucun vrai one tap dans ces deux parties : valider sur une partie qui en a (Sheriff, Vandal en tap, Operator).
+  - Fait : détecteur `ammo-counter` (analysis-vision) : le compteur de munitions du HUD relu pendant l'analyse autour
+    de chaque kill (`dependsOn`, nouvelle phase après les détecteurs de kills), événements `hud-shot` préférés aux tirs
+    entendus (`MontagePlanner.hudShotCounts`). 111 balles sur 111 autour de 14 kills ; 5 vrais one taps sur 138 kills
+    à la tête de 16 parties, qu'aucun tir entendu ne désignait (le son du kill et de l'impact comptait comme des tirs),
+    et les deux faux écartés. Recherche, stats et montage s'en servent.
+    - Corrigé : en Combat à mort, la recharge animée du chargeur à chaque kill comptait trois balles de plus (aucun
+      one tap trouvé dans ce mode) ; elle est reconnue à son turquoise et ignorée.
     - [ ] Zone mesurée en 3440x1440 : vérifier en 16:9.
-    - [ ] Filtre « One taps » de la recherche : il s'appuie sur les tirs entendus seulement (faux positifs possibles
-      dans la liste, écartés au montage) ; confirmer au compteur à l'affichage si c'est gênant.
     - [ ] WARDOGS et captures sans compteur lisible : rester sur le son, moins sûr dans les rafales.
+  - [ ] Peu de one taps (2 dans une partie) : la durée minimale (`oneTaps.min`, 6 s) étire les plans sur une grille
+    grossière ; baisser le minimum ou garder des plans courts quitte à faire un montage de 2 s.
   - [ ] Icône headshot du killfeed : le profil la dit absente des lignes du joueur, à revérifier.
   - Sans source fiable pour le headshot, repli sur « un seul tir » : le montage reste possible, un peu moins strict
     (un one-shot au corps à l'Operator passerait). Le dire dans l'interface plutôt que de ne rien proposer.
@@ -131,7 +137,9 @@ au montage plein, elle s'allonge par paliers.
     la tête ; `MontageSettings.forOneTaps` (réglages `montage.oneTaps`) : un kill par plan, plans de 2 temps, ni
     ralenti ni accroche. Testé sur un plan synthétique : 12 kills en moins de 15 s. Interface non compilée ici.
   - Fait : plans d'un seul temps (`cuts.singleBeat`, `MontageClip.leadIn`) : le kill sur le temps qui ouvre le plan, la
-    coupe avancée de `minLead` sur la fin du précédent ; deux temps au-delà de 142 BPM. Testé sur plan synthétique.
+    coupe avancée de `minLead` sur la fin du précédent ; deux temps au-delà de 109 BPM. Premier rendu réel : 0,12 s
+    après la balle coupait avant la chute de l'ennemi, passé à 0,3 s (0,25 s avant) ; kill calé sur la balle du
+    compteur (`KillTraits.fatal`), l'instant d'Outplayed la plaçant parfois sur la coupe.
     - [ ] À voir sur un vrai rendu : 0,3 s de visée avant l'impact suffit-il à lire le one tap ?
   - Fait : `MusicChoice` favorise les musiques qui gardent des plans courts (`MusicPace`, mesuré sur le plan obtenu).
   - Habillage possible : flash blanc ou punch-in sur l'impact, son du headshot mis en avant, compteur qui défile.

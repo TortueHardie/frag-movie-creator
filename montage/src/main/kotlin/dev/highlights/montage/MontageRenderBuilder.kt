@@ -244,11 +244,11 @@ object MontageRenderBuilder {
             }
         }
 
-        val fadeOut = minOf(plan.period * 2, total / 4)
+        val (fadeStart, fadeOut) = finalFade(plan, fps)
         graph += clips.indices.joinToString("") { "[v$it]" } + "concat=n=${clips.size}:v=1:a=0[vcat]"
         // Format imposé juste avant l'encodeur : concat et xfade peuvent sinon négocier du 4:4:4 (selon la version
         // de FFmpeg), que le profil « high » de x264 refuse.
-        graph += "[vcat]fade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)},format=yuv420p[vout]"
+        graph += "[vcat]fade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},format=yuv420p[vout]"
         graph += clips.indices.joinToString("") { "[a$it]" } +
             "amix=inputs=${clips.size}:normalize=0:duration=longest,apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[game]"
 
@@ -262,7 +262,7 @@ object MontageRenderBuilder {
             "${num(music)}-${num(music * (1 - under))}*($env)"
         }
         graph += "[$musicInput:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo," +
-            "$GAIN_FRAMES,volume='$duck':eval=frame,afade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
+            "$GAIN_FRAMES,volume='$duck':eval=frame,afade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
         graph += "[game][music]amix=inputs=2:normalize=0:duration=first,loudnorm=I=${num(audio.loudnessLufs)}:TP=-1.5:LRA=11,aresample=48000[aout]"
 
         args += listOf(request.filterScriptOption, request.filterScript.toString(), "-map", "[vout]", "-map", "[aout]")
@@ -381,6 +381,23 @@ object MontageRenderBuilder {
      * plus de source avant le kill, si bien que le kill, lui, reste exactement sur le temps. Le premier plan n'a pas de
      * coupe à anticiper, et un plan qui commence au tout début de sa capture n'a rien de plus à montrer.
      */
+    /**
+     * Fondu au noir de la fin (début, durée) : deux temps, au plus le quart du montage, mais jamais avant que le dernier
+     * kill ait eu [CutSettings.minTail] pour se voir. Avec des plans de deux temps (onetaps), le fondu recouvrait le
+     * dernier kill, qui paraissait coupé ; il se resserre alors sur ce qui reste après lui, une image au moins.
+     */
+    internal fun finalFade(plan: MontagePlan, fps: Int): Pair<Duration, Duration> {
+        val leads = leads(plan, fps)
+        val frames = boundaries(plan, fps, leads)
+        val frame = (1_000_000L / fps).microseconds
+        val total = (frames.last() * 1_000_000 / fps).microseconds
+        val last = plan.clips.last()
+        val lastKill = last.outputKills().maxOrNull()?.let { (frames[frames.lastIndex - 1] * 1_000_000 / fps).microseconds + leads.last() + it }
+        val wanted = minOf(plan.period * 2, total / 4)
+        val start = maxOf(total - wanted, lastKill?.let { it + plan.settings.cuts.minTail } ?: Duration.ZERO).coerceAtMost(total - frame)
+        return start to (total - start)
+    }
+
     internal fun leads(plan: MontagePlan, fps: Int): List<Duration> {
         val frame = (1_000_000L / fps).microseconds
         return plan.clips.mapIndexed { i, clip ->

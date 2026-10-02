@@ -59,16 +59,45 @@ detectors:
       # 0,23 s en médiane après les kills d'Outplayed recalés sur le killfeed (la troisième : 0,5 s avant).
       offset: -150ms
 
+  # Confirmation de chaque kill à l'image : la même lecture du killfeed, toujours faite (avec ou sans Outplayed) et à
+  # 30 img/s, émet « feed-kill » à l'apparition de chaque ligne du joueur. C'est l'instant où le jeu enregistre le kill :
+  # 0,02 à 0,10 s après l'icône de kill sous le réticule (13 kills d'une partie du 30/09), quand Outplayed s'en écarte
+  # de -0,55 à +0,47 s. Le montage y cale la balle qui tue (montage.killStyle.confirmEvent) : sans cela, un kill sur
+  # trois commençait après le kill dans les plans d'un temps. Coût : environ 1 min 30 pour une partie de 30 min.
+  - id: kill-confirm
+    type: killfeed
+    weight: 0
+    params:
+      fps: 30
+      kinds: { kill: feed-kill }
+      region: { x: 0.709302, y: 0.076389, width: 0.290698, height: 0.243056 }
+      referenceWidth: 3440
+      referenceHeight: 1440
+      anchor: right
+
   # Tirs du joueur dans le son du jeu : les attaques les plus fortes de la partie (son arme ; tirs adverses, pas et
   # capacités arrivent atténués). Avec ou sans Outplayed, qui ne transmet pas les tirs : c'est ce qui désigne les kills
   # d'une seule balle (one taps). Mesuré sur deux parties : les rafales du Vandal (une balle toutes les 0,1 s) ne
   # redescendent que de 6 à 10 dB entre deux balles, une sur deux à quatre sur cinq y échappe ; deux sprays sur 23 kills
-  # passaient pour des one taps. Le compteur de munitions (montage.killStyle.ammo) les confirme donc avant le montage.
+  # passaient pour des one taps. Les balles viennent donc du compteur de munitions (détecteur ammo, ci-dessous) ; ces
+  # tirs entendus restent le recours sans compteur lisible.
   - id: game-shots
     type: game-sounds
     weight: 0
     params:
       shots: { minRiseDb: 9, percentile: 0.9, belowDb: 10 }
+
+  # Balles tirées, lues sur le compteur de munitions du chargeur (les chiffres, à gauche de l'icône du chargeur ; zone
+  # mesurée en 16:9, accrochée au centre) autour de chaque kill d'Outplayed ou du killfeed : c'est ce qui dit si un
+  # kill s'est fait d'une seule balle (one tap), à la place des tirs entendus. Mesuré sur 16 parties en 3440x1440 :
+  # 111 balles sur 111 retrouvées autour de 14 kills vérifiés à l'œil ; 5 vrais one taps sur 138 kills à la tête,
+  # qu'aucun tir entendu ne désignait. Non vérifié en 16:9. Coût : 2 s de vidéo relues par kill.
+  - id: ammo
+    type: ammo-counter
+    dependsOn: [game-events, killfeed]
+    weight: 0
+    params:
+      region: { x: 0.650, y: 0.925, width: 0.050, height: 0.045 }
 
   # Tirs à la tête sans Outplayed : le son de l'impact à la tête, reconnu à son empreinte. Gabarit de 90 ms pris
   # 66 ms après un kill à la tête (partie du 25/09, 548,05 s, piste du jeu), le motif qui revenait le plus dans les
@@ -143,14 +172,11 @@ edit:
 montage:
   # Les instants des kills sont déjà corrigés du retard d'Outplayed (offsets de game-events) : rien à compenser.
   killOffset: 0ms
-  # Montage onetaps : les one taps entendus sont confirmés sur le compteur de munitions du chargeur (les chiffres, à
-  # gauche de l'icône du chargeur ; zone mesurée en 16:9, accrochée au centre). Mesuré sur une partie en 3440x1440 :
-  # 111 balles sur 111 retrouvées autour de 14 kills, là où le son en manquait dans les rafales. Non vérifié en 16:9.
   # Les clutchs annoncés par le jeu (game-events), plutôt que déduits : la déduction en comptait 3 pour 1 réel.
   killStyle:
     clutchEvent: clutch
-    ammo:
-      region: { x: 0.650, y: 0.925, width: 0.050, height: 0.045 }
+    # Kills confirmés par le killfeed (détecteur kill-confirm) : la balle qui tue est cherchée juste avant.
+    confirmEvent: feed-kill
   # Raccords sur la pose de l'arme : dans VALORANT, on tire à la hanche, l'arme immobile en bas à droite. Une coupe
   # se raccorde quand les deux plans tiennent la même arme de la même façon : elle reste en place, le décor change.
   # Zone serrée sur l'arme (mesurée en 16:9), comparée en entier : au kill, l'arme tremble sous le recul et ce sont

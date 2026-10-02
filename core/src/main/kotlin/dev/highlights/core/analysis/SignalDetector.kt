@@ -62,6 +62,8 @@ class AnalysisContext(
     val frames: FrameSampler = FrameSampler(ffmpeg, media),
     /** Rôle de chaque piste audio (mix, jeu, micro), déduit de la capture : voir [AudioTracks]. */
     val audio: AudioTracks = AudioTracks.of(media.audio),
+    /** Événements des détecteurs dont celui-ci dépend (voir `DetectorConfig.dependsOn`), triés ; vide sinon. */
+    val events: List<SignalEvent> = emptyList(),
 )
 
 /**

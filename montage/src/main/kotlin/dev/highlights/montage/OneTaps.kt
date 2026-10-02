@@ -20,8 +20,9 @@ object OneTaps {
         val style = settings.killStyle
         if (groups.none { g -> g.traits.any { it.shots != null } }) {
             throw InputException(
-                "Aucun tir entendu dans ces parties : le montage onetaps compte les balles de chaque kill dans le son du " +
-                    "jeu. Réanalysez-les avec un profil qui a le détecteur game-sounds (tirs).",
+                "Aucune balle comptée dans ces parties : le montage onetaps les lit sur le compteur de munitions " +
+                    "(détecteur ammo-counter) ou dans le son du jeu (game-sounds). Réanalysez-les avec un profil à jour " +
+                    "(« Mettre à jour les analyses »).",
             )
         }
         // Une partie où aucun tir à la tête n'a été vu ni entendu : le profil n'en détecte pas (capture sans Outplayed,
