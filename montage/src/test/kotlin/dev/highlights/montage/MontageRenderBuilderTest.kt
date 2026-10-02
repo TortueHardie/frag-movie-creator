@@ -7,6 +7,7 @@ import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageSettings
+import dev.highlights.core.model.MotionBlur
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SlowAudio
 import dev.highlights.core.model.TimeRange

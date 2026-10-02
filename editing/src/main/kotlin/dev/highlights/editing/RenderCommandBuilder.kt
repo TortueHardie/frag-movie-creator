@@ -210,6 +210,24 @@ object RenderCommandBuilder {
         }
     }
 
+    /**
+     * Pixels de l'image produite par pixel de la capture : ce qui se déplace de 10 pixels dans la capture se déplace de
+     * 10 × ce facteur dans la sortie (recadrage 9:16 compris, qui grossit l'image).
+     */
+    fun pixelScale(format: OutputFormat, media: MediaInfo, settings: EditSettings): Double {
+        val video = media.video ?: throw HighlightsException("${media.path} ne contient pas de flux vidéo")
+        return when (format) {
+            OutputFormat.SOURCE -> settings.sourceHeight.toDouble() / video.height
+            OutputFormat.LANDSCAPE -> minOf(settings.landscape.width.toDouble() / video.width, settings.landscape.height.toDouble() / video.height)
+            OutputFormat.VERTICAL -> {
+                val size = settings.vertical.size
+                val region = settings.vertical.cropRegion
+                    ?.let { ScreenGeometry.forVideo(it, settings.vertical.reference, video.width, video.height) }
+                size.height.toDouble() / cropBox(video.width, video.height, size.width.toDouble() / size.height, region).h
+            }
+        }
+    }
+
     /** Dimensions de l'image produite pour un format donné. */
     fun outputSize(format: OutputFormat, media: MediaInfo, settings: EditSettings): Pair<Int, Int> {
         val video = media.video ?: throw HighlightsException("${media.path} ne contient pas de flux vidéo")
@@ -254,12 +272,15 @@ object RenderCommandBuilder {
      * Filtres d'étalonnage, terminés par une virgule (chaîne vide si l'image reste telle quelle) : table de
      * correspondance, puis saturation et contraste, puis assombrissement des bords.
      */
-    internal fun grade(settings: GradeSettings): String {
+    fun grade(settings: GradeSettings): String {
         if (settings.isNeutral) return ""
         val filters = mutableListOf<String>()
         settings.lut?.let { filters += "lut3d=file='${it.replace("\\", "/").replace(":", "\\:")}'" }
-        if (settings.saturation != 1.0 || settings.contrast != 1.0) {
-            filters += "eq=saturation=${fmt2(settings.saturation)}:contrast=${fmt2(settings.contrast)}"
+        // Vibrance d'abord : elle juge ce qui est terne sur les couleurs d'origine, avant que eq ne les pousse toutes.
+        if (settings.vibrance != 0.0) filters += "vibrance=intensity=${fmt2(settings.vibrance)}"
+        if (settings.saturation != 1.0 || settings.contrast != 1.0 || settings.brightness != 0.0) {
+            val brightness = if (settings.brightness != 0.0) ":brightness=${fmt2(settings.brightness)}" else ""
+            filters += "eq=saturation=${fmt2(settings.saturation)}:contrast=${fmt2(settings.contrast)}$brightness"
         }
         // L'angle de l'objectif pilote la force du vignettage : plus il est ouvert, plus les bords tombent.
         if (settings.vignette > 0) filters += "vignette=a=${fmt2(settings.vignette * Math.PI / 4)}"

@@ -109,6 +109,10 @@ data class MontageOptions(
     val flashEveryCut: Boolean? = null,
     /** Whip pan dans le sens du flick aux coupes qui en suivent ou en précèdent un. */
     val whip: Boolean? = null,
+    /** Couleurs boostées (vibrance, saturation, contraste) comme les kill montages de TikTok. */
+    val boostColors: Boolean? = null,
+    /** Flou de mouvement : traînées sur les mouvements rapides et flou radial sur les coupes franches. */
+    val motionBlur: Boolean? = null,
     /** Raccords sur les animations du jeu (rechargement, sprint, sort…) qui reviennent d'un clip à l'autre. */
     val matchCut: Boolean? = null,
     /** Classement des kills selon leur round (mort juste après, ace, clutch) ; false : les morts sont ignorées. */
@@ -522,6 +526,11 @@ class HighlightPipeline(
                 onEveryCut = options.flashEveryCut ?: base.flash.onEveryCut,
             ),
             whip = base.whip.copy(enabled = options.whip ?: base.whip.enabled),
+            motionBlur = base.motionBlur.copy(enabled = options.motionBlur ?: base.motionBlur.enabled),
+            colors = base.colors.copy(
+                enabled = options.boostColors ?: base.colors.enabled,
+                lut = base.colors.lut?.let { config.resolve(it).toString() },
+            ),
             matchCut = base.matchCut.copy(
                 enabled = options.matchCut ?: base.matchCut.enabled,
                 weapon = base.matchCut.weapon?.let { it.copy(template = config.resolve(it.template).toString()) },

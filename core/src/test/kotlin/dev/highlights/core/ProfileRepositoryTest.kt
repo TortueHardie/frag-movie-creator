@@ -66,6 +66,15 @@ class ProfileRepositoryTest : FunSpec({
         repo.resolve(Path("C:/Videos/other/game.mp4"), forcedId = "lol").id shouldBe "lol"
     }
 
+    test("couleurs boostées : réglables dans le profil, bornées comme l'étalonnage") {
+        val repo = repoWith("boost.yaml" to "id: boost\ndetectors: []\nmontage: { colors: { enabled: true, saturation: 1.4 } }")
+        val colors = repo.byId("boost").montage.colors
+        colors.grade().saturation shouldBe 1.4
+        colors.grade().vibrance shouldBe 0.5
+        colors.copy(enabled = false).grade().isNeutral shouldBe true
+        shouldThrow<ConfigException> { repoWith("bad.yaml" to "id: bad\ndetectors: []\nmontage: { colors: { saturation: 5 } }") }
+    }
+
     test("erreur explicite sur une clé inconnue") {
         val e = shouldThrow<ConfigException> {
             repoWith("bad.yaml" to "id: bad\ndetectors: []\nthreshold: 0.5")

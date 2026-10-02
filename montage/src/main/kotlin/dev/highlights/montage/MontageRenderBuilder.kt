@@ -42,6 +42,8 @@ data class MontageRenderRequest(
     val audioLayout: AudioLayout = AudioLayout(),
     /** Option de lecture du graphe depuis un fichier, selon la version de FFmpeg (voir [FfmpegService.filterScriptOption]). */
     val filterScriptOption: String = FfmpegService.FILTER_COMPLEX_FROM_FILE,
+    /** Rotation de la caméra de chaque plan, pour le flou par vecteurs (voir [CameraMotion]) ; vide : pas de ce flou. */
+    val motion: List<MotionTrack?> = emptyList(),
 )
 
 /**
@@ -100,11 +102,15 @@ object MontageRenderBuilder {
         // bandes noires si leur format diffère. Sans cela, un montage mélangeant du 1080p et du 1440p (ou du 16:9 et
         // de l'ultrawide) échouerait au moment de concaténer des images de tailles différentes.
         val (w, h) = RenderCommandBuilder.outputSize(request.format, clips.first().group.media, edit)
+        val colors = RenderCommandBuilder.grade(settings.colors.grade()).removeSuffix(",")
+        val blend = settings.motionBlur.blendFrames(fps)
+        val cutFrames = settings.motionBlur.cutFrames(fps)
 
         clips.forEachIndexed { i, clip ->
             val media = clip.group.media
             val lead = leads[i]
-            val length = ((boundaries[i + 1] - boundaries[i]) * 1_000_000 / fps).microseconds
+            val frames = (boundaries[i + 1] - boundaries[i]).toInt()
+            val length = (frames.toLong() * 1_000_000 / fps).microseconds
             // La coupe avance de quelques images, le contenu du plan la suit : le kill reste sur son temps.
             val outKills = clip.outputKills().map { it + lead }
             val parts = speedParts(clip, lead)
@@ -152,6 +158,17 @@ object MontageRenderBuilder {
                 effects += "scale=w='trunc($w*$z/2)*2':h='trunc($h*$z/2)*2':eval=frame:flags=${settings.zoom.scaleFlags}"
                 effects += "crop=$w:$h:(iw-$w)/2:(ih-$h)/2"
             }
+            // Flou de mouvement après le zoom : le punch-in traîne lui aussi ; avant textes et flash, qui restent nets.
+            if (blend > 1) effects += "tmix=frames=$blend"
+            // Flou par vecteurs : une traînée dans le sens où le décor glisse, de la longueur parcourue.
+            val track = request.motion.getOrNull(i)
+            if (track != null && settings.motionBlur.usesVectors) {
+                val pixelsPerWidth = (media.video?.width ?: w) * RenderCommandBuilder.pixelScale(request.format, media, edit)
+                effects += VectorBlur.filters("vb$i", VectorBlur.sigmas(clip, track, lead, frames, fps, pixelsPerWidth, w, settings.motionBlur, outKills), fps)
+            }
+            // Couleurs boostées après le zoom (le vignettage reste fixe dans le cadre), avant flash et textes (leur
+            // blanc reste blanc).
+            if (colors.isNotEmpty()) effects += colors
             if (settings.flash.enabled && flashes[i]) {
                 effects += "fade=t=in:st=0:d=${sec(settings.flash.duration)}:color=white"
             }
@@ -171,21 +188,37 @@ object MontageRenderBuilder {
                 }
             }
             effects += "tpad=stop_mode=clone:stop_duration=${sec(clip.padAfter + 500.milliseconds)}"
-            effects += "trim=duration=${sec(length)}"
+            // Longueur en images, pas en durée : les horodatages de la source ne tombent pas sur la grille de sortie,
+            // et `trim=duration` gardait parfois une image de plus. Sur un montage de 31 plans, 11 images de trop
+            // (0,18 s) : la vidéo dépassait le son et les derniers kills tombaient après leur temps. Les images sont
+            // ensuite reposées sur la grille, pour que concat les enchaîne sans trou ni chevauchement.
             effects += "setpts=PTS-STARTPTS"
+            effects += "trim=end_frame=$frames"
+            effects += "setpts=N/($fps*TB)"
             // Le zoom arrondit largeur et hauteur séparément : `scale` modifie alors la forme des pixels (SAR), que
             // concat refuse si elle diffère d'un plan à l'autre.
             effects += "setsar=1"
             val finish = "format=yuv420p,settb=AVTB"
             val stages = whipStages(settings.whip, whips[i], whips.getOrNull(i + 1), length, w, h)
+            // Flou de coupe sur les coupes franches : pas sur celles du whip pan, déjà floutées dans le sens du flick.
+            // Ni sur la retombée d'un kill (l'ennemi qui tombe), ni juste avant lui : dans un plan d'un temps, la coupe
+            // sortante tombe 0,17 s après le kill, et son flou couvrait la fin du kill.
+            val edge = settings.motionBlur.cutFrames(fps, frames)
+            val edgeLength = (edge.toLong() * 1_000_000 / fps).microseconds
+            val blurIn = cutFrames > 0 && i > 0 && whips[i] == null &&
+                outKills.none { it - settings.motionBlur.clearBefore < edgeLength }
+            val blurOut = cutFrames > 0 && i < clips.lastIndex && whips.getOrNull(i + 1) == null &&
+                outKills.none { it + settings.motionBlur.clearAfter > length - edgeLength }
+            val cutBlur = cutBlurStages("q$i", "v$i", "k$i", frames, edge, blurIn, blurOut, w, h, fps, settings.motionBlur.cutZoom)
+            val clipOut = if (cutBlur.isEmpty()) "v$i" else "q$i"
             if (stages.isEmpty()) {
-                graph += "[$base]${(effects + finish).joinToString(",")}[v$i]"
+                graph += "[$base]${(effects + finish).joinToString(",")}[$clipOut]"
             } else {
                 // Whip pan : chaque étape superpose deux copies décalées du plan, puis la dernière rend le plan fini.
                 var label = "w${i}e"
                 graph += "[$base]${effects.joinToString(",")}[$label]"
                 stages.forEachIndexed { k, (first, second) ->
-                    val out = if (k == stages.lastIndex) "v$i" else "w${i}s$k"
+                    val out = if (k == stages.lastIndex) clipOut else "w${i}s$k"
                     val tail = if (k == stages.lastIndex) ",$finish" else ""
                     graph += "[$label]split=3[w${i}m$k][w${i}a$k][w${i}b$k]"
                     graph += "[w${i}m$k][w${i}a$k]$first[w${i}o$k]"
@@ -193,6 +226,7 @@ object MontageRenderBuilder {
                     label = out
                 }
             }
+            graph += cutBlur
 
             // --- audio du jeu : même découpe, volume adaptatif, posé à son décalage (peut déborder sur le clip suivant)
             // Les pistes sont choisies par leur rôle : une capture à pistes séparées (OBS) est mixée ici même.
@@ -353,6 +387,51 @@ object MontageRenderBuilder {
             exit?.let { stage(it, "gte(t\\,$tail)", "0.5*pow((t-$tail)/$hs\\,2)") },
         )
     }
+
+    /**
+     * Flou radial des coupes franches d'un plan de [frames] images, déjà rendu sur [input] : ses [k] premières images
+     * ([head]) et ses [k] dernières ([tail]) sont floutées, le reste passe tel quel, et le tout est recollé sur [output]
+     * à l'image près (la longueur du plan ne change pas, les kills restent sur leurs temps). Le flou mélange l'image et
+     * sept copies agrandies jusqu'à [zoom], d'autant plus que l'image est proche de la coupe. Rien si le plan est trop
+     * court pour garder un milieu net, ou s'il n'a aucune coupe à flouter.
+     */
+    internal fun cutBlurStages(
+        input: String, output: String, prefix: String, frames: Int, k: Int,
+        head: Boolean, tail: Boolean, w: Int, h: Int, fps: Int, zoom: Double,
+    ): List<String> {
+        if (k <= 0 || (!head && !tail) || frames < 2 * k + 2) return emptyList()
+        // (début, fin exclue, force du flou selon le temps t du segment, null = net)
+        val segments = buildList {
+            if (head) add(Triple(0, k, "(1-t*$fps/$k)"))
+            add(Triple(if (head) k else 0, if (tail) frames - k else frames, null))
+            if (tail) add(Triple(frames - k, frames, "((t*$fps+1)/$k)"))
+        }
+        val lines = mutableListOf<String>()
+        lines += "[$input]split=${segments.size}" + segments.indices.joinToString("") { "[${prefix}a$it]" }
+        segments.forEachIndexed { j, (from, to, strength) ->
+            val trim = "trim=start_frame=$from:end_frame=$to,setpts=PTS-STARTPTS"
+            if (strength == null) {
+                lines += "[${prefix}a$j]$trim[${prefix}s$j]"
+            } else {
+                lines += "[${prefix}a$j]$trim,split=$COPIES" + (0 until COPIES).joinToString("") { "[${prefix}b$j$it]" }
+                for (c in 1 until COPIES) {
+                    val f = "(1+${num(zoom * c / (COPIES - 1))}*$strength)"
+                    lines += "[${prefix}b$j$c]scale=w='trunc($w*$f/2)*2':h='trunc($h*$f/2)*2':eval=frame," +
+                        "crop=$w:$h:(iw-$w)/2:(ih-$h)/2,setsar=1[${prefix}c$j$c]"
+                }
+                lines += "[${prefix}b${j}0]" + (1 until COPIES).joinToString("") { "[${prefix}c$j$it]" } +
+                    "mix=inputs=$COPIES[${prefix}s$j]"
+            }
+        }
+        lines += segments.indices.joinToString("") { "[${prefix}s$it]" } + "concat=n=${segments.size}:v=1:a=0,format=yuv420p,settb=AVTB[$output]"
+        return lines
+    }
+
+    /**
+     * Copies mélangées pour le flou radial d'une coupe : l'image et sept agrandissements. Avec quatre, les copies se
+     * voyaient (HUD en double) ; à huit, une traînée lisse.
+     */
+    private const val COPIES = 8
 
     /** Sens où le décor file dans l'image : à l'opposé de la caméra (elle tourne à droite, la scène part à gauche). */
     private fun sign(direction: FlickDirection) = when (direction) {

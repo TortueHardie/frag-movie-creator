@@ -148,16 +148,19 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             progress.child("Préparation des extraits", CUT_WEIGHT),
         )
 
+        // Rotation de la caméra de chaque plan, mesurée une fois pour tous les formats : le flou par vecteurs.
+        val motion = if (plan.settings.motionBlur.usesVectors) CameraMotion(ffmpeg).measure(plan, progress.child("Mouvements de caméra", MOTION_WEIGHT)) else emptyList()
+
         val filterScriptOption = ffmpeg.filterScriptOption()
         for (format in request.formats) {
             val target = paths.videos.getValue(format)
             val temp = OutputNamer.tempFor(target)
-            val step = progress.child(format.label, (1.0 - CUT_WEIGHT) / request.formats.size)
+            val step = progress.child(format.label, (1.0 - CUT_WEIGHT - MOTION_WEIGHT) / request.formats.size)
             val script = request.workDir.resolve("montage_${format.name.lowercase()}.txt")
             val render = MontageRenderBuilder.build(
                 MontageRenderRequest(
                     plan, format, request.edit, encoder, temp, script,
-                    request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption,
+                    request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption, motion,
                 ),
             )
             script.writeText(render.filterGraph)
@@ -223,6 +226,8 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
     companion object {
         /** Part de la progression rendue par la pré-découpe : rapide (copie de flux) face au rendu lui-même. */
         private const val CUT_WEIGHT = 0.08
+        /** Mesure du mouvement de caméra : un décodage en tout petit de chaque plan, rapide face au rendu. */
+        private const val MOTION_WEIGHT = 0.06
 
         fun recordingDate(instant: Instant?): LocalDate = (instant ?: Instant.now()).atZone(ZoneId.systemDefault()).toLocalDate()
     }

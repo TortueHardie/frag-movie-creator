@@ -225,6 +225,10 @@ class RenderCommandBuilderTest : FunSpec({
 
         // Une seule retouche : les filtres neutres sont omis.
         RenderCommandBuilder.grade(GradeSettings(vignette = 0.2)) shouldBe "vignette=a=0.157,"
+
+        // Vibrance avant eq : elle juge ce qui est terne sur les couleurs d'origine ; noirs francs par la luminosité.
+        RenderCommandBuilder.grade(GradeSettings(vibrance = 0.5, saturation = 1.2, contrast = 1.12, brightness = -0.02)) shouldBe
+            "vibrance=intensity=0.500,eq=saturation=1.200:contrast=1.120:brightness=-0.020,"
     }
 
     test("étalonnage appliqué à l'image finale, après recadrage et HUD") {

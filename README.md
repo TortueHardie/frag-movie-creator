@@ -258,6 +258,36 @@ détecte les kills). En ligne de commande :
   le plan sortant file dans le sens où la vue tournait, flouté par la vitesse, et le suivant arrive en continuant le
   même mouvement (200 ms en tout, `duration` ; flou `blur`). Le whip remplace le flash sur cette coupe ; sans flick de
   part et d'autre, la coupe reste franche. Désactivable par une case de la fenêtre de montage ou `--no-whip`.
+- **Flou de mouvement** (`motionBlur`), mesuré sur les montages de référence (flou sur 48 à 93 % des coupes, une ou
+  deux images à 30 img/s) :
+  - Mélange d'images (`blend`, désactivé par défaut) : chaque image mélange celles des 17 ms précédentes. Dans un FPS
+    la caméra bouge presque toujours un peu : il dédoublait légèrement presque chaque image (-17 % de netteté sur un
+    montage, jugé moins net). Les vecteurs le remplacent, et ne floutent qu'au-delà de 10 pixels de glissement par
+    image (-10 % de netteté à 4 pixels).
+  - Flou par vecteurs de mouvement (`vectors`) : avant le rendu, chaque plan est décodé en tout petit et la rotation
+    de la caméra mesurée image par image (dans un FPS, tout le décor glisse d'un bloc). Chaque image est alors floutée
+    dans le sens du glissement, sur la longueur parcourue entre deux images (plafond `maxLength`, 8 % de la largeur) :
+    une traînée continue pendant les flicks, comme une vraie caméra, ralentis et rampes compris. Calculer les images
+    intermédiaires (`minterpolate`) donnait le même effet en 180 fois le temps réel ; la mesure coûte ici environ 40 s
+    sur un montage d'une minute. Montage de référence : 13 % d'images floues, contre 13 à 17 % pour les références
+    (6 % sans les vecteurs).
+  - Coupes : 50 ms de flou radial de part et d'autre de chaque coupe franche (`cuts`, `cutDuration`), le plus fort sur
+    la coupe, l'image et sept copies agrandies jusqu'à 8 % (`cutZoom`). Pas sur les coupes en whip pan, déjà floutées.
+    Sur un montage de 36 coupes : 31 floutées au lieu de 11.
+  - Lisibilité du kill : de 0,1 s avant à 0,25 s après chaque kill, la traînée est réduite au quart (`clearBefore`,
+    `clearAfter`, `clearStrength`) et aucune coupe n'y est floutée ; le flou d'une coupe ne prend pas plus de 8 % du
+    plan de chaque côté (`cutShare`). La rotation de la caméra n'est mesurée que sur le décor (au-dessus de l'arme) :
+    mains d'une capacité ou écran de mort passaient pour un mouvement. Sur un montage au rythme rapide de 74 kills
+    (R2D2), les images floues juste après le kill passent de 40 % à 18 %, et de 19 % à 10 % sur tout le montage.
+  - La longueur de chaque plan ne bouge pas d'une image : les kills restent sur leurs temps. Activé par défaut ; case
+    « Flou de mouvement » de la fenêtre de montage, ou `--no-motion-blur`.
+- **Couleurs boostées** (`colors`) : le jeu « ressort » comme dans les kill montages de TikTok, couleurs vives et noirs
+  francs. Vibrance d'abord (elle pousse les couleurs ternes sans brûler le rouge d'un skin), puis saturation, contraste
+  et luminosité, sur chaque plan avant flashs et textes. Mesuré sur quatre montages VALORANT de référence : 12 à 38 %
+  de pixels très saturés et 3 à 8 % de noirs, contre 7,5 % et 1,7 % sans étalonnage ; les valeurs par défaut
+  (`vibrance` 0,5, `saturation` 1,2, `contrast` 1,12, `brightness` -0,02) donnent 38 % et 5,6 %. `vignette` et `lut`
+  (fichier .cube) en plus si on veut. Désactivé par défaut (`enabled: true` dans le profil pour l'avoir toujours) ;
+  case « Couleurs boostées » de la fenêtre de montage, ou `--colors boost` / `--colors natural`.
 - **Raccords sur la pose de l'arme** (`matchCut`) : la même pose de l'arme de part et d'autre d'une coupe, l'arme reste
   en place et seul le décor change. Deux poses selon le jeu (`pose`) :
   - `aim` (défaut, WARDOGS) : la visée. Le plan sortant s'arrête avant que le joueur ne baisse son arme, l'entrant

@@ -62,6 +62,8 @@ data class MontageSettings(
     val zoom: ZoomEffect = ZoomEffect(),
     val flash: FlashEffect = FlashEffect(),
     val whip: WhipPanEffect = WhipPanEffect(),
+    val colors: ColorBoost = ColorBoost(),
+    val motionBlur: MotionBlur = MotionBlur(),
     val matchCut: MatchCut = MatchCut(),
     val slowMotion: SlowMotionEffect = SlowMotionEffect(),
     val speedRamp: SpeedRampEffect = SpeedRampEffect(),
@@ -412,6 +414,109 @@ data class WhipPanEffect(
     init {
         require(duration.inWholeMilliseconds in 40..600) { "montage.whip.duration doit être entre 40 ms et 600 ms" }
         require(blur in 0.0..0.1) { "montage.whip.blur doit être entre 0 et 0,1" }
+    }
+}
+
+/**
+ * Flou de mouvement, comme les kill montages de TikTok. Mesuré sur trois montages VALORANT de référence : 12 à 21 %
+ * d'images floues contre 5 % pour les nôtres, et un flou sur presque chaque coupe (50 sur 54, 29 sur 39, 15 sur 31),
+ * bref (une ou deux images à 30 img/s), plus des traînées pendant les flicks.
+ *
+ * [blend] (désactivé par défaut) : chaque image mélange celles des [shutter] précédents, comme un obturateur resté ouvert ; seul ce qui bouge
+ * vite traîne (flick, rampe de vitesse, zoom punch), le HUD et le décor immobile restent nets, les textes (posés après)
+ * aussi. Zéro : pas de mélange. 17 ms à 60 img/s : deux images, l'exposition couvre l'intervalle entre elles (360°),
+ * comme les références (30 img/s, deux images mélangées). À 33 ms (trois images), une arme qui bouge vite se voyait en
+ * copies distinctes plutôt qu'en traînée. Dans un FPS la caméra bouge presque toujours un peu : le mélange dédoublait
+ * légèrement presque chaque image (-17 % de netteté sur tout un montage, jugé moins net) ; les vecteurs le remplacent.
+ * [shutter] reste la durée d'obturation des vecteurs.
+ *
+ * [vectors] : flou par vecteurs de mouvement. La rotation de la caméra est mesurée image par image sur chaque plan
+ * (dans un FPS, tout le décor glisse d'un bloc), et chaque image est floutée dans le sens de ce glissement, sur la
+ * longueur parcourue pendant l'obturateur ([shutter], 17 ms à 60 img/s : la distance entre deux images), plafonnée à
+ * [maxLength] (part de la largeur). Une vraie traînée continue, là où le mélange d'images laisse des copies ; ralentis
+ * et rampes en tiennent compte. Calculer les images intermédiaires (`minterpolate`) aurait donné le même résultat en
+ * 180 fois le temps réel : 6 minutes pour 2 s de 1080p.
+ *
+ * [cuts] : flou radial sur [cutDuration] de part et d'autre de chaque coupe franche, plus fort sur la coupe, l'image
+ * agrandie jusqu'à [cutZoom] (part de sa taille) dans ses copies les plus floues. Pas sur les coupes en whip pan, déjà
+ * floutées dans le sens du flick. Au plus [cutShare] du plan de chaque côté : dans un plan d'un temps (0,37 s à
+ * 161 BPM), 50 ms par côté floutaient plus d'un quart du plan.
+ *
+ * Autour de chaque kill, de [clearBefore] avant à [clearAfter] après, le flou par vecteurs est ramené à [clearStrength]
+ * de sa longueur : c'est là qu'on lit le kill (l'ennemi qui tombe). Mesuré sur un montage au rythme rapide (R2D2,
+ * 73 kills en 30 s) : 40 % des images floues dans les 170 ms après le kill, et le montage paraissait illisible.
+ */
+@Serializable
+data class MotionBlur(
+    val enabled: Boolean = true,
+    val blend: Boolean = false,
+    val shutter: SerialDuration = 17.milliseconds,
+    val vectors: Boolean = true,
+    val maxLength: Double = 0.08,
+    val cuts: Boolean = true,
+    val cutDuration: SerialDuration = 50.milliseconds,
+    val cutZoom: Double = 0.08,
+    val cutShare: Double = 0.08,
+    val clearBefore: SerialDuration = 100.milliseconds,
+    val clearAfter: SerialDuration = 250.milliseconds,
+    val clearStrength: Double = 0.25,
+) {
+    init {
+        require(shutter.inWholeMilliseconds in 0..100) { "montage.motionBlur.shutter doit être entre 0 et 100 ms" }
+        require(cutDuration.inWholeMilliseconds in 10..200) { "montage.motionBlur.cutDuration doit être entre 10 et 200 ms" }
+        require(cutZoom in 0.0..0.3) { "montage.motionBlur.cutZoom doit être entre 0 et 0,3" }
+        require(maxLength in 0.0..0.3) { "montage.motionBlur.maxLength doit être entre 0 et 0,3" }
+        require(cutShare in 0.0..0.5) { "montage.motionBlur.cutShare doit être entre 0 et 0,5" }
+        require(clearStrength in 0.0..1.0) { "montage.motionBlur.clearStrength doit être entre 0 et 1" }
+    }
+
+    /** Images mélangées à [fps] images/s : l'image courante et celles que l'obturateur couvre ; 1 = aucun mélange. */
+    fun blendFrames(fps: Int): Int = if (!enabled || !blend) 1 else 1 + Math.round(shutter.inWholeMicroseconds * fps / 1e6).toInt()
+
+    /** Vrai si la rotation de la caméra doit être mesurée pour le flou par vecteurs. */
+    val usesVectors: Boolean get() = enabled && vectors && maxLength > 0 && shutter.isPositive()
+
+    /** Images floutées de chaque côté d'une coupe à [fps] images/s ; 0 = aucun flou de coupe. */
+    fun cutFrames(fps: Int): Int =
+        if (!enabled || !cuts || cutZoom == 0.0) 0 else Math.round(cutDuration.inWholeMicroseconds * fps / 1e6).toInt().coerceAtLeast(1)
+
+    /** Images floutées de chaque côté d'une coupe d'un plan de [frames] images : au plus [cutShare] du plan, au moins une. */
+    fun cutFrames(fps: Int, frames: Int): Int {
+        val k = cutFrames(fps)
+        return if (k == 0) 0 else minOf(k, Math.round(frames * cutShare).toInt().coerceAtLeast(1))
+    }
+}
+
+/**
+ * Couleurs boostées, comme les kill montages de TikTok : le jeu « ressort », couleurs vives accordées au skin, noirs
+ * francs. Mesuré sur quatre montages VALORANT de référence : 12 à 38 % de pixels très saturés (saturation HSV > 0,6),
+ * 3 à 8 % de noirs, contre 7,5 % et 1,7 % pour un montage sans étalonnage. Les valeurs par défaut amènent ce montage
+ * à 38 % et 5,4 %, le haut de la fourchette ; la vibrance pousse d'abord les couleurs ternes, sans brûler le rouge d'un
+ * skin. Appliqué à chaque plan avant flashs et textes, qui gardent leur blanc.
+ */
+@Serializable
+data class ColorBoost(
+    val enabled: Boolean = false,
+    /** Vibrance, -2 à 2 : renforce les couleurs ternes plus que les vives. */
+    val vibrance: Double = 0.5,
+    /** Saturation (1 = inchangée). */
+    val saturation: Double = 1.2,
+    /** Contraste (1 = inchangé). */
+    val contrast: Double = 1.12,
+    /** Luminosité ajoutée, -1 à 1 : un peu en dessous de zéro, les noirs deviennent francs. */
+    val brightness: Double = -0.02,
+    /** Assombrissement des bords, 0 à 1. */
+    val vignette: Double = 0.0,
+    /** Table de correspondance .cube (ou .3dl), appliquée avant le reste. Chemin relatif au fichier de configuration. */
+    val lut: String? = null,
+) {
+    /** Étalonnage à appliquer ; neutre quand les couleurs ne sont pas boostées. */
+    fun grade(): GradeSettings = if (!enabled) GradeSettings()
+    else GradeSettings(lut = lut, saturation = saturation, contrast = contrast, vignette = vignette, vibrance = vibrance, brightness = brightness)
+
+    init {
+        // Mêmes bornes que l'étalonnage des highlights : une valeur hors bornes est refusée au chargement du profil.
+        GradeSettings(lut = lut, saturation = saturation, contrast = contrast, vignette = vignette, vibrance = vibrance, brightness = brightness)
     }
 }
 

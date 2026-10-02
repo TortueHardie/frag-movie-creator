@@ -123,16 +123,25 @@ data class GradeSettings(
     val contrast: Double = 1.0,
     /** Assombrissement des bords, 0 (aucun) à 1 (marqué) : ramène le regard au centre de l'image. */
     val vignette: Double = 0.0,
+    /**
+     * Vibrance, -2 à 2 (0 = inchangée) : renforce surtout les couleurs encore ternes, sans brûler celles qui sont déjà
+     * vives (le rouge d'un skin, l'orange d'un mur au soleil), là où [saturation] pousse tout d'un même facteur.
+     */
+    val vibrance: Double = 0.0,
+    /** Luminosité ajoutée, -1 à 1 (0 = inchangée) ; un peu en dessous de zéro, les noirs deviennent francs. */
+    val brightness: Double = 0.0,
 ) {
     init {
         require(saturation in 0.0..3.0) { "grade.saturation doit être entre 0 et 3" }
         require(contrast in 0.0..3.0) { "grade.contrast doit être entre 0 et 3" }
         require(vignette in 0.0..1.0) { "grade.vignette doit être entre 0 et 1" }
+        require(vibrance in -2.0..2.0) { "grade.vibrance doit être entre -2 et 2" }
+        require(brightness in -1.0..1.0) { "grade.brightness doit être entre -1 et 1" }
     }
 
     /** Vrai si l'étalonnage laisse l'image telle quelle. */
     val isNeutral: Boolean
-        get() = lut == null && saturation == 1.0 && contrast == 1.0 && vignette == 0.0
+        get() = lut == null && saturation == 1.0 && contrast == 1.0 && vignette == 0.0 && vibrance == 0.0 && brightness == 0.0
 }
 
 @Serializable
