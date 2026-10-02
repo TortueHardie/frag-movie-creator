@@ -1,5 +1,8 @@
 # À faire
 
+Priorité : un moteur de montage kills irréprochable et complet, capable de sortir des montages de niveau
+professionnel. Le reste (interface, nouveaux types de montage, publication) passe après.
+
 Pistes pour le montage « tous les kills », dans l'ordre où on compte les traiter.
 
 ## 1. Mieux classer les kills (fait)
@@ -62,6 +65,63 @@ au montage plein, elle s'allonge par paliers.
   adapté garde tous les groupes là où le montage plein en perdait jusqu'à 5 sur 20.
 - À vérifier sur de vraies parties : `perClip` (2,5 s) et `min` (12 s) sont des estimations.
 
+## 6. Se mesurer à des montages de référence (en cours)
+
+Quatre kill montages VALORANT de TikTok dans `exemples/` (non versionné), mesurés le 02/10 (16:9, 1024x576, 30 img/s,
+20 à 50 s de contenu avant l'écran de fin de TikTok). Structure commune aux quatre :
+
+- Une ouverture de 12 à 15 s sans kill : animations d'inspection d'arme et de couteau (souvent sans HUD), les paroles
+  de la musique écrites mot par mot en grand au centre de l'image, un plan par mot ou presque. Puis la partie kills,
+  HUD visible, jusqu'à la fin de la musique.
+- Plans courts : médiane de 0,37 à 0,67 s selon la vidéo (le nôtre : des plans de plusieurs temps).
+- Couleurs poussées, accordées au skin de l'arme (violet et rose, rouge, cyan) : 12 à 38 % de pixels très saturés
+  contre 7,5 % dans notre montage kills, noirs plus francs (3 à 8 % de l'image contre 1,7 %), contraste plus fort
+  dans trois sur quatre. Notre montage kills n'a aucun étalonnage (`GradeSettings` ne sert qu'aux highlights).
+- Flou de mouvement partout : 12 à 21 % d'images floues (transitions en flou directionnel, whips, zooms) contre 5 %.
+- Effets vus à l'image : texte des paroles en mouvement (glitch, couleur du skin, parfois derrière l'arme), flashs
+  colorés, vignettage, ondes et halos, secousses, zooms rapides.
+- Calage sur la musique non mesurable sur ces copies : leur piste audio est déclarée à 44,1 kHz mais encodée vers
+  24 kHz (lue telle quelle, la musique dure deux fois moins que l'image). Il faudrait des copies propres.
+
+Pistes, de la plus simple à la plus lourde :
+- [x] Couleurs boostées en option (`montage.colors`, `--colors boost`, case de la fenêtre de montage) : vibrance,
+  saturation, contraste, luminosité, appliqués à chaque plan avant flashs et textes. Valeurs par défaut réglées sur les
+  références : 38 % de pixels très saturés et 5,6 % de noirs sur un vrai montage (7,5 % et 1,7 % avant).
+  - [ ] Couleurs accordées au skin (teinte dominante de l'arme poussée, le reste un peu désaturé) : à voir.
+  - [ ] L'activer par défaut si le rendu plaît.
+- [x] Flou de mouvement (`montage.motionBlur`, activé par défaut, `--no-motion-blur`) : images mélangées sur 17 ms
+  (traînées sur ce qui bouge vite) et flou radial de 50 ms sur chaque coupe franche. Coupes floutées : 31 sur 36 (11
+  avant), comme les références (48 à 93 %).
+  - [x] Flou par vecteurs de mouvement (`CameraMotion`, `VectorBlur`) : rotation de la caméra mesurée sur chaque plan,
+    flou gaussien orienté de la longueur parcourue (`gblur` piloté par `sendcmd`). 13 % d'images floues (références
+    13 à 17 %, 6 % avant), toutes les coupes floutées. `minterpolate` : 180 fois le temps réel, écarté.
+    - [ ] Arme et HUD suivent la caméra mais sont floutés avec le décor pendant un flick (les références aussi) :
+      les protéger demanderait un masque de l'arme.
+- [x] Corrigé en passant : chaque plan du montage kills gardait parfois une image de trop (`trim=duration` sur des
+  horodatages hors grille), 11 images (0,18 s) sur 31 plans, la vidéo dépassait le son et les derniers kills tombaient
+  après leur temps. Plans coupés en nombre d'images désormais.
+  - [ ] Même schéma dans `StoryRenderBuilder` (highlights story, `trim=duration` par plan) : à vérifier.
+- [x] Rythme rapide (`montage.fast`, `--fast`, case « Rythme rapide ») : un kill par temps, plans de 0,37 s à
+  161 BPM (médiane des références : 0,37 à 0,67 s) au lieu de quatre temps (1,5 s).
+  - [ ] L'activer par défaut si le rendu plaît, ou seulement au-dessus d'un tempo.
+  - Premier essai jugé illisible (74 kills, R2D2) : 40 % d'images floues juste après le kill (flou de la coupe
+    suivante, 0,17 s après le kill, et traînée), échanges montrant l'écran de mort, animations du personnage prises
+    pour des mouvements de caméra. Corrigé (zone nette autour du kill, flou de coupe proportionné, échanges écartés,
+    mesure sur le décor seul) : 18 % après le kill.
+  - Deuxième retour : image moins nette, et des kills coupés (le plan commençait après le kill). Corrigé : mélange
+    d'images retiré (-17 % de netteté), vecteurs au-delà de 10 px seulement ; kills calés sur le killfeed lu à 30 img/s
+    (`kill-confirm`, `killStyle.confirmEvent`) au lieu de l'annonce d'Outplayed, qui prenait une balle de la rafale
+    d'après le kill pour celle qui tue (18 kills sur 57).
+  - [ ] Ennemis minuscules en 21:9 (quelques pixels au fond d'un couloir) : 0,2 s ne suffit pas à les trouver.
+    Pistes : zoom qui commence avant le kill, vers le réticule ; recadrage plus serré au rythme rapide.
+  - [ ] Plusieurs plans par kill dans les sections lentes (les références coupent aussi sans kill : passages entre
+    deux kills, inspection d'arme).
+- [ ] Ouverture « vitrine » : plans sans kill (inspection d'arme, passages calmes) avant la drop, au lieu d'un kill
+  d'accroche. Demande de repérer ces passages dans la capture (arme en main, pas de combat).
+- [ ] Paroles mot par mot : transcription de la musique (whisper, déjà utilisé pour les sous-titres) et texte calé
+  sur chaque mot pendant l'ouverture.
+- [ ] Refaire les mesures de calage sur des copies à l'audio intact.
+
 ---
 
 # Améliorations
@@ -93,7 +153,7 @@ au montage plein, elle s'allonge par paliers.
 - [ ] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
 
 ## Entretien
-- [ ] Mettre à jour `CLAUDE.md` (décrit la v1.3.0, projet en 1.5.1) et le versionner.
+- [x] Mettre à jour `CLAUDE.md` et le versionner.
 
 # Nouvelles fonctionnalités
 
@@ -179,11 +239,3 @@ au montage plein, elle s'allonge par paliers.
 ## Plus ambitieux
 - [ ] Modèle ML personnalisé entraîné sur les moments gardés/décochés des sessions.
 - [ ] Lecteur intégré : aperçu vidéo, scrubbing sur la timeline, rendu d'aperçu basse résolution avant l'export.
-
-## Priorités suggérées
-1. Clip unique vertical.
-2. Montage « onetaps » : le valider sur de vraies parties (gabarit du headshot, réglage des tirs).
-3. Compteur de kills à l'écran.
-4. ~~Bibliothèque musicale avec choix automatique.~~ (fait)
-5. Whoosh sur les whip pans.
-6. Ajuster début/fin d'un moment dans l'UI.

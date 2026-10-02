@@ -21,3 +21,6 @@ hs_err_pid*.log
 
 # Sorties de compilation de l'IDE (VS Code / Eclipse), dont les accesseurs Gradle au nom changeant.
 bin/
+
+# Montages de référence (vidéos de tiers, non redistribuables)
+exemples/
