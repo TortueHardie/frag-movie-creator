@@ -7,6 +7,7 @@ import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageSettings
+import dev.highlights.core.model.MotionBlur
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SlowAudio
 import dev.highlights.core.model.TimeRange
@@ -262,6 +263,21 @@ class MontageRenderBuilderTest : FunSpec({
         MontageRenderBuilder.flashes(p)[p.clips.indexOf(trimmed)] shouldBe false
     }
 
+    test("fondu final : jamais sur le dernier kill, même dans un plan court") {
+        // Onetaps à 120 BPM : plans de deux temps, le dernier kill un temps (0,5 s) avant la fin.
+        val short = settings.forOneTaps()
+        val groups = (0 until 6).map { KillGroup(media, listOf((100 + it * 60).seconds), 0.5, emptyList(), emptyList()) }
+        val p = MontagePlanner.plan(groups, music, short)
+        val (start, length) = MontageRenderBuilder.finalFade(p, edit.fps)
+        val lastKill = p.clipOffsets().last() + p.clips.last().outputKills().max()
+        (start >= lastKill + short.cuts.minTail - 20.milliseconds) shouldBe true
+        ((start + length - p.duration).absoluteValue < 20.milliseconds) shouldBe true
+        // Montage ordinaire : même règle (son dernier kill tombait lui aussi dans le fondu de deux temps).
+        val full = plan()
+        val (fullStart, _) = MontageRenderBuilder.finalFade(full, edit.fps)
+        (fullStart >= full.clipOffsets().last() + full.clips.last().outputKills().max() + settings.cuts.minTail - 20.milliseconds) shouldBe true
+    }
+
     test("coupe en avance sur son temps : la coupe avance, le kill ne bouge pas") {
         val frame = (1_000_000L / edit.fps).microseconds
         MontageRenderBuilder.leads(plan(), edit.fps) shouldBe listOf(Duration.ZERO, frame)
@@ -348,5 +364,100 @@ class MontageRenderBuilderTest : FunSpec({
     test("compteur de kills : absent par défaut, présent sur demande") {
         build(plan()).filterGraph shouldNotContain "text='KILL"
         build(plan(settings.copy(text = settings.text.copy(killCounter = true)))).filterGraph shouldContain "text='KILL 3'"
+    }
+
+    test("chaque plan coupé à son nombre d'images, posé sur la grille : la vidéo ne dérive pas du son") {
+        val g = build(plan(), OutputFormat.SOURCE).filterGraph
+        g shouldNotContain ",trim=duration"
+        // Le total des images par plan est celui du plan entier.
+        val frames = Regex("""trim=end_frame=(\d+),setpts=N/\(60\*TB\)""").findAll(g).sumOf { it.groupValues[1].toLong() }
+        frames shouldBe Math.round(plan().duration.inWholeMicroseconds * 60 / 1_000_000.0)
+    }
+
+    test("flou de mouvement : images mélangées sur 17 ms, flou radial aux coupes franches, rien si désactivé") {
+        MotionBlur().blendFrames(60) shouldBe 1
+        MotionBlur(blend = true).blendFrames(60) shouldBe 2
+        MotionBlur(blend = true).blendFrames(30) shouldBe 2
+        MotionBlur().cutFrames(60) shouldBe 3
+        MotionBlur(enabled = false).blendFrames(60) shouldBe 1
+        MotionBlur(cuts = false).cutFrames(60) shouldBe 0
+        val noWhip = settings.copy(whip = WhipPanEffect(enabled = false), motionBlur = MotionBlur(blend = true))
+        val g = build(plan(noWhip), OutputFormat.SOURCE).filterGraph
+        g shouldContain "tmix=frames=2"
+        g shouldContain "]mix=inputs=8"
+        val off = build(plan(noWhip.copy(motionBlur = MotionBlur(enabled = false, blend = true))), OutputFormat.SOURCE).filterGraph
+        off shouldNotContain "tmix"
+        off shouldNotContain "]mix=inputs"
+    }
+
+    test("flou de coupe : seulement les bords du plan, recollés à l'image près ; rien sur un plan trop court") {
+        val lines = MontageRenderBuilder.cutBlurStages("q", "v", "k", 30, 3, head = true, tail = true, 1920, 1080, 60, 0.08)
+        lines.first() shouldBe "[q]split=3[ka0][ka1][ka2]"
+        lines.any { it.startsWith("[ka0]trim=start_frame=0:end_frame=3,") } shouldBe true
+        lines.any { it.startsWith("[ka1]trim=start_frame=3:end_frame=27,setpts=PTS-STARTPTS[ks1]") } shouldBe true
+        lines.any { it.startsWith("[ka2]trim=start_frame=27:end_frame=30,") } shouldBe true
+        // Le flou est le plus fort sur la coupe : au début du plan entrant, à la fin du plan sortant.
+        lines.any { it.contains("(1+0.0800*(1-t*60/3))") } shouldBe true
+        lines.any { it.contains("(1+0.0800*((t*60+1)/3))") } shouldBe true
+        lines.last() shouldBe "[ks0][ks1][ks2]concat=n=3:v=1:a=0,format=yuv420p,settb=AVTB[v]"
+        MontageRenderBuilder.cutBlurStages("q", "v", "k", 30, 3, head = false, tail = true, 1920, 1080, 60, 0.08).first() shouldBe "[q]split=2[ka0][ka1]"
+        MontageRenderBuilder.cutBlurStages("q", "v", "k", 7, 3, head = true, tail = true, 1920, 1080, 60, 0.08) shouldBe emptyList()
+        MontageRenderBuilder.cutBlurStages("q", "v", "k", 30, 3, head = false, tail = false, 1920, 1080, 60, 0.08) shouldBe emptyList()
+    }
+
+    test("flou par vecteurs : présent sur les plans dont la caméra a été mesurée, absent sinon ou désactivé") {
+        val p = plan()
+        val moving = p.clips.map { MotionTrack(it.start - 1.seconds, List(600) { FlickMeter.Motion(3.0, 0.0) }) }
+        fun graph(s: MontageSettings, motion: List<MotionTrack?>) = MontageRenderBuilder.build(
+            MontageRenderRequest(plan(s), OutputFormat.SOURCE, edit, EncoderProfile("h264_amf", listOf("-c:v", "h264_amf"), true), Path("out.mp4"), Path("f.txt"), motion = motion),
+        ).filterGraph
+        graph(settings, moving) shouldContain "sendcmd=c='"
+        graph(settings, moving) shouldContain "gblur@vb0=sigma=0:sigmaV=0"
+        graph(settings, emptyList()) shouldNotContain "gblur@vb"
+        graph(settings.copy(motionBlur = MotionBlur(vectors = false)), moving) shouldNotContain "gblur@vb"
+    }
+
+    test("flou de coupe : jamais sur la retombée d'un kill") {
+        val fast = settings.copy(whip = WhipPanEffect(enabled = false)).forFast()
+        // Assez de kills pour que le montage dépasse sa durée minimale sans allonger les plans.
+        val groups = (0 until 24).map { KillGroup(media, listOf((100 + it * 60).seconds), 1.0, emptyList(), emptyList()) }
+        // R2D2 : 161 BPM, un temps de 0,37 s.
+        val n = 320
+        val fastMusic = MusicAnalysis(
+            Path("r2d2.wav"), 120.seconds, 161.0, List(n) { (it * 60.0 / 161).seconds }, 0, DoubleArray(n) { 1.0 }, DoubleArray(n) { 0.8 },
+            listOf(MusicSection(0, 128, -14.0, 0.4), MusicSection(128, n, -8.0, 1.0)), 128,
+        )
+        val p = MontagePlanner.plan(groups, fastMusic, fast)
+        val g = build(p, OutputFormat.SOURCE).filterGraph
+        // Plans d'un temps : le kill tombe 0,2 s après la coupe, la coupe sortante 0,17 s après lui, dans la zone
+        // protégée (0,25 s) : seul le début des plans est flouté.
+        // Plans d'un temps suivis d'un plan d'un temps (la coupe avancée de 0,2 s) : 0,17 s entre le kill et la coupe.
+        val oneBeat = p.clips.indices.filter { it > 0 && p.clips[it].beats == 1 && p.clips.getOrNull(it + 1)?.leadIn?.isPositive() == true }
+        (oneBeat.size >= 4) shouldBe true
+        oneBeat.forEach { i -> g.lines().none { it.startsWith("[k${i}b") && it.contains("((t*60+1)/") } shouldBe true }
+        // Le début du plan, lui, reste flouté (0,2 s avant le kill, hors de la zone protégée de 0,1 s).
+        oneBeat.any { i -> g.lines().any { it.startsWith("[k${i}b") && it.contains("(1-t*60/") } } shouldBe true
+    }
+
+    test("flou de coupe : jamais sur une coupe en whip pan") {
+        val p = flickPlan(FlickDirection.LEFT, settings)
+        val whips = MontageRenderBuilder.whips(p)
+        whips[1] shouldBe FlickDirection.LEFT
+        val g = build(p, OutputFormat.SOURCE).filterGraph
+        // Le plan 1 entre par un whip : pas de flou radial à son début.
+        g shouldNotContain "[k1a0]trim=start_frame=0:end_frame=3,setpts=PTS-STARTPTS,split"
+    }
+
+    test("couleurs boostées : absentes par défaut, sur chaque plan après le zoom et avant flash et textes") {
+        build(plan()).filterGraph shouldNotContain "vibrance"
+        val boosted = settings.copy(colors = settings.colors.copy(enabled = true))
+        val lines = build(plan(boosted)).filterGraph.lines().filter { it.contains("vibrance=intensity=0.500,eq=saturation=1.200:contrast=1.120:brightness=-0.020") }
+        lines.size shouldBe plan(boosted).clips.size
+        lines.forEach { line ->
+            val grade = line.indexOf("vibrance")
+            line.indexOf("eval=frame:flags=").let { if (it >= 0) (it < grade) shouldBe true }
+            line.indexOf("fade=t=in").let { if (it >= 0) (it > grade) shouldBe true }
+            line.indexOf("drawtext").let { if (it >= 0) (it > grade) shouldBe true }
+        }
     }
 })

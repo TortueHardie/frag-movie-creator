@@ -199,6 +199,9 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     MontageToggle("Onetaps : que les kills d'une balle à la tête, enchaînés très vite", montage.oneTaps) { v ->
                         actions.updateMontage { it.copy(oneTaps = v) }
                     }
+                    MontageToggle("Rythme rapide : un kill sur chaque temps (chaque coup de basse)", montage.fast) { v ->
+                        actions.updateMontage { it.copy(fast = v) }
+                    }
                 }
 
                 DialogGroup("Formats") {
@@ -227,6 +230,8 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     MontageToggle("Zoom punch sur le kill", montage.zoom) { v -> actions.updateMontage { it.copy(zoom = v) } }
                     MontageToggle("Flash blanc aux coupes fortes", montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
                     MontageToggle("Whip pan dans le sens du flick", montage.whip) { v -> actions.updateMontage { it.copy(whip = v) } }
+                    MontageToggle("Couleurs boostées (le jeu ressort, comme sur TikTok)", montage.boostColors) { v -> actions.updateMontage { it.copy(boostColors = v) } }
+                    MontageToggle("Flou de mouvement (mouvements rapides et coupes)", montage.motionBlur) { v -> actions.updateMontage { it.copy(motionBlur = v) } }
                     MontageToggle("Raccords sur la pose de l'arme (elle reste en place, le décor change)", montage.matchCut) { v -> actions.updateMontage { it.copy(matchCut = v) } }
                     MontageToggle("Classer les kills selon le round (mort, ace, clutch)", montage.rounds) { v -> actions.updateMontage { it.copy(rounds = v) } }
                     MontageToggle("Ralenti sur le kill", montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }

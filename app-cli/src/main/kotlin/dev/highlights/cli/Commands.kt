@@ -188,6 +188,9 @@ class MontageCommand : PipelineCommand("montage") {
     private val noFlash by option("--no-flash", help = "Sans flash aux coupes").flag()
     private val flashEveryCut by option("--flash-every-cut", help = "Flash à chaque coupe, pas seulement aux coupes fortes").flag()
     private val noWhip by option("--no-whip", help = "Sans whip pan dans le sens du flick").flag()
+    private val noMotionBlur by option("--no-motion-blur", help = "Sans flou de mouvement (traînées sur les mouvements rapides, flou radial sur les coupes)").flag()
+    private val colors by option("--colors", help = "Couleurs : boost (vives, noirs francs, comme les kill montages de TikTok) ou natural (celles du jeu) ; défaut : celui du profil")
+        .choice("boost" to true, "natural" to false)
     private val noMatchCut by option("--no-match-cut", help = "Sans raccord sur la pose de l'arme (visée ou arme au repos, qui reste en place par-dessus la coupe)").flag()
     private val noRounds by option("--no-rounds", help = "Sans classement selon le round (mort juste après, ace, clutch)").flag()
     private val noSlowmo by option("--no-slowmo", help = "Sans ralenti").flag()
@@ -200,6 +203,7 @@ class MontageCommand : PipelineCommand("montage") {
     private val reactions by option("--reactions", help = "Mettre en avant voix et rires : plans prolongés jusqu'à la fin de la phrase, micro monté, musique baissée dessous").flag()
     private val gameAudio by option("--game-audio", help = "Son du jeu : full (défaut) ou kills (le son du kill seul, musique baissée dessous)")
         .choice("full" to GameAudio.FULL, "kills" to GameAudio.KILLS)
+    private val fast by option("--fast", help = "Rythme rapide : un kill sur chaque temps de la musique (chaque coup de basse), un plan très court chacun").flag()
     private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
 
@@ -228,6 +232,8 @@ class MontageCommand : PipelineCommand("montage") {
                         flash = if (noFlash) false else null,
                         flashEveryCut = if (flashEveryCut) true else null,
                         whip = if (noWhip) false else null,
+                        boostColors = colors,
+                        motionBlur = if (noMotionBlur) false else null,
                         matchCut = if (noMatchCut) false else null,
                         rounds = if (noRounds) false else null,
                         slowMotion = if (noSlowmo) false else null,
@@ -237,6 +243,7 @@ class MontageCommand : PipelineCommand("montage") {
                         gameAudio = gameAudio,
                         reactions = if (reactions) true else null,
                         oneTaps = oneTaps,
+                        fast = if (fast) true else null,
                     ),
                     ProgressTracker(listener = progress).root,
                 )

@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
+import kotlin.io.path.extension
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.moveTo
 import kotlin.io.path.readText
@@ -48,6 +49,10 @@ object SessionStore {
 
     fun load(file: Path): Session {
         if (!file.isRegularFile()) throw InputException("Session introuvable : $file")
+        // Une vidéo passée à la place de sa session : la lire en texte épuisait la mémoire (pile d'erreur, pas de message).
+        if (!file.extension.equals("json", ignoreCase = true)) {
+            throw InputException("$file n'est pas une session (.session.json) : analyser d'abord la vidéo (« analyze »), puis passer la session écrite dans <sortie>/sessions")
+        }
         val session = try {
             // BOM toléré : PowerShell 5.1 et certains éditeurs Windows en ajoutent un à l'enregistrement.
             json.decodeFromString(Session.serializer(), file.readText().removePrefix("﻿"))

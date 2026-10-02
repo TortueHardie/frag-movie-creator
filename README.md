@@ -258,6 +258,36 @@ détecte les kills). En ligne de commande :
   le plan sortant file dans le sens où la vue tournait, flouté par la vitesse, et le suivant arrive en continuant le
   même mouvement (200 ms en tout, `duration` ; flou `blur`). Le whip remplace le flash sur cette coupe ; sans flick de
   part et d'autre, la coupe reste franche. Désactivable par une case de la fenêtre de montage ou `--no-whip`.
+- **Flou de mouvement** (`motionBlur`), mesuré sur les montages de référence (flou sur 48 à 93 % des coupes, une ou
+  deux images à 30 img/s) :
+  - Mélange d'images (`blend`, désactivé par défaut) : chaque image mélange celles des 17 ms précédentes. Dans un FPS
+    la caméra bouge presque toujours un peu : il dédoublait légèrement presque chaque image (-17 % de netteté sur un
+    montage, jugé moins net). Les vecteurs le remplacent, et ne floutent qu'au-delà de 10 pixels de glissement par
+    image (-10 % de netteté à 4 pixels).
+  - Flou par vecteurs de mouvement (`vectors`) : avant le rendu, chaque plan est décodé en tout petit et la rotation
+    de la caméra mesurée image par image (dans un FPS, tout le décor glisse d'un bloc). Chaque image est alors floutée
+    dans le sens du glissement, sur la longueur parcourue entre deux images (plafond `maxLength`, 8 % de la largeur) :
+    une traînée continue pendant les flicks, comme une vraie caméra, ralentis et rampes compris. Calculer les images
+    intermédiaires (`minterpolate`) donnait le même effet en 180 fois le temps réel ; la mesure coûte ici environ 40 s
+    sur un montage d'une minute. Montage de référence : 13 % d'images floues, contre 13 à 17 % pour les références
+    (6 % sans les vecteurs).
+  - Coupes : 50 ms de flou radial de part et d'autre de chaque coupe franche (`cuts`, `cutDuration`), le plus fort sur
+    la coupe, l'image et sept copies agrandies jusqu'à 8 % (`cutZoom`). Pas sur les coupes en whip pan, déjà floutées.
+    Sur un montage de 36 coupes : 31 floutées au lieu de 11.
+  - Lisibilité du kill : de 0,1 s avant à 0,25 s après chaque kill, la traînée est réduite au quart (`clearBefore`,
+    `clearAfter`, `clearStrength`) et aucune coupe n'y est floutée ; le flou d'une coupe ne prend pas plus de 8 % du
+    plan de chaque côté (`cutShare`). La rotation de la caméra n'est mesurée que sur le décor (au-dessus de l'arme) :
+    mains d'une capacité ou écran de mort passaient pour un mouvement. Sur un montage au rythme rapide de 74 kills
+    (R2D2), les images floues juste après le kill passent de 40 % à 18 %, et de 19 % à 10 % sur tout le montage.
+  - La longueur de chaque plan ne bouge pas d'une image : les kills restent sur leurs temps. Activé par défaut ; case
+    « Flou de mouvement » de la fenêtre de montage, ou `--no-motion-blur`.
+- **Couleurs boostées** (`colors`) : le jeu « ressort » comme dans les kill montages de TikTok, couleurs vives et noirs
+  francs. Vibrance d'abord (elle pousse les couleurs ternes sans brûler le rouge d'un skin), puis saturation, contraste
+  et luminosité, sur chaque plan avant flashs et textes. Mesuré sur quatre montages VALORANT de référence : 12 à 38 %
+  de pixels très saturés et 3 à 8 % de noirs, contre 7,5 % et 1,7 % sans étalonnage ; les valeurs par défaut
+  (`vibrance` 0,5, `saturation` 1,2, `contrast` 1,12, `brightness` -0,02) donnent 38 % et 5,6 %. `vignette` et `lut`
+  (fichier .cube) en plus si on veut. Désactivé par défaut (`enabled: true` dans le profil pour l'avoir toujours) ;
+  case « Couleurs boostées » de la fenêtre de montage, ou `--colors boost` / `--colors natural`.
 - **Raccords sur la pose de l'arme** (`matchCut`) : la même pose de l'arme de part et d'autre d'une coupe, l'arme reste
   en place et seul le décor change. Deux poses selon le jeu (`pose`) :
   - `aim` (défaut, WARDOGS) : la visée. Le plan sortant s'arrête avant que le joueur ne baisse son arme, l'entrant
@@ -535,30 +565,75 @@ l'image :
 Mesuré sur deux parties VALORANT (23 kills, dont 9 headshots selon Outplayed) :
 
 - Les tirs isolés sont bien entendus, pas les rafales : entre deux balles du Vandal (0,1 s), le son ne redescend que
-  de 6 à 10 dB, et une balle sur deux à quatre sur cinq passe inaperçue. Deux sprays passaient ainsi pour des one taps.
-  Le montage onetaps les confirme sur le compteur de munitions (ci-dessous).
+  de 6 à 10 dB, et une balle sur deux à quatre sur cinq passe inaperçue. Deux sprays passaient ainsi pour des one taps,
+  et les vrais one taps sortaient avec deux à quatre « tirs » (le son du kill, de l'impact à la tête). En VALORANT,
+  les balles viennent donc du compteur de munitions (ci-dessous) ; le son reste le recours des autres jeux.
+
+## Balles lues sur le compteur de munitions
+
+Le détecteur `ammo-counter` (VALORANT) relit, pendant l'analyse, 2 s d'image autour de chaque kill (1,8 s avant, 0,45 s
+après) dans la zone des chiffres du chargeur, à 60 images/s : chaque changement des chiffres est une balle (événement
+`hud-shot`). Il tourne après les détecteurs qui donnent les kills (`dependsOn: [game-events, killfeed]` : Outplayed,
+ou le killfeed d'une capture OBS). La balle qui tue est la dernière vue entre 1 s avant l'instant du kill et 0,3 s après
+(Outplayed l'annonce jusqu'à 0,6 s après la balle) ; comptent avec elle celles des 0,8 s d'avant et des 0,25 s d'après
+(une rafale qui continue n'est pas un one tap).
+
+- Mesuré : 111 balles sur 111 autour de 14 kills vérifiés à l'œil. Sur 16 parties, 5 vrais one taps sur 138 kills à
+  la tête, dont aucun n'était désigné par les tirs entendus.
+- Combat à mort : le chargeur se remplit à chaque kill, annoncé par une animation (chiffres agrandis, puis turquoise
+  qui repasse au blanc en 0,3 s), qui comptait pour trois balles de plus : aucun one tap n'y était jamais trouvé. La
+  zone est aussi relue en turquoise, et les changements pendant une recharge ne comptent pas (2 balles sur 2 au lieu
+  de 5, vérifié à l'image). Aucun turquoise autour des kills des parties classées.
+- Zone mesurée en 3440x1440 seulement. Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
+  est à mettre à jour (**Mettre à jour les analyses**, ou `--reanalyze`).
 - Le gabarit du son headshot livré reconnaît la moitié des headshots (0,72 à 0,78) sans aucun faux (kills au corps à
   0,64 au plus), au seuil 0,7. Un premier réglage, pris dans l'une de ces deux parties : à revoir sur d'autres.
+
+## Kills confirmés par le killfeed (VALORANT)
+
+L'annonce d'un kill par Outplayed s'écarte du vrai kill de -0,55 à +0,47 s. Dans un plan d'un temps, qui commence 0,2 s
+avant le kill, c'était trop : sur un montage de 76 kills, l'icône de kill (sous le réticule, l'instant où le jeu
+l'enregistre) apparaissait avant la coupe pour un kill sur trois, et on ne voyait que la suite. Le détecteur
+`kill-confirm` relit donc toujours le killfeed, à 30 img/s, et émet `feed-kill` à l'apparition de chaque ligne du
+joueur : 0,02 à 0,10 s après l'icône sur 13 kills mesurés. Le montage cale chaque kill sur la dernière balle vue au
+compteur de munitions jusqu'à 0,12 s après cette ligne (à ±0,07 s de l'icône), ou sur la ligne elle-même sans balle
+(capacité). Réglage `montage.killStyle.confirmEvent`. Coût : environ 1 min 30 d'analyse pour une partie de 30 min ;
+les parties analysées avant sont à mettre à jour.
+
+## Rythme rapide : un kill par temps
+
+Case « Rythme rapide » du dialogue du montage kills, `montage --fast` ou `search --montage … --fast` : un kill sur
+chaque temps de la musique, sur chaque coup de grosse caisse d'une techno, comme les edits TikTok de référence (plans de
+0,37 à 0,67 s en médiane). Tous les kills, chacun son plan (même dans un multi-kill), sans ralenti ni rampe (ils n'ont pas
+la place), ni whip pan (200 ms d'image qui file dans un plan de 0,37 s : jugé illisible) ; zoom, flash, flou et couleurs restent. Le kill tombe sur le temps qui ouvre son plan, la
+coupe le précède de 0,2 s, et il reste au moins 0,15 s pour voir l'ennemi tomber (`montage.fast` : `minLead`,
+`minTail`) : un temps par plan jusqu'à 171 BPM, deux au-delà. Durée visée : 0,4 s par kill (`perClip`).
+
+- Mesuré sur R2D2 (161 BPM) avec deux parties : 45 kills en 19,6 s, 42 plans d'un temps (0,37 s), contre des plans de
+  quatre temps (1,5 s, un kill toutes les 1,5 s) au rythme normal. Le marqueur de kill reste lisible à l'image.
+- Un kill aussitôt suivi de la mort du joueur (moins de 0,6 s, `fast.skipDeathWithin`) est écarté : son plan finit
+  0,17 s après le kill et ne montrait que l'écran de mort.
+- Dans un dossier de musiques, celles qui gardent des plans d'un temps passent devant (`fast.musicPace`).
+- `montage.fast.enabled: true` dans le profil pour l'avoir par défaut.
 
 ## Montage onetaps
 
 Case « Onetaps » du dialogue du montage kills, `montage --onetaps` ou `search --onetaps --montage` : que les kills
 d'une balle à la tête, un plan chacun, enchaînés au rythme de la musique comme les edits TikTok. Les réglages du
 montage kills restent ceux du profil, sauf ce que `montage.oneTaps` impose : un kill par plan, ni ralenti ni accroche,
-et un kill par temps de musique. Dans un plan d'un temps (0,46 s à 130 BPM), le kill tombe sur le temps qui l'ouvre et
-la coupe le précède de 0,3 s, prises sur la fin du plan précédent : on voit la visée se poser, l'impact tombe sur le
-temps. Au-delà de 142 BPM, un temps ne laisse plus assez de contexte (0,3 s avant, 0,12 s après) : deux temps par plan.
+et un kill par temps de musique. Dans un plan d'un temps (0,57 s à 105 BPM), le kill tombe sur le temps qui l'ouvre et
+la coupe le précède de 0,25 s, prises sur la fin du plan précédent : on voit la visée se poser, l'impact tombe sur le
+temps, l'ennemi a 0,3 s pour tomber. Au-delà de 109 BPM, un temps ne laisse plus assez de contexte : deux temps par plan.
+Le kill est calé sur la balle vue au compteur de munitions quand la partie en a (Outplayed l'annonce jusqu'à 0,6 s
+en retard : la balle tombait parfois sur la coupe).
 La drop garde son plan d'élan, le premier plan en fait deux. Fichiers `…_onetaps.mp4`.
 
 - Musique : dans un dossier, celles qui gardent des plans courts passent devant (`oneTaps.musicPace` : longueur
-  médiane des plans de 0,5 s ou moins, +0,1 à la valeur de la musique ; rien à partir d'une seconde). Le journal
+  médiane des plans de 0,55 s ou moins, +0,1 à la valeur de la musique ; rien à partir d'une seconde). Le journal
   l'affiche (« rythme +0,100 »).
-- Balles confirmées sur le compteur de munitions du HUD (`montage.killStyle.ammo`, VALORANT) : pour chaque one tap
-  entendu, une seconde d'image de la zone des chiffres est relue à 60 images/s, et chaque changement des chiffres
-  compte une balle. Mesuré : 111 balles sur 111 autour de 14 kills. Une rafale ou un compteur immobile (capacité,
-  couteau) n'est pas un one tap. Zone mesurée en 3440x1440 seulement.
 
-- Les balles viennent du détecteur `game-sounds` : une partie analysée avant lui est à réanalyser.
+- Les balles viennent du compteur de munitions (`ammo-counter`), à défaut des tirs entendus (`game-sounds`) : une partie
+  analysée avant eux est à réanalyser. Une capacité ou le couteau (compteur immobile) n'est jamais un one tap.
 - Sans tirs à la tête connus (ni Outplayed, ni gabarit du son), tout kill d'une balle compte, et le journal le dit ;
   `montage.oneTaps.allowWithoutHeadshots: false` refuse plutôt.
 

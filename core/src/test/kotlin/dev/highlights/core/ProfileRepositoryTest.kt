@@ -66,6 +66,15 @@ class ProfileRepositoryTest : FunSpec({
         repo.resolve(Path("C:/Videos/other/game.mp4"), forcedId = "lol").id shouldBe "lol"
     }
 
+    test("couleurs boostées : réglables dans le profil, bornées comme l'étalonnage") {
+        val repo = repoWith("boost.yaml" to "id: boost\ndetectors: []\nmontage: { colors: { enabled: true, saturation: 1.4 } }")
+        val colors = repo.byId("boost").montage.colors
+        colors.grade().saturation shouldBe 1.4
+        colors.grade().vibrance shouldBe 0.5
+        colors.copy(enabled = false).grade().isNeutral shouldBe true
+        shouldThrow<ConfigException> { repoWith("bad.yaml" to "id: bad\ndetectors: []\nmontage: { colors: { saturation: 5 } }") }
+    }
+
     test("erreur explicite sur une clé inconnue") {
         val e = shouldThrow<ConfigException> {
             repoWith("bad.yaml" to "id: bad\ndetectors: []\nthreshold: 0.5")
@@ -101,6 +110,25 @@ class ProfileRepositoryTest : FunSpec({
         shouldThrow<ConfigException> {
             repoWith("p.yaml" to "id: p\ndetectors:\n  - { id: a, fallbackFor: b }\n  - { id: b, fallbackFor: c }\n  - { id: c }")
         }.message shouldContain "lui-même détecteur de secours"
+    }
+
+    test("dependsOn désigne d'autres détecteurs du profil, qui ne dépendent de personne") {
+        val ok = repoWith(
+            "p.yaml" to """
+                id: p
+                detectors:
+                  - { id: events, type: outplayed-events }
+                  - { id: feed, type: killfeed, fallbackFor: events }
+                  - { id: ammo, type: ammo-counter, dependsOn: [events, feed] }
+            """.trimIndent(),
+        )
+        ok.byId("p").detectors.last().dependsOn shouldBe listOf("events", "feed")
+        shouldThrow<ConfigException> {
+            repoWith("p.yaml" to "id: p\ndetectors:\n  - { id: ammo, dependsOn: [absent] }")
+        }.message shouldContain "absent"
+        shouldThrow<ConfigException> {
+            repoWith("p.yaml" to "id: p\ndetectors:\n  - { id: a, dependsOn: [b] }\n  - { id: b, dependsOn: [c] }\n  - { id: c }")
+        }.message shouldContain "dépend lui-même"
     }
 
     test("les profils du dépôt sont valides") {

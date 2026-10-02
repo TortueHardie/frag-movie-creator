@@ -467,6 +467,39 @@ class MontagePlannerTest : FunSpec({
         (groups[1].rank > groups[0].rank) shouldBe true
     }
 
+    test("one taps : balles du compteur de munitions, préférées aux tirs entendus") {
+        fun event(at: Double, kind: String) = TimelineEvent(at.seconds, kind, 1.0, "n")
+        // 100 : une balle 0,5 s avant l'annonce (Outplayed en retard), puis plus rien ; 200 : rafale qui continue après
+        // le kill ; 300 : aucune balle (capacité) ; 400 et 400,4 : deux one taps enchaînés ; 500 : deux balles à 0,3 s.
+        val hud = listOf(99.5, 199.9, 200.0, 200.1, 200.2, 399.95, 400.35, 499.6, 499.9).map { event(it, "hud-shot") }
+        // Tirs entendus qui diraient l'inverse : ignorés dès que la partie a des balles du compteur.
+        val heard = listOf(99.9, 100.0, 200.0).map { event(it, "shot") }
+        val s = session(listOf(100, 200, 300, 400, 500)).let {
+            it.copy(timeline = it.timeline.copy(events = (it.timeline.events + event(400.4, settings.killEvent) + hud + heard).sortedBy { e -> e.at }))
+        }
+        val traits = MontagePlanner.groups(listOf(s), settings.copy(mergeGap = Duration.ZERO)).flatMap { g -> g.kills.map { g.traitsOf(it) } }
+        traits.map { it.shots } shouldBe listOf(1, 4, 0, 1, 1, 2)
+        // La balle qui tue, où le montage calera le kill.
+        traits.map { it.fatal?.inWholeMilliseconds } shouldBe listOf(99_500L, 200_200L, null, 399_950L, 400_350L, 499_900L)
+    }
+
+    test("kill confirmé par le killfeed : la balle qui tue est juste avant lui, pas dans la rafale qui continue") {
+        fun event(at: Double, kind: String) = TimelineEvent(at.seconds, kind, 1.0, "n")
+        // Kill annoncé à 200 (Outplayed), enregistré en réalité à 199,75 : le killfeed le voit à 199,8. La rafale
+        // continue jusqu'à 200,25 : sans confirmation, la balle de 200,25 passait pour celle qui tue.
+        val hud = listOf(199.55, 199.65, 199.75, 199.85, 199.95, 200.05, 200.15, 200.25).map { event(it, "hud-shot") }
+        // Kill à 300 sans aucune balle (capacité) mais confirmé à 300,3 : calé sur la confirmation, moins son retard.
+        val confirm = listOf(event(199.8, "feed-kill"), event(300.3, "feed-kill"))
+        val s = session(listOf(200, 300)).let {
+            it.copy(timeline = it.timeline.copy(events = (it.timeline.events + hud + confirm).sortedBy { e -> e.at }))
+        }
+        val confirmed = settings.copy(killStyle = settings.killStyle.copy(confirmEvent = "feed-kill"))
+        val fatal = MontagePlanner.groups(listOf(s), confirmed).flatMap { g -> g.kills.map { g.traitsOf(it).fatal?.inWholeMilliseconds } }
+        fatal shouldBe listOf(199_850L, 300_235L)
+        // Sans confirmation : la dernière balle jusqu'à 0,3 s après l'annonce, prise dans la rafale.
+        MontagePlanner.groups(listOf(s), settings).first().traitsOf(200.seconds).fatal?.inWholeMilliseconds shouldBe 200_250L
+    }
+
     test("one taps : tirs entendus comptés jusqu'au tir qui tue, sans remonter au kill d'avant") {
         fun event(at: Double, kind: String) = TimelineEvent(at.seconds, kind, 1.0, "n")
         val shots = listOf(99.9, 100.45, 199.6, 199.7, 199.8, 199.9, 399.95).map { event(it, "shot") }

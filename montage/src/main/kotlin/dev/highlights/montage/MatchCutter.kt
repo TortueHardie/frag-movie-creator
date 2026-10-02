@@ -93,15 +93,17 @@ class MatchCutter(private val ffmpeg: FfmpegService) {
             val killIndex = ((kill - range.start) / frame).toInt().coerceIn(0, frames.size)
             val armed = settings.weapon?.let { armed(media, range, it) ?: return null }
             fun at(i: Int) = range.start + frame * i
+            // Les marges peuvent vider la fenêtre (repos ou visée plus courts qu'elles) : pas de raccord, pas d'erreur.
+            fun window(from: Duration, to: Duration) = if (to > from) TimeRange(from, to) else null
             val margin = ScopeCuts.MARGIN
             when (settings.pose) {
                 PoseKind.AIM -> {
                     val held = ScopeCuts.aimCurve(frames, killIndex, ScopeCuts.frames(settings.reference), settings.stillShare, settings.minSymmetry)
                         ?.let { ScopeCuts.disarm(it, armed) } ?: return null
                     // Quelques images en deçà du bord de la visée : le viseur y est posé, pas encore en train d'arriver ou de partir.
-                    val window = if (head) ScopeCuts.aimStart(held.curve, killIndex, settings.minSimilarity)?.let { TimeRange(at(it + margin), kill) }
-                    else ScopeCuts.aimEnd(held.curve, killIndex, settings.minSimilarity)?.let { TimeRange(kill, at(it - margin)) }
-                    window?.takeIf { it.length.isPositive() }?.let { it to held.pose }
+                    val reach = if (head) ScopeCuts.aimStart(held.curve, killIndex, settings.minSimilarity)?.let { window(at(it + margin), kill) }
+                    else ScopeCuts.aimEnd(held.curve, killIndex, settings.minSimilarity)?.let { window(kill, at(it - margin)) }
+                    reach?.let { it to held.pose }
                 }
                 PoseKind.REST -> {
                     val held = ScopeCuts.restCurve(frames, settings.stillShare, killIndex, ScopeCuts.frames(settings.reference), settings.minSimilarity)
@@ -110,7 +112,7 @@ class MatchCutter(private val ffmpeg: FfmpegService) {
                     // Le repos le plus proche du kill, de son côté, arrêté au kill : l'arme est souvent au repos à travers lui.
                     val run = if (head) runs.lastOrNull { it.first < killIndex }?.let { it.first + margin..minOf(it.last - margin, killIndex) }
                     else runs.firstOrNull { it.last >= killIndex }?.let { maxOf(it.first + margin, killIndex)..it.last - margin }
-                    run?.let { TimeRange(at(it.first), at(it.last)) }?.takeIf { it.length.isPositive() }?.let { it to held.pose }
+                    run?.let { window(at(it.first), at(it.last)) }?.let { it to held.pose }
                 }
             }
         } catch (e: CancellationException) {

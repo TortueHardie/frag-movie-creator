@@ -62,19 +62,51 @@ data class MontageSettings(
     val zoom: ZoomEffect = ZoomEffect(),
     val flash: FlashEffect = FlashEffect(),
     val whip: WhipPanEffect = WhipPanEffect(),
+    val colors: ColorBoost = ColorBoost(),
+    val motionBlur: MotionBlur = MotionBlur(),
     val matchCut: MatchCut = MatchCut(),
     val slowMotion: SlowMotionEffect = SlowMotionEffect(),
     val speedRamp: SpeedRampEffect = SpeedRampEffect(),
     val text: TextEffect = TextEffect(),
     val audio: MontageAudio = MontageAudio(),
     val formats: List<OutputFormat> = listOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
+    /** Rythme rapide : un kill par temps de musique (voir [FastMontage]), appliqué par [forFast]. */
+    val fast: FastMontage = FastMontage(),
     /** Réglages du montage « onetaps », appliqués par [forOneTaps] quand on le demande. */
     val oneTaps: OneTapMontage = OneTapMontage(),
     /** Choix automatique de la musique : préférence pour celles qui donnent des plans courts. null : aucune. */
     val musicPace: MusicPace? = null,
+    /**
+     * Kills écartés quand le joueur meurt moins de ce délai après (zéro : aucun) : son plan ne montrerait que l'écran
+     * de mort. Posé par [forFast], dont les plans finissent 0,17 s après le kill.
+     */
+    val skipDeathWithin: SerialDuration = Duration.ZERO,
 ) {
     init {
         require(minScore in 0.0..1.0) { "montage.minScore doit être entre 0 et 1" }
+    }
+
+    /**
+     * Les mêmes réglages, au rythme rapide : chaque kill est son propre plan, d'un temps quand la musique le permet, sans
+     * ralenti ni rampe (ils n'ont pas la place), ni whip pan : ses 200 ms font filer toute l'image sur la moitié d'un
+     * plan de 0,37 s, et le montage était jugé illisible. Le changement de plan à chaque temps fait déjà la transition.
+     * Zoom, flash, flou et couleurs restent.
+     */
+    fun forFast(): MontageSettings {
+        val f = fast
+        return copy(
+            mergeGap = Duration.ZERO,
+            preRoll = f.preRoll,
+            postRoll = f.postRoll,
+            reactions = false,
+            length = length.copy(perClip = f.perClip, perExtraKill = Duration.ZERO, min = f.min),
+            cuts = cuts.copy(low = f.cut, mid = f.cut, high = f.cut, minLead = f.minLead, minTail = f.minTail, singleBeat = true),
+            slowMotion = slowMotion.copy(enabled = false),
+            speedRamp = speedRamp.copy(enabled = false),
+            whip = whip.copy(enabled = false),
+            musicPace = f.musicPace,
+            skipDeathWithin = f.skipDeathWithin,
+        )
     }
 
     /**
@@ -101,12 +133,12 @@ data class MontageSettings(
 /**
  * Préférence pour les musiques qui permettent des plans courts, dans le choix automatique de la musique : des plans
  * (hors drop) d'une longueur médiane de [fast] ou moins gagnent [weight], de [slow] ou plus rien. Mesuré sur le plan que
- * chaque musique donne plutôt que sur son tempo : à 160 BPM, un plan d'un temps ne laisse plus assez de contexte autour
- * du kill et redevient un plan de deux temps (0,75 s), plus lent qu'un temps à 140 BPM (0,43 s).
+ * chaque musique donne plutôt que sur son tempo : à 130 BPM, un plan d'un temps ne laisse plus assez de contexte autour
+ * du kill et redevient un plan de deux temps (0,92 s), plus lent qu'un temps à 105 BPM (0,57 s).
  */
 @Serializable
 data class MusicPace(
-    val fast: SerialDuration = 500.milliseconds,
+    val fast: SerialDuration = 550.milliseconds,
     val slow: SerialDuration = 1.seconds,
     /** À comparer à la valeur d'une musique : sa note (0,85 environ) × la part des groupes qu'elle garde. */
     val weight: Double = 0.1,
@@ -118,9 +150,43 @@ data class MusicPace(
 }
 
 /**
+ * Rythme rapide : un kill sur chaque temps de la musique (sur chaque coup de grosse caisse d'une techno), comme les edits
+ * TikTok de référence, dont les plans durent 0,37 à 0,67 s en médiane, contre 1,5 s pour nos plans de quatre temps à
+ * 161 BPM. Le kill tombe sur le temps qui ouvre son plan, la coupe le précède de [minLead] ; il reste [minTail] au moins
+ * pour voir l'ennemi tomber. Leur somme (0,35 s) borne le tempo des plans d'un temps : 171 BPM ; au-delà, deux temps.
+ */
+@Serializable
+data class FastMontage(
+    /** Rythme rapide sans qu'on le demande (fenêtre de montage, `--fast`). */
+    val enabled: Boolean = false,
+    val preRoll: SerialDuration = 600.milliseconds,
+    val postRoll: SerialDuration = 300.milliseconds,
+    /** Longueur visée d'un plan dans toutes les sections : ramenée au plus proche nombre de temps (un, en général). */
+    val cut: SerialDuration = 400.milliseconds,
+    val minLead: SerialDuration = 200.milliseconds,
+    val minTail: SerialDuration = 150.milliseconds,
+    /** Durée visée par kill, et durée minimale du montage. */
+    val perClip: SerialDuration = 400.milliseconds,
+    val min: SerialDuration = 8.seconds,
+    /** Choix de la musique : les musiques rapides, qui gardent des plans d'un temps, passent devant. */
+    val musicPace: MusicPace = MusicPace(),
+    /**
+     * Kill écarté si le joueur meurt moins de ce délai après : un échange. Le plan finit 0,17 s après le kill, et
+     * montrait l'écran de mort (caméra du tueur, sa carte, son ulti) : 2 kills sur 74 d'un montage de 17 parties.
+     */
+    val skipDeathWithin: SerialDuration = 600.milliseconds,
+) {
+    init {
+        require(preRoll >= minLead) { "montage.fast.preRoll doit couvrir minLead" }
+        require(postRoll >= minTail) { "montage.fast.postRoll doit couvrir minTail" }
+        require(cut.isPositive() && perClip.isPositive() && min.isPositive()) { "montage.fast : durées positives attendues" }
+    }
+}
+
+/**
  * Montage « onetaps » : que des kills d'une balle à la tête, enchaînés au rythme de la musique comme les edits TikTok.
- * Un plan dure un temps quand la musique le permet (0,46 s à 130 BPM) : le kill tombe sur le temps qui l'ouvre, la coupe
- * le précède de [minLead]. Sinon (au-delà de 1 / ([minLead] + [minTail]), 142 BPM), deux temps.
+ * Un plan dure un temps quand la musique le permet (0,57 s à 105 BPM) : le kill tombe sur le temps qui l'ouvre, la coupe
+ * le précède de [minLead]. Sinon (au-delà de 1 / ([minLead] + [minTail]), 109 BPM), deux temps.
  */
 @Serializable
 data class OneTapMontage(
@@ -130,11 +196,12 @@ data class OneTapMontage(
     /** Longueur visée d'un plan, quelle que soit l'intensité de la musique : ramenée au plus proche nombre de temps. */
     val cut: SerialDuration = 500.milliseconds,
     /**
-     * Contexte avant le kill et après : la visée qui se pose, puis l'impact. Leur somme borne le tempo des plans d'un
-     * temps : 0,42 s, un temps à 142 BPM.
+     * Contexte avant le kill et après : la visée qui se pose, puis l'impact et la chute. Avec 0,12 s après la balle, le
+     * premier montage coupait avant que l'ennemi tombe. Leur somme borne le tempo des plans d'un temps : 0,55 s, un
+     * temps à 109 BPM.
      */
-    val minLead: SerialDuration = 300.milliseconds,
-    val minTail: SerialDuration = 120.milliseconds,
+    val minLead: SerialDuration = 250.milliseconds,
+    val minTail: SerialDuration = 300.milliseconds,
     /** Plans d'un seul temps permis (voir [CutSettings.singleBeat]) : un kill par temps de musique. */
     val singleBeat: Boolean = true,
     /** Durée visée par kill, et durée minimale du montage. */
@@ -274,10 +341,25 @@ data class KillStyle(
      */
     val oneTapWindow: SerialDuration = 800.milliseconds,
     /**
-     * Compteur de munitions du HUD, relu autour des one taps entendus avant de les monter : le son du jeu manque les
-     * balles d'une rafale (voir [AmmoHud]). null : on s'en tient aux tirs entendus.
+     * Événement émis pour chaque balle vue sur le compteur de munitions du HUD (détecteur `ammo-counter`). Préféré aux
+     * tirs entendus quand la partie en a : le son manque des balles dans les rafales et en invente (son du kill, de
+     * l'impact à la tête). Vide : pas de recherche.
      */
-    val ammo: AmmoHud? = null,
+    val hudShotEvent: String = "hud-shot",
+    /**
+     * Confirmation de chaque kill à l'image, au moment où le jeu l'enregistre (VALORANT : la ligne du joueur qui apparaît
+     * dans le killfeed, lue à 30 img/s). Vide : pas de confirmation. Mesuré contre l'icône de kill sous le réticule : le
+     * killfeed la suit de 0,02 à 0,10 s, quand l'annonce d'Outplayed s'en écarte de -0,55 à +0,47 s. La balle qui tue est
+     * alors la dernière vue au compteur jusqu'à 0,12 s après la confirmation (à ±0,07 s de l'icône sur 13 kills) ; sans
+     * confirmation, jusqu'à 0,3 s après l'annonce, ce qui prenait sur 18 kills sur 57 une balle de la rafale qui continue
+     * après le kill : le plan commençait après lui.
+     */
+    val confirmEvent: String = "",
+    /**
+     * Balles du compteur qui suivent celle qui tue et comptent avec elle : une rafale qui continue après le kill n'est
+     * pas un one tap. Au-delà, le joueur a relâché la détente (un tap au Vandal : 0,3 s et plus entre deux balles).
+     */
+    val oneTapAfter: SerialDuration = 250.milliseconds,
     /** Mesure de la rotation de la caméra juste avant le kill (décodage d'une demi-seconde d'image par kill). */
     val flick: Boolean = true,
     /** Vitesse de balayage (largeurs d'écran par seconde) en dessous de laquelle ce n'est pas un flick… */
@@ -400,6 +482,109 @@ data class WhipPanEffect(
 }
 
 /**
+ * Flou de mouvement, comme les kill montages de TikTok. Mesuré sur trois montages VALORANT de référence : 12 à 21 %
+ * d'images floues contre 5 % pour les nôtres, et un flou sur presque chaque coupe (50 sur 54, 29 sur 39, 15 sur 31),
+ * bref (une ou deux images à 30 img/s), plus des traînées pendant les flicks.
+ *
+ * [blend] (désactivé par défaut) : chaque image mélange celles des [shutter] précédents, comme un obturateur resté ouvert ; seul ce qui bouge
+ * vite traîne (flick, rampe de vitesse, zoom punch), le HUD et le décor immobile restent nets, les textes (posés après)
+ * aussi. Zéro : pas de mélange. 17 ms à 60 img/s : deux images, l'exposition couvre l'intervalle entre elles (360°),
+ * comme les références (30 img/s, deux images mélangées). À 33 ms (trois images), une arme qui bouge vite se voyait en
+ * copies distinctes plutôt qu'en traînée. Dans un FPS la caméra bouge presque toujours un peu : le mélange dédoublait
+ * légèrement presque chaque image (-17 % de netteté sur tout un montage, jugé moins net) ; les vecteurs le remplacent.
+ * [shutter] reste la durée d'obturation des vecteurs.
+ *
+ * [vectors] : flou par vecteurs de mouvement. La rotation de la caméra est mesurée image par image sur chaque plan
+ * (dans un FPS, tout le décor glisse d'un bloc), et chaque image est floutée dans le sens de ce glissement, sur la
+ * longueur parcourue pendant l'obturateur ([shutter], 17 ms à 60 img/s : la distance entre deux images), plafonnée à
+ * [maxLength] (part de la largeur). Une vraie traînée continue, là où le mélange d'images laisse des copies ; ralentis
+ * et rampes en tiennent compte. Calculer les images intermédiaires (`minterpolate`) aurait donné le même résultat en
+ * 180 fois le temps réel : 6 minutes pour 2 s de 1080p.
+ *
+ * [cuts] : flou radial sur [cutDuration] de part et d'autre de chaque coupe franche, plus fort sur la coupe, l'image
+ * agrandie jusqu'à [cutZoom] (part de sa taille) dans ses copies les plus floues. Pas sur les coupes en whip pan, déjà
+ * floutées dans le sens du flick. Au plus [cutShare] du plan de chaque côté : dans un plan d'un temps (0,37 s à
+ * 161 BPM), 50 ms par côté floutaient plus d'un quart du plan.
+ *
+ * Autour de chaque kill, de [clearBefore] avant à [clearAfter] après, le flou par vecteurs est ramené à [clearStrength]
+ * de sa longueur : c'est là qu'on lit le kill (l'ennemi qui tombe). Mesuré sur un montage au rythme rapide (R2D2,
+ * 73 kills en 30 s) : 40 % des images floues dans les 170 ms après le kill, et le montage paraissait illisible.
+ */
+@Serializable
+data class MotionBlur(
+    val enabled: Boolean = true,
+    val blend: Boolean = false,
+    val shutter: SerialDuration = 17.milliseconds,
+    val vectors: Boolean = true,
+    val maxLength: Double = 0.08,
+    val cuts: Boolean = true,
+    val cutDuration: SerialDuration = 50.milliseconds,
+    val cutZoom: Double = 0.08,
+    val cutShare: Double = 0.08,
+    val clearBefore: SerialDuration = 100.milliseconds,
+    val clearAfter: SerialDuration = 250.milliseconds,
+    val clearStrength: Double = 0.25,
+) {
+    init {
+        require(shutter.inWholeMilliseconds in 0..100) { "montage.motionBlur.shutter doit être entre 0 et 100 ms" }
+        require(cutDuration.inWholeMilliseconds in 10..200) { "montage.motionBlur.cutDuration doit être entre 10 et 200 ms" }
+        require(cutZoom in 0.0..0.3) { "montage.motionBlur.cutZoom doit être entre 0 et 0,3" }
+        require(maxLength in 0.0..0.3) { "montage.motionBlur.maxLength doit être entre 0 et 0,3" }
+        require(cutShare in 0.0..0.5) { "montage.motionBlur.cutShare doit être entre 0 et 0,5" }
+        require(clearStrength in 0.0..1.0) { "montage.motionBlur.clearStrength doit être entre 0 et 1" }
+    }
+
+    /** Images mélangées à [fps] images/s : l'image courante et celles que l'obturateur couvre ; 1 = aucun mélange. */
+    fun blendFrames(fps: Int): Int = if (!enabled || !blend) 1 else 1 + Math.round(shutter.inWholeMicroseconds * fps / 1e6).toInt()
+
+    /** Vrai si la rotation de la caméra doit être mesurée pour le flou par vecteurs. */
+    val usesVectors: Boolean get() = enabled && vectors && maxLength > 0 && shutter.isPositive()
+
+    /** Images floutées de chaque côté d'une coupe à [fps] images/s ; 0 = aucun flou de coupe. */
+    fun cutFrames(fps: Int): Int =
+        if (!enabled || !cuts || cutZoom == 0.0) 0 else Math.round(cutDuration.inWholeMicroseconds * fps / 1e6).toInt().coerceAtLeast(1)
+
+    /** Images floutées de chaque côté d'une coupe d'un plan de [frames] images : au plus [cutShare] du plan, au moins une. */
+    fun cutFrames(fps: Int, frames: Int): Int {
+        val k = cutFrames(fps)
+        return if (k == 0) 0 else minOf(k, Math.round(frames * cutShare).toInt().coerceAtLeast(1))
+    }
+}
+
+/**
+ * Couleurs boostées, comme les kill montages de TikTok : le jeu « ressort », couleurs vives accordées au skin, noirs
+ * francs. Mesuré sur quatre montages VALORANT de référence : 12 à 38 % de pixels très saturés (saturation HSV > 0,6),
+ * 3 à 8 % de noirs, contre 7,5 % et 1,7 % pour un montage sans étalonnage. Les valeurs par défaut amènent ce montage
+ * à 38 % et 5,4 %, le haut de la fourchette ; la vibrance pousse d'abord les couleurs ternes, sans brûler le rouge d'un
+ * skin. Appliqué à chaque plan avant flashs et textes, qui gardent leur blanc.
+ */
+@Serializable
+data class ColorBoost(
+    val enabled: Boolean = false,
+    /** Vibrance, -2 à 2 : renforce les couleurs ternes plus que les vives. */
+    val vibrance: Double = 0.5,
+    /** Saturation (1 = inchangée). */
+    val saturation: Double = 1.2,
+    /** Contraste (1 = inchangé). */
+    val contrast: Double = 1.12,
+    /** Luminosité ajoutée, -1 à 1 : un peu en dessous de zéro, les noirs deviennent francs. */
+    val brightness: Double = -0.02,
+    /** Assombrissement des bords, 0 à 1. */
+    val vignette: Double = 0.0,
+    /** Table de correspondance .cube (ou .3dl), appliquée avant le reste. Chemin relatif au fichier de configuration. */
+    val lut: String? = null,
+) {
+    /** Étalonnage à appliquer ; neutre quand les couleurs ne sont pas boostées. */
+    fun grade(): GradeSettings = if (!enabled) GradeSettings()
+    else GradeSettings(lut = lut, saturation = saturation, contrast = contrast, vignette = vignette, vibrance = vibrance, brightness = brightness)
+
+    init {
+        // Mêmes bornes que l'étalonnage des highlights : une valeur hors bornes est refusée au chargement du profil.
+        GradeSettings(lut = lut, saturation = saturation, contrast = contrast, vignette = vignette, vibrance = vibrance, brightness = brightness)
+    }
+}
+
+/**
  * Repère du HUD qui n'apparaît qu'avec une arme à feu en main (VALORANT : l'icône du chargeur, entre les munitions du
  * chargeur et la réserve). [region] : où le chercher, mesurée en 16:9 et accrochée au centre comme le HUD ; la zone
  * est réduite à [width] x [height] pixels, l'échelle à laquelle [template] a été découpé. Présent si la corrélation
@@ -416,32 +601,6 @@ data class WeaponHud(
     init {
         require(width in 8..256 && height in 8..256) { "montage.matchCut.weapon : zone réduite entre 8 et 256 pixels" }
         require(minScore in -1.0..1.0) { "montage.matchCut.weapon.minScore doit être entre -1 et 1" }
-    }
-}
-
-/**
- * Compteur de munitions du chargeur dans le HUD : chaque balle tirée change ses chiffres, relus image par image (blanc
- * franc, au-dessus de [brightness] sur 255) autour d'un kill. Une image dont plus de [minChange] des pixels blancs
- * diffèrent de la précédente compte une balle. [region] : mesurée en 16:9, accrochée au centre comme le HUD, assez large
- * pour trois chiffres (alignés à droite contre l'icône du chargeur).
- *
- * Mesuré sur une partie VALORANT en 3440x1440 (14 kills, 111 balles lues à l'œil sur le compteur) : toutes les balles
- * retrouvées, là où le son du jeu en manquait jusqu'à 4 sur 5 dans les rafales du Vandal (deux faux one taps sur 14).
- * Le compteur descend jusqu'à 0,1 s après l'instant du kill : [after] couvre la balle qui tue et la rafale qui continue.
- */
-@Serializable
-data class AmmoHud(
-    val region: CropRegion,
-    val brightness: Int = 200,
-    val minChange: Double = 0.15,
-    /** Balles comptées avant le kill (au plus jusqu'au kill précédent) et après (jusqu'au suivant). */
-    val before: SerialDuration = 800.milliseconds,
-    val after: SerialDuration = 300.milliseconds,
-) {
-    init {
-        require(brightness in 1..254) { "montage.killStyle.ammo.brightness doit être entre 1 et 254" }
-        require(minChange > 0 && minChange < 1) { "montage.killStyle.ammo.minChange doit être entre 0 et 1" }
-        require(before.isPositive() && !after.isNegative()) { "montage.killStyle.ammo : before positif, after positif ou nul" }
     }
 }
 

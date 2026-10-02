@@ -264,6 +264,10 @@ data class MontageUiState(
     val zoom: Boolean = true,
     val flash: Boolean = true,
     val whip: Boolean = true,
+    /** Couleurs boostées (vibrance, saturation, contraste), comme les kill montages de TikTok. */
+    val boostColors: Boolean = false,
+    /** Flou de mouvement : traînées sur les mouvements rapides, flou radial sur les coupes. */
+    val motionBlur: Boolean = true,
     /** Coupes déplacées de quelques images pour raccorder sur une animation qui revient (rechargement, sort…). */
     val matchCut: Boolean = true,
     /** Kills classés selon leur round : mort juste après, ace, clutch (captures avec les morts d'Outplayed). */
@@ -277,6 +281,8 @@ data class MontageUiState(
     val reactions: Boolean = false,
     /** Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun. */
     val oneTaps: Boolean = false,
+    /** Rythme rapide : un kill par temps de musique, sur chaque coup de basse. */
+    val fast: Boolean = false,
 ) {
     val maxDuration: Duration? get() = Durations.parseOrNull(maxDurationText)?.takeIf { it.isPositive() }
     /** Musique ou dossier de musiques passé au montage, selon le mode. */

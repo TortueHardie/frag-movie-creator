@@ -563,6 +563,8 @@ class AppController(
                     zoom = montage?.zoom?.enabled ?: true,
                     flash = montage?.flash?.enabled ?: true,
                     whip = montage?.whip?.enabled ?: true,
+                    boostColors = montage?.colors?.enabled ?: false,
+                    motionBlur = montage?.motionBlur?.enabled ?: true,
                     matchCut = montage?.matchCut?.enabled ?: true,
                     rounds = montage?.killStyle?.deathEvent?.isNotEmpty() ?: true,
                     slowMotion = montage?.slowMotion?.enabled ?: true,
@@ -570,6 +572,7 @@ class AppController(
                     balance = montage?.audio?.balance ?: 0.0,
                     gameAudio = montage?.audio?.game ?: GameAudio.FULL,
                     reactions = montage?.reactions ?: false,
+                    fast = montage?.fast?.enabled ?: false,
                     platform = it.settings.platform,
                 ),
             )
@@ -619,6 +622,8 @@ class AppController(
                     zoom = montage.zoom,
                     flash = montage.flash,
                     whip = montage.whip,
+                    boostColors = montage.boostColors,
+                    motionBlur = montage.motionBlur,
                     matchCut = montage.matchCut,
                     rounds = montage.rounds,
                     slowMotion = montage.slowMotion,
@@ -632,6 +637,7 @@ class AppController(
                     platform = montage.platform,
                     onlyKills = montage.pick,
                     oneTaps = montage.oneTaps,
+                    fast = montage.fast,
                 ),
                 progress,
             )

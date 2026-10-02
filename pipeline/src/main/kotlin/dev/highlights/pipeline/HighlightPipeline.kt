@@ -4,6 +4,7 @@ import dev.highlights.core.HighlightsException
 import dev.highlights.core.InputException
 import dev.highlights.core.analysis.AnalysisContext
 import dev.highlights.core.analysis.DetectorRegistry
+import dev.highlights.core.analysis.SignalEvent
 import dev.highlights.core.analysis.SignalTrack
 import dev.highlights.core.config.LoadedConfig
 import dev.highlights.core.ffmpeg.FfmpegService
@@ -31,7 +32,6 @@ import dev.highlights.core.video.FrameSampler
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
-import dev.highlights.montage.AmmoCounter
 import dev.highlights.montage.KillInspector
 import dev.highlights.montage.KillMontageExporter
 import dev.highlights.montage.MatchCutter
@@ -109,6 +109,10 @@ data class MontageOptions(
     val flashEveryCut: Boolean? = null,
     /** Whip pan dans le sens du flick aux coupes qui en suivent ou en précèdent un. */
     val whip: Boolean? = null,
+    /** Couleurs boostées (vibrance, saturation, contraste) comme les kill montages de TikTok. */
+    val boostColors: Boolean? = null,
+    /** Flou de mouvement : traînées sur les mouvements rapides et flou radial sur les coupes franches. */
+    val motionBlur: Boolean? = null,
     /** Raccords sur les animations du jeu (rechargement, sprint, sort…) qui reviennent d'un clip à l'autre. */
     val matchCut: Boolean? = null,
     /** Classement des kills selon leur round (mort juste après, ace, clutch) ; false : les morts sont ignorées. */
@@ -134,6 +138,8 @@ data class MontageOptions(
     val onlyKills: MomentPick? = null,
     /** Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun ([MontageSettings.forOneTaps]). */
     val oneTaps: Boolean = false,
+    /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
+    val fast: Boolean? = null,
 )
 
 /** [reused] : analyse reprise de la mémoire, sans recalcul. */
@@ -191,14 +197,15 @@ class HighlightPipeline(
     /**
      * Moments (groupes de kills, comme le montage les forme) des parties analysées qui répondent à [query], du plus
      * important au moins important. Mêmes parties que les statistiques : une même partie enregistrée deux fois ne
-     * donne pas deux fois ses moments.
+     * donne pas deux fois ses moments. Les parties dont la capture n'existe plus (effacée depuis l'analyse) restent
+     * dans les statistiques, pas dans la recherche : leurs moments ne se monteraient pas.
      */
     fun search(query: MomentQuery): List<FoundMoment> {
         val games = analyzedGames()
         val kept = Statistics.distinctGames(games.flatMap { g -> g.sessions.map { (file, session) -> g.stats(file, session) } })
             .map { it.sessionFile }.toSet()
         return games.flatMap { g ->
-            g.sessions.filter { it.first in kept }.flatMap { (file, session) ->
+            g.sessions.filter { it.first in kept && it.second.media.path.isRegularFile() }.flatMap { (file, session) ->
                 dev.highlights.montage.MontagePlanner.groups(listOf(session), g.settings)
                     .map { FoundMoment.of(file, g.name, g.profileId, session.media.recordedAt, it) }
             }
@@ -521,6 +528,11 @@ class HighlightPipeline(
                 onEveryCut = options.flashEveryCut ?: base.flash.onEveryCut,
             ),
             whip = base.whip.copy(enabled = options.whip ?: base.whip.enabled),
+            motionBlur = base.motionBlur.copy(enabled = options.motionBlur ?: base.motionBlur.enabled),
+            colors = base.colors.copy(
+                enabled = options.boostColors ?: base.colors.enabled,
+                lut = base.colors.lut?.let { config.resolve(it).toString() },
+            ),
             matchCut = base.matchCut.copy(
                 enabled = options.matchCut ?: base.matchCut.enabled,
                 weapon = base.matchCut.weapon?.let { it.copy(template = config.resolve(it.template).toString()) },
@@ -536,22 +548,25 @@ class HighlightPipeline(
                 game = options.gameAudio ?: base.audio.game,
                 loudnessLufs = platform?.loudnessLufs ?: base.audio.loudnessLufs,
             ),
-        ).let { if (options.oneTaps) it.forOneTaps() else it }
+        ).let {
+            when {
+                options.oneTaps -> it.forOneTaps()
+                options.fast ?: base.fast.enabled -> it.forFast()
+                else -> it
+            }
+        }
         val musicStep = progress.child(if (music.isDirectory()) "Musiques" else "Musique", 0.06)
         val musics = if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music))
         musicStep.complete()
         val picked = MontagePlanner.groups(sessions, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: all }
         if (picked.isEmpty()) throw InputException("Aucun des moments choisis ne se retrouve dans ces sessions")
-        val found = if (options.oneTaps) {
-            // Les tirs entendus désignent les candidats ; le compteur de munitions, quand le profil le décrit, les
-            // confirme : le son manque des balles dans les rafales, et une rafale n'est pas un one tap.
-            val heard = OneTaps.select(picked, sessions, settings).groups
-            settings.killStyle.ammo?.let { hud ->
-                OneTaps.select(AmmoCounter(ffmpeg).recount(heard, picked, hud, progress.child("Munitions", 0.02)), sessions, settings).groups
-            } ?: heard
-        } else {
-            picked
-        }
+        // Une capture effacée ou déplacée depuis l'analyse : ses kills ne se rendraient pas, et FFmpeg ferait échouer
+        // tout le montage. On monte les autres.
+        val missing = picked.map { it.media.path }.distinct().filterNot { it.isRegularFile() }.toSet()
+        missing.forEach { log.warn { "Capture introuvable, ses kills sont écartés du montage : $it" } }
+        val available = picked.filterNot { it.media.path in missing }
+        if (available.isEmpty()) throw InputException("Captures introuvables (effacées ou déplacées depuis l'analyse) : ${missing.joinToString()}")
+        val found = if (options.oneTaps) OneTaps.select(available, sessions, settings).groups else available
         val inspected = KillInspector(ffmpeg).inspect(found, settings, profile.audio, progress.child("Kills", 0.06))
         val groups = MatchCutter(ffmpeg).inspect(inspected, settings, progress.child("Visée", 0.02))
         val fromStart = options.fromStartMusics.map { it.toAbsolutePath().normalize() }.toSet()
@@ -624,7 +639,8 @@ class HighlightPipeline(
         // absent, pour ne pas compter deux fois les mêmes événements ni décoder la vidéo pour rien. Seuls les signaux
         // remplaçables sont lus d'abord (base d'Outplayed : un instant) ; les secours nécessaires tournent ensuite en
         // même temps que tous les autres, décodage vidéo et analyse audio en parallèle, au lieu d'attendre leur fin.
-        val (fallbacks, others) = enabled.partition { cfg -> cfg.fallbackFor != null && enabled.any { it.id == cfg.fallbackFor } }
+        val (dependents, independent) = enabled.partition { it.dependsOn.isNotEmpty() }
+        val (fallbacks, others) = independent.partition { cfg -> cfg.fallbackFor != null && enabled.any { it.id == cfg.fallbackFor } }
         val replaceable = fallbacks.mapNotNull { it.fallbackFor }.toSet()
         val (targets, rest) = others.partition { it.id in replaceable }
         val first = if (targets.isEmpty()) emptyList() else runPhase(targets, media, grid, workDir, steps, tracks, warnings)
@@ -633,7 +649,12 @@ class HighlightPipeline(
         skipped.forEach { steps.getValue(it.id).complete() }
         needed.forEach { log.info { "${it.fallbackFor} sans signal : ${it.id} prend le relais" } }
         val second = runPhase(rest + needed, media, grid, workDir, steps, tracks, warnings)
-        val results = (first + second).associateBy { it.first.id }
+        // Les détecteurs qui lisent les événements d'autres détecteurs passent en dernier, avec ces événements.
+        val done = (first + second).associateBy { it.first.id }
+        val third = if (dependents.isEmpty()) emptyList() else runPhase(dependents, media, grid, workDir, steps, tracks, warnings) { cfg ->
+            cfg.dependsOn.mapNotNull { done[it]?.second }.flatMap { it.events }.sortedBy { it.at }
+        }
+        val results = (first + second + third).associateBy { it.first.id }
         return enabled.mapNotNull { results[it.id] }
     }
 
@@ -646,6 +667,7 @@ class HighlightPipeline(
         steps: Map<String, ProgressReporter>,
         tracks: AudioTracks,
         warnings: MutableList<String>,
+        events: (DetectorConfig) -> List<SignalEvent> = { emptyList() },
     ): List<Pair<DetectorConfig, SignalTrack>> {
         val instances = configs.map { it to detectors.create(it.type, it.id, it.detectorParams()) }
         val semaphore = Semaphore(config.app.analysis.parallelism)
@@ -655,7 +677,7 @@ class HighlightPipeline(
         // pour être traitée comme n'importe quelle autre panne (continueOnDetectorError).
         val frames = FrameSampler(ffmpeg, media)
         val contexts = instances.map { (cfg, _) ->
-            AnalysisContext(media, grid, ffmpeg, workDir, steps.getValue(cfg.id), config.baseDir, frames, tracks)
+            AnalysisContext(media, grid, ffmpeg, workDir, steps.getValue(cfg.id), config.baseDir, frames, tracks, events(cfg))
         }
         val preparations = instances.mapIndexed { i, (_, detector) -> runCatching { detector.prepare(contexts[i]) } }
 

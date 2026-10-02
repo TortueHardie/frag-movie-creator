@@ -14,6 +14,7 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 private val log = KotlinLogging.logger {}
 
@@ -56,6 +57,11 @@ data class KillTraits(
     val flick: Double = 0.0,
     val shift: Duration = Duration.ZERO,
     val direction: FlickDirection? = null,
+    /**
+     * Instant de la balle qui tue, vu sur le compteur de munitions (voir [MontagePlanner.hudShots]) : plus sûr que
+     * l'instant annoncé, jusqu'à 0,6 s en retard. [KillInspector] y cale le kill.
+     */
+    val fatal: Duration? = null,
 ) {
     /** Un seul tir, à la tête : le kill des edits « onetaps ». */
     val oneTap: Boolean get() = headshot && shots == 1
@@ -212,8 +218,24 @@ object MontagePlanner {
     /** Recul d'importance d'un slot dont un voisin porte déjà un clip qui se ressemble. */
     private const val MONOTONY_PENALTY = 0.5
 
+    /** Fenêtre où chercher la balle qui tue sur le compteur de munitions, autour de l'instant annoncé (voir [hudShots]). */
+    private val HUD_FATAL_BEFORE = 1.seconds
+    private val HUD_FATAL_AFTER = 300.milliseconds
+
     /** Écart maximal entre un kill et l'événement « tir à la tête » qui l'accompagne. */
     private val HEADSHOT_MATCH = 250.milliseconds
+
+    /** Recherche de la confirmation d'un kill autour de son annonce (Outplayed s'en écarte de 0,55 s au plus mesuré). */
+    private val CONFIRM_WINDOW = 800.milliseconds
+
+    /** Le compteur descend jusqu'à 0,05 s après le kill enregistré : la balle qui tue est vue jusque-là, avec de la marge. */
+    private val CONFIRM_AFTER = 120.milliseconds
+
+    /** Retard de la ligne du killfeed (lue à 30 img/s) sur l'icône de kill : 0,065 s en médiane sur 13 kills. */
+    private val CONFIRM_LAG = 65.milliseconds
+
+    /** Mort annoncée un peu avant le kill (le même instant, à la précision des annonces près) : un échange aussi. */
+    private val DEATH_TIE = 200.milliseconds
 
     /**
      * Prix d'un changement de vitesse dans une rampe, en force de frappe : 10 % de vitesse en plus ou en moins valent
@@ -260,13 +282,26 @@ object MontagePlanner {
     fun groups(sessions: List<Session>, settings: MontageSettings): List<KillGroup> = sessions.flatMap { session ->
         val timeline = session.timeline
         val bounds = session.media.bounds
-        val kills = timeline.events.filter { it.kind == settings.killEvent }.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
+        val allKills = timeline.events.filter { it.kind == settings.killEvent }.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
+        // Rythme rapide : un kill aussitôt suivi de la mort du joueur ne montrerait que l'écran de mort.
+        val kills = if (!settings.skipDeathWithin.isPositive() || settings.killStyle.deathEvent.isEmpty()) allKills else {
+            val died = timeline.events.filter { it.kind == settings.killStyle.deathEvent }.map { it.at + settings.killOffset }
+            allKills.filter { k -> died.none { it >= k - DEATH_TIE && it - k <= settings.skipDeathWithin } }
+        }
         // Tirs à la tête : l'événement du jeu tombe au même instant que le kill (même retard de notification).
         val style = settings.killStyle
         val headshots = if (style.headshotEvent.isEmpty()) emptyList()
         else timeline.events.filter { it.kind == style.headshotEvent }.map { it.at + settings.killOffset }
         fun headshot(k: Duration) = headshots.any { (it - k).absoluteValue <= HEADSHOT_MATCH }
-        val shots = shotCounts(kills, timeline.events.filter { style.shotEvent.isNotEmpty() && it.kind == style.shotEvent }.map { it.at }, settings)
+        fun instants(kind: String) = if (kind.isEmpty()) emptyList() else timeline.events.filter { it.kind == kind }.map { it.at }
+        // Confirmation à l'image de chaque kill (killfeed) : l'instant où le jeu l'enregistre, à 0,1 s près.
+        val confirmations = instants(style.confirmEvent).sorted()
+        val confirmed = kills.mapNotNull { k ->
+            confirmations.filter { (it - k).absoluteValue <= CONFIRM_WINDOW }.minByOrNull { (it - k).absoluteValue }?.let { k to it }
+        }.toMap()
+        // Les balles du compteur de munitions quand la partie en a : le son en manque dans les rafales et en invente.
+        val hud = instants(style.hudShotEvent).takeIf { it.isNotEmpty() }?.let { hudShots(kills, it, settings, confirmed) }
+        val shots = hud?.mapValues { it.value.count } ?: shotCounts(kills, instants(style.shotEvent), settings)
         val deaths = if (style.deathEvent.isEmpty()) emptyList()
         else timeline.events.filter { it.kind == style.deathEvent }.map { it.at + settings.killOffset }.sorted()
         val rounds = rounds(kills, deaths, style.roundGap)
@@ -297,7 +332,8 @@ object MontagePlanner {
         grouped.mapIndexed { i, ks ->
             val window = TimeRange(ks.first() - settings.preRoll, ks.last() + settings.postRoll)
             val indices = timeline.grid.let { g -> (0 until g.count).filter { g.rangeOf(it).isWithin(window) } }
-            val traits = ks.map { KillTraits(headshot = headshot(it), shots = shots[it]) }
+            // Sans balle au compteur (capacité, couteau, capture sans compteur), la confirmation situe tout de même le kill.
+            val traits = ks.map { KillTraits(headshot = headshot(it), shots = shots[it], fatal = hud?.get(it)?.fatal ?: confirmed[it]?.minus(CONFIRM_LAG)) }
             KillGroup(
                 media = session.media,
                 kills = ks,
@@ -337,6 +373,50 @@ object MontagePlanner {
         }
         return counts
     }
+
+    /**
+     * Balles de chaque kill d'après le compteur de munitions du HUD ([shots], une par changement des chiffres). Celle
+     * qui tue est la dernière vue de [HUD_FATAL_BEFORE] avant l'instant annoncé à [HUD_FATAL_AFTER] après : Outplayed
+     * l'annonce jusqu'à 0,6 s après la balle (ligne du killfeed déjà affichée), et le compteur descend jusqu'à 0,1 s
+     * après l'annonce. Comptent avec elle les balles des [KillStyle.oneTapWindow] d'avant (sans remonter au-delà de celle
+     * qui a tué la cible précédente) et des [KillStyle.oneTapAfter] d'après (la rafale qui continue, sans aller jusqu'à la
+     * balle du kill suivant). Aucune balle autour du kill : 0 (capacité, couteau), jamais un one tap.
+     *
+     * Kill confirmé à l'image ([confirmed] : kill → instant de la confirmation, voir [KillStyle.confirmEvent]) : la balle
+     * qui tue est la dernière vue jusqu'à [CONFIRM_AFTER] après la confirmation, au lieu de [HUD_FATAL_AFTER] après
+     * l'annonce, que les balles de la rafale qui continue après le kill pouvaient dépasser.
+     */
+    fun hudShots(kills: List<Duration>, shots: List<Duration>, settings: MontageSettings, confirmed: Map<Duration, Duration> = emptyMap()): Map<Duration, HudShot> {
+        val sorted = shots.sorted()
+        val style = settings.killStyle
+        val ordered = kills.sorted()
+        val fatals = mutableListOf<Duration?>()
+        var previous: Duration? = null
+        for (kill in ordered) {
+            val window = confirmed[kill]?.let { c -> (c - HUD_FATAL_BEFORE)..(c + CONFIRM_AFTER) } ?: ((kill - HUD_FATAL_BEFORE)..(kill + HUD_FATAL_AFTER))
+            val fatal = sorted.lastOrNull { it in window && (previous == null || it > previous!!) }
+            fatals += fatal
+            if (fatal != null) previous = fatal
+        }
+        val counts = mutableMapOf<Duration, HudShot>()
+        var last: Duration? = null
+        ordered.forEachIndexed { i, kill ->
+            val fatal = fatals[i]
+            if (fatal == null) {
+                counts[kill] = HudShot(0, null)
+                return@forEachIndexed
+            }
+            val from = last?.let { maxOf(it, fatal - style.oneTapWindow) } ?: (fatal - style.oneTapWindow)
+            val next = fatals.drop(i + 1).firstOrNull { it != null }
+            val until = next?.let { minOf(it, fatal + style.oneTapAfter) } ?: (fatal + style.oneTapAfter)
+            counts[kill] = HudShot(sorted.count { it > from && it <= fatal } + sorted.count { it > fatal && it <= until && it != next }, fatal)
+            last = fatal
+        }
+        return counts
+    }
+
+    /** Balles d'un kill lues sur le compteur ([count]) et instant de celle qui tue ([fatal], null sans balle). */
+    data class HudShot(val count: Int, val fatal: Duration?)
 
     /** Round déduit des événements du joueur : ses kills, et s'il y est mort. */
     data class Round(val kills: List<Duration>, val died: Boolean)

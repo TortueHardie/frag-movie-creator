@@ -104,7 +104,7 @@ class OneTapsTest : FunSpec({
 
     test("plan : un kill par temps, sur le temps qui ouvre le plan, la coupe avancée du contexte d'avant") {
         val groups = select(session(twelve)).groups
-        val plan = MontagePlanner.plan(groups, music(130.0), settings)
+        val plan = MontagePlanner.plan(groups, music(105.0), settings)
         plan.clips.size shouldBe 12
         plan.clips.all { it.slow == null && it.speeds.isEmpty() } shouldBe true
         val single = plan.clips.filter { it.beats == 1 }
@@ -112,7 +112,7 @@ class OneTapsTest : FunSpec({
         (single.size >= plan.clips.size - 2) shouldBe true
         single.all { it.anchorBeat == it.slot.startBeat && it.leadIn == settings.cuts.minLead } shouldBe true
         plan.clips.first().leadIn shouldBe Duration.ZERO
-        (plan.duration < 10.seconds) shouldBe true
+        (plan.duration < 12.seconds) shouldBe true
         // Rendu : la coupe vers un plan d'un temps avance du contexte (plus l'image d'avance habituelle).
         val frame = (1_000_000L / 60).microseconds
         val leads = MontageRenderBuilder.leads(plan, 60)
@@ -125,24 +125,58 @@ class OneTapsTest : FunSpec({
 
     test("plan : musique trop rapide pour un temps, deux temps par plan") {
         val groups = select(session(twelve)).groups
-        val plan = MontagePlanner.plan(groups, music(160.0), settings)
+        val plan = MontagePlanner.plan(groups, music(130.0), settings)
         plan.clips.size shouldBe 12
         plan.clips.none { it.beats == 1 || it.leadIn.isPositive() } shouldBe true
         plan.clips.count { it.beats == 2 } shouldBe (plan.clips.size - plan.clips.count { it.slot.dropBeat != null })
     }
 
+    test("rythme rapide : tous les kills, un par temps même à 161 BPM, ni ralenti ni rampe") {
+        val fast = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds).forFast()
+        fast.mergeGap shouldBe Duration.ZERO
+        fast.slowMotion.enabled shouldBe false
+        fast.speedRamp.enabled shouldBe false
+        fast.whip.enabled shouldBe false
+        // Un temps à 161 BPM (0,37 s) couvre le contexte d'avant et d'après le kill.
+        MontagePlanner.singleBeat(fast, (60.0 / 161).seconds) shouldBe true
+        MontagePlanner.singleBeat(fast, (60.0 / 180).seconds) shouldBe false
+        // Tous les kills, pas seulement les one taps (rafales et kills au corps compris).
+        val mixed = (0 until 12).map { Triple(60.0 + it * 90, if (it % 2 == 0) 1 else 4, it % 3 == 0) }
+        val groups = MontagePlanner.groups(listOf(session(mixed)), fast)
+        groups.size shouldBe 12
+        val plan = MontagePlanner.plan(groups, music(161.0), fast)
+        plan.clips.size shouldBe 12
+        (plan.clips.count { it.beats == 1 } >= plan.clips.size - 2) shouldBe true
+        plan.clips.all { it.slow == null && it.speeds.isEmpty() } shouldBe true
+        MontageScorer.score(plan).sync shouldBe (1.0 plusOrMinus 1e-6)
+        // Le montage dure à peu près 0,4 s par kill, au moins le minimum.
+        (plan.duration < 10.seconds) shouldBe true
+    }
+
+    test("rythme rapide : un kill aussitôt suivi de la mort du joueur est écarté") {
+        val fast = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds).forFast()
+        val base = session(listOf(Triple(100.0, 1, true), Triple(200.0, 1, true), Triple(300.0, 1, true)))
+        // Mort 0,1 s après le kill de 200 s (échange), et 3 s après celui de 300 s (il a eu le temps).
+        val withDeaths = base.copy(
+            timeline = base.timeline.copy(events = (base.timeline.events + event(200.1, "death") + event(303.0, "death")).sortedBy { it.at }),
+        )
+        MontagePlanner.groups(listOf(withDeaths), fast).flatMap { it.kills } shouldBe listOf(100.seconds, 300.seconds)
+        // Au rythme normal, l'échange reste (il recule seulement dans le classement).
+        MontagePlanner.groups(listOf(withDeaths), MontageSettings(killOffset = Duration.ZERO)).sumOf { it.kills.size } shouldBe 3
+    }
+
     test("plans d'un temps seulement si on les demande") {
         val groups = select(session(twelve)).groups
-        val plan = MontagePlanner.plan(groups, music(130.0), settings.copy(cuts = settings.cuts.copy(singleBeat = false)))
+        val plan = MontagePlanner.plan(groups, music(105.0), settings.copy(cuts = settings.cuts.copy(singleBeat = false)))
         plan.clips.none { it.beats == 1 } shouldBe true
     }
 
     test("choix de la musique : celle qui garde des plans d'un temps passe devant, à kills égaux") {
         val groups = select(session(twelve)).groups
-        val ranked = MusicChoice.rank(groups, listOf(music(160.0, "rapide-mais-trop.mp3"), music(130.0, "rapide.mp3")), settings) { false }
+        val ranked = MusicChoice.rank(groups, listOf(music(130.0, "rapide-mais-trop.mp3"), music(105.0, "rapide.mp3")), settings) { false }
         ranked.first().music.file shouldBe Path("rapide.mp3")
         (ranked.first().pace > ranked.last().pace) shouldBe true
         // Sans préférence (montage kills ordinaire), aucune avance.
-        MusicChoice.rank(groups, listOf(music(130.0)), settings.copy(musicPace = null)) { false }.single().pace shouldBe 0.0
+        MusicChoice.rank(groups, listOf(music(105.0)), settings.copy(musicPace = null)) { false }.single().pace shouldBe 0.0
     }
 })
