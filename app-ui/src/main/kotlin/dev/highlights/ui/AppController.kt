@@ -572,6 +572,7 @@ class AppController(
                     balance = montage?.audio?.balance ?: 0.0,
                     gameAudio = montage?.audio?.game ?: GameAudio.FULL,
                     reactions = montage?.reactions ?: false,
+                    fast = montage?.fast?.enabled ?: false,
                     platform = it.settings.platform,
                 ),
             )
@@ -636,6 +637,7 @@ class AppController(
                     platform = montage.platform,
                     onlyKills = montage.pick,
                     oneTaps = montage.oneTaps,
+                    fast = montage.fast,
                 ),
                 progress,
             )

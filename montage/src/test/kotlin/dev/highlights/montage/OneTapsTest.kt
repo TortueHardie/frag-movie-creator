@@ -131,9 +131,43 @@ class OneTapsTest : FunSpec({
         plan.clips.count { it.beats == 2 } shouldBe (plan.clips.size - plan.clips.count { it.slot.dropBeat != null })
     }
 
+    test("rythme rapide : tous les kills, un par temps même à 161 BPM, ni ralenti ni rampe") {
+        val fast = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds).forFast()
+        fast.mergeGap shouldBe Duration.ZERO
+        fast.slowMotion.enabled shouldBe false
+        fast.speedRamp.enabled shouldBe false
+        fast.whip.enabled shouldBe false
+        // Un temps à 161 BPM (0,37 s) couvre le contexte d'avant et d'après le kill.
+        MontagePlanner.singleBeat(fast, (60.0 / 161).seconds) shouldBe true
+        MontagePlanner.singleBeat(fast, (60.0 / 180).seconds) shouldBe false
+        // Tous les kills, pas seulement les one taps (rafales et kills au corps compris).
+        val mixed = (0 until 12).map { Triple(60.0 + it * 90, if (it % 2 == 0) 1 else 4, it % 3 == 0) }
+        val groups = MontagePlanner.groups(listOf(session(mixed)), fast)
+        groups.size shouldBe 12
+        val plan = MontagePlanner.plan(groups, music(161.0), fast)
+        plan.clips.size shouldBe 12
+        (plan.clips.count { it.beats == 1 } >= plan.clips.size - 2) shouldBe true
+        plan.clips.all { it.slow == null && it.speeds.isEmpty() } shouldBe true
+        MontageScorer.score(plan).sync shouldBe (1.0 plusOrMinus 1e-6)
+        // Le montage dure à peu près 0,4 s par kill, au moins le minimum.
+        (plan.duration < 10.seconds) shouldBe true
+    }
+
+    test("rythme rapide : un kill aussitôt suivi de la mort du joueur est écarté") {
+        val fast = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds).forFast()
+        val base = session(listOf(Triple(100.0, 1, true), Triple(200.0, 1, true), Triple(300.0, 1, true)))
+        // Mort 0,1 s après le kill de 200 s (échange), et 3 s après celui de 300 s (il a eu le temps).
+        val withDeaths = base.copy(
+            timeline = base.timeline.copy(events = (base.timeline.events + event(200.1, "death") + event(303.0, "death")).sortedBy { it.at }),
+        )
+        MontagePlanner.groups(listOf(withDeaths), fast).flatMap { it.kills } shouldBe listOf(100.seconds, 300.seconds)
+        // Au rythme normal, l'échange reste (il recule seulement dans le classement).
+        MontagePlanner.groups(listOf(withDeaths), MontageSettings(killOffset = Duration.ZERO)).sumOf { it.kills.size } shouldBe 3
+    }
+
     test("plans d'un temps seulement si on les demande") {
         val groups = select(session(twelve)).groups
-        val plan = MontagePlanner.plan(groups, music(130.0), settings.copy(cuts = settings.cuts.copy(singleBeat = false)))
+        val plan = MontagePlanner.plan(groups, music(105.0), settings.copy(cuts = settings.cuts.copy(singleBeat = false)))
         plan.clips.none { it.beats == 1 } shouldBe true
     }
 

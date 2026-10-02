@@ -199,6 +199,9 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     MontageToggle("Onetaps : que les kills d'une balle à la tête, enchaînés très vite", montage.oneTaps) { v ->
                         actions.updateMontage { it.copy(oneTaps = v) }
                     }
+                    MontageToggle("Rythme rapide : un kill sur chaque temps (chaque coup de basse)", montage.fast) { v ->
+                        actions.updateMontage { it.copy(fast = v) }
+                    }
                 }
 
                 DialogGroup("Formats") {

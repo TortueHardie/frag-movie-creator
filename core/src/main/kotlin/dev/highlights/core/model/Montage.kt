@@ -70,13 +70,43 @@ data class MontageSettings(
     val text: TextEffect = TextEffect(),
     val audio: MontageAudio = MontageAudio(),
     val formats: List<OutputFormat> = listOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
+    /** Rythme rapide : un kill par temps de musique (voir [FastMontage]), appliqué par [forFast]. */
+    val fast: FastMontage = FastMontage(),
     /** Réglages du montage « onetaps », appliqués par [forOneTaps] quand on le demande. */
     val oneTaps: OneTapMontage = OneTapMontage(),
     /** Choix automatique de la musique : préférence pour celles qui donnent des plans courts. null : aucune. */
     val musicPace: MusicPace? = null,
+    /**
+     * Kills écartés quand le joueur meurt moins de ce délai après (zéro : aucun) : son plan ne montrerait que l'écran
+     * de mort. Posé par [forFast], dont les plans finissent 0,17 s après le kill.
+     */
+    val skipDeathWithin: SerialDuration = Duration.ZERO,
 ) {
     init {
         require(minScore in 0.0..1.0) { "montage.minScore doit être entre 0 et 1" }
+    }
+
+    /**
+     * Les mêmes réglages, au rythme rapide : chaque kill est son propre plan, d'un temps quand la musique le permet, sans
+     * ralenti ni rampe (ils n'ont pas la place), ni whip pan : ses 200 ms font filer toute l'image sur la moitié d'un
+     * plan de 0,37 s, et le montage était jugé illisible. Le changement de plan à chaque temps fait déjà la transition.
+     * Zoom, flash, flou et couleurs restent.
+     */
+    fun forFast(): MontageSettings {
+        val f = fast
+        return copy(
+            mergeGap = Duration.ZERO,
+            preRoll = f.preRoll,
+            postRoll = f.postRoll,
+            reactions = false,
+            length = length.copy(perClip = f.perClip, perExtraKill = Duration.ZERO, min = f.min),
+            cuts = cuts.copy(low = f.cut, mid = f.cut, high = f.cut, minLead = f.minLead, minTail = f.minTail, singleBeat = true),
+            slowMotion = slowMotion.copy(enabled = false),
+            speedRamp = speedRamp.copy(enabled = false),
+            whip = whip.copy(enabled = false),
+            musicPace = f.musicPace,
+            skipDeathWithin = f.skipDeathWithin,
+        )
     }
 
     /**
@@ -120,9 +150,43 @@ data class MusicPace(
 }
 
 /**
+ * Rythme rapide : un kill sur chaque temps de la musique (sur chaque coup de grosse caisse d'une techno), comme les edits
+ * TikTok de référence, dont les plans durent 0,37 à 0,67 s en médiane, contre 1,5 s pour nos plans de quatre temps à
+ * 161 BPM. Le kill tombe sur le temps qui ouvre son plan, la coupe le précède de [minLead] ; il reste [minTail] au moins
+ * pour voir l'ennemi tomber. Leur somme (0,35 s) borne le tempo des plans d'un temps : 171 BPM ; au-delà, deux temps.
+ */
+@Serializable
+data class FastMontage(
+    /** Rythme rapide sans qu'on le demande (fenêtre de montage, `--fast`). */
+    val enabled: Boolean = false,
+    val preRoll: SerialDuration = 600.milliseconds,
+    val postRoll: SerialDuration = 300.milliseconds,
+    /** Longueur visée d'un plan dans toutes les sections : ramenée au plus proche nombre de temps (un, en général). */
+    val cut: SerialDuration = 400.milliseconds,
+    val minLead: SerialDuration = 200.milliseconds,
+    val minTail: SerialDuration = 150.milliseconds,
+    /** Durée visée par kill, et durée minimale du montage. */
+    val perClip: SerialDuration = 400.milliseconds,
+    val min: SerialDuration = 8.seconds,
+    /** Choix de la musique : les musiques rapides, qui gardent des plans d'un temps, passent devant. */
+    val musicPace: MusicPace = MusicPace(),
+    /**
+     * Kill écarté si le joueur meurt moins de ce délai après : un échange. Le plan finit 0,17 s après le kill, et
+     * montrait l'écran de mort (caméra du tueur, sa carte, son ulti) : 2 kills sur 74 d'un montage de 17 parties.
+     */
+    val skipDeathWithin: SerialDuration = 600.milliseconds,
+) {
+    init {
+        require(preRoll >= minLead) { "montage.fast.preRoll doit couvrir minLead" }
+        require(postRoll >= minTail) { "montage.fast.postRoll doit couvrir minTail" }
+        require(cut.isPositive() && perClip.isPositive() && min.isPositive()) { "montage.fast : durées positives attendues" }
+    }
+}
+
+/**
  * Montage « onetaps » : que des kills d'une balle à la tête, enchaînés au rythme de la musique comme les edits TikTok.
- * Un plan dure un temps quand la musique le permet (0,46 s à 130 BPM) : le kill tombe sur le temps qui l'ouvre, la coupe
- * le précède de [minLead]. Sinon (au-delà de 1 / ([minLead] + [minTail]), 142 BPM), deux temps.
+ * Un plan dure un temps quand la musique le permet (0,57 s à 105 BPM) : le kill tombe sur le temps qui l'ouvre, la coupe
+ * le précède de [minLead]. Sinon (au-delà de 1 / ([minLead] + [minTail]), 109 BPM), deux temps.
  */
 @Serializable
 data class OneTapMontage(

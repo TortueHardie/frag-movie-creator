@@ -138,6 +138,8 @@ data class MontageOptions(
     val onlyKills: MomentPick? = null,
     /** Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun ([MontageSettings.forOneTaps]). */
     val oneTaps: Boolean = false,
+    /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
+    val fast: Boolean? = null,
 )
 
 /** [reused] : analyse reprise de la mémoire, sans recalcul. */
@@ -546,7 +548,13 @@ class HighlightPipeline(
                 game = options.gameAudio ?: base.audio.game,
                 loudnessLufs = platform?.loudnessLufs ?: base.audio.loudnessLufs,
             ),
-        ).let { if (options.oneTaps) it.forOneTaps() else it }
+        ).let {
+            when {
+                options.oneTaps -> it.forOneTaps()
+                options.fast ?: base.fast.enabled -> it.forFast()
+                else -> it
+            }
+        }
         val musicStep = progress.child(if (music.isDirectory()) "Musiques" else "Musique", 0.06)
         val musics = if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music))
         musicStep.complete()

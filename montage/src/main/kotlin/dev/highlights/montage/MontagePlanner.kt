@@ -282,7 +282,12 @@ object MontagePlanner {
     fun groups(sessions: List<Session>, settings: MontageSettings): List<KillGroup> = sessions.flatMap { session ->
         val timeline = session.timeline
         val bounds = session.media.bounds
-        val kills = timeline.events.filter { it.kind == settings.killEvent }.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
+        val allKills = timeline.events.filter { it.kind == settings.killEvent }.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
+        // Rythme rapide : un kill aussitôt suivi de la mort du joueur ne montrerait que l'écran de mort.
+        val kills = if (!settings.skipDeathWithin.isPositive() || settings.killStyle.deathEvent.isEmpty()) allKills else {
+            val died = timeline.events.filter { it.kind == settings.killStyle.deathEvent }.map { it.at + settings.killOffset }
+            allKills.filter { k -> died.none { it >= k - DEATH_TIE && it - k <= settings.skipDeathWithin } }
+        }
         // Tirs à la tête : l'événement du jeu tombe au même instant que le kill (même retard de notification).
         val style = settings.killStyle
         val headshots = if (style.headshotEvent.isEmpty()) emptyList()

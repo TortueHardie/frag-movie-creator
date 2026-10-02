@@ -6,6 +6,7 @@ import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.clikt.parameters.types.restrictTo
@@ -36,6 +37,9 @@ class SearchCommand : PipelineCommand("search") {
     private val limit by option("--limit", help = "Nombre de moments affichés (défaut : 30)").int().restrictTo(min = 1).default(30)
     private val montage by option("--montage", help = "Montage kills des moments trouvés, sur cette musique (ou un dossier de musiques)").path(mustExist = true)
     private val max by option("--max", help = "Durée maximale du montage, ex. 60s").convert { Durations.parseOrNull(it) ?: throw BadParameterValue("durée invalide '$it'") }
+    private val fast by option("--fast", help = "Montage au rythme rapide : un kill sur chaque temps de la musique").flag()
+    private val colors by option("--colors", help = "Couleurs du montage : boost (vives, comme les kill montages de TikTok) ou natural ; défaut : celui du profil")
+        .choice("boost" to true, "natural" to false)
     private val platform by option("--platform", help = "Plateforme visée par le montage : tiktok, shorts, reels, youtube")
     private val out by option("-o", "--out").path(canBeFile = false)
 
@@ -72,7 +76,7 @@ class SearchCommand : PipelineCommand("search") {
             try {
                 pipeline.killMontage(
                     sessions, music,
-                    MontageOptions(maxDuration = max, platform = platform, outputDir = out, onlyKills = MomentPick.of(found), oneTaps = oneTaps),
+                    MontageOptions(maxDuration = max, platform = platform, outputDir = out, onlyKills = MomentPick.of(found), oneTaps = oneTaps, boostColors = colors, fast = if (fast) true else null),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
