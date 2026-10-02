@@ -161,7 +161,7 @@ data class MusicAnalysis(
 
 object MusicAnalyzer {
     /** À augmenter quand l'analyse change de calcul : les analyses gardées par [MusicLibrary] sont alors refaites. */
-    const val VERSION = 2
+    const val VERSION = 3
 
     /** Part de la durée du montage avant laquelle une drop doit tomber pour y compter, avec de quoi la suivre. */
     private const val REACH = 0.7
@@ -283,10 +283,14 @@ object MusicAnalyzer {
         log.info {
             "Structure : " + sections.joinToString(" ") { "${it.kind.name.lowercase()}(${it.beats}t, ${"%.2f".format(it.intensity)})" }
         }
-        val salience = salience(samples, beats)
+        // Ce qui ressort : une note qui attaque fort, ou le son qui change de nature (un instrument qui entre, une coupure).
+        val notes = salience(samples, beats)
+        val changes = timbreChanges(beatMel)
+        val salience = DoubleArray(n) { maxOf(notes[it], changes[it]) }
         log.info {
-            "Notes qui ressortent : " + sections.joinToString(" ") { s ->
-                "${s.kind.name.lowercase()} ${(s.startBeat until minOf(s.endBeat, n)).count { salience[it] >= SALIENT }}/${s.beats}"
+            "Moments qui ressortent (notes + changements de son) : " + sections.joinToString(" ") { s ->
+                val range = s.startBeat until minOf(s.endBeat, n)
+                "${s.kind.name.lowercase()} ${range.count { notes[it] >= SALIENT }}+${range.count { changes[it] >= SALIENT && notes[it] < SALIENT }}/${s.beats}"
             }
         }
         return MusicAnalysis(file, duration, bpm, beats, phase, energy, accent, sections, drop, halfAccent, salience)
@@ -322,6 +326,36 @@ object MusicAnalyzer {
             ((contrast - 3) / 10).coerceIn(0.0, 1.0) * loud
         }
     }
+
+    /**
+     * Changements de son de chaque temps (0..1) : le spectre du temps (bandes mel, en log) s'écarte de celui du temps
+     * d'avant au moins [CHANGE_RATIO] fois plus que d'habitude alentour ([SALIENCE_WINDOW] temps de part et d'autre),
+     * d'au moins [MIN_CHANGE], et durablement (le temps d'après ressemble au nouveau son plus qu'à l'ancien : pas un
+     * bruit isolé ; et le son d'avant-hier en diffère aussi : pas le retour à la normale après ce bruit). Un instrument qui entre, une voix, une coupure avant la drop. Plein à [CHANGE_RATIO] + 3 fois. Mesuré
+     * sur six morceaux : 9 à 50 par morceau, presque tous à l'intérieur des sections (sur « Rome Is Burning », l'arrivée
+     * du fa de chaque phrase de piano ; sur « Fortunate Son », les entrées de guitare et de voix).
+     */
+    internal fun timbreChanges(beatMel: Array<DoubleArray>): DoubleArray {
+        val n = beatMel.size
+        // Forme du spectre, indépendamment du volume : chaque temps centré sur sa moyenne (le spectre est déjà en log).
+        val shape = Array(n) { i -> val m = beatMel[i].average(); DoubleArray(beatMel[i].size) { k -> beatMel[i][k] - m } }
+        fun distance(a: Int, b: Int) = 1 - cosine(shape[a], shape[b])
+        val change = DoubleArray(n) { i -> if (i == 0) 0.0 else distance(i, i - 1) }
+        return DoubleArray(n) { i ->
+            if (i < 2 || i > n - 2) return@DoubleArray 0.0
+            val around = (maxOf(1, i - SALIENCE_WINDOW) until minOf(n, i + SALIENCE_WINDOW + 1)).filter { it != i }.map { change[it] }.sorted()
+            val usual = around[around.size / 2].coerceAtLeast(1e-6)
+            // Durable (le temps d'après ressemble au nouveau son), et nouveau pour de bon : pas le retour au son d'avant
+            // après un bruit d'un seul temps.
+            val lasting = distance(i + 1, i) < distance(i + 1, i - 1) && distance(i, i - 2) >= change[i] / 2
+            val ratio = change[i] / usual
+            if (!lasting || change[i] < MIN_CHANGE || ratio < CHANGE_RATIO) 0.0
+            else (SALIENT + (ratio - CHANGE_RATIO) / 5).coerceAtMost(1.0)
+        }
+    }
+
+    private const val CHANGE_RATIO = 3.0
+    private const val MIN_CHANGE = 0.02
 
     private val SALIENCE_AFTER = 60.milliseconds
     private val SALIENCE_BEFORE = 90.milliseconds

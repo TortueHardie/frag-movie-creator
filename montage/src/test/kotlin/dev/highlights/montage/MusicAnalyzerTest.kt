@@ -193,6 +193,26 @@ class MusicAnalyzerTest : FunSpec({
         beats.indices.filter { it !in loud && it > 0 }.forEach { b -> withClue("temps $b") { (salience[b] < MusicAnalyzer.SALIENT) shouldBe true } }
     }
 
+    test("changement de son : un instrument qui entre et reste ressort, un bruit d'un seul temps non") {
+        val random = Random(7)
+        // 40 bandes en log ; temps 0 à 19 : un son grave ; à partir du temps 20, un son aigu s'ajoute et reste.
+        // Temps 10 : un bruit isolé, aussi différent, qui ne dure pas.
+        val mel = Array(40) { i ->
+            DoubleArray(40) { k ->
+                val base = 3.0 - k * 0.05 + random.nextDouble() * 0.05
+                when {
+                    i >= 20 && k > 25 -> base + 2.0
+                    i == 10 && k in 10..15 -> base + 2.0
+                    else -> base
+                }
+            }
+        }
+        val changes = MusicAnalyzer.timbreChanges(mel)
+        (changes[20] >= MusicAnalyzer.SALIENT) shouldBe true
+        changes[10] shouldBe 0.0
+        changes.indices.filter { it != 20 }.forEach { i -> withClue("temps $i") { (changes[i] < MusicAnalyzer.SALIENT) shouldBe true } }
+    }
+
     test("contretemps : une caisse claire entre les temps devient une frappe, pas le charleston") {
         val sr = MusicAnalyzer.SAMPLE_RATE
         val plain = beatLoop(120.0, 30)

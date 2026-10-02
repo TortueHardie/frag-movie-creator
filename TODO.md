@@ -77,8 +77,10 @@ de chaque temps (`MusicAnalysis.salience`) et découpage sur les notes qui resso
   « Rome Is Burning » : un kill par temps au rythme rapide (avant : un toutes les 3,8 s), un toutes les 1,6 s au normal.
 - [ ] Rythme normal : les doublés d'environ 1 s prennent 8 temps dans la drop (5 nécessaires), et le critère « rythme »
   du scoreur reste bas (0,13) : intro et drop ont encore des plans de longueurs voisines.
-- [ ] Notes entre les temps (contretemps marqués, triolets) : la saillance n'est mesurée que sur les temps.
-- [ ] Autres événements : entrée d'un instrument, voix, montée (riser) qui s'arrête juste avant la drop.
+- Fait : changements de son (`MusicAnalyzer.timbreChanges` : instrument qui entre, voix, coupure) ajoutés aux notes
+  dans `MusicAnalysis.salience` ; rapport `onMusicMoment`. Couverture au rythme rapide : 9/10, 16/19, 25/38 moments.
+- [ ] Notes entre les temps : mesurées sur six morceaux, 0 à 3 contretemps qui ressortent par morceau. Pas de coupe ni
+  de kill au demi-temps pour l'instant (la grille est en temps entiers) ; à reprendre sur une musique syncopée.
 
 ## 6. Se mesurer à des montages de référence (en cours)
 

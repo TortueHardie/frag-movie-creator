@@ -607,7 +607,16 @@ quel morceau, sans réglage par musique :
 - Saillance de chaque temps (`MusicAnalysis.salience`) : la montée du volume à l'attaque comparée à celle des temps
   voisins (8 de part et d'autre), et le niveau du temps face au plus fort alentour. Sur une drop à grosse caisse
   régulière, aucun temps ne ressort (0 % sur deux morceaux) ; sur « Rome Is Burning », toute la phrase du piano.
-  Le journal l'affiche (« Notes qui ressortent : intro 5/18 … »).
+  Le journal l'affiche (« Moments qui ressortent (notes + changements de son) : intro 5+2/18 … »).
+- Changements de son : un temps dont le spectre s'écarte de celui d'avant au moins trois fois plus que d'habitude
+  alentour, durablement (pas un bruit d'un seul temps, ni le retour à la normale après lui). Un instrument qui entre, une
+  voix, une coupure avant la drop. 9 à 50 par morceau sur six morceaux, presque tous à l'intérieur des sections. Ils
+  comptent comme les notes : coupe calée juste avant, kill dessus.
+- Le rapport du montage dit pour chaque plan si son kill tombe sur un de ces moments (`onMusicMoment`). Au rythme rapide,
+  sur une minute : 9 moments sur 10 reçoivent un kill (« Fortunate Son »), 16 sur 19 (« Rome Is Burning »), 25 sur 38
+  (« R2D2 »).
+- Notes entre les temps : mesurées, mais presque absentes de ces morceaux (0 à 3 contretemps qui ressortent par
+  morceau) ; les coupes et les kills restent sur les temps.
 - Cadence : la longueur des plans vient de l'intensité de chaque section, en continu (de `cuts.low` pour la plus calme à
   `cuts.high` pour la plus intense ; au rythme rapide, de `fast.calm` 1,6 s à `fast.cut` 0,4 s). Les notes ne font que
   placer les coupes : chaque coupe se cale juste avant la note la plus marquante à une demi-longueur de plan, et le kill
