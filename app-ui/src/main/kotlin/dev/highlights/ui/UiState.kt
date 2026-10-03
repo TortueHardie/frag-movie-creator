@@ -264,6 +264,10 @@ data class MontageUiState(
     val zoom: Boolean = true,
     val flash: Boolean = true,
     val whip: Boolean = true,
+    /** Paroles de la musique écrites mot par mot jusqu'à la drop. */
+    val lyrics: Boolean = false,
+    /** Paroles saisies pour la musique choisie (vide : celles d'un fichier .lrc/.txt à côté d'elle, sinon whisper). */
+    val lyricsText: String = "",
     /** Couleurs boostées (vibrance, saturation, contraste), comme les kill montages de TikTok. */
     val boostColors: Boolean = false,
     /** Flou de mouvement : traînées sur les mouvements rapides, flou radial sur les coupes. */

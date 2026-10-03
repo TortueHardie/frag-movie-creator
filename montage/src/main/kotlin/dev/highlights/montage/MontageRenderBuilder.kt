@@ -19,6 +19,8 @@ import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.SourceCut
 import dev.highlights.editing.SourceCuts
+import dev.highlights.editing.story.Caption
+import dev.highlights.editing.story.Captions
 import dev.highlights.editing.story.StoryRenderBuilder
 import java.nio.file.Path
 import java.util.Locale
@@ -45,6 +47,8 @@ data class MontageRenderRequest(
     val filterScriptOption: String = FfmpegService.FILTER_COMPLEX_FROM_FILE,
     /** Rotation de la caméra de chaque plan, pour le flou par vecteurs (voir [CameraMotion]) ; vide : pas de ce flou. */
     val motion: List<MotionTrack?> = emptyList(),
+    /** Paroles écrites mot par mot, en temps du montage (voir [Lyrics.shown]) ; vide : pas de paroles. */
+    val lyrics: List<Caption> = emptyList(),
 )
 
 /**
@@ -283,7 +287,14 @@ object MontageRenderBuilder {
         graph += clips.indices.joinToString("") { "[v$it]" } + "concat=n=${clips.size}:v=1:a=0[vcat]"
         // Format imposé juste avant l'encodeur : concat et xfade peuvent sinon négocier du 4:4:4 (selon la version
         // de FFmpeg), que le profil « high » de x264 refuse.
-        graph += "[vcat]fade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},format=yuv420p[vout]"
+        // Paroles par-dessus tout le reste (plans, textes des kills), avant le fondu de fin qui les emporte aussi.
+        val words = settings.lyrics.let { l ->
+            val y = if (request.format == OutputFormat.VERTICAL) l.verticalY else l.y
+            request.lyrics.joinToString("") { word ->
+                Captions.drawLabel(word.text, word.range, l.font, l.size, l.color, w, h, y, l.pop, request.edit.safeArea, fadeOut = Duration.ZERO) + ","
+            }
+        }
+        graph += "[vcat]${words}fade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},format=yuv420p[vout]"
         graph += clips.indices.joinToString("") { "[a$it]" } +
             "amix=inputs=${clips.size}:normalize=0:duration=longest,apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[game]"
 

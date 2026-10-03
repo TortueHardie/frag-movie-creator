@@ -13,6 +13,7 @@ import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.serialization.roundTo
 import dev.highlights.core.serialization.toTimecode
 import dev.highlights.editing.SourceCutter
+import dev.highlights.editing.story.Caption
 import dev.highlights.export.ExportResult
 import dev.highlights.export.OutputNamer
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -26,6 +27,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
+import kotlin.io.path.exists
 import kotlin.io.path.moveTo
 import kotlin.io.path.writeText
 
@@ -48,6 +50,14 @@ data class MontageExportRequest(
     val platform: String? = null,
     /** Genre de montage, dans le nom des fichiers : killmontage, onetaps. */
     val kind: String = "killmontage",
+    /** Modèle whisper des paroles ([MontageSettings.lyrics]) ; null ou absent : montage sans paroles. */
+    val lyricsModel: Path? = null,
+    /** Transcriptions des musiques gardées d'un montage à l'autre ; null : pas de cache. */
+    val lyricsCache: Path? = null,
+    /** Paroles fournies (.lrc ou .txt) ; null : celles posées à côté de la musique ([LyricsText.sidecar]), sinon whisper seul. */
+    val lyricsText: Path? = null,
+    /** Paroles saisies dans l'interface, par musique (chemin absolu normalisé) : passent avant tout fichier. */
+    val lyricsTexts: Map<Path, String> = emptyMap(),
 )
 
 @Serializable
@@ -153,6 +163,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             SourceCutter.prepare(ffmpeg, MontageRenderBuilder.sourceCuts(plan, request.edit.fps), request.workDir.resolve("cuts"), cutStep) to motion.await()
         }
 
+        val lyrics = lyrics(plan, request)
         val filterScriptOption = ffmpeg.filterScriptOption()
         for (format in request.formats) {
             val target = paths.videos.getValue(format)
@@ -162,7 +173,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             val render = MontageRenderBuilder.build(
                 MontageRenderRequest(
                     plan, format, request.edit, encoder, temp, script,
-                    request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption, motion,
+                    request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption, motion, lyrics,
                 ),
             )
             script.writeText(render.filterGraph)
@@ -224,6 +235,32 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         )
         paths.report.writeText(json.encodeToString(MontageReport.serializer(), report))
         return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file)
+    }
+
+    /** Mots des paroles à écrire, en temps du montage ; aucun si elles ne sont pas demandées ou sans modèle. */
+    /**
+     * Mots des paroles à écrire, en temps du montage. Texte fourni (fichier donné ou posé à côté de la musique) : calé sur
+     * la transcription ([LyricsText.align]), ou, sans modèle, sur les lignes d'un .lrc. Sinon les mots entendus par
+     * whisper. Aucun si elles ne sont pas demandées ou que rien ne permet de les placer.
+     */
+    private suspend fun lyrics(plan: MontagePlan, request: MontageExportRequest): List<Caption> {
+        val settings = plan.settings.lyrics
+        if (!settings.enabled) return emptyList()
+        val typed = request.lyricsTexts[plan.music.file.toAbsolutePath().normalize()]?.takeIf { it.isNotBlank() }
+        val textFile = if (typed != null) null else request.lyricsText ?: LyricsText.sidecar(plan.music.file)
+        val given = typed?.let(LyricsText::parse) ?: textFile?.let { f ->
+            runCatching { LyricsText.read(f) }.onFailure { log.warn { "Paroles illisibles ($f) : ${it.message}" } }.getOrNull()
+        }
+        val model = request.lyricsModel?.takeIf { it.exists() }
+        val heard = model?.let { LyricsTranscriber(ffmpeg, request.lyricsCache).words(plan.music.file, it, settings, request.workDir) }.orEmpty()
+        val words = when {
+            given != null && heard.isNotEmpty() -> LyricsText.align(given, heard).also { log.info { "Paroles ${textFile ?: "saisies"} calées sur la transcription" } }
+            given != null && given.all { it.start != null } -> LyricsText.spread(given).also { log.info { "Paroles ${textFile ?: "saisies"} placées sur leurs lignes (sans transcription)" } }
+            given != null -> emptyList<Caption>().also { log.warn { "Paroles sans horodatage (${textFile ?: "saisies"}) et sans modèle de transcription pour les caler : montage sans paroles" } }
+            model == null -> emptyList<Caption>().also { log.warn { "Modèle de transcription introuvable (${request.lyricsModel ?: "aucun"}) : montage sans paroles" } }
+            else -> heard
+        }
+        return Lyrics.shown(words, plan, settings).also { log.info { "Paroles : ${it.size} mot(s) à l'écran" } }
     }
 
     companion object {
