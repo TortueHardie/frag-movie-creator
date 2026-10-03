@@ -272,7 +272,10 @@ détecte les kills). En ligne de commande :
   `model`, à défaut celui des sous-titres du profil ; langue `language`, `en` par défaut), une fois par musique : la
   transcription est gardée dans le cache. Un mot que whisper étire sur l'instrumental (plus de `maxWord`, 1,5 s) est
   écarté. Taille `size`, position `y` / `verticalY`, couleur `color`. Sans modèle, le montage sort sans paroles.
-  - **Paroles fournies** : whisper se trompe souvent de mots sur une musique, mais les place bien. Un fichier `.lrc`
+  - **Paroles fournies** : whisper se trompe souvent de mots sur une musique, mais les place bien. Dans la fenêtre de
+    montage, la case « Paroles » ouvre un champ où coller le texte (une ligne par vers, les instants `[mm:ss]` d'un
+    `.lrc` sont compris), retenu pour cette musique, y compris quand elle est ensuite choisie dans une bibliothèque.
+    Sinon, un fichier `.lrc`
     (synchronisé par ligne) ou `.txt` du même nom que la musique, posé à côté d'elle (`Ma musique.lrc` pour
     `Ma musique.mp3`, utile en bibliothèque), ou `--lyrics-file paroles.txt` (qui active les paroles) : ce texte est
     écrit, chaque mot à l'instant du mot entendu qui lui ressemble ; ceux que whisper n'a pas entendus se placent entre

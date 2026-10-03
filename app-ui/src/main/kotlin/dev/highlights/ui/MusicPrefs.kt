@@ -15,13 +15,15 @@ private val log = KotlinLogging.logger {}
 /**
  * Choix retenus pour chaque musique, d'un montage à l'autre : [fromStart], les musiques prises depuis leur début (celles
  * qu'on reconnaît à leur intro) plutôt qu'autour de leur drop ; [library], le dossier de musiques où choisir, et
- * [useLibrary], s'il faut y choisir plutôt que prendre une musique précise.
+ * [useLibrary], s'il faut y choisir plutôt que prendre une musique précise ; [lyrics], les paroles saisies pour chaque
+ * musique (chemin absolu → texte), reprises à chaque montage sur elle, choisie à la main ou dans la bibliothèque.
  */
 @Serializable
 data class MusicPrefs(
     val fromStart: Set<SerialPath> = emptySet(),
     val library: SerialPath? = null,
     val useLibrary: Boolean = false,
+    val lyrics: Map<String, String> = emptyMap(),
 )
 
 class MusicPrefsStore(private val file: Path) {
@@ -47,6 +49,22 @@ class MusicPrefsStore(private val file: Path) {
         // plusElement, pas + : un Path est itérable, + ajouterait ses morceaux (« Musiques », « intro.mp3 »).
         save(current.copy(fromStart = if (fromStart) current.fromStart.plusElement(path) else current.fromStart.minusElement(path)))
     }
+
+    /** Paroles saisies pour [music] (vide : aucune). */
+    fun lyrics(music: Path): String = load().lyrics[key(music)].orEmpty()
+
+    /** Paroles de chaque musique : celles de la musique retenue, quand elle est choisie dans une bibliothèque. */
+    fun lyricsByMusic(): Map<Path, String> = load().lyrics.mapKeys { Path.of(it.key) }
+
+    /** Retient les paroles saisies pour [music] (vides : oubliées) ; n'écrit que si elles changent. */
+    fun rememberLyrics(music: Path, text: String) {
+        val current = load()
+        val k = key(music)
+        val next = if (text.isBlank()) current.lyrics - k else current.lyrics + (k to text.trim())
+        if (next != current.lyrics) save(current.copy(lyrics = next))
+    }
+
+    private fun key(music: Path) = music.toAbsolutePath().normalize().toString()
 
     /** Retient le dossier de musiques et s'il faut y choisir ; n'écrit que s'ils changent. */
     fun rememberLibrary(library: Path?, useLibrary: Boolean) {

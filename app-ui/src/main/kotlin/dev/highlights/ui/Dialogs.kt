@@ -114,6 +114,38 @@ fun VerticalPreviewWindow(preview: ImagePreview, busy: Boolean, actions: UiActio
 
 /** Réglages du montage « tous les kills » : musique, durée, ordre, formats et effets. */
 @OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Paroles de la musique : saisies ou collées ici, une ligne par vers (les instants [mm:ss] d'un .lrc sont compris),
+ * retenues pour cette musique. Elles sont calées sur ce que whisper entend : l'orthographe vient d'ici, le moment de
+ * chaque mot de la musique. En bibliothèque, chaque musique garde celles saisies quand elle a été choisie seule.
+ */
+@Composable
+private fun LyricsField(montage: MontageUiState, actions: UiActions) {
+    if (montage.useLibrary) {
+        Text(
+            "Paroles : celles saisies pour la musique retenue (en la choisissant seule), sinon un fichier .lrc ou .txt du même nom " +
+                "à côté d'elle, sinon ce que whisper entend.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Palette.textMuted,
+        )
+        return
+    }
+    OutlinedTextField(
+        value = montage.lyricsText,
+        onValueChange = { v -> actions.updateMontage { it.copy(lyricsText = v) } },
+        label = { Text("Paroles (facultatif)") },
+        placeholder = { Text("Colle les paroles, une ligne par vers. Vide : celles que whisper entend.") },
+        minLines = 4,
+        maxLines = 10,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Text(
+        "Le texte est écrit tel quel, chaque mot au moment où il est chanté (calé sur la musique). Retenu pour cette musique.",
+        style = MaterialTheme.typography.bodySmall,
+        color = Palette.textMuted,
+    )
+}
+
 @Composable
 fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
     AlertDialog(
@@ -231,6 +263,7 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     MontageToggle("Flash blanc aux coupes fortes", montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
                     MontageToggle("Whip pan dans le sens du flick", montage.whip) { v -> actions.updateMontage { it.copy(whip = v) } }
                     MontageToggle("Paroles de la musique à l'écran", montage.lyrics) { v -> actions.updateMontage { it.copy(lyrics = v) } }
+                    if (montage.lyrics) LyricsField(montage, actions)
                     MontageToggle("Couleurs boostées (le jeu ressort, comme sur TikTok)", montage.boostColors) { v -> actions.updateMontage { it.copy(boostColors = v) } }
                     MontageToggle("Flou de mouvement (mouvements rapides et coupes)", montage.motionBlur) { v -> actions.updateMontage { it.copy(motionBlur = v) } }
                     MontageToggle("Raccords sur la pose de l'arme (elle reste en place, le décor change)", montage.matchCut) { v -> actions.updateMontage { it.copy(matchCut = v) } }

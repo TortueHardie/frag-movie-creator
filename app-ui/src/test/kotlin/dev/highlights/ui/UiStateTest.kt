@@ -73,6 +73,20 @@ class UiStateTest : FunSpec({
         MusicPrefsStore(file).let { it.library() shouldBe dir; it.useLibrary() shouldBe false }
     }
 
+    test("paroles saisies retenues pour chaque musique, oubliées une fois effacées") {
+        val file = kotlin.io.path.createTempDirectory("prefs").resolve("music.json")
+        val dir = java.nio.file.Path.of("C:/Musiques")
+        val store = MusicPrefsStore(file)
+        store.lyrics(dir.resolve("a.mp3")) shouldBe ""
+        store.rememberLyrics(dir.resolve("a.mp3"), "  Le feu brille\nencore  ")
+        store.rememberLyrics(dir.resolve("b.mp3"), "Autre chanson")
+        val reread = MusicPrefsStore(file)
+        reread.lyrics(dir.resolve("a.mp3")) shouldBe "Le feu brille\nencore"
+        reread.lyricsByMusic().keys.map { it.fileName.toString() }.toSet() shouldBe setOf("a.mp3", "b.mp3")
+        reread.rememberLyrics(dir.resolve("a.mp3"), " ")
+        MusicPrefsStore(file).lyricsByMusic().keys.map { it.fileName.toString() } shouldBe listOf("b.mp3")
+    }
+
     test("publication YouTube : champs proposés modifiables, envoi bloqué tant que YouTube refuserait") {
         val suggested = dev.highlights.publish.YouTubeMetadata(
             "TRIPLÉ — 9 kills en 17 s | VALORANT", "9 kills.", listOf("VALORANT", "gaming"), dev.highlights.core.config.YouTubePrivacy.PRIVATE,

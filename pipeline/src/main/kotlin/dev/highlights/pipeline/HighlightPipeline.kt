@@ -114,6 +114,8 @@ data class MontageOptions(
     val lyrics: Boolean? = null,
     /** Paroles fournies (.lrc ou .txt), calées sur la musique ; les active. Null : un fichier posé à côté de la musique. */
     val lyricsFile: Path? = null,
+    /** Paroles saisies, par musique (texte .lrc ou brut) ; passent avant [lyricsFile] et les fichiers posés à côté. */
+    val lyricsTexts: Map<Path, String> = emptyMap(),
     /** Couleurs boostées (vibrance, saturation, contraste) comme les kill montages de TikTok. */
     val boostColors: Boolean? = null,
     /** Flou de mouvement : traînées sur les mouvements rapides et flou radial sur les coupes franches. */
@@ -615,6 +617,7 @@ class HighlightPipeline(
                     lyricsModel = (settings.lyrics.model ?: profile.edit.story.captions.model)?.let { config.resolve(it) },
                     lyricsCache = config.workDir.resolve("cache").resolve("lyrics"),
                     lyricsText = options.lyricsFile,
+                    lyricsTexts = options.lyricsTexts.mapKeys { it.key.toAbsolutePath().normalize() },
                 ),
                 progress.child("Rendu", 0.86),
             )

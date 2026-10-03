@@ -142,7 +142,8 @@ Pistes, de la plus simple à la plus lourde :
   - [x] Paroles fournies par l'utilisateur (`.lrc`/`.txt` à côté de la musique, `--lyrics-file`) : calées sur les mots
     entendus par whisper (`LyricsText.align`, alignement par ressemblance), ou sur les lignes d'un `.lrc` sans modèle.
     Vérifié sur le vrai montage : le mot fourni s'écrit à l'instant du mot mal entendu qu'il remplace.
-    - [ ] Choisir le fichier de paroles dans la fenêtre de montage (aujourd'hui : posé à côté de la musique).
+    - [x] Paroles saisies dans la fenêtre de montage, retenues par musique (`MusicPrefs.lyrics`, `MontageOptions.lyricsTexts`) :
+      elles passent avant les fichiers.
   - [ ] Texte posé sur des kills (y = 0,62, juste au-dessus du réticule) : l'ouverture « vitrine » sans kill lui
     laisserait l'image, comme dans les références.
   - [ ] Habillage des références à essayer : glitch, couleur du skin, texte derrière l'arme.
