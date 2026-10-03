@@ -75,6 +75,8 @@ data class MontageSettings(
     val slowMotion: SlowMotionEffect = SlowMotionEffect(),
     val speedRamp: SpeedRampEffect = SpeedRampEffect(),
     val text: TextEffect = TextEffect(),
+    /** Ouverture « vitrine » : passages calmes avant le premier kill (voir [ShowcaseOpening]). */
+    val showcase: ShowcaseOpening = ShowcaseOpening(),
     val audio: MontageAudio = MontageAudio(),
     val formats: List<OutputFormat> = listOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
     /** Rythme rapide : un kill par temps de musique (voir [FastMontage]), appliqué par [forFast]. */
@@ -781,6 +783,26 @@ data class TextEffect(
     /** Petit compteur « KILL n » à chaque kill. Désactivé par défaut : il n'apporte rien et surcharge l'image. */
     val killCounter: Boolean = false,
 )
+
+/**
+ * Ouverture « vitrine », comme les kill montages de référence (12 à 15 s sans kill avant la partie kills) : des plans de
+ * [shotBeats] temps pris dans les passages calmes des parties montées, sur les temps de musique qui précèdent le
+ * montage (la musique démarre d'autant plus tôt). Chaque passage est pris juste avant le plan d'un kill du montage
+ * ([beforeClip] avant ce qu'il montre), au moins [afterEvent] après le kill ou la mort d'avant (l'écran de mort, la
+ * fin de round) : le joueur qui avance, l'arme en main, sans combat. Au plus [length], dans la durée maximale.
+ */
+@Serializable
+data class ShowcaseOpening(
+    val enabled: Boolean = false,
+    val length: SerialDuration = 8.seconds,
+    val shotBeats: Int = 2,
+    val afterEvent: SerialDuration = 5.seconds,
+    val beforeClip: SerialDuration = 1.seconds,
+) {
+    init {
+        require(length.isPositive() && shotBeats >= 1) { "montage.showcase : length positive, shotBeats au moins 1" }
+    }
+}
 
 /** Ce qu'on entend du son du jeu dans le montage. */
 @Serializable

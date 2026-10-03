@@ -108,6 +108,8 @@ data class MontageOptions(
     val zoom: Boolean? = null,
     val flash: Boolean? = null,
     val flashEveryCut: Boolean? = null,
+    /** Ouverture vitrine : passages calmes avant le premier kill (voir [dev.highlights.core.model.ShowcaseOpening]). */
+    val showcase: Boolean? = null,
     /** Whip pan dans le sens du flick aux coupes qui en suivent ou en précèdent un. */
     val whip: Boolean? = null,
     /** Souffle (whoosh) sur les whip pans ; faux : whip pan muet. */
@@ -551,6 +553,7 @@ class HighlightPipeline(
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),
             speedRamp = base.speedRamp.copy(enabled = options.speedRamp ?: base.speedRamp.enabled),
             text = base.text.copy(enabled = options.text ?: base.text.enabled),
+            showcase = base.showcase.copy(enabled = options.showcase ?: base.showcase.enabled),
             reactions = options.reactions ?: base.reactions,
             audio = base.audio.copy(
                 balance = options.audioBalance ?: base.audio.balance,
@@ -579,11 +582,14 @@ class HighlightPipeline(
         // Les multi-kills étalés deviennent plusieurs plans (classement, aces et clutchs déjà tirés du groupe entier).
         val inspected = MontagePlanner.split(KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child("Kills", 0.06)), settings)
         // La pose de l'arme ne sert qu'aux groupes qui peuvent entrer dans le montage : la lire coûte un décodage par groupe.
-        val groups = MatchCutter(ffmpeg, inspections).inspect(inspected, settings, progress.child("Visée", 0.02), MontagePlanner.placeable(inspected, musics, settings))
+        // Ouverture vitrine : sa place est réservée dans la durée maximale, les kills se planifient dans le reste.
+        val planning = if (!settings.showcase.enabled) settings
+        else settings.copy(maxDuration = (settings.maxDuration - settings.showcase.length).coerceAtLeast(settings.maxDuration / 2))
+        val groups = MatchCutter(ffmpeg, inspections).inspect(inspected, settings, progress.child("Visée", 0.02), MontagePlanner.placeable(inspected, musics, planning))
         val fromStart = options.fromStartMusics.map { it.toAbsolutePath().normalize() }.toSet()
         val (chosen, choice) = if (music.isDirectory()) {
             // Le réglage « depuis le début » de chaque musique, sauf si l'appel l'impose à toutes.
-            val ranked = MusicChoice.rank(groups, musics, settings, musicHistory.recent()) { f ->
+            val ranked = MusicChoice.rank(groups, musics, planning, musicHistory.recent()) { f ->
                 options.musicFromStart ?: (f.toAbsolutePath().normalize() in fromStart || base.cuts.fromStart)
             }
             val best = ranked.first()
@@ -591,10 +597,10 @@ class HighlightPipeline(
             log.info { "Musique choisie : ${best.music.file.fileName} (note ${"%.3f".format(best.score)}, ${best.groups} groupe(s), parmi ${ranked.size})" }
             plan to ranked.map(MontageReportMusic::of)
         } else {
-            MontagePlanner.best(groups, MusicChoice.prepare(musics.single(), settings), settings) to emptyList()
+            MontagePlanner.best(groups, MusicChoice.prepare(musics.single(), planning), planning) to emptyList()
         }
         // Raccords d'abord : un plan raccordé garde son début dans la pose, il n'est pas coupé dans l'attente.
-        val plan = MontagePlanner.jumpCuts(ScopeCuts.apply(chosen))
+        val plan = MontagePlanner.showcase(MontagePlanner.jumpCuts(ScopeCuts.apply(chosen)).let { it.copy(settings = it.settings.copy(maxDuration = settings.maxDuration)) })
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(plan.music.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
         return withJobDir { workDir ->
             montageExporter.export(

@@ -149,6 +149,8 @@ data class MontageClip(
     val leadIn: Duration = Duration.ZERO,
     /** Le kill d'ancrage tombe sur le contretemps qui suit [anchorBeat], pas sur le temps (voir [CutSettings.offbeatKills]). */
     val anchorHalf: Boolean = false,
+    /** Plan de l'ouverture « vitrine » : un passage calme, sans kill (voir [MontagePlanner.showcase]). */
+    val showcase: Boolean = false,
 ) {
     val beats: Int get() = slot.beats
 
@@ -393,6 +395,52 @@ object MontagePlanner {
      * revient à la dernière, celle qui le finit, les précédentes ne gardent que l'échange. La visée avant le premier kill
      * va à la première partie, celle après le dernier à la dernière.
      */
+    /**
+     * Ouverture « vitrine » ([ShowcaseOpening]) : plans sans kill ajoutés avant le premier plan, sur les temps de musique
+     * qui le précèdent. Un passage par plan du montage, dans l'ordre, pris dans le calme qui précède ce qu'il montre ;
+     * un plan qui n'en a pas assez est passé. Inchangé si la musique ne laisse pas de place avant le montage (prise
+     * depuis son début) ou si la durée maximale est déjà atteinte.
+     */
+    fun showcase(plan: MontagePlan): MontagePlan {
+        val s = plan.settings.showcase
+        if (!s.enabled) return plan
+        val music = plan.music
+        val maxBeats = minOf(
+            ceil(s.length / music.beatPeriod).toInt(),
+            // Dans la durée maximale : la plateforme visée peut l'imposer.
+            ((plan.settings.maxDuration - plan.duration) / music.beatPeriod).toInt(),
+            plan.startBeat,
+        ) / s.shotBeats
+        if (maxBeats <= 0) {
+            log.info { "Ouverture vitrine : pas de place (musique prise depuis son début ou durée maximale atteinte)" }
+            return plan
+        }
+        val sources = plan.clips.distinctBy { it.group.media.path to it.group.kills.first() }
+        val shots = mutableListOf<MontageClip>()
+        for (c in sources) {
+            if (shots.size == maxBeats) break
+            val calm = c.group.calm ?: continue
+            // Longueur provisoire au tempo moyen : le slot exact n'est connu qu'une fois tous les passages trouvés.
+            val length = music.beatPeriod * s.shotBeats * 1.1
+            val end = c.start - s.beforeClip
+            if (end - length < maxOf(calm.start + s.afterEvent, c.group.media.bounds.start)) continue
+            shots += c.copy(end = end, speeds = emptyList(), padBefore = Duration.ZERO, padAfter = Duration.ZERO, matchCut = false, leadIn = Duration.ZERO, anchorHalf = false, showcase = true)
+        }
+        if (shots.isEmpty()) {
+            log.info { "Ouverture vitrine : aucun passage calme assez long avant les plans du montage" }
+            return plan
+        }
+        val first = plan.startBeat - shots.size * s.shotBeats
+        val placed = shots.mapIndexed { i, c ->
+            val from = first + i * s.shotBeats
+            val slot = CutSlot(from, from + s.shotBeats, music.sectionIndexAt(from))
+            val length = music.beatTime(slot.endBeat) - music.beatTime(slot.startBeat)
+            c.copy(slot = slot, anchorBeat = slot.startBeat, start = c.end - length, outputLength = length)
+        }
+        log.info { "Ouverture vitrine : ${placed.size} plan(s), ${Durations.format(music.beatTime(plan.startBeat) - music.beatTime(first))} avant le premier kill" }
+        return plan.copy(clips = placed + plan.clips)
+    }
+
     /** Plus courte partie d'un plan coupé par [jumpCuts] : deux temps, assez pour se lire. */
     private const val JUMP_MIN_PART = 2
 

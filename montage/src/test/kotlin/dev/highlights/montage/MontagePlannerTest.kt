@@ -188,6 +188,36 @@ class MontagePlannerTest : FunSpec({
         cut.clips.filter { it.slot.dropBeat != null }.none { it.jumps.isNotEmpty() } shouldBe true
     }
 
+    test("ouverture vitrine : passages calmes sans kill avant le premier plan, sur les temps qui le précèdent") {
+        val s = settings.copy(showcase = settings.showcase.copy(enabled = true))
+        val p = plan(manyKills, s = s)
+        val opened = MontagePlanner.showcase(p)
+        val intro = opened.clips.takeWhile { it.showcase }
+        intro.isNotEmpty() shouldBe true
+        opened.clips.drop(intro.size) shouldBe p.clips
+        // Avant le premier plan, sur des temps de la musique, deux temps chacun ; aucun kill montré.
+        intro.last().slot.endBeat shouldBe p.startBeat
+        intro.forEach { c ->
+            c.slot.beats shouldBe 2
+            c.kills shouldBe emptyList()
+            seconds(c.outputLength) shouldBe (seconds(p.music.beatTime(c.slot.endBeat) - p.music.beatTime(c.slot.startBeat)) plusOrMinus 1e-6)
+            seconds(c.sourceLength) shouldBe (seconds(c.outputLength) plusOrMinus 1e-6)
+        }
+        (opened.duration <= s.maxDuration) shouldBe true
+        // Le premier kill arrive plus tard : l'ouverture le dit ; le reste de la note ne voit pas ces plans.
+        val before = MontageScorer.score(p)
+        val after = MontageScorer.score(opened)
+        (after.opening!! <= before.opening!!) shouldBe true
+        after.sync shouldBe before.sync
+        after.accent shouldBe before.accent
+        // Le rendu passe : ni zoom ni texte sur ces plans.
+        MontageRenderBuilder.build(
+            MontageRenderRequest(opened, dev.highlights.core.model.OutputFormat.SOURCE, dev.highlights.core.model.EditSettings(), dev.highlights.core.ffmpeg.EncoderProfile("libx264", listOf("-c:v", "libx264"), false), kotlin.io.path.Path("o.mp4"), kotlin.io.path.Path("f.txt")),
+        ).filterGraph.isNotEmpty() shouldBe true
+        // Désactivée : rien ne change.
+        plan(manyKills).let { MontagePlanner.showcase(it) shouldBe it }
+    }
+
     test("tempo variable : les coupes suivent les temps détectés, pas une période moyenne") {
         // Temps qui ralentissent progressivement (musique jouée live).
         val n = 240
