@@ -54,7 +54,7 @@ class LyricsTest : FunSpec({
         music, montage,
     )
 
-    test("mots affichés : en temps du montage, de l'ouverture à la drop, chacun lisible sans chevaucher le suivant") {
+    test("mots affichés : en temps du montage, jusqu'à la drop si demandé, chacun lisible sans chevaucher le suivant") {
         val drop = plan.dropAt!!
         val start = plan.musicStart
         val words = listOf(
@@ -65,15 +65,15 @@ class LyricsTest : FunSpec({
             Caption(TimeRange(start + drop - 0.1.seconds, start + drop + 0.3.seconds), "drop"),
             Caption(TimeRange(start + drop + 1.seconds, start + drop + 1.3.seconds), "après"),
         )
-        val shown = Lyrics.shown(words, plan, settings)
+        val shown = Lyrics.shown(words, plan, settings.copy(span = LyricsSpan.OPENING))
         shown.map { it.text } shouldBe listOf("vite", "suivant", "drop")
         // Un mot de 50 ms reste jusqu'au suivant (0,1 s), pas 0,15 s : il ne le chevauche pas.
         shown[0].range shouldBe TimeRange(1.seconds, 1.1.seconds)
         shown[1].range shouldBe TimeRange(1.1.seconds, 1.6.seconds)
         // Le dernier mot avant la drop s'efface sur elle.
         shown[2].range.end shouldBe drop
-        // Sur tout le montage : le mot d'après la drop aussi.
-        Lyrics.shown(words, plan, settings.copy(span = LyricsSpan.ALL)).map { it.text } shouldBe listOf("vite", "suivant", "drop", "après")
+        // Sur tout le montage (par défaut) : le mot d'après la drop aussi.
+        Lyrics.shown(words, plan, settings).map { it.text } shouldBe listOf("vite", "suivant", "drop", "après")
     }
 
     test("rendu : un texte par mot sur le montage entier, avant le fondu de fin ; rien sans paroles") {

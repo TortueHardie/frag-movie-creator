@@ -152,6 +152,8 @@ Pistes, de la plus simple à la plus lourde :
   musique transcrite par whisper un mot par segment (`max_len=1`), gardée en cache, mots écrits en grand jusqu'à la
   drop (`Lyrics`, `LyricsTranscriber`). « Rome Is Burning » : 405 mots transcrits en quelques secondes sur le GPU, 32 à
   l'écran sur les 23 s avant la drop. Mots souvent approximatifs (« The world's emerging » pour « Rome is burning »).
+  - [x] Paroles sur tout le montage par défaut (`LyricsSpan.ALL`) : jusqu'à la drop seulement, « Lose Yourself »
+    n'affichait aucun mot (drop du montage à 30 s, chant à 34 s). Étiquettes `[Intro]`, `[Verse 1: …]` ignorées.
   - [x] Paroles fournies par l'utilisateur (`.lrc`/`.txt` à côté de la musique, `--lyrics-file`) : calées sur les mots
     entendus par whisper (`LyricsText.align`, alignement par ressemblance), ou sur les lignes d'un `.lrc` sans modèle.
     Vérifié sur le vrai montage : le mot fourni s'écrit à l'instant du mot mal entendu qu'il remplace.

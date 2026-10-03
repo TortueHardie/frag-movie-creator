@@ -270,13 +270,13 @@ détecte les kills). En ligne de commande :
   whip pan muet).
 - **Paroles mot par mot** (`lyrics`, désactivé par défaut ; case « Paroles de la musique à l'écran » ou `--lyrics`) :
   comme l'ouverture des kill montages de TikTok, les paroles s'écrivent en grand, un mot à la fois, le temps où il est
-  chanté, jusqu'à la drop (`span: all` : tout le montage). La musique est transcrite en local par whisper (le modèle
+  chanté, sur tout le montage (`span: opening`, case « jusqu'à la drop seulement » ou `--lyrics-span opening` : l'ouverture seule, comme les références ; rien si le chant commence après la drop). La musique est transcrite en local par whisper (le modèle
   `model`, à défaut celui des sous-titres du profil ; langue `language`, `en` par défaut), une fois par musique : la
   transcription est gardée dans le cache. Un mot que whisper étire sur l'instrumental (plus de `maxWord`, 1,5 s) est
   écarté. Taille `size`, position `y` / `verticalY`, couleur `color`. Sans modèle, le montage sort sans paroles.
   - **Paroles fournies** : whisper se trompe souvent de mots sur une musique, mais les place bien. Dans la fenêtre de
     montage, la case « Paroles » ouvre un champ où coller le texte (une ligne par vers, les instants `[mm:ss]` d'un
-    `.lrc` sont compris), retenu pour cette musique, y compris quand elle est ensuite choisie dans une bibliothèque.
+    `.lrc` sont compris, les étiquettes `[Intro]`, `[Chorus]`… des sites de paroles ignorées), retenu pour cette musique, y compris quand elle est ensuite choisie dans une bibliothèque.
     Sinon, un fichier `.lrc`
     (synchronisé par ligne) ou `.txt` du même nom que la musique, posé à côté d'elle (`Ma musique.lrc` pour
     `Ma musique.mp3`, utile en bibliothèque), ou `--lyrics-file paroles.txt` (qui active les paroles) : ce texte est

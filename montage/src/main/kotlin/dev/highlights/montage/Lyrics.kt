@@ -47,7 +47,7 @@ object Lyrics {
     }.sortedBy { it.range.start }
 
     /** Mot sans la ponctuation qui l'entoure : un mot à la fois, la virgule n'a plus de sens. */
-    fun trimWord(word: String): String = word.trim().trim(',', '.', '!', '?', ';', ':', '"', '«', '»', '…', '-', '(', ')').trim()
+    fun trimWord(word: String): String = word.trim().trim(',', '.', '!', '?', ';', ':', '"', '«', '»', '…', '-', '(', ')', '[', ']').trim()
 
     /**
      * Mots affichés dans [plan], en temps du montage : ceux chantés pendant le passage de la musique retenu, jusqu'à la

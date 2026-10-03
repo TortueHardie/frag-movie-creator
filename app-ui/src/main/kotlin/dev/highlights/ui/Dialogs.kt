@@ -121,6 +121,9 @@ fun VerticalPreviewWindow(preview: ImagePreview, busy: Boolean, actions: UiActio
  */
 @Composable
 private fun LyricsField(montage: MontageUiState, actions: UiActions) {
+    MontageToggle("Paroles jusqu'à la drop seulement (sinon : tout le montage)", montage.lyricsOpening) { v ->
+        actions.updateMontage { it.copy(lyricsOpening = v) }
+    }
     if (montage.useLibrary) {
         Text(
             "Paroles : celles saisies pour la musique retenue (en la choisissant seule), sinon un fichier .lrc ou .txt du même nom " +

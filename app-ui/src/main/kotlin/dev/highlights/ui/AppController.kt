@@ -565,6 +565,7 @@ class AppController(
                     whip = montage?.whip?.enabled ?: true,
                     lyrics = montage?.lyrics?.enabled ?: false,
                     lyricsText = it.lastMusic?.let(musicPrefs::lyrics).orEmpty(),
+                    lyricsOpening = montage?.lyrics?.span == dev.highlights.core.model.LyricsSpan.OPENING,
                     boostColors = montage?.colors?.enabled ?: false,
                     motionBlur = montage?.motionBlur?.enabled ?: true,
                     matchCut = montage?.matchCut?.enabled ?: true,
@@ -631,6 +632,7 @@ class AppController(
                     whip = montage.whip,
                     lyrics = montage.lyrics,
                     // Bibliothèque : les paroles saisies pour chaque musique, celle retenue prend les siennes.
+                    lyricsSpan = if (montage.lyricsOpening) dev.highlights.core.model.LyricsSpan.OPENING else dev.highlights.core.model.LyricsSpan.ALL,
                     lyricsTexts = if (montage.useLibrary) musicPrefs.lyricsByMusic() else mapOf(music to montage.lyricsText).filterValues { it.isNotBlank() },
                     boostColors = montage.boostColors,
                     motionBlur = montage.motionBlur,
