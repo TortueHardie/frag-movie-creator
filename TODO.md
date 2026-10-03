@@ -87,11 +87,16 @@ de chaque temps (`MusicAnalysis.salience`) et découpage sur les notes qui resso
     reste de 2 temps ne porte pas de kill). Les temps manquants sont maintenant pris sur les deux voisins (`share`) :
     22 plans et 27 kills, doublés de la drop à 5, 5, 6 et 6 temps (le seul de 8 est dans une section à 8 temps).
     Note 0,953 → 0,951 : l'accent baisse encore (0,796 → 0,778), les coupes décalées quittent les premiers temps.
-    - [ ] Accent : choisir de quel côté prendre les temps selon le temps fort sur lequel tombent les kills voisins.
+    - Accent : choisir de quel côté prendre les temps selon le meilleur temps laissé aux plans touchés : essayé, aucun
+      effet sur trois musiques (chaque partage fait perdre un premier temps de toute façon), abandonné.
 - Fait : changements de son (`MusicAnalyzer.timbreChanges` : instrument qui entre, voix, coupure) ajoutés aux notes
   dans `MusicAnalysis.salience` ; rapport `onMusicMoment`. Couverture au rythme rapide : 9/10, 16/19, 25/38 moments.
-- [ ] Notes entre les temps : mesurées sur six morceaux, 0 à 3 contretemps qui ressortent par morceau. Pas de coupe ni
-  de kill au demi-temps pour l'instant (la grille est en temps entiers) ; à reprendre sur une musique syncopée.
+- [x] Notes entre les temps : kill d'ancrage sur un contretemps syncopé (au moins 1,2 fois plus fort que les deux temps
+  voisins) quand il est mieux noté que le temps retenu (`cuts.offbeatKills`, `MontageClip.anchorHalf`) ; coupes
+  toujours sur les temps. 17 musiques : 0 à 5 % de tels contretemps, 11 % sur « Big Dawgs » (90 BPM) : 9 kills sur 19
+  au contretemps, accent 0,45 → 0,58, note 0,889 → 0,898 ; « Spitfire » 2 sur 30 ; « Rome Is Burning » inchangé.
+  - Coupes au demi-temps : pas faites (toute la grille est en temps entiers, pour un gain qui se limite à une musique).
+  - [ ] À écouter sur « Big Dawgs ».
 
 ## 6. Se mesurer à des montages de référence (en cours)
 
@@ -156,7 +161,9 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Whoosh sur les whip pans (souffles générés de `StoryRenderBuilder`, pas encore les fichiers d'une `SfxBank`).
 - [ ] Valider `perClip` (2,5 s) et `min` (12 s) de `montage.length` sur de vraies parties.
 - [ ] Vérifier l'icône du chargeur VALORANT sur une capture 16:9 (mesurée en 21:9 seulement).
-- [ ] Fin du plan sortant : couper plus tôt après le kill seulement quand la coupe suivante est un raccord sur la pose.
+- Fin du plan sortant : coupe avancée de 1 à 3 temps quand la pose finit trop tôt pour raccorder : essayé, un seul
+  raccord de plus sur trois musiques (2 → 3 sur « Rome Is Burning »), au prix d'un doublé de 11 temps et de ralentis à
+  ×0,33 ; la plupart des coupes refusées manquent de pose d'un côté. Abandonné.
 - [ ] Clutch réel : compter les alliés en vie à partir des morts alliées du killfeed.
 - [ ] VALORANT : écarter du montage les kills à la capacité (molly, flèche, drone…), peu lisibles à l'image, sauf les
   « beaux » kills aux ultis d'arme (couteaux de Jett, Tour de force de Chamber…). Piste : lire l'icône d'arme/capacité

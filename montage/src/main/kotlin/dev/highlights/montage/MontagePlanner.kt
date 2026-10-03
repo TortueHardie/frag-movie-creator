@@ -136,8 +136,14 @@ data class MontageClip(
      * ce contexte, pris sur la fin du précédent (voir [CutSettings.singleBeat]).
      */
     val leadIn: Duration = Duration.ZERO,
+    /** Le kill d'ancrage tombe sur le contretemps qui suit [anchorBeat], pas sur le temps (voir [CutSettings.offbeatKills]). */
+    val anchorHalf: Boolean = false,
 ) {
     val beats: Int get() = slot.beats
+
+    /** Instant du kill d'ancrage dans le plan, en temps du montage relatif au début du plan : sur son temps ou son contretemps. */
+    fun anchorOutput(music: MusicAnalysis): Duration =
+        (if (anchorHalf) music.halfTime(anchorBeat) else music.beatTime(anchorBeat)) - music.beatTime(slot.startBeat)
     val beatsPre: Int get() = anchorBeat - slot.startBeat
     val beatsPost: Int get() = slot.endBeat - anchorBeat
     val sourceLength: Duration get() = end - start
@@ -1218,20 +1224,36 @@ object MontagePlanner {
         }
         val bestMatch = candidates.maxOfOrNull(::matches) ?: 0.0
         val single = slot.beats == 1
-        val anchorBeat = when {
+        /** Place avant et après le kill tombé à [at] : de quoi montrer les kills d'avant et finir la réaction. */
+        fun room(at: Duration) = (if (at - slotStart >= group.span + cuts.minLead) 0.3 else 0.0) +
+            (if (slotEnd - at >= reaction + cuts.minTail) 0.3 else 0.0)
+        val onBeat = when {
             single -> slot.startBeat
             slot.dropBeat != null && slot.dropBeat in candidates -> slot.dropBeat
             candidates.isEmpty() -> slot.startBeat + maxOf(1, slot.beats / 2)
             preferred != null && preferred in candidates && fits(preferred) && matches(preferred) >= bestMatch -> preferred
-            else -> candidates.maxBy { b ->
-                val lead = music.beatTime(b) - slotStart
-                val tail = slotEnd - music.beatTime(b)
-                anchorScore(music, slot, b) + matches(b) +
-                    (if (lead >= group.span + cuts.minLead) 0.3 else 0.0) +
-                    (if (tail >= reaction + cuts.minTail) 0.3 else 0.0)
-            }
+            else -> candidates.maxBy { b -> anchorScore(music, slot, b) + matches(b) + room(music.beatTime(b)) }
         }
-        val anchorTime = music.beatTime(anchorBeat)
+        // Contretemps syncopé du plan mieux noté que le temps retenu (même notation, sans le bonus du premier temps de
+        // mesure) : le kill y tombe, les coupes restent sur les temps. Pas sur la drop (son temps est la promesse du
+        // montage), ni sur un plan d'un temps, ni quand la place du kill sert un raccord. Seul le contretemps qui suit
+        // le temps retenu était examiné : 1 kill sur 19 sur « Big Dawgs », les temps venant presque toujours du
+        // décalage commun de la section ([preferredOffsets]).
+        val half = if (!settings.cuts.offbeatKills || single || slot.dropBeat != null || bestMatch > 0.0) {
+            null
+        } else {
+            val beatValue = anchorScore(music, slot, onBeat) + room(music.beatTime(onBeat))
+            (slot.startBeat until slot.endBeat).filter { b ->
+                music.isSyncopated(b) && music.halfTime(b) - slotStart >= cuts.minLead && slotEnd - music.halfTime(b) >= cuts.minTail &&
+                    b + 1 <= slot.endBeat - minTailBeats
+            }.map { b ->
+                val position = (b + 0.5 - slot.startBeat) / slot.beats
+                b to music.halfAccent[b] + 0.15 * position + room(music.halfTime(b))
+            }.filter { it.second > beatValue }.maxByOrNull { it.second }?.first
+        }
+        val anchorBeat = half ?: onBeat
+        val anchorHalf = half != null
+        val anchorTime = if (anchorHalf) music.halfTime(anchorBeat) else music.beatTime(anchorBeat)
         val preOut = anchorTime - slotStart
         val postOut = slotEnd - anchorTime
 
@@ -1323,7 +1345,7 @@ object MontagePlanner {
         end = end.coerceAtMost(media.duration)
         return MontageClip(
             group, slot, anchorBeat, anchor, start, end, padBefore, padAfter, speeds, slotEnd - slotStart,
-            leadIn = if (single) cuts.minLead else Duration.ZERO,
+            leadIn = if (single) cuts.minLead else Duration.ZERO, anchorHalf = anchorHalf,
         )
     }
 

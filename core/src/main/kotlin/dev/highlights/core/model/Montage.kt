@@ -297,6 +297,12 @@ data class CutSettings(
      * moins deux temps, le kill tombant à l'intérieur.
      */
     val singleBeat: Boolean = false,
+    /**
+     * Le kill d'ancrage peut tomber sur un contretemps qui frappe plus fort que les deux temps qui l'entourent (une
+     * musique syncopée), au lieu du temps : les coupes, elles, restent sur les temps. Mesuré sur 17 musiques : de tels
+     * contretemps font 0 à 5 % des temps, 11 % sur « Big Dawgs » (hip-hop à 90 BPM, un demi-temps dure 0,33 s).
+     */
+    val offbeatKills: Boolean = true,
 ) {
     init {
         require(maxBeats in 4..64) { "montage.cuts.maxBeats doit être entre 4 et 64" }

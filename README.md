@@ -617,8 +617,12 @@ quel morceau, sans réglage par musique :
 - Le rapport du montage dit pour chaque plan si son kill tombe sur un de ces moments (`onMusicMoment`). Au rythme rapide,
   sur une minute : 9 moments sur 10 reçoivent un kill (« Fortunate Son »), 16 sur 19 (« Rome Is Burning »), 25 sur 38
   (« R2D2 »).
-- Notes entre les temps : mesurées, mais presque absentes de ces morceaux (0 à 3 contretemps qui ressortent par
-  morceau) ; les coupes et les kills restent sur les temps.
+- Contretemps syncopés (`cuts.offbeatKills`, activé par défaut) : un contretemps qui frappe au moins 1,2 fois plus fort
+  que les deux temps qui l'entourent peut recevoir le kill du plan, s'il est mieux noté que le temps retenu (sans le
+  bonus du premier temps de mesure) ; les coupes restent sur les temps, et la drop sur le sien. Sur 17 musiques, de tels
+  contretemps font 0 à 5 % des temps, 11 % sur « Big Dawgs » (hip-hop à 90 BPM) : 9 kills sur 19 y passent au
+  contretemps (accent 0,45 → 0,58), 2 sur 30 sur « Spitfire », aucun sur « Rome Is Burning ». Le rapport le dit pour
+  chaque plan (`offbeat`).
 - Cadence : la longueur des plans vient de l'intensité de chaque section, en continu (de `cuts.low` pour la plus calme à
   `cuts.high` pour la plus intense ; au rythme rapide, de `fast.calm` 1,6 s à `fast.cut` 0,4 s). Les notes ne font que
   placer les coupes : chaque coupe se cale juste avant la note la plus marquante à une demi-longueur de plan, et le kill

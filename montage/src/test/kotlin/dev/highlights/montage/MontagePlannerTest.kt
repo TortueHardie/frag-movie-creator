@@ -78,7 +78,7 @@ class MontagePlannerTest : FunSpec({
                 seconds(c.outputLength) shouldBe (seconds(m.beatTime(c.slot.endBeat) - m.beatTime(c.slot.startBeat)) plusOrMinus 1e-6)
                 seconds(offset) shouldBe (seconds(m.beatTime(c.slot.startBeat) - p.musicStart) plusOrMinus 1e-6)
                 // Le dernier kill tombe sur son temps, ralenti et gel compris.
-                seconds(c.toOutput(c.anchor)) shouldBe (seconds(m.beatTime(c.anchorBeat) - m.beatTime(c.slot.startBeat)) plusOrMinus 1e-6)
+                seconds(c.toOutput(c.anchor)) shouldBe (seconds(c.anchorOutput(m)) plusOrMinus 1e-6)
                 // Source + étirement du ralenti + gels = durée du slot.
                 val speedExtra = c.speeds.sumOf { seconds(it.range.length) * (1 / it.factor - 1) }
                 seconds(c.sourceLength) + speedExtra + seconds(c.padBefore + c.padAfter) shouldBe (seconds(c.outputLength) plusOrMinus 1e-6)
@@ -88,7 +88,7 @@ class MontagePlannerTest : FunSpec({
                 c.speeds.forEach { (it.range.start >= c.start && it.range.end <= c.end) shouldBe true }
                 c.ramps.forEach { kotlin.math.abs(it.factor - 1) shouldBe (0.0 plusOrMinus p.settings.speedRamp.maxChange + 1e-9) }
                 c.slow?.let { slow ->
-                    val tail = seconds(m.beatTime(c.slot.endBeat) - m.beatTime(c.anchorBeat))
+                    val tail = seconds(m.beatTime(c.slot.endBeat) - m.beatTime(c.slot.startBeat) - c.anchorOutput(m))
                     (tail >= seconds(slow.range.end - c.anchor) / slow.factor + seconds(p.settings.cuts.minTail) - 1e-6) shouldBe true
                 }
             }
@@ -138,6 +138,26 @@ class MontagePlannerTest : FunSpec({
             // Le plan qui a cédé des temps garde au moins la moitié de sa longueur.
             (high.minOf { it.beats } * 2 >= cadence) shouldBe true
         }
+    }
+
+    test("musique syncopée : le kill tombe sur le contretemps qui frappe plus fort que ses temps, les coupes sur les temps") {
+        // Temps tous égaux (0,5) ; le contretemps d'après chaque temps pair frappe à 0,9, plus fort que ses voisins.
+        val base = music()
+        val m = base.copy(beatAccent = DoubleArray(base.beats.size) { 0.5 }, halfAccent = DoubleArray(base.beats.size) { if (it % 2 == 0) 0.9 else 0.0 })
+        (m.isSyncopated(0) && !m.isSyncopated(1)) shouldBe true
+        val p = plan(manyKills, m)
+        check(p)
+        val offbeat = p.clips.filter { it.anchorHalf }
+        withClue(p.clips.joinToString(" ") { "${it.anchorBeat}${if (it.anchorHalf) ",5" else ""}" }) { offbeat.isNotEmpty() shouldBe true }
+        offbeat.forEach { c ->
+            c.slot.dropBeat shouldBe null
+            m.isSyncopated(c.anchorBeat) shouldBe true
+        }
+        // Le scoreur compte ces kills sur leur frappe : synchro intacte.
+        MontageScorer.score(p).sync shouldBe 1.0
+        // Désactivé : tous les kills sur les temps.
+        val off = settings.copy(cuts = settings.cuts.copy(offbeatKills = false))
+        plan(manyKills, m, off).clips.none { it.anchorHalf } shouldBe true
     }
 
     test("tempo variable : les coupes suivent les temps détectés, pas une période moyenne") {

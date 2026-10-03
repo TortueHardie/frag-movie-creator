@@ -139,6 +139,19 @@ data class MusicAnalysis(
         return half >= MIN_HALF_ACCENT && half >= HALF_HIT_RATIO * around
     }
 
+    /**
+     * Le contretemps qui suit [beat] frappe-t-il plus fort que les deux temps qui l'entourent ([SYNCOPATION]) : la
+     * musique y met l'accent, un kill peut y tomber (voir [CutSettings.offbeatKills]).
+     */
+    fun isSyncopated(beat: Int): Boolean {
+        val half = halfAccent.getOrElse(beat) { 0.0 }
+        val around = maxOf(beatAccent.getOrElse(beat) { 0.0 }, beatAccent.getOrElse(beat + 1) { 0.0 })
+        return half >= MIN_HALF_ACCENT && half >= SYNCOPATION * around
+    }
+
+    /** Instant du contretemps qui suit le temps [beat]. */
+    fun halfTime(beat: Int): Duration = (beatTime(beat) + beatTime(beat + 1)) / 2
+
     fun isDownbeat(beat: Int): Boolean = ((beat - downbeatPhase) % 4 + 4) % 4 == 0
 
     /** Instant du temps [beat], extrapolé au tempo moyen hors des temps détectés. */
@@ -156,6 +169,9 @@ data class MusicAnalysis(
         /** Attaque minimale d'un contretemps, et part de l'attaque des temps voisins qu'il doit atteindre. */
         const val MIN_HALF_ACCENT = 0.5
         const val HALF_HIT_RATIO = 0.95
+
+        /** Un contretemps syncopé frappe au moins autant de fois plus fort que le plus fort des deux temps voisins. */
+        const val SYNCOPATION = 1.2
     }
 }
 

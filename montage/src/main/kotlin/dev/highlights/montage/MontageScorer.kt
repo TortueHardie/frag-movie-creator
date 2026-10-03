@@ -85,10 +85,17 @@ object MontageScorer {
         val music = plan.music
         val offsets = plan.clipOffsets()
 
+        // Contretemps syncopés : un kill peut y tomber autant que sur un temps (voir [CutSettings.offbeatKills]).
+        val targets = music.beats + if (plan.settings.cuts.offbeatKills) {
+            (plan.startBeat until plan.endBeat).filter { music.isSyncopated(it) }.map { music.halfTime(it) }
+        } else {
+            emptyList()
+        }
+
         /** Écart d'un instant du montage au temps de la musique le plus proche. */
         fun toBeat(at: Duration): Duration {
             val absolute = plan.musicStart + at
-            return music.beats.minOf { (it - absolute).absoluteValue }
+            return targets.minOf { (it - absolute).absoluteValue }
         }
 
         fun onBeat(gap: Duration): Double =
@@ -106,6 +113,7 @@ object MontageScorer {
 
         // --- accentuation : tomber sur une attaque forte, mieux encore sur un premier temps de mesure.
         val accent = plan.clips.map { c ->
+            if (c.anchorHalf) return@map 0.7 * music.halfAccent[c.anchorBeat].coerceIn(0.0, 1.0)
             val strength = music.strength(c.anchorBeat).coerceIn(0.0, 1.0)
             0.7 * strength + 0.3 * (if (music.isDownbeat(c.anchorBeat)) 1.0 else 0.0)
         }.average()
