@@ -134,6 +134,24 @@ class MontageRenderBuilderTest : FunSpec({
         build(plan()).filterGraph shouldNotContain "overlay="
     }
 
+    test("whip pan : un souffle culmine sur la coupe, mêlé au jeu et à la musique") {
+        val p = flickPlan(FlickDirection.RIGHT)
+        val lines = build(p).filterGraph.lines()
+        // Un seul whip : un seul souffle, qui démarre 300 ms avant la coupe (son sommet).
+        val delay = lines.single { it.startsWith("[whs0]adelay=") }.substringAfter("adelay=").substringBefore("|").toLong()
+        val cut = p.clipOffsets()[1].inWholeMilliseconds - 300
+        (kotlin.math.abs(delay - cut) <= 20) shouldBe true
+        lines.none { it.startsWith("[whs1]") } shouldBe true
+        lines.single { it.endsWith("[aout]") } shouldContain "[game][music][wh0]amix=inputs=3"
+
+        // Souffle coupé, ou pas de whip : le mélange d'avant.
+        for (s in listOf(settings.copy(whip = WhipPanEffect(whoosh = 0.0)), settings.copy(whip = WhipPanEffect(enabled = false)))) {
+            val g = build(flickPlan(FlickDirection.RIGHT, s)).filterGraph
+            g shouldNotContain "[wh0]"
+            g shouldContain "[game][music]amix=inputs=2"
+        }
+    }
+
     test("whip pan : la sortie accélère jusqu'à une demi-image, l'entrée finit sur une image entière") {
         val stages = MontageRenderBuilder.whipStages(WhipPanEffect(), FlickDirection.LEFT, FlickDirection.RIGHT, 2.seconds, 1080, 1920)
         stages.size shouldBe 2

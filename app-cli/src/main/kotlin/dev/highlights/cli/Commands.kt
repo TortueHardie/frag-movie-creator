@@ -188,6 +188,7 @@ class MontageCommand : PipelineCommand("montage") {
     private val noFlash by option("--no-flash", help = "Sans flash aux coupes").flag()
     private val flashEveryCut by option("--flash-every-cut", help = "Flash à chaque coupe, pas seulement aux coupes fortes").flag()
     private val noWhip by option("--no-whip", help = "Sans whip pan dans le sens du flick").flag()
+    private val noWhoosh by option("--no-whoosh", help = "Whip pans muets, sans souffle sur la coupe").flag()
     private val noMotionBlur by option("--no-motion-blur", help = "Sans flou de mouvement (traînées sur les mouvements rapides, flou radial sur les coupes)").flag()
     private val colors by option("--colors", help = "Couleurs : boost (vives, noirs francs, comme les kill montages de TikTok) ou natural (celles du jeu) ; défaut : celui du profil")
         .choice("boost" to true, "natural" to false)
@@ -232,6 +233,7 @@ class MontageCommand : PipelineCommand("montage") {
                         flash = if (noFlash) false else null,
                         flashEveryCut = if (flashEveryCut) true else null,
                         whip = if (noWhip) false else null,
+                        whoosh = if (noWhoosh) false else null,
                         boostColors = colors,
                         motionBlur = if (noMotionBlur) false else null,
                         matchCut = if (noMatchCut) false else null,

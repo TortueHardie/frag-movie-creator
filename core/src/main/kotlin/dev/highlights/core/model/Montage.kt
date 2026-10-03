@@ -487,10 +487,17 @@ data class WhipPanEffect(
     val duration: SerialDuration = 200.milliseconds,
     /** Flou de mouvement, en part de la dimension balayée (largeur pour un flick horizontal). */
     val blur: Double = 0.015,
+    /**
+     * Volume du souffle (whoosh) qui culmine sur la coupe, celui des highlights story (bruit filtré qui enfle puis
+     * retombe) ; 0 : whip pan muet. Sous le son du jeu (1) et la musique (0,8) : il accompagne le mouvement sans
+     * couvrir le tir qui suit.
+     */
+    val whoosh: Double = 0.5,
 ) {
     init {
         require(duration.inWholeMilliseconds in 40..600) { "montage.whip.duration doit être entre 40 ms et 600 ms" }
         require(blur in 0.0..0.1) { "montage.whip.blur doit être entre 0 et 0,1" }
+        require(whoosh in 0.0..2.0) { "montage.whip.whoosh doit être entre 0 et 2" }
     }
 }
 

@@ -166,7 +166,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                 ),
             )
             script.writeText(render.filterGraph)
-            log.info { "Montage ${format.label} → $target (${plan.clips.size} clips, ${plan.duration})" }
+            log.info { "Montage ${format.label} → $target (${plan.clips.size} clips, ${plan.duration}, ${MontageRenderBuilder.whips(plan).count { it != null }} whip pan(s))" }
             val onLine = { line: String ->
                 FfmpegProgressParser.parseOutTime(line)?.let { step.update(it / render.expectedDuration, format.label) }
                 Unit

@@ -19,6 +19,7 @@ import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.SourceCut
 import dev.highlights.editing.SourceCuts
+import dev.highlights.editing.story.StoryRenderBuilder
 import java.nio.file.Path
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -297,7 +298,15 @@ object MontageRenderBuilder {
         }
         graph += "[$musicInput:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo," +
             "$GAIN_FRAMES,volume='$duck':eval=frame,afade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
-        graph += "[game][music]amix=inputs=2:normalize=0:duration=first,loudnorm=I=${num(audio.loudnessLufs)}:TP=-1.5:LRA=11,aresample=48000[aout]"
+        // Souffle sur chaque whip pan, son sommet sur la coupe : le mouvement s'entend autant qu'il se voit.
+        val whooshes = if (settings.whip.whoosh > 0) {
+            whips.indices.filter { whips[it] != null }.map { (offsets[it] - StoryRenderBuilder.WHOOSH_PEAK).coerceAtLeast(Duration.ZERO) }
+        } else {
+            emptyList()
+        }
+        val sfx = StoryRenderBuilder.placeSfx(graph, "wh", whooshes, settings.whip.whoosh, StoryRenderBuilder.WHOOSHES, StoryRenderBuilder.WHOOSH_LENGTH)
+        val mix = listOf("[game]", "[music]") + sfx
+        graph += mix.joinToString("") + "amix=inputs=${mix.size}:normalize=0:duration=first,loudnorm=I=${num(audio.loudnessLufs)}:TP=-1.5:LRA=11,aresample=48000[aout]"
 
         args += listOf(request.filterScriptOption, request.filterScript.toString(), "-map", "[vout]", "-map", "[aout]")
         args += request.encoder.videoArgs
