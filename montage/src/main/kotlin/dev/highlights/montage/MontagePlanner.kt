@@ -858,6 +858,37 @@ object MontagePlanner {
          */
         fun keeps(beats: Int, taken: Int): Boolean = beats - taken >= maxOf(minRest, (beats + 1) / 2)
 
+        /** Temps qu'une cellule libre voisine peut céder (voir [keeps]) ; aucun si elle est prise, absente ou la drop. */
+        fun spare(index: Int): Int {
+            val c = cells.getOrNull(index) ?: return 0
+            if (c.group != null || c.dropBeat != null) return 0
+            return (c.beats - maxOf(minRest, (c.beats + 1) / 2)).coerceAtLeast(0)
+        }
+
+        /**
+         * Temps manquants pris sur les deux voisines libres, la suivante d'abord (le plan s'allonge après le kill), la
+         * précédente pour le reste. Un doublé qui demandait 6 temps dans une suite de plans de 4 ne trouvait pas 2 temps
+         * à prendre sur la suivante seule (un reste de 2 temps ne porte pas de kill) et la fusionnait entière : 8 temps.
+         * Pris un sur chaque voisine, il en a 6 et les voisines 3. Faux si les deux ensemble ne suffisent pas.
+         */
+        fun share(index: Int, needed: Int): Boolean {
+            val cell = cells[index]
+            val missing = needed - cell.beats
+            if (missing <= 0 || needed > cuts.maxBeats) return false
+            val after = minOf(missing, spare(index + 1))
+            val before = missing - after
+            if (before > spare(index - 1)) return false
+            if (after > 0) {
+                cells[index + 1].startBeat += after
+                cell.endBeat = cells[index + 1].startBeat
+            }
+            if (before > 0) {
+                cells[index - 1].endBeat -= before
+                cell.startBeat = cells[index - 1].endBeat
+            }
+            return true
+        }
+
         /**
          * Fusionne des cellules libres voisines jusqu'à [needed] temps, sans dépasser maxBeats : les suivantes (le clip
          * s'allonge après le kill), ou d'abord les précédentes pour la drop (les kills d'un multi-kill la précèdent).
@@ -868,6 +899,7 @@ object MontagePlanner {
         fun grow(index: Int, needed: Int): Int {
             var i = index
             val cell = cells[i]
+            if (cell.dropBeat == null && share(i, needed)) return i
             val directions = if (cell.dropBeat != null) listOf(-1, 1) else listOf(1)
             for (dir in directions) {
                 while (cell.beats < needed) {
@@ -898,6 +930,7 @@ object MontagePlanner {
         fun canGrow(index: Int, needed: Int): Boolean {
             val cell = cells[index]
             if (cell.beats >= needed) return true
+            if (cell.dropBeat == null && needed <= cuts.maxBeats && cell.beats + spare(index + 1) + spare(index - 1) >= needed) return true
             var total = cell.beats
             for (dir in if (cell.dropBeat != null) listOf(-1, 1) else listOf(1)) {
                 var next = index + dir
