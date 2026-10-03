@@ -111,6 +111,7 @@ data class MontageSettings(
             slowMotion = slowMotion.copy(enabled = false),
             speedRamp = speedRamp.copy(enabled = false),
             whip = whip.copy(enabled = false),
+            zoom = zoom.copy(approach = f.zoomApproach, approachLead = f.zoomApproachLead),
             musicPace = f.musicPace,
             skipDeathWithin = f.skipDeathWithin,
         )
@@ -183,6 +184,9 @@ data class FastMontage(
     val min: SerialDuration = 8.seconds,
     /** Choix de la musique : les musiques rapides, qui gardent des plans d'un temps, passent devant. */
     val musicPace: MusicPace = MusicPace(),
+    /** Approche du zoom vers le réticule avant chaque kill (voir [ZoomEffect.approach]) : les plans courts en ont besoin. */
+    val zoomApproach: Double = 0.25,
+    val zoomApproachLead: SerialDuration = 200.milliseconds,
     /**
      * Kill écarté si le joueur meurt moins de ce délai après : un échange. Le plan finit 0,17 s après le kill, et
      * montrait l'écran de mort (caméra du tueur, sa carte, son ulti) : 2 kills sur 74 d'un montage de 17 parties.
@@ -468,7 +472,19 @@ data class ZoomEffect(
     val onEveryKill: Boolean = true,
     /** Rééchantillonnage du zoom, appliqué à chaque image : bicubic tient le détail, bilinear coûte moins cher. */
     val scaleFlags: String = "bicubic",
-)
+    /**
+     * Approche : l'image se resserre déjà vers le centre (le réticule) pendant [approachLead] avant le kill, jusqu'à
+     * [approach] de plus au moment du tir, puis retombe avec le punch. En 21:9, l'ennemi n'est souvent que quelques
+     * pixels au fond d'un couloir, et un plan de 0,37 s (rythme rapide) ne laisse pas le temps de le trouver. 0 : sans.
+     */
+    val approach: Double = 0.0,
+    val approachLead: SerialDuration = 300.milliseconds,
+) {
+    init {
+        require(amount in 0.0..1.0 && approach in 0.0..1.0) { "montage.zoom : amount et approach entre 0 et 1" }
+        require(approachLead.isPositive()) { "montage.zoom.approachLead doit être positif" }
+    }
+}
 
 /**
  * Flash blanc à la coupe. Par défaut seulement aux coupes fortes (changement de section, drop, multi-kill) : à chaque

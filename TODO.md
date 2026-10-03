@@ -145,8 +145,10 @@ Pistes, de la plus simple à la plus lourde :
     d'images retiré (-17 % de netteté), vecteurs au-delà de 10 px seulement ; kills calés sur le killfeed lu à 30 img/s
     (`kill-confirm`, `killStyle.confirmEvent`) au lieu de l'annonce d'Outplayed, qui prenait une balle de la rafale
     d'après le kill pour celle qui tue (18 kills sur 57).
-  - [ ] Ennemis minuscules en 21:9 (quelques pixels au fond d'un couloir) : 0,2 s ne suffit pas à les trouver.
-    Pistes : zoom qui commence avant le kill, vers le réticule ; recadrage plus serré au rythme rapide.
+  - [x] Ennemis minuscules en 21:9 (quelques pixels au fond d'un couloir) : 0,2 s ne suffisait pas à les trouver.
+    Zoom d'approche au rythme rapide (`fast.zoomApproach` 0,25 sur 0,2 s, `ZoomEffect.approach`) : l'image se resserre
+    vers le réticule avant chaque kill, l'ennemi est un quart plus gros au tir. Le HUD grossit avec, comme au punch.
+    - [ ] À juger à l'image ; recadrage fixe plus serré au rythme rapide pas fait (il couperait le HUD).
   - [ ] Plusieurs plans par kill dans les sections lentes (les références coupent aussi sans kill : passages entre
     deux kills, inspection d'arme).
 - [ ] Ouverture « vitrine » : plans sans kill (inspection d'arme, passages calmes) avant la drop, au lieu d'un kill

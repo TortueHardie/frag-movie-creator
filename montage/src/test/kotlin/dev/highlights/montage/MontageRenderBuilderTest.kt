@@ -339,6 +339,16 @@ class MontageRenderBuilderTest : FunSpec({
         punches(all.copy(zoom = all.zoom.copy(onEveryKill = false))) shouldBe 2
     }
 
+    test("zoom : approche vers le réticule avant le kill au rythme rapide, absente sinon") {
+        build(plan()).filterGraph shouldNotContain "pow((t-"
+        val fast = settings.forFast()
+        fast.zoom.approach shouldBe 0.25
+        val g = build(plan(fast)).filterGraph
+        // Montée sur les 0,2 s qui précèdent chaque kill, en douceur, puis retombée avec le punch.
+        g shouldContain "pow((t-"
+        g shouldContain "/0.2000\\,2)"
+    }
+
     test("densité d'effets : un plan ralenti ne reçoit pas de zoom en plus") {
         // Le plan fort (multi-kill sur la drop) est ralenti, l'autre reçoit le zoom : une seule emphase par plan.
         val p = plan()
