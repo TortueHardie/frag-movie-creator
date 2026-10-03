@@ -266,6 +266,12 @@ détecte les kills). En ligne de commande :
   le plan sortant file dans le sens où la vue tournait, flouté par la vitesse, et le suivant arrive en continuant le
   même mouvement (200 ms en tout, `duration` ; flou `blur`). Le whip remplace le flash sur cette coupe ; sans flick de
   part et d'autre, la coupe reste franche. Désactivable par une case de la fenêtre de montage ou `--no-whip`.
+- **Paroles mot par mot** (`lyrics`, désactivé par défaut ; case « Paroles de la musique à l'écran » ou `--lyrics`) :
+  comme l'ouverture des kill montages de TikTok, les paroles s'écrivent en grand, un mot à la fois, le temps où il est
+  chanté, jusqu'à la drop (`span: all` : tout le montage). La musique est transcrite en local par whisper (le modèle
+  `model`, à défaut celui des sous-titres du profil ; langue `language`, `en` par défaut), une fois par musique : la
+  transcription est gardée dans le cache. Un mot que whisper étire sur l'instrumental (plus de `maxWord`, 1,5 s) est
+  écarté. Taille `size`, position `y` / `verticalY`, couleur `color`. Sans modèle, le montage sort sans paroles.
 - **Flou de mouvement** (`motionBlur`), mesuré sur les montages de référence (flou sur 48 à 93 % des coupes, une ou
   deux images à 30 img/s) :
   - Mélange d'images (`blend`, désactivé par défaut) : chaque image mélange celles des 17 ms précédentes. Dans un FPS

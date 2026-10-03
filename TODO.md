@@ -135,8 +135,13 @@ Pistes, de la plus simple à la plus lourde :
     deux kills, inspection d'arme).
 - [ ] Ouverture « vitrine » : plans sans kill (inspection d'arme, passages calmes) avant la drop, au lieu d'un kill
   d'accroche. Demande de repérer ces passages dans la capture (arme en main, pas de combat).
-- [ ] Paroles mot par mot : transcription de la musique (whisper, déjà utilisé pour les sous-titres) et texte calé
-  sur chaque mot pendant l'ouverture.
+- [x] Paroles mot par mot (`montage.lyrics`, `--lyrics`, case de la fenêtre de montage ; désactivé par défaut) :
+  musique transcrite par whisper un mot par segment (`max_len=1`), gardée en cache, mots écrits en grand jusqu'à la
+  drop (`Lyrics`, `LyricsTranscriber`). « Rome Is Burning » : 405 mots transcrits en quelques secondes sur le GPU, 32 à
+  l'écran sur les 23 s avant la drop. Mots souvent approximatifs (« The world's emerging » pour « Rome is burning »).
+  - [ ] Texte posé sur des kills (y = 0,62, juste au-dessus du réticule) : l'ouverture « vitrine » sans kill lui
+    laisserait l'image, comme dans les références.
+  - [ ] Habillage des références à essayer : glitch, couleur du skin, texte derrière l'arme.
 - [ ] Refaire les mesures de calage sur des copies à l'audio intact.
 
 ---

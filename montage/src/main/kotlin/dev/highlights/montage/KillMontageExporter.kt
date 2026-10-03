@@ -13,6 +13,7 @@ import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.serialization.roundTo
 import dev.highlights.core.serialization.toTimecode
 import dev.highlights.editing.SourceCutter
+import dev.highlights.editing.story.Caption
 import dev.highlights.export.ExportResult
 import dev.highlights.export.OutputNamer
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -26,6 +27,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
+import kotlin.io.path.exists
 import kotlin.io.path.moveTo
 import kotlin.io.path.writeText
 
@@ -48,6 +50,10 @@ data class MontageExportRequest(
     val platform: String? = null,
     /** Genre de montage, dans le nom des fichiers : killmontage, onetaps. */
     val kind: String = "killmontage",
+    /** Modèle whisper des paroles ([MontageSettings.lyrics]) ; null ou absent : montage sans paroles. */
+    val lyricsModel: Path? = null,
+    /** Transcriptions des musiques gardées d'un montage à l'autre ; null : pas de cache. */
+    val lyricsCache: Path? = null,
 )
 
 @Serializable
@@ -153,6 +159,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             SourceCutter.prepare(ffmpeg, MontageRenderBuilder.sourceCuts(plan, request.edit.fps), request.workDir.resolve("cuts"), cutStep) to motion.await()
         }
 
+        val lyrics = lyrics(plan, request)
         val filterScriptOption = ffmpeg.filterScriptOption()
         for (format in request.formats) {
             val target = paths.videos.getValue(format)
@@ -162,7 +169,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             val render = MontageRenderBuilder.build(
                 MontageRenderRequest(
                     plan, format, request.edit, encoder, temp, script,
-                    request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption, motion,
+                    request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption, motion, lyrics,
                 ),
             )
             script.writeText(render.filterGraph)
@@ -224,6 +231,19 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         )
         paths.report.writeText(json.encodeToString(MontageReport.serializer(), report))
         return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file)
+    }
+
+    /** Mots des paroles à écrire, en temps du montage ; aucun si elles ne sont pas demandées ou sans modèle. */
+    private suspend fun lyrics(plan: MontagePlan, request: MontageExportRequest): List<Caption> {
+        val settings = plan.settings.lyrics
+        if (!settings.enabled) return emptyList()
+        val model = request.lyricsModel
+        if (model == null || !model.exists()) {
+            log.warn { "Modèle de transcription introuvable (${model ?: "aucun"}) : montage sans paroles" }
+            return emptyList()
+        }
+        val words = LyricsTranscriber(ffmpeg, request.lyricsCache).words(plan.music.file, model, settings, request.workDir)
+        return Lyrics.shown(words, plan, settings).also { log.info { "Paroles : ${it.size} mot(s) à l'écran" } }
     }
 
     companion object {

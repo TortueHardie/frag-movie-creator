@@ -110,6 +110,8 @@ data class MontageOptions(
     val flashEveryCut: Boolean? = null,
     /** Whip pan dans le sens du flick aux coupes qui en suivent ou en précèdent un. */
     val whip: Boolean? = null,
+    /** Paroles de la musique écrites mot par mot (voir [dev.highlights.core.model.LyricsEffect]). */
+    val lyrics: Boolean? = null,
     /** Couleurs boostées (vibrance, saturation, contraste) comme les kill montages de TikTok. */
     val boostColors: Boolean? = null,
     /** Flou de mouvement : traînées sur les mouvements rapides et flou radial sur les coupes franches. */
@@ -546,6 +548,7 @@ class HighlightPipeline(
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),
             speedRamp = base.speedRamp.copy(enabled = options.speedRamp ?: base.speedRamp.enabled),
             text = base.text.copy(enabled = options.text ?: base.text.enabled),
+            lyrics = base.lyrics.copy(enabled = options.lyrics ?: base.lyrics.enabled),
             reactions = options.reactions ?: base.reactions,
             audio = base.audio.copy(
                 balance = options.audioBalance ?: base.audio.balance,
@@ -606,6 +609,9 @@ class HighlightPipeline(
                     musicChoice = choice,
                     platform = options.platform,
                     kind = if (options.oneTaps) "onetaps" else "killmontage",
+                    // Le modèle des paroles, à défaut celui des sous-titres du profil.
+                    lyricsModel = (settings.lyrics.model ?: profile.edit.story.captions.model)?.let { config.resolve(it) },
+                    lyricsCache = config.workDir.resolve("cache").resolve("lyrics"),
                 ),
                 progress.child("Rendu", 0.86),
             )
