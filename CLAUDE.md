@@ -192,6 +192,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   `FlickDirection`, `Aim`, `RoundOutcome`, `SpeedSegment/SpeedKind`, `MontageClip` (`toOutput`, `outputKills`, `slow`, `ramps`), `PlanVariant`, `MontagePlan` (slots contigus obligatoires).
   Clutch : `killStyle.clutchEvent` (valorant : « clutch » d'Outplayed) → `announcedClutch` (groupe dont le dernier kill précède l'annonce, sans kill ni mort entre, ≤ roundGap) remplace la déduction.
   `MontagePlanner.groups / rounds / outcome / style / targetDuration / placeable / best / plan / layout / arbitrate / aimFit / assign / pairUp / clipFor / slowCurve / isStrong / allowsSlow`.
+  `assign` : un multi-kill ne prend sur la cellule voisine que les temps qui lui manquent (`share` : sur la suivante puis la précédente ; `keeps`/`spare` : le reste garde la moitié de sa longueur), sinon la cellule entière (`grow`).
   `pairUp` recompte seulement les coupes touchées par un échange ; `placeable` = groupes que le plan peut placer (au plus autant de multi-kills et de kills seuls que de temps dans `maxDuration`, égalités de rank comprises).
   Chronologique : `layout` essaie les fenêtres (`accept`) jusqu'à celle où `assign` met sur la drop le meilleur groupe (± `ORDER_TOLERANCE`) sans en perdre.
   Constantes de réglage fin : `MIN_KEPT, MONOTONY_PENALTY, RAMP_COST, OFF_BEAT_DISCOUNT, MIN_CLIP_SHARE, TARGET_STEP, MATCH_BONUS, MATCH_VALUE, ORDER_TOLERANCE, MIN_GAIN, SCALES, DROP_SHIFTS`.

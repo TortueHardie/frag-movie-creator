@@ -848,20 +848,77 @@ object MontagePlanner {
         fun bestFree(g: KillGroup): Int? =
             cells.indices.filter { cells[it].group == null }.maxByOrNull { importance(cells[it]) - monotony(it, g) }
 
+        // Plus petit plan qui porte encore un kill : celui de la grille.
+        val minRest = if (singleBeat(settings, period)) 1 else maxOf(2, minLeadBeats + minTailBeats)
+
+        /**
+         * Une cellule de [beats] temps peut-elle en céder [taken] ? Le reste doit porter un kill et garder au moins la
+         * moitié de sa longueur, pour que la cadence de sa section reste lisible : un plan de 16 temps d'une section
+         * calme, réduit à 3 par la drop qui s'étendait vers l'arrière, laissait un plan éclair avant la drop.
+         */
+        fun keeps(beats: Int, taken: Int): Boolean = beats - taken >= maxOf(minRest, (beats + 1) / 2)
+
+        /** Temps qu'une cellule libre voisine peut céder (voir [keeps]) ; aucun si elle est prise, absente ou la drop. */
+        fun spare(index: Int): Int {
+            val c = cells.getOrNull(index) ?: return 0
+            if (c.group != null || c.dropBeat != null) return 0
+            return (c.beats - maxOf(minRest, (c.beats + 1) / 2)).coerceAtLeast(0)
+        }
+
+        /**
+         * Temps manquants pris sur les deux voisines libres, la suivante d'abord (le plan s'allonge après le kill), la
+         * précédente pour le reste. Un doublé qui demandait 6 temps dans une suite de plans de 4 ne trouvait pas 2 temps
+         * à prendre sur la suivante seule (un reste de 2 temps ne porte pas de kill) et la fusionnait entière : 8 temps.
+         * Pris un sur chaque voisine, il en a 6 et les voisines 3. Faux si les deux ensemble ne suffisent pas.
+         */
+        fun share(index: Int, needed: Int): Boolean {
+            val cell = cells[index]
+            val missing = needed - cell.beats
+            if (missing <= 0 || needed > cuts.maxBeats) return false
+            val after = minOf(missing, spare(index + 1))
+            val before = missing - after
+            if (before > spare(index - 1)) return false
+            if (after > 0) {
+                cells[index + 1].startBeat += after
+                cell.endBeat = cells[index + 1].startBeat
+            }
+            if (before > 0) {
+                cells[index - 1].endBeat -= before
+                cell.startBeat = cells[index - 1].endBeat
+            }
+            return true
+        }
+
         /**
          * Fusionne des cellules libres voisines jusqu'à [needed] temps, sans dépasser maxBeats : les suivantes (le clip
          * s'allonge après le kill), ou d'abord les précédentes pour la drop (les kills d'un multi-kill la précèdent).
+         * D'une voisine plus longue que ce qui manque, seuls les temps manquants sont pris si le reste porte encore un
+         * kill : prise entière, elle faisait d'un doublé de 5 temps un plan de 8 dans la drop (deux plans de 4), un
+         * kill toutes les 1,9 s là où la musique en voulait un toutes les 1,6 s.
          */
         fun grow(index: Int, needed: Int): Int {
             var i = index
             val cell = cells[i]
+            if (cell.dropBeat == null && share(i, needed)) return i
             val directions = if (cell.dropBeat != null) listOf(-1, 1) else listOf(1)
             for (dir in directions) {
                 while (cell.beats < needed) {
                     val next = i + dir
                     if (next !in cells.indices || cells[next].group != null || cells[next].dropBeat != null) break
-                    if (cell.beats + cells[next].beats > cuts.maxBeats) break
-                    if (dir < 0) cell.startBeat = cells[next].startBeat else cell.endBeat = cells[next].endBeat
+                    val neighbour = cells[next]
+                    val missing = needed - cell.beats
+                    if (needed <= cuts.maxBeats && keeps(neighbour.beats, missing)) {
+                        if (dir < 0) {
+                            neighbour.endBeat -= missing
+                            cell.startBeat = neighbour.endBeat
+                        } else {
+                            neighbour.startBeat += missing
+                            cell.endBeat = neighbour.startBeat
+                        }
+                        break
+                    }
+                    if (cell.beats + neighbour.beats > cuts.maxBeats) break
+                    if (dir < 0) cell.startBeat = neighbour.startBeat else cell.endBeat = neighbour.endBeat
                     cells.removeAt(next)
                     if (dir < 0) i--
                 }
@@ -873,10 +930,13 @@ object MontagePlanner {
         fun canGrow(index: Int, needed: Int): Boolean {
             val cell = cells[index]
             if (cell.beats >= needed) return true
+            if (cell.dropBeat == null && needed <= cuts.maxBeats && cell.beats + spare(index + 1) + spare(index - 1) >= needed) return true
             var total = cell.beats
             for (dir in if (cell.dropBeat != null) listOf(-1, 1) else listOf(1)) {
                 var next = index + dir
-                while (next in cells.indices && cells[next].group == null && cells[next].dropBeat == null && total + cells[next].beats <= cuts.maxBeats) {
+                while (next in cells.indices && cells[next].group == null && cells[next].dropBeat == null) {
+                    if (needed <= cuts.maxBeats && keeps(cells[next].beats, needed - total)) return true
+                    if (total + cells[next].beats > cuts.maxBeats) break
                     total += cells[next].beats
                     if (total >= needed) return true
                     next += dir

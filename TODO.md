@@ -75,8 +75,16 @@ de chaque temps (`MusicAnalysis.salience`) et découpage sur les notes qui resso
 - Fait : cadence continue par section (`CutGrid.cadence`), coupes calées sur les notes (`tileOnNotes`), ralenti sans
   place réservée hors drop, multi-kills étalés séparés au montage (`MontagePlanner.split`, `splitGap`). Drop de
   « Rome Is Burning » : un kill par temps au rythme rapide (avant : un toutes les 3,8 s), un toutes les 1,6 s au normal.
-- [ ] Rythme normal : les doublés d'environ 1 s prennent 8 temps dans la drop (5 nécessaires), et le critère « rythme »
-  du scoreur reste bas (0,13) : intro et drop ont encore des plans de longueurs voisines.
+- [x] Rythme normal : les doublés d'environ 1 s prenaient 8 temps dans la drop (5 nécessaires) : le plan fusionnait le
+  plan voisin entier. Il n'y prend plus que les temps qui manquent, si le reste garde la moitié de sa longueur
+  (`MontagePlanner.assign`, `grow`/`keeps`). « Rome Is Burning », 16 parties : 21 plans et 26 kills (18 et 24 avant),
+  doublés de 5 temps au lieu de 8, note 0,951 → 0,953 (action 0,846 → 0,892, accent 0,818 → 0,796 : les plans
+  raccourcis de 4 à 3 temps tombent moins souvent sur un premier temps). Le critère « rythme » est à 1 sur ce montage.
+  - [x] Deux doublés gardaient 8 temps : il leur en fallait 6, et le plan voisin de 4 ne pouvait pas en céder 2 (un
+    reste de 2 temps ne porte pas de kill). Les temps manquants sont maintenant pris sur les deux voisins (`share`) :
+    22 plans et 27 kills, doublés de la drop à 5, 5, 6 et 6 temps (le seul de 8 est dans une section à 8 temps).
+    Note 0,953 → 0,951 : l'accent baisse encore (0,796 → 0,778), les coupes décalées quittent les premiers temps.
+    - [ ] Accent : choisir de quel côté prendre les temps selon le temps fort sur lequel tombent les kills voisins.
 - Fait : changements de son (`MusicAnalyzer.timbreChanges` : instrument qui entre, voix, coupure) ajoutés aux notes
   dans `MusicAnalysis.salience` ; rapport `onMusicMoment`. Couverture au rythme rapide : 9/10, 16/19, 25/38 moments.
 - [ ] Notes entre les temps : mesurées sur six morceaux, 0 à 3 contretemps qui ressortent par morceau. Pas de coupe ni

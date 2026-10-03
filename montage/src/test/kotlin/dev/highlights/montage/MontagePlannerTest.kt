@@ -118,7 +118,26 @@ class MontagePlannerTest : FunSpec({
         val mid = p.clips.filter { p.music.sectionAt(it.slot.startBeat).level == Intensity.MID }
         high.isNotEmpty() shouldBe true
         mid.isNotEmpty() shouldBe true
-        (mid.minOf { it.beats } >= high.maxOf { it.beats }) shouldBe true
+        withClue(p.clips.joinToString(" ") { "${it.slot.startBeat}-${it.slot.endBeat}:${it.kills.size}:${p.music.sectionAt(it.slot.startBeat).level}" }) {
+            (mid.minOf { it.beats } >= high.maxOf { it.beats }) shouldBe true
+        }
+    }
+
+    test("doublé hors drop : il prend sur le plan voisin les temps qui lui manquent, pas le plan entier") {
+        // Trois doublés d'une seconde : le premier va sur la drop, les deux autres dans la partie intense.
+        val kills = listOf(60, 180, 181, 300, 301, 420, 421, 540, 660, 780, 900, 1020, 1140, 1260)
+        val p = plan(kills)
+        check(p)
+        val high = p.clips.filter { it.slot.dropBeat == null && p.music.sectionAt(it.slot.startBeat).level == Intensity.HIGH }
+        val cadence = high.filter { it.kills.size == 1 }.maxOf { it.beats }
+        val doubles = high.filter { it.kills.size == 2 }
+        withClue(p.clips.joinToString(" ") { "${it.beats}:${it.kills.size}${if (it.slot.dropBeat != null) "*" else ""}" }) {
+            doubles.isNotEmpty() shouldBe true
+            // Avant : deux plans de la grille fusionnés (8 temps), là où un doublé d'une seconde en demande 5 ou 6.
+            doubles.forEach { (it.beats < 2 * cadence) shouldBe true }
+            // Le plan qui a cédé des temps garde au moins la moitié de sa longueur.
+            (high.minOf { it.beats } * 2 >= cadence) shouldBe true
+        }
     }
 
     test("tempo variable : les coupes suivent les temps détectés, pas une période moyenne") {
