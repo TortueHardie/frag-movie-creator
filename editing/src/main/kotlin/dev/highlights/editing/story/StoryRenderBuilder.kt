@@ -17,6 +17,7 @@ import java.nio.file.Path
 import java.util.Locale
 import kotlin.io.path.extension
 import kotlin.random.Random
+import kotlin.math.roundToLong
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -103,6 +104,7 @@ object StoryRenderBuilder {
         // La musique tourne en boucle : un montage plus long qu'elle n'y perd pas son fond sonore.
         val musicInput = story.music.file?.let { input("-stream_loop", "-1", "-i", it) }
 
+        val frames = frameCounts(plan)
         val (w, h) = RenderCommandBuilder.outputSize(request.format, shots.first().media, edit)
         val graph = mutableListOf<String>()
         // Instants des effets passés à l'écran (ralenti compris) : le reste du graphe ne connaît que le temps de sortie.
@@ -131,8 +133,13 @@ object StoryRenderBuilder {
             if (story.transition.flash && shot.role == ShotRole.OPENING && i > 0) {
                 effects += "fade=t=in:st=0:d=${sec(story.transition.flashDuration)}:color=white"
             }
-            effects += "trim=duration=${sec(shot.outputLength)}"
+            // Longueur en images, pas en durée : `trim=duration` gardait l'image entamée en fin de plan, une image de
+            // trop par plan dont la longueur ne tombe pas sur la grille (10 plans de 1,017 s à 30 img/s : 310 images
+            // pour 10,17 s de son). L'image répétée en fin de source (`tpad`) couvre un plan qui en manquerait une.
+            effects += "tpad=stop_mode=clone:stop=1"
             effects += "setpts=PTS-STARTPTS"
+            effects += "trim=end_frame=${frames[i]}"
+            effects += "setpts=N/(${edit.fps}*TB)"
             // Le zoom arrondit largeur et hauteur chacune à un nombre pair : leur rapport n'est plus exact et `scale`
             // compense par la forme des pixels (SAR), que `crop` garde. Sans remise à 1:1, concat refuse le plan.
             effects += "setsar=1"
@@ -182,6 +189,16 @@ object StoryRenderBuilder {
             graph.joinToString(";\n") + "\n",
             total,
         )
+    }
+
+    /**
+     * Nombre d'images de chaque plan, arrondi sur la position cumulée et non plan par plan : la vidéo ne s'écarte
+     * jamais de plus d'une demi-image du son (coupé à la durée exacte de chaque plan), quel que soit le nombre de coupes.
+     */
+    internal fun frameCounts(plan: StoryPlan): List<Int> {
+        val fps = plan.settings.fps
+        val bounds = (plan.offsets() + plan.outputDuration).map { (it.inWholeMicroseconds * fps / 1_000_000.0).roundToLong() }
+        return bounds.zipWithNext { a, b -> (b - a).toInt().coerceAtLeast(1) }
     }
 
     /** Extraits lus par le rendu : ce que le pré-découpage doit préparer. */
