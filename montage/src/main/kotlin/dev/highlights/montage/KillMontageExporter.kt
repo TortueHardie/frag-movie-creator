@@ -126,6 +126,8 @@ data class MontageReportClip(
     val clutch: Boolean = false,
     /** Le kill d'ancrage tombe sur un moment qui ressort de la musique : note marquante, instrument qui entre. */
     val onMusicMoment: Boolean = false,
+    /** Le kill d'ancrage tombe sur un contretemps syncopé (un demi-temps après [anchorBeat]). */
+    val offbeat: Boolean = false,
 )
 
 class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoders: EncoderSelector) {
@@ -219,6 +221,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                     ace = c.group.outcome.ace,
                     clutch = c.group.outcome.clutch,
                     onMusicMoment = plan.music.salience.getOrElse(c.anchorBeat) { 0.0 } >= MusicAnalyzer.SALIENT,
+                    offbeat = c.anchorHalf,
                 )
             },
         )
