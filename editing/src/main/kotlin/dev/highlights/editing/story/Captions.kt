@@ -130,10 +130,9 @@ object Captions {
      * Filtre audio de transcription : rééchantillonnage à 16 kHz (ce qu'attend whisper) puis `whisper` qui écrit ses
      * segments en JSON dans [destination]. [maxChars] découpe le texte en groupes de quelques mots.
      */
-    /** [maxLen] : longueur maximale d'un segment en caractères ; 1 donne un mot par segment (paroles du montage). */
-    fun transcriptionFilter(model: Path, destination: Path, settings: CaptionSettings, maxLen: Int = settings.maxChars): String =
+    fun transcriptionFilter(model: Path, destination: Path, settings: CaptionSettings): String =
         "aresample=16000,whisper=model='${filterPath(model)}':language=${settings.language}:format=json" +
-            ":max_len=$maxLen:queue=${String.format(Locale.ROOT, "%.0f", settings.queue.inWholeMilliseconds / 1000.0)}" +
+            ":max_len=${settings.maxChars}:queue=${String.format(Locale.ROOT, "%.0f", settings.queue.inWholeMilliseconds / 1000.0)}" +
             ":use_gpu=${if (settings.useGpu) 1 else 0}:destination='${filterPath(destination)}'"
 
     /**
@@ -176,17 +175,14 @@ object Captions {
         }
     }
 
-    /**
-     * Libellé d'événement (« DOUBLÉ »…) : même apparition « pop », qui s'efface sur sa fin ([fadeOut] ; zéro pour les
-     * paroles du montage, un mot chassé par le suivant).
-     */
+    /** Libellé d'événement (« DOUBLÉ »…) : même apparition « pop », qui s'efface sur sa fin. */
     fun drawLabel(
         text: String, at: TimeRange, font: String, size: Double, color: String, width: Int, height: Int, y: Double, pop: Duration,
-        safe: SafeArea = SafeArea.NONE, fadeOut: Duration = 250.milliseconds,
+        safe: SafeArea = SafeArea.NONE,
     ): String {
         val label = sanitize(text, uppercase = true)
         val px = fit(font, size * height, label, (width * safe.width).roundToInt())
-        return TextStyle(font, px, height, safe.centerY(y, LINE_HEIGHT * px / height), at.start, at.end, pop, fadeOut = fadeOut, safe = safe)
+        return TextStyle(font, px, height, safe.centerY(y, LINE_HEIGHT * px / height), at.start, at.end, pop, fadeOut = 250.milliseconds, safe = safe)
             .draw(label, color)
     }
 

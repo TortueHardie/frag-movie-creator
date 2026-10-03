@@ -75,8 +75,6 @@ data class MontageSettings(
     val slowMotion: SlowMotionEffect = SlowMotionEffect(),
     val speedRamp: SpeedRampEffect = SpeedRampEffect(),
     val text: TextEffect = TextEffect(),
-    /** Paroles de la musique écrites mot par mot à l'écran (voir [LyricsEffect]). */
-    val lyrics: LyricsEffect = LyricsEffect(),
     val audio: MontageAudio = MontageAudio(),
     val formats: List<OutputFormat> = listOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
     /** Rythme rapide : un kill par temps de musique (voir [FastMontage]), appliqué par [forFast]. */
@@ -750,62 +748,6 @@ data class TextEffect(
     /** Petit compteur « KILL n » à chaque kill. Désactivé par défaut : il n'apporte rien et surcharge l'image. */
     val killCounter: Boolean = false,
 )
-
-/** Passage du montage où les paroles s'écrivent. */
-@Serializable
-enum class LyricsSpan {
-    /**
-     * Jusqu'à la drop : l'ouverture, comme les références (qui n'y montrent pas de kill) ; ensuite les kills et leurs
-     * textes ont l'image pour eux. Rien quand le chant commence après la drop.
-     */
-    @SerialName("opening") OPENING,
-
-    /**
-     * Tout le montage (par défaut). Jusqu'à la drop seulement, « Lose Yourself » n'avait aucun mot : la drop du montage
-     * tombe à 30 s, le chant commence à 34 s.
-     */
-    @SerialName("all") ALL,
-}
-
-/**
- * Paroles de la musique écrites mot par mot, en grand, chacune le temps où elle est chantée : dans les quatre kill
- * montages VALORANT de référence, l'ouverture (12 à 15 s) montre les paroles un mot à la fois, presque un plan par mot.
- * Transcrites en local par whisper.cpp (filtre `whisper` de FFmpeg), un mot par segment (`max_len=1`), une fois par
- * musique (cache). Sur « Rome Is Burning » : 60 s transcrites en 3,5 s sur le GPU, mots justes à quelques erreurs près
- * (« smilting » pour « smiling ») ; whisper étire un mot sur l'instrumental d'avant le chant (« I » sur 30 s), écarté
- * par [maxWord].
- */
-@Serializable
-data class LyricsEffect(
-    val enabled: Boolean = false,
-    /** Modèle whisper.cpp (ggml), relatif au dossier de configuration ; null : celui des sous-titres du profil. */
-    val model: String? = null,
-    /** Langue chantée ("auto" pour la détecter). */
-    val language: String = "en",
-    val span: LyricsSpan = LyricsSpan.ALL,
-    val font: String = "C:/Windows/Fonts/impact.ttf",
-    /** Taille du texte, en part de la hauteur de l'image : plus gros que les sous-titres, c'est un élément du montage. */
-    val size: Double = 0.12,
-    /**
-     * Position verticale du centre (0 = haut, 1 = bas). Les références écrivent au centre, sur une ouverture sans kill ;
-     * ici des kills s'y jouent déjà, et le réticule est au centre : un peu plus bas.
-     */
-    val y: Double = 0.62,
-    val verticalY: Double = 0.58,
-    val color: String = "white",
-    /** Apparition « pop » de chaque mot. */
-    val pop: SerialDuration = 80.milliseconds,
-    /** Un « mot » chanté plus longtemps que cela est une invention de whisper sur l'instrumental. */
-    val maxWord: SerialDuration = 1500.milliseconds,
-    /** Durée d'affichage minimale d'un mot (les mots rapides se lisent mal sous 0,15 s), sans chevaucher le suivant. */
-    val minShow: SerialDuration = 150.milliseconds,
-) {
-    init {
-        require(size in 0.02..0.3) { "montage.lyrics.size doit être entre 0,02 et 0,3" }
-        require(y in 0.0..1.0 && verticalY in 0.0..1.0) { "montage.lyrics.y doit être entre 0 et 1" }
-        require(maxWord.isPositive() && !minShow.isNegative()) { "montage.lyrics : durées positives attendues" }
-    }
-}
 
 /** Ce qu'on entend du son du jeu dans le montage. */
 @Serializable

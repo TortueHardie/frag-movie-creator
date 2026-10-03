@@ -98,16 +98,14 @@ de chaque temps (`MusicAnalysis.salience`) et découpage sur les notes qui resso
 Quatre kill montages VALORANT de TikTok dans `exemples/` (non versionné), mesurés le 02/10 (16:9, 1024x576, 30 img/s,
 20 à 50 s de contenu avant l'écran de fin de TikTok). Structure commune aux quatre :
 
-- Une ouverture de 12 à 15 s sans kill : animations d'inspection d'arme et de couteau (souvent sans HUD), les paroles
-  de la musique écrites mot par mot en grand au centre de l'image, un plan par mot ou presque. Puis la partie kills,
-  HUD visible, jusqu'à la fin de la musique.
+- Une ouverture de 12 à 15 s sans kill : animations d'inspection d'arme et de couteau (souvent sans HUD), un plan
+  par temps ou presque. Puis la partie kills, HUD visible, jusqu'à la fin de la musique.
 - Plans courts : médiane de 0,37 à 0,67 s selon la vidéo (le nôtre : des plans de plusieurs temps).
 - Couleurs poussées, accordées au skin de l'arme (violet et rose, rouge, cyan) : 12 à 38 % de pixels très saturés
   contre 7,5 % dans notre montage kills, noirs plus francs (3 à 8 % de l'image contre 1,7 %), contraste plus fort
   dans trois sur quatre. Notre montage kills n'a aucun étalonnage (`GradeSettings` ne sert qu'aux highlights).
 - Flou de mouvement partout : 12 à 21 % d'images floues (transitions en flou directionnel, whips, zooms) contre 5 %.
-- Effets vus à l'image : texte des paroles en mouvement (glitch, couleur du skin, parfois derrière l'arme), flashs
-  colorés, vignettage, ondes et halos, secousses, zooms rapides.
+- Effets vus à l'image : flashs colorés, vignettage, ondes et halos, secousses, zooms rapides.
 - Calage sur la musique non mesurable sur ces copies : leur piste audio est déclarée à 44,1 kHz mais encodée vers
   24 kHz (lue telle quelle, la musique dure deux fois moins que l'image). Il faudrait des copies propres.
 
@@ -148,20 +146,6 @@ Pistes, de la plus simple à la plus lourde :
     deux kills, inspection d'arme).
 - [ ] Ouverture « vitrine » : plans sans kill (inspection d'arme, passages calmes) avant la drop, au lieu d'un kill
   d'accroche. Demande de repérer ces passages dans la capture (arme en main, pas de combat).
-- [x] Paroles mot par mot (`montage.lyrics`, `--lyrics`, case de la fenêtre de montage ; désactivé par défaut) :
-  musique transcrite par whisper un mot par segment (`max_len=1`), gardée en cache, mots écrits en grand jusqu'à la
-  drop (`Lyrics`, `LyricsTranscriber`). « Rome Is Burning » : 405 mots transcrits en quelques secondes sur le GPU, 32 à
-  l'écran sur les 23 s avant la drop. Mots souvent approximatifs (« The world's emerging » pour « Rome is burning »).
-  - [x] Paroles sur tout le montage par défaut (`LyricsSpan.ALL`) : jusqu'à la drop seulement, « Lose Yourself »
-    n'affichait aucun mot (drop du montage à 30 s, chant à 34 s). Étiquettes `[Intro]`, `[Verse 1: …]` ignorées.
-  - [x] Paroles fournies par l'utilisateur (`.lrc`/`.txt` à côté de la musique, `--lyrics-file`) : calées sur les mots
-    entendus par whisper (`LyricsText.align`, alignement par ressemblance), ou sur les lignes d'un `.lrc` sans modèle.
-    Vérifié sur le vrai montage : le mot fourni s'écrit à l'instant du mot mal entendu qu'il remplace.
-    - [x] Paroles saisies dans la fenêtre de montage, retenues par musique (`MusicPrefs.lyrics`, `MontageOptions.lyricsTexts`) :
-      elles passent avant les fichiers.
-  - [ ] Texte posé sur des kills (y = 0,62, juste au-dessus du réticule) : l'ouverture « vitrine » sans kill lui
-    laisserait l'image, comme dans les références.
-  - [ ] Habillage des références à essayer : glitch, couleur du skin, texte derrière l'arme.
 - [ ] Refaire les mesures de calage sur des copies à l'audio intact.
 
 ---
