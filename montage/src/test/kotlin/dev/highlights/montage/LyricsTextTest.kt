@@ -29,6 +29,11 @@ class LyricsTextTest : FunSpec({
         lines[0].words shouldBe listOf("Refrain", "qui", "revient")
     }
 
+    test("paroles copiées d'un site : étiquettes de partie ignorées") {
+        LyricsText.parse("[Intro]\nLe feu brille\n[Verse 1: Quelqu'un]\nencore [fort]\n[Chorus]").map { it.words } shouldBe
+            listOf(listOf("Le", "feu", "brille"), listOf("encore", "fort"))
+    }
+
     test("texte brut : des lignes sans instant") {
         LyricsText.parse("Le feu brille\n\nencore").map { it.start to it.words } shouldBe
             listOf(null to listOf("Le", "feu", "brille"), null to listOf("encore"))

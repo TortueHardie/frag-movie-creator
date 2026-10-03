@@ -190,6 +190,8 @@ class MontageCommand : PipelineCommand("montage") {
     private val noWhip by option("--no-whip", help = "Sans whip pan dans le sens du flick").flag()
     private val noWhoosh by option("--no-whoosh", help = "Whip pans muets, sans souffle sur la coupe").flag()
     private val lyrics by option("--lyrics", help = "Paroles de la musique écrites mot par mot jusqu'à la drop (transcrites par whisper, ou lues dans un .lrc/.txt du même nom posé à côté de la musique)").flag()
+    private val lyricsSpan by option("--lyrics-span", help = "Paroles sur tout le montage (all, défaut) ou jusqu'à la drop (opening)")
+        .choice("all" to dev.highlights.core.model.LyricsSpan.ALL, "opening" to dev.highlights.core.model.LyricsSpan.OPENING)
     private val lyricsFile by option("--lyrics-file", help = "Paroles à écrire (.lrc ou .txt), calées sur la musique ; active --lyrics").path(mustExist = true, canBeDir = false)
     private val noMotionBlur by option("--no-motion-blur", help = "Sans flou de mouvement (traînées sur les mouvements rapides, flou radial sur les coupes)").flag()
     private val colors by option("--colors", help = "Couleurs : boost (vives, noirs francs, comme les kill montages de TikTok) ou natural (celles du jeu) ; défaut : celui du profil")
@@ -238,6 +240,7 @@ class MontageCommand : PipelineCommand("montage") {
                         whoosh = if (noWhoosh) false else null,
                         lyrics = if (lyrics) true else null,
                         lyricsFile = lyricsFile,
+                        lyricsSpan = lyricsSpan,
                         boostColors = colors,
                         motionBlur = if (noMotionBlur) false else null,
                         matchCut = if (noMatchCut) false else null,

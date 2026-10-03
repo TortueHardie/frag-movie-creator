@@ -118,6 +118,8 @@ data class MontageOptions(
     val lyricsFile: Path? = null,
     /** Paroles saisies, par musique (texte .lrc ou brut) ; passent avant [lyricsFile] et les fichiers posés à côté. */
     val lyricsTexts: Map<Path, String> = emptyMap(),
+    /** Passage où s'écrivent les paroles ; null : celui du profil. */
+    val lyricsSpan: dev.highlights.core.model.LyricsSpan? = null,
     /** Couleurs boostées (vibrance, saturation, contraste) comme les kill montages de TikTok. */
     val boostColors: Boolean? = null,
     /** Flou de mouvement : traînées sur les mouvements rapides et flou radial sur les coupes franches. */
@@ -557,7 +559,10 @@ class HighlightPipeline(
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),
             speedRamp = base.speedRamp.copy(enabled = options.speedRamp ?: base.speedRamp.enabled),
             text = base.text.copy(enabled = options.text ?: base.text.enabled),
-            lyrics = base.lyrics.copy(enabled = options.lyrics ?: (options.lyricsFile != null || base.lyrics.enabled)),
+            lyrics = base.lyrics.copy(
+                enabled = options.lyrics ?: (options.lyricsFile != null || base.lyrics.enabled),
+                span = options.lyricsSpan ?: base.lyrics.span,
+            ),
             reactions = options.reactions ?: base.reactions,
             audio = base.audio.copy(
                 balance = options.audioBalance ?: base.audio.balance,

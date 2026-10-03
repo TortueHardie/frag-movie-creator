@@ -754,10 +754,16 @@ data class TextEffect(
 /** Passage du montage où les paroles s'écrivent. */
 @Serializable
 enum class LyricsSpan {
-    /** Jusqu'à la drop : l'ouverture, comme les références ; ensuite les kills et leurs textes ont l'image pour eux. */
+    /**
+     * Jusqu'à la drop : l'ouverture, comme les références (qui n'y montrent pas de kill) ; ensuite les kills et leurs
+     * textes ont l'image pour eux. Rien quand le chant commence après la drop.
+     */
     @SerialName("opening") OPENING,
 
-    /** Tout le montage. */
+    /**
+     * Tout le montage (par défaut). Jusqu'à la drop seulement, « Lose Yourself » n'avait aucun mot : la drop du montage
+     * tombe à 30 s, le chant commence à 34 s.
+     */
     @SerialName("all") ALL,
 }
 
@@ -776,7 +782,7 @@ data class LyricsEffect(
     val model: String? = null,
     /** Langue chantée ("auto" pour la détecter). */
     val language: String = "en",
-    val span: LyricsSpan = LyricsSpan.OPENING,
+    val span: LyricsSpan = LyricsSpan.ALL,
     val font: String = "C:/Windows/Fonts/impact.ttf",
     /** Taille du texte, en part de la hauteur de l'image : plus gros que les sous-titres, c'est un élément du montage. */
     val size: Double = 0.12,

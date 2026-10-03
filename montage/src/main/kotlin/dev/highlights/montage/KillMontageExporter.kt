@@ -260,7 +260,14 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             model == null -> emptyList<Caption>().also { log.warn { "Modèle de transcription introuvable (${request.lyricsModel ?: "aucun"}) : montage sans paroles" } }
             else -> heard
         }
-        return Lyrics.shown(words, plan, settings).also { log.info { "Paroles : ${it.size} mot(s) à l'écran" } }
+        return Lyrics.shown(words, plan, settings).also { shown ->
+            log.info { "Paroles : ${shown.size} mot(s) à l'écran" }
+            if (shown.isEmpty() && words.isNotEmpty()) {
+                val first = words.first().range.start - plan.musicStart
+                val until = if (settings.span == dev.highlights.core.model.LyricsSpan.OPENING) plan.dropAt ?: plan.duration else plan.duration
+                log.warn { "Paroles : aucun mot chanté dans le passage affiché (de 0 à $until du montage ; premier mot à $first). Essayer « tout le montage » ou « musique depuis le début »." }
+            }
+        }
     }
 
     companion object {

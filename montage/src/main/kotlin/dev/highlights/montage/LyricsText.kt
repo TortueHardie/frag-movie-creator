@@ -23,8 +23,11 @@ object LyricsText {
     /** Horodatage de ligne LRC : [mm:ss], [mm:ss.xx] ou [mm:ss:xx]. */
     private val TIME = Regex("""\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?]""")
 
-    /** Balise d'en-tête LRC ([ar:Artiste], [ti:Titre]…) : pas des paroles. */
-    private val TAG = Regex("""^\[[a-zA-Z#]+:.*]$""")
+    /**
+     * Ligne entre crochets seule : balise d'en-tête LRC ([ar:Artiste], [ti:Titre]…) ou étiquette de partie des paroles
+     * copiées d'un site (« [Intro] », « [Verse 1: Eminem] », « [Chorus] ») : pas des paroles.
+     */
+    private val TAG = Regex("""^\[[^\]]*]$""")
 
     /** Ressemblance (0..1) au-delà de laquelle un mot entendu peut être le mot fourni. */
     private const val MATCH = 0.5
