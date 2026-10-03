@@ -149,8 +149,11 @@ Pistes, de la plus simple à la plus lourde :
     Zoom d'approche au rythme rapide (`fast.zoomApproach` 0,25 sur 0,2 s, `ZoomEffect.approach`) : l'image se resserre
     vers le réticule avant chaque kill, l'ennemi est un quart plus gros au tir. Le HUD grossit avec, comme au punch.
     - [ ] À juger à l'image ; recadrage fixe plus serré au rythme rapide pas fait (il couperait le HUD).
-  - [ ] Plusieurs plans par kill dans les sections lentes (les références coupent aussi sans kill : passages entre
-    deux kills, inspection d'arme).
+  - [x] Plusieurs plans par kill dans les plans longs (`cuts.jumpCuts`, `MontagePlanner.jumpCuts`, `SpeedKind.JUMP`) :
+    l'attente est coupée sur un temps, avec la même partie 4 s plus tôt (avant le kill) ou plus tard (après), dans le
+    passage sans autre kill ni mort (`KillGroup.calm`). « Rome Is Burning » : 1 plan coupé sur 22 (les autres plans
+    longs ont un ralenti, la drop, ou une mort dans les 4 s qui suivent).
+    - [ ] À juger à l'image ; plusieurs coupes dans un plan de 16 temps, ou des plans d'inspection d'arme : pas faits.
 - [ ] Ouverture « vitrine » : plans sans kill (inspection d'arme, passages calmes) avant la drop, au lieu d'un kill
   d'accroche. Demande de repérer ces passages dans la capture (arme en main, pas de combat).
 - [ ] Refaire les mesures de calage sur des copies à l'audio intact.

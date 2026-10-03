@@ -160,6 +160,34 @@ class MontagePlannerTest : FunSpec({
         plan(manyKills, m, off).clips.none { it.anchorHalf } shouldBe true
     }
 
+    test("plans longs : l'attente coupée sur un temps, sa première partie prise plus tôt, kills et longueurs intacts") {
+        // Peu de clips sur toute la durée : des plans de 8 temps et plus.
+        val p = plan(listOf(100, 400, 700), s = filling)
+        val cut = MontagePlanner.jumpCuts(p)
+        check(cut)
+        val jumped = cut.clips.filter { it.jumps.isNotEmpty() }
+        jumped.isNotEmpty() shouldBe true
+        cut.clips.zip(p.clips).forEach { (a, b) ->
+            seconds(a.toOutput(a.anchor)) shouldBe (seconds(b.toOutput(b.anchor)) plusOrMinus 1e-6)
+            a.kills shouldBe b.kills
+        }
+        jumped.forEach { c ->
+            val jump = c.jumps.single()
+            // 4 s de source sautés, la coupe sur un temps, à deux temps au moins du début et du premier kill.
+            seconds(jump.range.length) shouldBe (4.0 plusOrMinus 1e-6)
+            val at = c.toOutput(jump.range.start)
+            val beat = (seconds(at + p.music.beatTime(c.slot.startBeat)) / 0.5)
+            beat shouldBe (Math.rint(beat) plusOrMinus 1e-6)
+            (at >= 1.seconds && c.toOutput(c.kills.first()) - at >= 1.seconds) shouldBe true
+            // Au rendu, la portion sautée n'est pas lue : deux portions, de la longueur de sortie du plan.
+            val parts = MontageRenderBuilder.speedParts(c)
+            seconds(parts.fold(Duration.ZERO) { acc, part -> acc + part.outputLength }) shouldBe (seconds(c.outputLength) plusOrMinus 1e-6)
+        }
+        // Désactivé, ou drop : plans d'un seul tenant.
+        MontagePlanner.jumpCuts(p.copy(settings = p.settings.copy(cuts = p.settings.cuts.copy(jumpCuts = false)))).clips.none { it.jumps.isNotEmpty() } shouldBe true
+        cut.clips.filter { it.slot.dropBeat != null }.none { it.jumps.isNotEmpty() } shouldBe true
+    }
+
     test("tempo variable : les coupes suivent les temps détectés, pas une période moyenne") {
         // Temps qui ralentissent progressivement (musique jouée live).
         val n = 240

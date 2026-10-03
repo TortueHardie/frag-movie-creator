@@ -307,8 +307,19 @@ data class CutSettings(
      * contretemps font 0 à 5 % des temps, 11 % sur « Big Dawgs » (hip-hop à 90 BPM, un demi-temps dure 0,33 s).
      */
     val offbeatKills: Boolean = true,
+    /**
+     * Plusieurs plans par kill dans les plans longs (au moins [jumpMinBeats] temps, sections calmes) : l'attente avant le
+     * kill est coupée sur un temps, sa première partie prise [jumpBack] plus tôt dans la partie (le joueur qui se
+     * déplace), puis la suite mène au kill. Les références coupent aussi sans kill (plans de 0,37 à 0,67 s en médiane) ;
+     * les nôtres duraient jusqu'à 16 temps d'un seul tenant.
+     */
+    val jumpCuts: Boolean = true,
+    val jumpMinBeats: Int = 8,
+    val jumpBack: SerialDuration = 4.seconds,
 ) {
     init {
+        require(jumpMinBeats >= 4) { "montage.cuts.jumpMinBeats doit valoir au moins 4" }
+        require(jumpBack.isPositive()) { "montage.cuts.jumpBack doit être positif" }
         require(maxBeats in 4..64) { "montage.cuts.maxBeats doit être entre 4 et 64" }
         require(dropPosition in 0.0..1.0) { "montage.cuts.dropPosition doit être entre 0 et 1" }
         require(preBeatFrames in 0..4) { "montage.cuts.preBeatFrames doit être entre 0 et 4" }

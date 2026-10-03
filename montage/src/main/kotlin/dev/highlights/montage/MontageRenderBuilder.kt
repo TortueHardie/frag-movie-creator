@@ -549,7 +549,8 @@ object MontageRenderBuilder {
             val to = minOf(seg.range.end, clip.end)
             if (to <= from) continue
             if (from > pos) parts += SpeedPart(pos - clip.start + lead, from - clip.start + lead, 1.0)
-            parts += SpeedPart(from - clip.start + lead, to - clip.start + lead, seg.factor, seg.kind)
+            // Saut : rien de cette portion n'est lu, la suivante reprend après elle (image et son).
+            if (seg.kind != SpeedKind.JUMP) parts += SpeedPart(from - clip.start + lead, to - clip.start + lead, seg.factor, seg.kind)
             pos = to
         }
         if (clip.end > pos || parts.isEmpty()) parts += SpeedPart(pos - clip.start + lead, clip.end - clip.start + lead, 1.0)
