@@ -165,6 +165,11 @@ object VectorBlur {
             if (rest <= gap) return pos + rest to 1.0
             rest -= gap
             pos = seg.range.start
+            // Saut : la portion n'est pas montrée, la lecture reprend après elle.
+            if (seg.kind == SpeedKind.JUMP) {
+                pos = seg.range.end
+                continue
+            }
             val segOut = seg.range.length / seg.factor
             if (rest <= segOut) return pos + rest * seg.factor to seg.factor
             rest -= segOut

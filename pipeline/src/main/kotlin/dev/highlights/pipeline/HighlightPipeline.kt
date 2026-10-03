@@ -593,7 +593,8 @@ class HighlightPipeline(
         } else {
             MontagePlanner.best(groups, MusicChoice.prepare(musics.single(), settings), settings) to emptyList()
         }
-        val plan = ScopeCuts.apply(chosen)
+        // Raccords d'abord : un plan raccordé garde son début dans la pose, il n'est pas coupé dans l'attente.
+        val plan = MontagePlanner.jumpCuts(ScopeCuts.apply(chosen))
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(plan.music.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
         return withJobDir { workDir ->
             montageExporter.export(

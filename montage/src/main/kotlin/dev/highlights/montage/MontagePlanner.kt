@@ -1,6 +1,7 @@
 package dev.highlights.montage
 
 import dev.highlights.core.HighlightsException
+import dev.highlights.core.model.CutSettings
 import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.KillStyle
 import dev.highlights.core.model.MediaInfo
@@ -36,6 +37,12 @@ data class KillGroup(
     val style: Double = 0.0,
     /** Visée autour des kills, pour les raccords visée sur visée (voir [MatchCutter]). */
     val aim: Aim = Aim.NONE,
+    /**
+     * Passage de la capture sans autre kill ni mort autour du groupe : du dernier kill ou de la dernière mort d'avant au
+     * premier d'après. Un plan coupé dans son attente ([MontagePlanner.jumpCuts]) y reste : sinon il montrerait un kill
+     * d'un autre plan ou l'écran de mort. Null si les morts ne sont pas connues.
+     */
+    val calm: TimeRange? = null,
 ) {
     val rank: Double get() = kills.size + score / 10 + style
     val span: Duration get() = kills.last() - kills.first()
@@ -104,7 +111,11 @@ data class RoundOutcome(val traded: Boolean = false, val ace: Boolean = false, v
 }
 
 /** Origine d'un changement de vitesse : ralenti du kill d'ancrage, ou rampe qui ramène un kill sur un temps. */
-enum class SpeedKind { SLOW, RAMP }
+/**
+ * [SLOW] : ralenti ; [RAMP] : rampe de vitesse d'un multi-kill ; [JUMP] : saut dans la source (jump cut à l'intérieur
+ * d'un plan), joué en un instant : la portion n'est pas montrée.
+ */
+enum class SpeedKind { SLOW, RAMP, JUMP }
 
 /** Portion de la source jouée à une vitesse différente de 1 : 0,5 = ralenti ×2, 1,1 = légèrement accéléré (speed ramp). */
 data class SpeedSegment(val range: TimeRange, val factor: Double, val kind: SpeedKind = SpeedKind.RAMP) {
@@ -157,6 +168,8 @@ data class MontageClip(
     /** Palier le plus lent du ralenti (celui qui porte le kill), s'il a été gardé. */
     val slow: SpeedSegment? get() = slowSteps.lastOrNull()
     val ramps: List<SpeedSegment> get() = speeds.filter { it.kind == SpeedKind.RAMP }
+    /** Sauts dans la source : l'attente coupée en plusieurs plans (voir [MontagePlanner.jumpCuts]). */
+    val jumps: List<SpeedSegment> get() = speeds.filter { it.kind == SpeedKind.JUMP }
 
     /** Instant de sortie (relatif au début du clip) d'un instant de la source. */
     fun toOutput(t: Duration): Duration {
@@ -347,8 +360,15 @@ object MontagePlanner {
         // Sans mise en avant des réactions, la voix ne décide de rien : ni durée des plans, ni volume, ni débordement.
         val protectedSegments = if (settings.reactions) timeline.segments.filter { it.kind in settings.keepWhole }.map { it.range } else emptyList()
         val voice = if (settings.reactions) timeline.segments.filter { it.kind in setOf("speech", "laughter", "shout") }.map { it.range } else emptyList()
+        // Morts lues sans le filtre du rythme rapide : tous les kills de la capture comptent.
+        val calmDeaths = if (style.deathEvent.isEmpty()) null else deaths
         grouped.mapIndexed { i, ks ->
             val window = TimeRange(ks.first() - settings.preRoll, ks.last() + settings.postRoll)
+            val calm = calmDeaths?.let { died ->
+                val before = (allKills.filter { it < ks.first() } + died.filter { it < ks.first() }).maxOrNull() ?: bounds.start
+                val after = (allKills.filter { it > ks.last() } + died.filter { it > ks.last() }).minOrNull() ?: bounds.end
+                TimeRange(before, after)
+            }
             val indices = timeline.grid.let { g -> (0 until g.count).filter { g.rangeOf(it).isWithin(window) } }
             // Sans balle au compteur (capacité, couteau, capture sans compteur), la confirmation situe tout de même le kill.
             val traits = ks.map { KillTraits(headshot = headshot(it), shots = shots[it], fatal = hud?.get(it)?.fatal ?: confirmed[it]?.minus(CONFIRM_LAG)) }
@@ -361,6 +381,7 @@ object MontagePlanner {
                 traits = traits,
                 outcome = outcomes[i],
                 style = style(ks, traits, outcomes[i], style),
+                calm = calm,
             )
         }
     }
@@ -372,6 +393,67 @@ object MontagePlanner {
      * revient à la dernière, celle qui le finit, les précédentes ne gardent que l'échange. La visée avant le premier kill
      * va à la première partie, celle après le dernier à la dernière.
      */
+    /** Plus courte partie d'un plan coupé par [jumpCuts] : deux temps, assez pour se lire. */
+    private const val JUMP_MIN_PART = 2
+
+    /**
+     * Coupe l'attente des plans longs ([CutSettings.jumpCuts]) : sur le temps le plus marqué à au moins deux temps des
+     * bords et du premier kill, le plan saute ; avant, la même partie [CutSettings.jumpBack] plus tôt, après, l'approche
+     * du kill telle qu'elle était. Kills, coupes et longueurs ne bougent pas. Seulement sur des plans lus à vitesse
+     * normale jusqu'à leur premier kill, sans image gelée, hors drop, raccords et plans d'un temps, et quand la source
+     * d'avant ne contient pas un kill du même groupe (il compterait comme montré).
+     */
+    fun jumpCuts(plan: MontagePlan): MontagePlan {
+        val cuts = plan.settings.cuts
+        if (!cuts.jumpCuts) return plan
+        val music = plan.music
+        val clips = plan.clips.map { c -> jumpBefore(c, music, cuts) ?: jumpAfter(c, music, cuts) ?: c }
+        val jumped = clips.count { it.jumps.isNotEmpty() }
+        if (jumped > 0) log.info { "Plans coupés dans l'attente : $jumped sur ${clips.size}" }
+        return plan.copy(clips = clips)
+    }
+
+    /** Temps du plan où couper : le plus marqué (attaque, premier temps de mesure) parmi [beats]. */
+    private fun jumpBeat(beats: List<Int>, music: MusicAnalysis): Int? =
+        beats.maxByOrNull { b -> music.strength(b) + (if (music.isDownbeat(b)) 0.4 else 0.0) }
+
+    /** Plan dont l'attente précède le kill : sa première partie est prise [CutSettings.jumpBack] plus tôt. */
+    private fun jumpBefore(c: MontageClip, music: MusicAnalysis, cuts: CutSettings): MontageClip? {
+        val first = c.kills.firstOrNull() ?: return null
+        val calm = c.group.calm ?: return null
+        if (!jumpable(c, cuts) || c.padBefore.isPositive() || c.speeds.any { it.range.start < first }) return null
+        val slotStart = music.beatTime(c.slot.startBeat)
+        val killOut = c.toOutput(first)
+        val split = jumpBeat(
+            (c.slot.startBeat + JUMP_MIN_PART until c.slot.endBeat).filter { b -> killOut - (music.beatTime(b) - slotStart) >= music.beatPeriod * JUMP_MIN_PART },
+            music,
+        ) ?: return null
+        val out = music.beatTime(split) - slotStart
+        val start = c.start - cuts.jumpBack
+        if (start < c.group.media.bounds.start || start <= calm.start) return null
+        return c.copy(start = start, speeds = listOf(SpeedSegment(TimeRange(start + out, c.start + out), Double.POSITIVE_INFINITY, SpeedKind.JUMP)) + c.speeds)
+    }
+
+    /** Plan dont l'attente suit le kill : sa fin est prise [CutSettings.jumpBack] plus tard (le joueur qui repart). */
+    private fun jumpAfter(c: MontageClip, music: MusicAnalysis, cuts: CutSettings): MontageClip? {
+        val last = c.kills.lastOrNull() ?: return null
+        val calm = c.group.calm ?: return null
+        if (!jumpable(c, cuts) || c.padAfter.isPositive() || c.speeds.any { it.range.end > last }) return null
+        val slotStart = music.beatTime(c.slot.startBeat)
+        val killOut = c.toOutput(last)
+        val split = jumpBeat(
+            (c.slot.startBeat + 1..c.slot.endBeat - JUMP_MIN_PART).filter { b -> music.beatTime(b) - slotStart - killOut >= music.beatPeriod * JUMP_MIN_PART },
+            music,
+        ) ?: return null
+        val at = c.toOutput(c.end).let { end -> c.end - (end - (music.beatTime(split) - slotStart)) }
+        val end = c.end + cuts.jumpBack
+        if (end > c.group.media.duration || end >= calm.end) return null
+        return c.copy(end = end, speeds = c.speeds + SpeedSegment(TimeRange(at, at + cuts.jumpBack), Double.POSITIVE_INFINITY, SpeedKind.JUMP))
+    }
+
+    private fun jumpable(c: MontageClip, cuts: CutSettings): Boolean =
+        c.beats >= cuts.jumpMinBeats && c.slot.dropBeat == null && !c.matchCut && !c.leadIn.isPositive()
+
     fun split(groups: List<KillGroup>, settings: MontageSettings): List<KillGroup> {
         if (!settings.splitGap.isPositive()) return groups
         return groups.flatMap { g ->
@@ -397,6 +479,10 @@ object MontagePlanner {
                         head = g.aim.head.takeIf { p == 0 }, headPose = g.aim.headPose.takeIf { p == 0 },
                         tail = g.aim.tail.takeIf { last }, tailPose = g.aim.tailPose.takeIf { last },
                     ),
+                    // Entre les parties voisines : les kills des autres parties sont montrés ailleurs.
+                    calm = g.calm?.let { c ->
+                        TimeRange(if (p == 0) c.start else g.kills[parts[p - 1].last()], if (last) c.end else g.kills[parts[p + 1].first()])
+                    },
                 )
             }
         }

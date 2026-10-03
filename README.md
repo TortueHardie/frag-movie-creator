@@ -617,6 +617,12 @@ quel morceau, sans réglage par musique :
 - Le rapport du montage dit pour chaque plan si son kill tombe sur un de ces moments (`onMusicMoment`). Au rythme rapide,
   sur une minute : 9 moments sur 10 reçoivent un kill (« Fortunate Son »), 16 sur 19 (« Rome Is Burning »), 25 sur 38
   (« R2D2 »).
+- Plans longs coupés dans l'attente (`cuts.jumpCuts`, activé par défaut) : un plan d'au moins 8 temps (`jumpMinBeats`)
+  est coupé sur le temps le plus marqué de son attente, à deux temps au moins du kill et des bords. Attente avant le
+  kill : la première partie est la même partie 4 s plus tôt (`jumpBack`) ; après le kill : la fin est 4 s plus tard (le
+  joueur qui repart). Kills, coupes et longueurs ne bougent pas. Jamais sur la drop, un raccord, un plan ralenti ou
+  d'un temps, ni si le saut ferait voir un autre kill ou la mort du joueur (passage calme autour du groupe, morts
+  connues seulement). Le rapport le dit pour chaque plan (`jumpCut`).
 - Contretemps syncopés (`cuts.offbeatKills`, activé par défaut) : un contretemps qui frappe au moins 1,2 fois plus fort
   que les deux temps qui l'entourent peut recevoir le kill du plan, s'il est mieux noté que le temps retenu (sans le
   bonus du premier temps de mesure) ; les coupes restent sur les temps, et la drop sur le sien. Sur 17 musiques, de tels
