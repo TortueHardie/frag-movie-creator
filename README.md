@@ -268,20 +268,6 @@ détecte les kills). En ligne de commande :
   part et d'autre, la coupe reste franche. Désactivable par une case de la fenêtre de montage ou `--no-whip`.
   Un souffle (whoosh, celui des highlights story) culmine sur la coupe (`whoosh`, volume 0,5 ; 0 ou `--no-whoosh` :
   whip pan muet).
-- **Paroles mot par mot** (`lyrics`, désactivé par défaut ; case « Paroles de la musique à l'écran » ou `--lyrics`) :
-  comme l'ouverture des kill montages de TikTok, les paroles s'écrivent en grand, un mot à la fois, le temps où il est
-  chanté, sur tout le montage (`span: opening`, case « jusqu'à la drop seulement » ou `--lyrics-span opening` : l'ouverture seule, comme les références ; rien si le chant commence après la drop). La musique est transcrite en local par whisper (le modèle
-  `model`, à défaut celui des sous-titres du profil ; langue `language`, `en` par défaut), une fois par musique : la
-  transcription est gardée dans le cache. Un mot que whisper étire sur l'instrumental (plus de `maxWord`, 1,5 s) est
-  écarté. Taille `size`, position `y` / `verticalY`, couleur `color`. Sans modèle, le montage sort sans paroles.
-  - **Paroles fournies** : whisper se trompe souvent de mots sur une musique, mais les place bien. Dans la fenêtre de
-    montage, la case « Paroles » ouvre un champ où coller le texte (une ligne par vers, les instants `[mm:ss]` d'un
-    `.lrc` sont compris, les étiquettes `[Intro]`, `[Chorus]`… des sites de paroles ignorées), retenu pour cette musique, y compris quand elle est ensuite choisie dans une bibliothèque.
-    Sinon, un fichier `.lrc`
-    (synchronisé par ligne) ou `.txt` du même nom que la musique, posé à côté d'elle (`Ma musique.lrc` pour
-    `Ma musique.mp3`, utile en bibliothèque), ou `--lyrics-file paroles.txt` (qui active les paroles) : ce texte est
-    écrit, chaque mot à l'instant du mot entendu qui lui ressemble ; ceux que whisper n'a pas entendus se placent entre
-    leurs voisins. Sans modèle, un `.lrc` suffit : les mots se répartissent dans leur ligne.
 - **Flou de mouvement** (`motionBlur`), mesuré sur les montages de référence (flou sur 48 à 93 % des coupes, une ou
   deux images à 30 img/s) :
   - Mélange d'images (`blend`, désactivé par défaut) : chaque image mélange celles des 17 ms précédentes. Dans un FPS

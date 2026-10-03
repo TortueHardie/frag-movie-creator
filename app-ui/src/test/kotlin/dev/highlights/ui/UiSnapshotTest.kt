@@ -176,20 +176,6 @@ class UiSnapshotTest : FunSpec({
         render("06_montage", state).fileSize() shouldBeGreaterThan 0L
     }
 
-    test("réglages du montage kills : paroles saisies") {
-        val state = UiState(
-            config = ready,
-            sources = listOf(source),
-            settings = settings,
-            session = SessionState(session, Path("D:/Highlights/sessions/x.session.json"), selectedId = "h003"),
-            montage = MontageUiState(
-                music = Path("D:/Musique/phonk_128.mp3"), lyrics = true,
-                lyricsText = "Le feu brille encore dans la nuit\nOn avance sans se retourner\n[00:42.10]Refrain qui revient",
-            ),
-        )
-        render("06b_montage_paroles", state, height = 2200).fileSize() shouldBeGreaterThan 0L
-    }
-
     test("publication sur YouTube : champs proposés, puis sans identifiant configuré, puis lien de la vidéo en ligne") {
         val video = Path("D:/Highlights/valorant_2026-09-27_killmontage_9x16.mp4")
         val suggested = dev.highlights.publish.YouTubeMetadata(
