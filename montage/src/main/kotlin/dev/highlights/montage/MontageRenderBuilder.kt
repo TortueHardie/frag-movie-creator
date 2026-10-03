@@ -152,10 +152,20 @@ object MontageRenderBuilder {
             val zoomKills = if (settings.zoom.onEveryKill) outKills else outKills.takeLast(1)
             if (settings.zoom.enabled && zooms[i] && zoomKills.isNotEmpty()) {
                 val decay = settings.zoom.decay.inWholeMicroseconds / 1e6
-                val z = "(1+${num(settings.zoom.amount)}*(" + zoomKills.joinToString("+") { k ->
+                val punch = "${num(settings.zoom.amount)}*(" + zoomKills.joinToString("+") { k ->
                     val tk = sec(k)
                     "if(gte(t\\,$tk)\\,exp(-(t-$tk)/${num(decay)})\\,0)"
-                } + "))"
+                } + ")"
+                // Approche : montée en douceur (carré du temps) jusqu'au kill, puis retombée avec le punch.
+                val approach = settings.zoom.approach.takeIf { it > 0 }?.let { a ->
+                    val lead = settings.zoom.approachLead.inWholeMicroseconds / 1e6
+                    "+${num(a)}*(" + zoomKills.joinToString("+") { k ->
+                        val tk = sec(k)
+                        val from = num((k.inWholeMicroseconds / 1e6 - lead).coerceAtLeast(0.0))
+                        "if(lt(t\\,$tk)\\,if(gte(t\\,$from)\\,pow((t-$from)/${num(lead)}\\,2)\\,0)\\,exp(-(t-$tk)/${num(decay)}))"
+                    } + ")"
+                } ?: ""
+                val z = "(1+$punch$approach)"
                 effects += "scale=w='trunc($w*$z/2)*2':h='trunc($h*$z/2)*2':eval=frame:flags=${settings.zoom.scaleFlags}"
                 effects += "crop=$w:$h:(iw-$w)/2:(ih-$h)/2"
             }

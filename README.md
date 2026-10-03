@@ -654,6 +654,9 @@ chaque temps de la musique, sur chaque coup de grosse caisse d'une techno, comme
 la place), ni whip pan (200 ms d'image qui file dans un plan de 0,37 s : jugé illisible) ; zoom, flash, flou et couleurs restent. Le kill tombe sur le temps qui ouvre son plan, la
 coupe le précède de 0,2 s, et il reste au moins 0,15 s pour voir l'ennemi tomber (`montage.fast` : `minLead`,
 `minTail`) : un temps par plan jusqu'à 171 BPM, deux au-delà. Durée visée : 0,4 s par kill (`perClip`).
+Zoom d'approche (`fast.zoomApproach` 0,25, sur `fast.zoomApproachLead` 0,2 s ; `zoom.approach` hors rythme rapide, 0 par
+défaut) : l'image se resserre vers le réticule pendant les 0,2 s qui précèdent chaque kill, puis retombe avec le punch.
+En 21:9, l'ennemi n'est souvent que quelques pixels au fond d'un couloir : il grossit d'un quart au moment du tir.
 
 - Mesuré sur R2D2 (161 BPM) avec deux parties : 45 kills en 19,6 s, 42 plans d'un temps (0,37 s), contre des plans de
   quatre temps (1,5 s, un kill toutes les 1,5 s) au rythme normal. Le marqueur de kill reste lisible à l'image.
