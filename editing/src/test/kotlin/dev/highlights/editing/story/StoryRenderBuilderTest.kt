@@ -181,7 +181,8 @@ class StoryRenderBuilderTest : FunSpec({
         lines.single { it.startsWith("[x3s1]") } shouldContain "afade=t=out:st=0.650:d=0.200,apad=whole_dur=1.700,atrim=duration=1.700"
         val video = lines.single { it.endsWith("[v3]") }
         video shouldContain "[r3]"
-        video shouldContain "trim=duration=10.850"
+        // 10,85 s à 60 img/s, coupé en images.
+        video shouldContain "trim=end_frame=651,setpts=N/(60*TB)"
         // Pic à 5 s de source → 4,75 + 0,25 × 2 = 5,25 s à l'écran ; sous-titre à 6 s → 6,85 s.
         video shouldContain "between(t\\,5.2500\\,5.2500+0.3500)"
         video shouldContain "enable='between(t\\,5.250\\,6.350)'"

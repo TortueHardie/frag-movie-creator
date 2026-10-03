@@ -5,6 +5,7 @@ import dev.highlights.core.config.EncoderSettings
 import dev.highlights.core.config.FfmpegSettings
 import dev.highlights.core.config.LoadedConfig
 import dev.highlights.core.ffmpeg.FfmpegCommand
+import dev.highlights.core.ffmpeg.StdoutHandler
 import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SelectionTarget
@@ -32,6 +33,7 @@ import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import java.nio.file.Files
 import kotlin.io.path.Path
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -127,6 +129,48 @@ class StoryZoomIT : FunSpec({
         script.writeText(render.filterGraph)
         ffmpeg.run(render.command)
         (ffmpeg.probe(out).duration.inWholeMilliseconds / 1000.0) shouldBe (8.0 plusOrMinus 0.3)
+    }
+})
+
+/**
+ * Régression : chaque plan était coupé par durée (`trim=duration`), qui garde l'image entamée en fin de plan. Avec des
+ * plans dont la longueur ne tombe pas sur une image, la vidéo prenait une image de trop par plan sur le son.
+ */
+class StoryFramesIT : FunSpec({
+    test("plans de longueur hors grille : autant d'images que de temps de son, sans dérive au fil des coupes").config(
+        enabledIf = { TestMedia.available },
+        timeout = 5.seconds * 60,
+    ) {
+        val root = tempdir().toPath()
+        val ffmpeg = TestMedia.requireFfmpeg()
+        val source = TestMedia.generate(root.resolve("partie.mp4"), durationSeconds = 30)
+        val media = ffmpeg.probe(source)
+        val h = Highlight("h1", source, TimeRange(1.seconds, 25.seconds), 5.seconds, 0.8)
+        val settings = EditSettings(style = EditStyle.STORY, fps = 30)
+        // 1,017 s : 30,5 images à 30 img/s, la pire position pour un arrondi.
+        val length = 1017.milliseconds
+        val shots = (0 until 10).map { k ->
+            val start = 1.seconds + 2.seconds * k
+            StoryShot(media, TimeRange(start, start + length), h, if (k == 0) ShotRole.OPENING else ShotRole.JUMP)
+        }
+        val plan = StoryPlan(shots = shots, moments = listOf(PlannedClip(h, media)), settings = settings.copy(story = settings.story.copy(fadeOut = Duration.ZERO)))
+        val encoder = FfmpegEncoderSelector(ffmpeg, EncoderSettings(preference = listOf("libx264"))).select()
+        val out = root.resolve("story.mp4")
+        val script = root.resolve("filters.txt")
+        val render = StoryRenderBuilder.build(StoryRenderRequest(plan, OutputFormat.SOURCE, encoder, out, script, filterScriptOption = ffmpeg.filterScriptOption()))
+        script.writeText(render.filterGraph)
+        ffmpeg.run(render.command)
+
+        val lines = mutableListOf<String>()
+        ffmpeg.runProbe(
+            FfmpegCommand(
+                listOf("-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", out.toString()),
+                "compte des images",
+            ),
+            StdoutHandler.Lines { if (it.isNotBlank()) lines += it.trim() },
+        )
+        // 10,17 s de son : 305 images, pas 310 (une de trop par plan).
+        lines.single().toInt() shouldBe 305
     }
 })
 

@@ -117,7 +117,9 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Corrigé en passant : chaque plan du montage kills gardait parfois une image de trop (`trim=duration` sur des
   horodatages hors grille), 11 images (0,18 s) sur 31 plans, la vidéo dépassait le son et les derniers kills tombaient
   après leur temps. Plans coupés en nombre d'images désormais.
-  - [ ] Même schéma dans `StoryRenderBuilder` (highlights story, `trim=duration` par plan) : à vérifier.
+  - [x] Même schéma dans `StoryRenderBuilder` (highlights story) : confirmé, une image de trop par plan hors grille
+    (10 plans de 1,017 s : 310 images pour 10,17 s de son). Plans coupés en images, arrondis sur la position cumulée
+    (`StoryRenderBuilder.frameCounts`, test `StoryFramesIT`).
 - [x] Rythme rapide (`montage.fast`, `--fast`, case « Rythme rapide ») : un kill par temps, plans de 0,37 s à
   161 BPM (médiane des références : 0,37 à 0,67 s) au lieu de quatre temps (1,5 s).
   - [ ] L'activer par défaut si le rendu plaît, ou seulement au-dessus d'un tempo.
