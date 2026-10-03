@@ -272,6 +272,11 @@ détecte les kills). En ligne de commande :
   `model`, à défaut celui des sous-titres du profil ; langue `language`, `en` par défaut), une fois par musique : la
   transcription est gardée dans le cache. Un mot que whisper étire sur l'instrumental (plus de `maxWord`, 1,5 s) est
   écarté. Taille `size`, position `y` / `verticalY`, couleur `color`. Sans modèle, le montage sort sans paroles.
+  - **Paroles fournies** : whisper se trompe souvent de mots sur une musique, mais les place bien. Un fichier `.lrc`
+    (synchronisé par ligne) ou `.txt` du même nom que la musique, posé à côté d'elle (`Ma musique.lrc` pour
+    `Ma musique.mp3`, utile en bibliothèque), ou `--lyrics-file paroles.txt` (qui active les paroles) : ce texte est
+    écrit, chaque mot à l'instant du mot entendu qui lui ressemble ; ceux que whisper n'a pas entendus se placent entre
+    leurs voisins. Sans modèle, un `.lrc` suffit : les mots se répartissent dans leur ligne.
 - **Flou de mouvement** (`motionBlur`), mesuré sur les montages de référence (flou sur 48 à 93 % des coupes, une ou
   deux images à 30 img/s) :
   - Mélange d'images (`blend`, désactivé par défaut) : chaque image mélange celles des 17 ms précédentes. Dans un FPS

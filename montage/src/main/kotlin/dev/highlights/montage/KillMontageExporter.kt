@@ -54,6 +54,8 @@ data class MontageExportRequest(
     val lyricsModel: Path? = null,
     /** Transcriptions des musiques gardées d'un montage à l'autre ; null : pas de cache. */
     val lyricsCache: Path? = null,
+    /** Paroles fournies (.lrc ou .txt) ; null : celles posées à côté de la musique ([LyricsText.sidecar]), sinon whisper seul. */
+    val lyricsText: Path? = null,
 )
 
 @Serializable
@@ -234,15 +236,27 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
     }
 
     /** Mots des paroles à écrire, en temps du montage ; aucun si elles ne sont pas demandées ou sans modèle. */
+    /**
+     * Mots des paroles à écrire, en temps du montage. Texte fourni (fichier donné ou posé à côté de la musique) : calé sur
+     * la transcription ([LyricsText.align]), ou, sans modèle, sur les lignes d'un .lrc. Sinon les mots entendus par
+     * whisper. Aucun si elles ne sont pas demandées ou que rien ne permet de les placer.
+     */
     private suspend fun lyrics(plan: MontagePlan, request: MontageExportRequest): List<Caption> {
         val settings = plan.settings.lyrics
         if (!settings.enabled) return emptyList()
-        val model = request.lyricsModel
-        if (model == null || !model.exists()) {
-            log.warn { "Modèle de transcription introuvable (${model ?: "aucun"}) : montage sans paroles" }
-            return emptyList()
+        val textFile = request.lyricsText ?: LyricsText.sidecar(plan.music.file)
+        val given = textFile?.let { f ->
+            runCatching { LyricsText.read(f) }.onFailure { log.warn { "Paroles illisibles ($f) : ${it.message}" } }.getOrNull()
         }
-        val words = LyricsTranscriber(ffmpeg, request.lyricsCache).words(plan.music.file, model, settings, request.workDir)
+        val model = request.lyricsModel?.takeIf { it.exists() }
+        val heard = model?.let { LyricsTranscriber(ffmpeg, request.lyricsCache).words(plan.music.file, it, settings, request.workDir) }.orEmpty()
+        val words = when {
+            given != null && heard.isNotEmpty() -> LyricsText.align(given, heard).also { log.info { "Paroles de $textFile calées sur la transcription" } }
+            given != null && given.all { it.start != null } -> LyricsText.spread(given).also { log.info { "Paroles de $textFile placées sur leurs lignes (sans transcription)" } }
+            given != null -> emptyList<Caption>().also { log.warn { "Paroles sans horodatage ($textFile) et sans modèle de transcription pour les caler : montage sans paroles" } }
+            model == null -> emptyList<Caption>().also { log.warn { "Modèle de transcription introuvable (${request.lyricsModel ?: "aucun"}) : montage sans paroles" } }
+            else -> heard
+        }
         return Lyrics.shown(words, plan, settings).also { log.info { "Paroles : ${it.size} mot(s) à l'écran" } }
     }
 

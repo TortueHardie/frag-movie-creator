@@ -36,7 +36,7 @@ object Lyrics {
      * de fin tombe : un mot à la fois, la virgule n'a plus de sens.
      */
     fun clean(words: List<Caption>, settings: LyricsEffect): List<Caption> = words.mapNotNull { w ->
-        val text = w.text.trim().trim(',', '.', '!', '?', ';', ':', '"', '«', '»', '…', '-').trim()
+        val text = trimWord(w.text)
         val bare = text.lowercase().filter { it.isLetterOrDigit() || it == '♪' }
         when {
             text.none { it.isLetterOrDigit() } -> null
@@ -45,6 +45,9 @@ object Lyrics {
             else -> Caption(w.range, text)
         }
     }.sortedBy { it.range.start }
+
+    /** Mot sans la ponctuation qui l'entoure : un mot à la fois, la virgule n'a plus de sens. */
+    fun trimWord(word: String): String = word.trim().trim(',', '.', '!', '?', ';', ':', '"', '«', '»', '…', '-', '(', ')').trim()
 
     /**
      * Mots affichés dans [plan], en temps du montage : ceux chantés pendant le passage de la musique retenu, jusqu'à la

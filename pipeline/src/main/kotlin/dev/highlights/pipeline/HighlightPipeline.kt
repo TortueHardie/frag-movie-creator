@@ -112,6 +112,8 @@ data class MontageOptions(
     val whip: Boolean? = null,
     /** Paroles de la musique écrites mot par mot (voir [dev.highlights.core.model.LyricsEffect]). */
     val lyrics: Boolean? = null,
+    /** Paroles fournies (.lrc ou .txt), calées sur la musique ; les active. Null : un fichier posé à côté de la musique. */
+    val lyricsFile: Path? = null,
     /** Couleurs boostées (vibrance, saturation, contraste) comme les kill montages de TikTok. */
     val boostColors: Boolean? = null,
     /** Flou de mouvement : traînées sur les mouvements rapides et flou radial sur les coupes franches. */
@@ -548,7 +550,7 @@ class HighlightPipeline(
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),
             speedRamp = base.speedRamp.copy(enabled = options.speedRamp ?: base.speedRamp.enabled),
             text = base.text.copy(enabled = options.text ?: base.text.enabled),
-            lyrics = base.lyrics.copy(enabled = options.lyrics ?: base.lyrics.enabled),
+            lyrics = base.lyrics.copy(enabled = options.lyrics ?: (options.lyricsFile != null || base.lyrics.enabled)),
             reactions = options.reactions ?: base.reactions,
             audio = base.audio.copy(
                 balance = options.audioBalance ?: base.audio.balance,
@@ -612,6 +614,7 @@ class HighlightPipeline(
                     // Le modèle des paroles, à défaut celui des sous-titres du profil.
                     lyricsModel = (settings.lyrics.model ?: profile.edit.story.captions.model)?.let { config.resolve(it) },
                     lyricsCache = config.workDir.resolve("cache").resolve("lyrics"),
+                    lyricsText = options.lyricsFile,
                 ),
                 progress.child("Rendu", 0.86),
             )
