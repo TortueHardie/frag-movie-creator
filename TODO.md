@@ -19,7 +19,10 @@ Un raccord en whip pan qui reprend la direction du flick déjà mesurée par `Ki
 garde le sens du balayage dans `KillTraits.direction` ; `MontageRenderBuilder.whips` choisit les coupes et
 `whipStages` construit le raccord (réglages : `montage.whip`).
 
-- Piste : un bruitage de souffle (whoosh) sur la coupe renforcerait l'effet.
+- Fait : un souffle (whoosh) culmine sur chaque coupe en whip pan (`montage.whip.whoosh`, 0,5 ; `--no-whoosh`), le
+  même que celui des highlights story. Mesuré sur un rendu de test : +13 dB dans la bande du souffle sur la coupe.
+  - [ ] Volume à régler à l'oreille sur un vrai montage avec whip pan (« Rome Is Burning » sur 16 parties n'en a
+    aucun : 8 flicks sur 239 kills).
 
 ## 3. Raccords sur la pose de l'arme (fait)
 
@@ -154,7 +157,7 @@ Pistes, de la plus simple à la plus lourde :
 # Améliorations
 
 ## Montage kills : pistes ouvertes
-- [ ] Whoosh sur les whip pans : brancher les SFX de `StoryRenderBuilder` (`WHOOSH_SOURCE_*`, `SfxBank`) dans `MontageRenderBuilder.whips`.
+- [x] Whoosh sur les whip pans (souffles générés de `StoryRenderBuilder`, pas encore les fichiers d'une `SfxBank`).
 - [ ] Valider `perClip` (2,5 s) et `min` (12 s) de `montage.length` sur de vraies parties.
 - [ ] Vérifier l'icône du chargeur VALORANT sur une capture 16:9 (mesurée en 21:9 seulement).
 - [ ] Fin du plan sortant : couper plus tôt après le kill seulement quand la coupe suivante est un raccord sur la pose.

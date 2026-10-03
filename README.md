@@ -266,6 +266,8 @@ détecte les kills). En ligne de commande :
   le plan sortant file dans le sens où la vue tournait, flouté par la vitesse, et le suivant arrive en continuant le
   même mouvement (200 ms en tout, `duration` ; flou `blur`). Le whip remplace le flash sur cette coupe ; sans flick de
   part et d'autre, la coupe reste franche. Désactivable par une case de la fenêtre de montage ou `--no-whip`.
+  Un souffle (whoosh, celui des highlights story) culmine sur la coupe (`whoosh`, volume 0,5 ; 0 ou `--no-whoosh` :
+  whip pan muet).
 - **Flou de mouvement** (`motionBlur`), mesuré sur les montages de référence (flou sur 48 à 93 % des coupes, une ou
   deux images à 30 img/s) :
   - Mélange d'images (`blend`, désactivé par défaut) : chaque image mélange celles des 17 ms précédentes. Dans un FPS

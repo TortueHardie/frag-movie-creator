@@ -64,8 +64,8 @@ data class SfxBank(val whoosh: List<String> = emptyList(), val impact: List<Stri
  */
 object StoryRenderBuilder {
     /** Le whoosh culmine sur la coupe : il démarre un peu avant. */
-    private val WHOOSH_LENGTH = 450.milliseconds
-    private val WHOOSH_PEAK = 300.milliseconds
+    val WHOOSH_LENGTH = 450.milliseconds
+    val WHOOSH_PEAK = 300.milliseconds
     private val IMPACT_LENGTH = 600.milliseconds
 
     /** Effacement du son du jeu pendant un ralenti, une fois joué à sa vitesse. */
@@ -209,7 +209,7 @@ object StoryRenderBuilder {
      * Variantes générées, utilisées à tour de rôle quand aucun fichier n'est fourni : whooshes plus ou moins aigus et
      * longs, impacts plus ou moins graves.
      */
-    internal val WHOOSHES = listOf(
+    val WHOOSHES = listOf(
         WHOOSH_SOURCE_1,
         "anoisesrc=d=0.40:c=pink:r=48000:a=0.8,bandpass=f=2200:t=q:w=0.9,afade=t=in:d=0.28:curve=exp,afade=t=out:st=0.28:d=0.12",
         "anoisesrc=d=0.50:c=brown:r=48000:a=0.9,bandpass=f=900:t=q:w=0.6,afade=t=in:d=0.32:curve=exp,afade=t=out:st=0.32:d=0.18",
@@ -230,7 +230,7 @@ object StoryRenderBuilder {
      * Pose un bruitage à chaque instant de [at] et renvoie les labels à mixer. [source] est soit un label d'entrée
      * (fichier fourni), soit la description d'une source générée.
      */
-    private fun placeSfx(graph: MutableList<String>, prefix: String, at: List<Duration>, volume: Double, sources: List<String>, maxLength: Duration): List<String> {
+    fun placeSfx(graph: MutableList<String>, prefix: String, at: List<Duration>, volume: Double, sources: List<String>, maxLength: Duration): List<String> {
         if (at.isEmpty() || volume <= 0.0 || sources.isEmpty()) return emptyList()
         // Chaque source à son tour : deux bruitages voisins ne sont jamais le même son (dès qu'il y en a deux).
         val uses = at.indices.groupBy { it % sources.size }
