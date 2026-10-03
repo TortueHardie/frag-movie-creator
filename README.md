@@ -617,6 +617,12 @@ quel morceau, sans réglage par musique :
 - Le rapport du montage dit pour chaque plan si son kill tombe sur un de ces moments (`onMusicMoment`). Au rythme rapide,
   sur une minute : 9 moments sur 10 reçoivent un kill (« Fortunate Son »), 16 sur 19 (« Rome Is Burning »), 25 sur 38
   (« R2D2 »).
+- Ouverture vitrine (`showcase`, désactivée par défaut ; case « Ouverture vitrine » ou `--showcase`) : comme les kill
+  montages de référence, le montage s'ouvre sur des plans sans kill (8 s au plus, `length`, deux temps chacun,
+  `shotBeats`), sur les temps de musique qui précèdent : le joueur qui avance, l'arme en main. Chaque passage est pris
+  juste avant le plan d'un kill du montage (1 s avant ce qu'il montre), au moins 5 s après le kill ou la mort d'avant
+  (`afterEvent`). Sa place est réservée dans la durée maximale. Rien si la musique est prise depuis son début. Le critère
+  « ouverture » de la note baisse d'autant : le premier kill arrive plus tard, c'est voulu.
 - Plans longs coupés dans l'attente (`cuts.jumpCuts`, activé par défaut) : un plan d'au moins 8 temps (`jumpMinBeats`)
   est coupé sur le temps le plus marqué de son attente, à deux temps au moins du kill et des bords. Attente avant le
   kill : la première partie est la même partie 4 s plus tôt (`jumpBack`) ; après le kill : la fin est 4 s plus tard (le

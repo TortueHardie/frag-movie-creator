@@ -154,8 +154,12 @@ Pistes, de la plus simple à la plus lourde :
     passage sans autre kill ni mort (`KillGroup.calm`). « Rome Is Burning » : 1 plan coupé sur 22 (les autres plans
     longs ont un ralenti, la drop, ou une mort dans les 4 s qui suivent).
     - [ ] À juger à l'image ; plusieurs coupes dans un plan de 16 temps, ou des plans d'inspection d'arme : pas faits.
-- [ ] Ouverture « vitrine » : plans sans kill (inspection d'arme, passages calmes) avant la drop, au lieu d'un kill
-  d'accroche. Demande de repérer ces passages dans la capture (arme en main, pas de combat).
+- [x] Ouverture « vitrine » (`montage.showcase`, `--showcase`, case de la fenêtre ; désactivée par défaut) : plans de
+  deux temps sans kill avant le premier plan, sur les temps de musique qui le précèdent, pris dans le passage calme
+  juste avant chaque plan du montage (`MontagePlanner.showcase`, `KillGroup.calm`, `MontageClip.showcase`). Place
+  réservée dans la durée maximale. « Rome Is Burning » : 8 plans, 7,6 s avant le premier kill ; note 0,951 → 0,872 (le
+  seul critère « ouverture », qui pénalise un premier kill tardif).
+  - [ ] À juger à l'image ; inspection d'arme non repérée (passages calmes seulement) ; un ennemi lointain peut se voir.
 - [ ] Refaire les mesures de calage sur des copies à l'audio intact.
 
 ---

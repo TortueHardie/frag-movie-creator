@@ -264,6 +264,8 @@ data class MontageUiState(
     val zoom: Boolean = true,
     val flash: Boolean = true,
     val whip: Boolean = true,
+    /** Ouverture vitrine : passages calmes avant le premier kill. */
+    val showcase: Boolean = false,
     /** Couleurs boostées (vibrance, saturation, contraste), comme les kill montages de TikTok. */
     val boostColors: Boolean = false,
     /** Flou de mouvement : traînées sur les mouvements rapides, flou radial sur les coupes. */

@@ -130,6 +130,8 @@ data class MontageReportClip(
     val offbeat: Boolean = false,
     /** L'attente avant le kill est coupée en deux plans (voir [MontagePlanner.jumpCuts]). */
     val jumpCut: Boolean = false,
+    /** Plan de l'ouverture vitrine, sans kill (voir [MontagePlanner.showcase]). */
+    val showcase: Boolean = false,
 )
 
 class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoders: EncoderSelector) {
@@ -225,6 +227,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                     onMusicMoment = plan.music.salience.getOrElse(c.anchorBeat) { 0.0 } >= MusicAnalyzer.SALIENT,
                     offbeat = c.anchorHalf,
                     jumpCut = c.jumps.isNotEmpty(),
+                    showcase = c.showcase,
                 )
             },
         )

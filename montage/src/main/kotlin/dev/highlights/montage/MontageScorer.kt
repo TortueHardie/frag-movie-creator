@@ -82,6 +82,13 @@ object MontageScorer {
         1.0 - ((value - good) / (bad - good)).coerceIn(0.0, 1.0)
 
     fun score(plan: MontagePlan): MontageScore {
+        // L'ouverture vitrine n'a pas de kill : elle ne compte que dans l'attente du premier ([opening]).
+        val opening = plan.clips.count { it.showcase }
+        val shown = if (opening == 0) plan else plan.copy(clips = plan.clips.drop(opening))
+        return score(shown, lead = if (opening == 0) Duration.ZERO else plan.music.beatTime(shown.startBeat) - plan.musicStart)
+    }
+
+    private fun score(plan: MontagePlan, lead: Duration): MontageScore {
         val music = plan.music
         val offsets = plan.clipOffsets()
 
@@ -166,7 +173,7 @@ object MontageScorer {
 
         // --- temps morts : où tombent les kills dans le montage, et ce qui les sépare.
         val killTimes = plan.clips.flatMapIndexed { i, c -> c.outputKills().map { offsets[i] + it } }.sorted()
-        val firstKill = killTimes.firstOrNull() ?: plan.duration
+        val firstKill = lead + (killTimes.firstOrNull() ?: plan.duration)
         val opening = falloff(firstKill, OPENING_GOOD, OPENING_BAD)
         // Du premier kill à la fin : l'attente d'avant le premier est déjà l'affaire de l'ouverture.
         val longestLull = (killTimes + plan.duration).zipWithNext { a, b -> b - a }.maxOrNull() ?: plan.duration
