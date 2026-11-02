@@ -13,6 +13,7 @@ import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.serialization.roundTo
 import dev.highlights.core.serialization.toTimecode
 import dev.highlights.editing.SourceCutter
+import dev.highlights.editing.story.SfxBank
 import dev.highlights.export.ExportResult
 import dev.highlights.export.OutputNamer
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -132,6 +133,10 @@ data class MontageReportClip(
     val jumpCut: Boolean = false,
     /** Plan de l'ouverture vitrine, sans kill (voir [MontagePlanner.showcase]). */
     val showcase: Boolean = false,
+    /** La coupe qui ouvre le plan est un whip pan (voir [MontageRenderBuilder.whips]). */
+    val whip: Boolean = false,
+    /** Souffle entendu sur ce whip pan : fichier de `whip.sounds` ou variante générée ; null : aucun. */
+    val whoosh: String? = null,
 )
 
 class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoders: EncoderSelector) {
@@ -159,6 +164,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             SourceCutter.prepare(ffmpeg, MontageRenderBuilder.sourceCuts(plan, request.edit.fps), request.workDir.resolve("cuts"), cutStep) to motion.await()
         }
 
+        val whooshFiles = whooshFiles(plan)
         val filterScriptOption = ffmpeg.filterScriptOption()
         for (format in request.formats) {
             val target = paths.videos.getValue(format)
@@ -169,6 +175,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                 MontageRenderRequest(
                     plan, format, request.edit, encoder, temp, script,
                     request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption, motion,
+                    whooshFiles,
                 ),
             )
             script.writeText(render.filterGraph)
@@ -196,6 +203,8 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             step.complete()
         }
 
+        val whooshes = MontageRenderBuilder.whooshes(plan, whooshFiles)
+        val whips = MontageRenderBuilder.whips(plan)
         val report = MontageReport(
             generatedAt = Instant.now().toString(),
             music = plan.music.file.toString(),
@@ -213,7 +222,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             variant = plan.variant.toString(),
             musicCandidates = request.musicChoice,
             profile = request.gameName,
-            clips = plan.clips.zip(plan.clipOffsets()).map { (c, offset) ->
+            clips = plan.clips.zip(plan.clipOffsets()).mapIndexed { i, (c, offset) ->
                 MontageReportClip(
                     c.group.media.path.toString(), c.start.toTimecode(), c.end.toTimecode(), c.kills.map { it.toTimecode() },
                     c.outputKills().map { ((offset + it).inWholeMilliseconds / 1000.0).roundTo(3) }, c.beats,
@@ -228,11 +237,21 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                     offbeat = c.anchorHalf,
                     jumpCut = c.jumps.isNotEmpty(),
                     showcase = c.showcase,
+                    whip = whips[i] != null,
+                    whoosh = whooshes[i],
                 )
             },
         )
         paths.report.writeText(json.encodeToString(MontageReport.serializer(), report))
         return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file)
+    }
+
+    /** Souffles du dossier `whip.sounds` ; un dossier absent ou sans son est signalé, les souffles générés le remplacent. */
+    private fun whooshFiles(plan: MontagePlan): List<String> {
+        val dir = plan.settings.whip.sounds ?: return emptyList()
+        return SfxBank.list(Path.of(dir)).also {
+            if (it.isEmpty()) log.warn { "Aucun son dans $dir (whip.sounds) : souffles générés à la place" }
+        }
     }
 
     companion object {

@@ -528,6 +528,12 @@ data class WhipPanEffect(
      * couvrir le tir qui suit.
      */
     val whoosh: Double = 0.5,
+    /**
+     * Dossier de souffles (wav, mp3…) qui remplacent les souffles générés, chacun à son tour dans un ordre mélangé mais
+     * toujours le même, comme les bruitages des highlights story (`SfxBank`). Chemin relatif au fichier de configuration ;
+     * null ou dossier vide : souffles générés.
+     */
+    val sounds: String? = null,
 ) {
     init {
         require(duration.inWholeMilliseconds in 40..600) { "montage.whip.duration doit être entre 40 ms et 600 ms" }

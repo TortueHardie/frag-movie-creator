@@ -68,7 +68,7 @@ au montage plein, elle s'allonge par paliers.
   adapté garde tous les groupes là où le montage plein en perdait jusqu'à 5 sur 20.
 - À vérifier sur de vraies parties : `perClip` (2,5 s) et `min` (12 s) sont des estimations.
 
-## 7. Monter sur la musique, pas sur la grille (en cours, branche `montage-sur-la-musique`)
+## 7. Monter sur la musique, pas sur la grille (fait, branche `montage-sur-la-musique` fusionnée)
 
 Demande : « le moteur devrait reconnaître au début les notes de piano et caler les kills par-dessus ». Fait : saillance
 de chaque temps (`MusicAnalysis.salience`) et découpage sur les notes qui ressortent (`CutGrid.tileOnNotes`).
@@ -167,7 +167,9 @@ Pistes, de la plus simple à la plus lourde :
 # Améliorations
 
 ## Montage kills : pistes ouvertes
-- [x] Whoosh sur les whip pans (souffles générés de `StoryRenderBuilder`, pas encore les fichiers d'une `SfxBank`).
+- [x] Whoosh sur les whip pans (souffles générés de `StoryRenderBuilder`, ou un dossier de sons : `whip.sounds`,
+  `--whoosh-dir`), volume qui suit la musique dans `audio.balance`, case de la fenêtre de montage, rapport par plan.
+  - [ ] Aucun dossier de souffles livré dans `config/` : à choisir à l'oreille.
 - [ ] Valider `perClip` (2,5 s) et `min` (12 s) de `montage.length` sur de vraies parties.
 - [ ] Vérifier l'icône du chargeur VALORANT sur une capture 16:9 (mesurée en 21:9 seulement).
 - Fin du plan sortant : coupe avancée de 1 à 3 temps quand la pose finit trop tôt pour raccorder : essayé, un seul

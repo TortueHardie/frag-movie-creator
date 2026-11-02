@@ -45,6 +45,8 @@ data class MontageRenderRequest(
     val filterScriptOption: String = FfmpegService.FILTER_COMPLEX_FROM_FILE,
     /** Rotation de la caméra de chaque plan, pour le flou par vecteurs (voir [CameraMotion]) ; vide : pas de ce flou. */
     val motion: List<MotionTrack?> = emptyList(),
+    /** Souffles des whip pans pris dans `whip.sounds`, dans l'ordre où ils serviront ; vide : souffles générés. */
+    val whooshFiles: List<String> = emptyList(),
 )
 
 /**
@@ -94,6 +96,12 @@ object MontageRenderBuilder {
         }
         val musicInput = clips.size
         args += listOf("-ss", sec(plan.musicStart), "-t", sec(total + plan.period), "-i", plan.music.file.toString())
+        // Souffles fournis : une entrée par fichier servi, à la suite de la musique.
+        val whooshCount = if (settings.whip.whoosh > 0) whips.count { it != null } else 0
+        val whooshSources = request.whooshFiles.take(whooshCount).mapIndexed { j, file ->
+            args += listOf("-i", file)
+            "[${musicInput + 1 + j}:a]"
+        }.ifEmpty { StoryRenderBuilder.WHOOSHES }
 
         val graph = mutableListOf<String>()
         var killCounter = 0
@@ -308,13 +316,14 @@ object MontageRenderBuilder {
         }
         graph += "[$musicInput:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo," +
             "$GAIN_FRAMES,volume='$duck':eval=frame,afade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
-        // Souffle sur chaque whip pan, son sommet sur la coupe : le mouvement s'entend autant qu'il se voit.
+        // Souffle sur chaque whip pan, son sommet sur la coupe (le milieu du raccord) : le mouvement s'entend autant
+        // qu'il se voit. Il suit la musique dans `audio.balance` : un habillage, qui reste sous elle quel que soit le réglage.
         val whooshes = if (settings.whip.whoosh > 0) {
             whips.indices.filter { whips[it] != null }.map { (offsets[it] - StoryRenderBuilder.WHOOSH_PEAK).coerceAtLeast(Duration.ZERO) }
         } else {
             emptyList()
         }
-        val sfx = StoryRenderBuilder.placeSfx(graph, "wh", whooshes, settings.whip.whoosh, StoryRenderBuilder.WHOOSHES, StoryRenderBuilder.WHOOSH_LENGTH)
+        val sfx = StoryRenderBuilder.placeSfx(graph, "wh", whooshes, settings.whip.whoosh * audio.musicGain, whooshSources, StoryRenderBuilder.WHOOSH_LENGTH)
         val mix = listOf("[game]", "[music]") + sfx
         graph += mix.joinToString("") + "amix=inputs=${mix.size}:normalize=0:duration=first,loudnorm=I=${num(audio.loudnessLufs)}:TP=-1.5:LRA=11,aresample=48000[aout]"
 
@@ -374,6 +383,19 @@ object MontageRenderBuilder {
             val previous = plan.clips[i - 1]
             flickOf(previous, previous.kills.lastOrNull()) ?: flickOf(clip, clip.kills.firstOrNull())
         }
+    }
+
+    /**
+     * Souffle entendu à la coupe qui ouvre chaque clip, pour le rapport : nom du fichier de [files], « généré N » pour
+     * une variante générée, null sans whip pan ou souffle coupé. Même rotation que [StoryRenderBuilder.placeSfx].
+     */
+    fun whooshes(plan: MontagePlan, files: List<String>): List<String?> {
+        val whips = whips(plan)
+        if (plan.settings.whip.whoosh <= 0) return whips.map { null }
+        val used = files.take(whips.count { it != null })
+        val names = used.map { Path.of(it).fileName.toString() }.ifEmpty { StoryRenderBuilder.WHOOSHES.indices.map { "généré ${it + 1}" } }
+        var k = 0
+        return whips.map { w -> w?.let { names[k++ % names.size] } }
     }
 
     /**

@@ -230,6 +230,9 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     MontageToggle("Zoom punch sur le kill", montage.zoom) { v -> actions.updateMontage { it.copy(zoom = v) } }
                     MontageToggle("Flash blanc aux coupes fortes", montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
                     MontageToggle("Whip pan dans le sens du flick", montage.whip) { v -> actions.updateMontage { it.copy(whip = v) } }
+                    if (montage.whip) {
+                        MontageToggle("Souffle sur les whip pans", montage.whoosh) { v -> actions.updateMontage { it.copy(whoosh = v) } }
+                    }
                     MontageToggle("Ouverture vitrine (passages calmes, sans kill, avant le premier kill)", montage.showcase) { v -> actions.updateMontage { it.copy(showcase = v) } }
                     MontageToggle("Couleurs boostées (le jeu ressort, comme sur TikTok)", montage.boostColors) { v -> actions.updateMontage { it.copy(boostColors = v) } }
                     MontageToggle("Flou de mouvement (mouvements rapides et coupes)", montage.motionBlur) { v -> actions.updateMontage { it.copy(motionBlur = v) } }

@@ -114,6 +114,8 @@ data class MontageOptions(
     val whip: Boolean? = null,
     /** Souffle (whoosh) sur les whip pans ; faux : whip pan muet. */
     val whoosh: Boolean? = null,
+    /** Dossier de souffles qui remplace les souffles générés (voir `WhipPanEffect.sounds`). */
+    val whooshDir: Path? = null,
     /** Couleurs boostées (vibrance, saturation, contraste) comme les kill montages de TikTok. */
     val boostColors: Boolean? = null,
     /** Flou de mouvement : traînées sur les mouvements rapides et flou radial sur les coupes franches. */
@@ -538,6 +540,7 @@ class HighlightPipeline(
             whip = base.whip.copy(
                 enabled = options.whip ?: base.whip.enabled,
                 whoosh = if (options.whoosh == false) 0.0 else base.whip.whoosh,
+                sounds = (options.whooshDir?.toString() ?: base.whip.sounds)?.let { config.resolve(it).toString() },
             ),
             motionBlur = base.motionBlur.copy(enabled = options.motionBlur ?: base.motionBlur.enabled),
             colors = base.colors.copy(
