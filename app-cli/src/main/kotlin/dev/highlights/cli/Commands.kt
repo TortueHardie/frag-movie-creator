@@ -156,13 +156,16 @@ class ExportCommand : PipelineCommand("export") {
         val result = execute {
             val sessions = sessionFiles.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).export(sessions, ExportOptions(formats, out, style, music, platform), ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).export(sessions, exportOptions(), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
         }
         printExport(result)
     }
+
+    /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
+    internal fun exportOptions() = ExportOptions(formats, out, style, music, platform)
 }
 
 class MontageCommand : PipelineCommand("montage") {
@@ -222,36 +225,7 @@ class MontageCommand : PipelineCommand("montage") {
                 Pipelines.create(env.config).killMontage(
                     loaded,
                     music,
-                    MontageOptions(
-                        formats = formats,
-                        platform = platform,
-                        outputDir = out,
-                        maxDuration = max,
-                        fitKills = if (fill) false else null,
-                        order = if (chronological) MontageOrder.CHRONOLOGICAL else null,
-                        hook = if (noHook) false else null,
-                        musicFromStart = if (fromStart) true else null,
-                        effectDensity = effects,
-                        zoom = if (noZoom) false else null,
-                        flash = if (noFlash) false else null,
-                        flashEveryCut = if (flashEveryCut) true else null,
-                        whip = if (noWhip) false else null,
-                        showcase = if (showcase) true else null,
-                        whoosh = if (noWhoosh) false else null,
-                        whooshDir = whooshDir,
-                        boostColors = colors,
-                        motionBlur = if (noMotionBlur) false else null,
-                        matchCut = if (noMatchCut) false else null,
-                        rounds = if (noRounds) false else null,
-                        slowMotion = if (noSlowmo) false else null,
-                        speedRamp = if (noRamp) false else null,
-                        text = if (noText) false else null,
-                        audioBalance = balance,
-                        gameAudio = gameAudio,
-                        reactions = if (reactions) true else null,
-                        oneTaps = oneTaps,
-                        fast = if (fast) true else null,
-                    ),
+                    montageOptions(),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -275,6 +249,38 @@ class MontageCommand : PipelineCommand("montage") {
             echo("  note %.3f  ($parts)".format(s.total))
         }
     }
+
+    /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
+    internal fun montageOptions() = MontageOptions(
+        formats = formats,
+        platform = platform,
+        outputDir = out,
+        maxDuration = max,
+        fitKills = if (fill) false else null,
+        order = if (chronological) MontageOrder.CHRONOLOGICAL else null,
+        hook = if (noHook) false else null,
+        musicFromStart = if (fromStart) true else null,
+        effectDensity = effects,
+        zoom = if (noZoom) false else null,
+        flash = if (noFlash) false else null,
+        flashEveryCut = if (flashEveryCut) true else null,
+        whip = if (noWhip) false else null,
+        showcase = if (showcase) true else null,
+        whoosh = if (noWhoosh) false else null,
+        whooshDir = whooshDir,
+        boostColors = colors,
+        motionBlur = if (noMotionBlur) false else null,
+        matchCut = if (noMatchCut) false else null,
+        rounds = if (noRounds) false else null,
+        slowMotion = if (noSlowmo) false else null,
+        speedRamp = if (noRamp) false else null,
+        text = if (noText) false else null,
+        audioBalance = balance,
+        gameAudio = gameAudio,
+        reactions = if (reactions) true else null,
+        oneTaps = oneTaps,
+        fast = if (fast) true else null,
+    )
 }
 
 class MusicCommand : PipelineCommand("music") {
