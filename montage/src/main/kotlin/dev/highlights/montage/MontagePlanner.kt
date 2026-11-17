@@ -284,9 +284,9 @@ object MontagePlanner {
      * Variantes : écarts essayés sur la place de la drop, et part minimale des clips du plan de base qu'une variante
      * doit garder (une grille plus lâche serait sinon mieux notée en se contentant de moins de clips).
      */
-    private val DROP_SHIFTS = listOf(-0.15, 0.0, 0.15)
-    private val SCALES = listOf(1.0, 2.0, 4.0, 8.0)
-    private const val MIN_CLIP_SHARE = 0.85
+    internal val DROP_SHIFTS = listOf(-0.15, 0.0, 0.15)
+    internal val SCALES = listOf(1.0, 2.0, 4.0, 8.0)
+    internal const val MIN_CLIP_SHARE = 0.85
 
     /** Allongement de la durée visée quand elle fait perdre des clips. */
     private const val TARGET_STEP = 1.5
@@ -310,7 +310,7 @@ object MontagePlanner {
     private const val ORDER_TOLERANCE = 0.5
 
     /** Gain de note en dessous duquel le plan de base est gardé : on ne change pas pour du bruit. */
-    private const val MIN_GAIN = 0.005
+    internal const val MIN_GAIN = 0.005
 
     /** Regroupe les kills de chaque session (multi-kills) avec leurs segments de réaction. */
     fun groups(sessions: List<Session>, settings: MontageSettings): List<KillGroup> = sessions.flatMap { session ->

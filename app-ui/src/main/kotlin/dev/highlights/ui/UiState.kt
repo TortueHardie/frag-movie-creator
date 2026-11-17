@@ -69,6 +69,8 @@ data class UiState(
     val crash: CrashNotice? = null,
     /** Traitement retenu faute de mémoire disponible, en attente de la décision de l'utilisateur. */
     val memoryWarning: MemoryWarning? = null,
+    /** Aperçus des variantes du montage kills, à regarder avant d'en rendre une (null = fermé). */
+    val variants: VariantsUiState? = null,
 ) {
     /** Première capture : celle qui décide du profil détecté et du ratio d'origine. */
     val source: SourceInfo? get() = sources.firstOrNull()

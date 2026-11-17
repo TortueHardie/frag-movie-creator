@@ -48,6 +48,8 @@ data class MontageRenderRequest(
     val motion: List<MotionTrack?> = emptyList(),
     /** Souffles des whip pans pris dans `whip.sounds`, dans l'ordre où ils serviront ; vide : souffles générés. */
     val whooshFiles: List<String> = emptyList(),
+    /** Options de décodage ajoutées devant chaque extrait (aperçu : voir [MontagePreview.DECODE]). */
+    val decodeOptions: List<String> = emptyList(),
 )
 
 /**
@@ -93,6 +95,7 @@ object MontageRenderBuilder {
             request.hwaccel?.let { args += listOf("-hwaccel", it) }
             val range = sourceRange(clip, bleeds[i], leads[i])
             val input = request.cuts.input(clip.group.media, range)
+            args += request.decodeOptions
             args += listOf("-ss", Durations.ffmpegSecondsPrecise(input.start), "-t", sec(range.length), "-i", input.path.toString())
         }
         val musicInput = clips.size

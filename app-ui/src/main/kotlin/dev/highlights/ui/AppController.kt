@@ -22,6 +22,8 @@ import dev.highlights.pipeline.FolderWatcher
 import dev.highlights.pipeline.HighlightPipeline
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
+import dev.highlights.pipeline.VariantPick
+import dev.highlights.montage.MontageVariants
 import dev.highlights.pipeline.ProblemReport
 import dev.highlights.pipeline.SystemInfo
 import dev.highlights.pipeline.YouTubePublisher
@@ -97,6 +99,11 @@ interface UiActions {
     fun chooseMusicLibrary()
     fun updateMontage(change: (MontageUiState) -> MontageUiState)
     fun createMontage()
+    /** Aperçus de quelques variantes du montage au lieu du rendu final (voir [VariantsUiState]). */
+    fun previewMontage() {}
+    /** Rend en pleine qualité la variante [index] des aperçus, et enregistre ce choix. */
+    fun renderVariant(index: Int) {}
+    fun closeVariants() {}
 
     /** Fenêtre de publication d'une vidéo exportée sur YouTube, champs proposés d'après la vidéo. */
     fun openPublish(video: Path)
@@ -696,44 +703,84 @@ class AppController(
         withMemory(title, MEMORY_MONTAGE) {
             runTask(title) { progress ->
                 saveNow(session)
-                val result = p.killMontage(
-                    session.sessions,
-                    music,
-                    MontageOptions(
-                        formats = OutputFormat.entries.filter { it in montage.formats },
-                        outputDir = s.settings.outputDir,
-                        maxDuration = montage.maxDuration,
-                        fitKills = montage.fitKills,
-                        order = if (montage.buildUp) dev.highlights.core.model.MontageOrder.BUILD_UP else dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
-                        effectDensity = montage.density,
-                        zoom = montage.zoom,
-                        flash = montage.flash,
-                        whip = montage.whip,
-                        whoosh = montage.whoosh,
-                        showcase = montage.showcase,
-                        boostColors = montage.boostColors,
-                        motionBlur = montage.motionBlur,
-                        matchCut = montage.matchCut,
-                        rounds = montage.rounds,
-                        slowMotion = montage.slowMotion,
-                        text = montage.text,
-                        audioBalance = montage.balance,
-                        gameAudio = montage.gameAudio,
-                        reactions = montage.reactions,
-                        // Bibliothèque : chaque musique garde son réglage « depuis le début ».
-                        musicFromStart = if (montage.useLibrary) null else montage.musicFromStart,
-                        fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
-                        platform = montage.platform,
-                        onlyKills = montage.pick,
-                        oneTaps = montage.oneTaps,
-                        fast = montage.fast,
-                    ),
-                    progress,
-                )
+                val result = p.killMontage(session.sessions, music, montageOptions(montage, s), progress)
                 _state.update { it.copy(lastExport = result, lastUpload = null) }
             }
         }
     }
+
+    /** Parties, musique et réglages des derniers aperçus : la variante choisie se rend avec exactement les mêmes. */
+    private data class PendingVariants(val sessions: List<Session>, val music: Path, val options: MontageOptions, val file: Path)
+
+    @Volatile
+    private var pendingVariants: PendingVariants? = null
+
+    override fun previewMontage() {
+        val s = state.value
+        val montage = s.montage ?: return
+        val music = montage.musicSource ?: return
+        if (!montage.useLibrary) musicPrefs.remember(music, montage.musicFromStart)
+        musicPrefs.rememberLibrary(montage.musicLibrary, montage.useLibrary)
+        val session = s.session ?: return
+        val p = backend?.pipeline ?: return
+        _state.update { it.copy(montage = null, variants = null) }
+        val options = montageOptions(montage, s)
+        val title = tr("ui.job.previews", "track" to music.name)
+        withMemory(title, MEMORY_MONTAGE) {
+            runTask(title) { progress ->
+                saveNow(session)
+                val previews = p.montagePreviews(session.sessions, music, options, MontageVariants.DEFAULT_COUNT, progress)
+                pendingVariants = PendingVariants(session.sessions, music, options, previews.variantsFile)
+                _state.update { it.copy(variants = VariantsUiState.of(previews, MontageVariants.DEFAULT_COUNT)) }
+            }
+        }
+    }
+
+    override fun renderVariant(index: Int) {
+        val pending = pendingVariants ?: return
+        val p = backend?.pipeline ?: return
+        _state.update { it.copy(variants = null) }
+        val title = tr("ui.job.montage", "track" to pending.music.name)
+        withMemory(title, MEMORY_MONTAGE) {
+            runTask(title) { progress ->
+                val result = p.killMontage(pending.sessions, pending.music, pending.options.copy(pick = VariantPick(index, pending.file)), progress)
+                _state.update { it.copy(lastExport = result, lastUpload = null) }
+            }
+        }
+    }
+
+    override fun closeVariants() = _state.update { it.copy(variants = null) }
+
+    /** Réglages du dialogue de montage traduits en options du pipeline. */
+    private fun montageOptions(montage: MontageUiState, s: UiState) = MontageOptions(
+        formats = OutputFormat.entries.filter { it in montage.formats },
+        outputDir = s.settings.outputDir,
+        maxDuration = montage.maxDuration,
+        fitKills = montage.fitKills,
+        order = if (montage.buildUp) dev.highlights.core.model.MontageOrder.BUILD_UP else dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
+        effectDensity = montage.density,
+        zoom = montage.zoom,
+        flash = montage.flash,
+        whip = montage.whip,
+        whoosh = montage.whoosh,
+        showcase = montage.showcase,
+        boostColors = montage.boostColors,
+        motionBlur = montage.motionBlur,
+        matchCut = montage.matchCut,
+        rounds = montage.rounds,
+        slowMotion = montage.slowMotion,
+        text = montage.text,
+        audioBalance = montage.balance,
+        gameAudio = montage.gameAudio,
+        reactions = montage.reactions,
+        // Bibliothèque : chaque musique garde son réglage « depuis le début ».
+        musicFromStart = if (montage.useLibrary) null else montage.musicFromStart,
+        fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
+        platform = montage.platform,
+        onlyKills = montage.pick,
+        oneTaps = montage.oneTaps,
+        fast = montage.fast,
+    )
 
     // ---------------------------------------------------------------- publication YouTube
 

@@ -280,7 +280,7 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                 }
             }
         },
-        confirmButton = { Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text(tr("ui.montage.create")) } },
+        confirmButton = { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { PreviewVariantsButton(montage, actions); Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text(tr("ui.montage.create")) } } },
         dismissButton = { TextButton(onClick = actions::closeMontage) { Text(tr("ui.common.cancel")) } },
     )
 }

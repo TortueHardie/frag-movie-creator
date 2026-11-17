@@ -74,6 +74,9 @@ style) → `KillInspector.inspect` (`ShotLocator` recale sur l'attaque du tir ; 
 `MatchCutter.inspect` (pose de l'arme `aim`/`rest`, `WeaponTemplate` arme en main ; groupes `MontagePlanner.placeable` seulement) ; ces deux-là passent par `InspectionCache` → `MontagePlanner.best`
 (variantes échelle×dropShift notées par `MontageScorer`) → `ScopeCuts.apply` (raccords sur la pose, retiming) →
 `KillMontageExporter.export` (`MontageRenderBuilder.build`, `MontageReport` JSON avec `MontageScore`).
+Aperçus (`HighlightPipeline.montagePreviews`) : même préparation (`montage(…, previews = n)`), `MontageVariants.distinct` au lieu
+de `best`, chaque variante rendue en aperçu (`MontageExportRequest.preview`) dans `<sortie>/apercus` + `*_variantes.json` ;
+puis `killMontage` avec `MontageOptions.pick` (`VariantPick`) rend la variante n en pleine qualité (empreinte vérifiée) et écrit `*.choix.json`.
 
 ### 3d. UI
 `app-ui/Main.kt main()` → `Installation.setup()` (FFmpeg livré → prop `highlights.ffmpeg.dir` ; recopie config livrée vers
@@ -229,7 +232,13 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `MatchCutter.kt` : `MatchCutter.inspect(only = MontagePlanner.placeable)/read/footage/pose` (une lecture `SourceFrames` visée + arme par groupe quand les fenêtres d'avant/après sont alignées à l'image près, sinon deux ; `Footage.slice` reproduit le compte d'images de FFmpeg), `Pose` (ressemblances mémorisées), `HeldPose`, `WeaponTemplate.score/matches` (sommes cumulées), `ScopeCut`, `ScopeCuts.apply/count/aimCurve/restCurve/runs/similarity/compatible/aimStart/aimEnd/speeds/cut/retimeTail/retimeHead/disarm/symmetry`.
 - `MontageRenderBuilder.kt` : graphe FFmpeg du montage : `build`, `sourceCuts`, `flashes`, `whips`/`whipStages` (+ souffle `whip.whoosh` × `audio.musicGain` via `StoryRenderBuilder.placeSfx`, fichiers `whip.sounds` → `MontageRenderRequest.whooshFiles` (`SfxBank.list`) sinon `WHOOSHES` ; `whooshes` = souffle par plan pour le rapport `whip`/`whoosh`), `zooms`, `cutBlurStages` (flou radial des coupes), `leads` (preBeatFrames), `bleeds`, `speedParts`, `slowAudio`, `envelope`, `volumeExpression`.
 - `MontageScorer.kt` : `MontageScore(total, sync, accent, restraint, variety, fill, pacing, coverage, opening, lull, action, details)` ; critère null = exclu de la moyenne.
-- `KillMontageExporter.kt` : `MontageExportRequest(musicChoice)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates)`, `export`, `recordingDate`.
+- `KillMontageExporter.kt` : `MontageExportRequest(musicChoice, preview)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates, signature, preview)`, `export` (aperçu → `MontagePreview`), `recordingDate`.
+- Aperçus de variantes (branche `montage-apercu-variantes`) : `MontageVariants.kt` (`distinct` : variantes de `best` classées comme lui, la 1 = celle
+  de `best`, suivantes à `distance` ≥ `MIN_DISTANCE` 0,25 de toutes les retenues, choix glouton donc liste pour n = début de celle pour n+1 ;
+  `ranked`, `distance` = max(clips (plus longue sous-suite commune), coupes à un temps près, passage de la musique), `signature` = empreinte du montage fini) ;
+  `MontagePreview.kt` (`edit` : petit côté 360 px, `plan` : sans flou par vecteurs ni minterpolate, `ENCODER` x264 ultrafast, `format` vertical d'abord,
+  `frames` : images de vignette animée) ; `MontageChoice.kt` (`MontageVariantsFile` `*_variantes.json` et `MontageChoiceRecord` `*.choix.json`, versionnés,
+  formats documentés en KDoc). `MontagePlanner.SCALES/DROP_SHIFTS/MIN_CLIP_SHARE/MIN_GAIN` sont `internal` pour `MontageVariants`.
 
 ### publish (`dev.highlights.publish`)
 - `YouTubeText.kt` : `VideoKind`, `VideoFacts` (jeu, date, durée, taille, kills, headshots, multiKills, aces, clutches, moments, musique), `YouTubeMetadata` (+ `problems()` = refus prévisibles de YouTube),
@@ -242,7 +251,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `HighlightPipeline.kt` (captures effacées depuis l'analyse : écartées de `search` et des groupes de `killMontage`) : `AnalyzeOptions, ExportOptions, MontageOptions, AnalysisOutcome(reused), ProcessOutcome, BatchOutcome` ;
   méthodes `probe, analyze, analyzeAll, export, preview, reselect, reselectAll, thumbnail, clipPreview, killMontage (music = fichier ou dossier), loadMusicLibrary, process, processAll, reloadProfiles, resolveProfile` ;
   `ExportOptions.platform` / `MontageOptions.platform` (format, loudness, débit, zone sûre ; montage : maxDuration plafonnée ; highlights trop long → InputException avant rendu ; fichier `…_<kind>_<plateforme>`),
-  `platforms` ; `MontageOptions.fromStartMusics` (réglage « depuis le début » par musique en mode bibliothèque) ; `ExportResult.music` = musique utilisée ;
+  `platforms` ; `montagePreviews(sessions, music, options, count)` → `MontagePreviews(variantsFile, VariantPreview…)`, `MontageOptions.pick` (`VariantPick(index, variantsFile)`),
+  `latestVariantsFile`, `PREVIEW_DIR` (« apercus ») ; `MontageOptions.fromStartMusics` (réglage « depuis le début » par musique en mode bibliothèque) ; `ExportResult.music` = musique utilisée ;
   `library`, `previewDir`, `withJobDir` (workDir/job-UUID, gardé si échec).
 - `Pipelines.kt` : câblage manuel (pas de DI) `Pipelines.ffmpeg(config)`, `Pipelines.create(config)`.
 - `ConfigLocator.locate` : explicite > env `HIGHLIGHTS_CONFIG` > prop `highlights.config` > `./config/app.yaml` > `<install>/config/app.yaml`.
@@ -266,7 +276,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ### app-cli (`dev.highlights.cli`)
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
 - `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
-  `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --out`.
+  `--variants N --pick N --variants-file` (aperçus puis choix), `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --out`.
   `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;
   `music` : `--max --clips` ; `preview` : `--at`.
@@ -277,6 +287,9 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   (`UiState, ConfigStatus, SourceInfo, LibraryItem, WatchState, TargetMode, MomentMode{BEST,KILLS}, SettingsState, JobState, SessionEntry, Segment, SessionState, ErrorInfo, ImagePreview, MontageUiState`).
 - Publication : `PublishUiState` (UiState.kt, `withSuggestion/metadata/problems/canPublish`), `PublishDialog.kt`, actions `openPublish/updatePublish/resetPublishText/publishToYouTube/youtubeLogout/editConfig/browse`,
   `openYouTubeUpload/copyToClipboard` (mode manuel, par défaut : `PublishUiState.api` false), `UiState.lastUpload` ; `Platform.browse/copy` (défaut vide pour les faux).
+- Aperçus de variantes : `VariantsView.kt` (`VariantsUiState`, `VariantCard`, `VariantsWindow` : une carte par variante, vignette animée, Lire = lecteur du système,
+  « Rendre celle-ci » ; `PreviewVariantsButton` dans `MontageDialog`), actions `previewMontage/renderVariant/closeVariants` (défauts vides dans `UiActions`),
+  `UiState.variants` ; `AppController.montageOptions` (options communes au montage et aux aperçus), `pendingVariants`.
 - Recherche : `SearchView.kt` (`SearchState` : moments chargés une fois, filtres, `unpicked`, `results/picked` ; `SearchPeriod`), actions `showSearch/closeSearch/updateSearch/toggleMoment/montageFromSearch`
   (ouvre les parties via `openSessions(files, then)` puis `openMontage` avec `MontageUiState.pick`).
 - Statistiques : `StatsView.kt` (`StatsState` : games, jeu choisi, `evenings/gameNames/shown`), actions `showStats/closeStats/setStatsGame`, `UiState.stats` (remplace la liste des analyses).

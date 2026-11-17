@@ -3,6 +3,7 @@ package dev.highlights.montage
 import dev.highlights.core.i18n.tr
 import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
+import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.EncoderSelector
 import dev.highlights.core.ffmpeg.FfmpegException
 import dev.highlights.core.ffmpeg.FfmpegProgressParser
@@ -51,6 +52,11 @@ data class MontageExportRequest(
     val platform: String? = null,
     /** Genre de montage, dans le nom des fichiers : killmontage, onetaps. */
     val kind: String = "killmontage",
+    /**
+     * Aperçu ([MontagePreview]) : petite taille, encodage rapide, sans flou par vecteurs ; même calage, image pour image.
+     * Un seul format, celui de [MontagePreview.format].
+     */
+    val preview: Boolean = false,
 )
 
 @Serializable
@@ -73,6 +79,10 @@ data class MontageReport(
     val musicCandidates: List<MontageReportMusic> = emptyList(),
     /** Profil (jeu) du montage ; null dans les rapports écrits avant. */
     val profile: String? = null,
+    /** Empreinte du montage ([MontageVariants.signature]) : la même pour un aperçu et le rendu final de sa variante. */
+    val signature: String? = null,
+    /** Aperçu basse résolution ([MontagePreview]) plutôt que rendu final. */
+    val preview: Boolean = false,
 )
 
 /** Musique d'une bibliothèque essayée pour le montage ; [error] : aucun plan possible sur elle. */
@@ -146,7 +156,19 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
 
     suspend fun export(plan: MontagePlan, request: MontageExportRequest, progress: ProgressReporter): ExportResult {
         if (request.formats.isEmpty()) throw HighlightsException(Message("error.export.noFormat"))
-        val encoder = encoders.select().withMaxBitrate(request.edit.maxBitrate)
+        // Aperçu : même plan (même empreinte, mêmes images), réglages de rendu ramenés à l'aperçu.
+        val signature = MontageVariants.signature(plan)
+        if (request.preview) {
+            return render(
+                MontagePreview.plan(plan),
+                request.copy(formats = listOf(MontagePreview.format(request.formats)), edit = MontagePreview.edit(request.edit), audioBitrate = MontagePreview.AUDIO_BITRATE, hwaccel = null),
+                MontagePreview.ENCODER, signature, progress,
+            )
+        }
+        return render(plan, request, encoders.select().withMaxBitrate(request.edit.maxBitrate), signature, progress)
+    }
+
+    private suspend fun render(plan: MontagePlan, request: MontageExportRequest, encoder: EncoderProfile, signature: String, progress: ProgressReporter): ExportResult {
         request.outputDir.createDirectories()
         request.workDir.createDirectories()
         val kind = request.platform?.let { "${request.kind}_${OutputNamer.slug(it)}" } ?: request.kind
@@ -177,7 +199,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                 MontageRenderRequest(
                     plan, format, request.edit, encoder, temp, script,
                     request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption, motion,
-                    whooshFiles,
+                    whooshFiles, if (request.preview) MontagePreview.DECODE else emptyList(),
                 ),
             )
             script.writeText(render.filterGraph)
@@ -224,6 +246,8 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             variant = plan.variant.toString(),
             musicCandidates = request.musicChoice,
             profile = request.gameName,
+            signature = signature,
+            preview = request.preview,
             clips = plan.clips.zip(plan.clipOffsets()).mapIndexed { i, (c, offset) ->
                 MontageReportClip(
                     c.group.media.path.toString(), c.start.toTimecode(), c.end.toTimecode(), c.kills.map { it.toTimecode() },
