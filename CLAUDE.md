@@ -21,6 +21,8 @@ incrustés) passe par les bundles `core/src/main/resources/i18n/messages*.proper
 - UI dev : `.\gradlew.bat :app-ui:run` (lit `config/` du projet via `-Dhighlights.config`).
   Piloter l'app sans souris ni computer-use : `:app-ui:run -Pbridge` + skill `.claude/skills/drive-app` (curl sur le pont, voir §4 app-ui `bridge/`).
 - Installeur : `:app-ui:packageMsi`, `:app-ui:portableZip` (WiX 3 ; FFmpeg téléchargé si absent).
+  Licence GPL-3.0-or-later (`LICENSE`) ; livrés aussi `THIRD_PARTY_NOTICES.md`, `licenses/`, `ffmpeg/VERSION.txt` (tâche `ffmpegVersion`).
+  Nouvelle dépendance d'exécution → l'ajouter à `THIRD_PARTY_NOTICES.md` et à la table de `checkThirdPartyNotices` (app-ui/build.gradle.kts), sinon l'installeur ne se construit pas.
 - Version : `highlights.version` dans `gradle.properties` ; release = tag `v<version>` → `.github/workflows/installeur.yml`
   (+ `installeur-verif.yml` : cycle install/maj/réinstall/désinstall). `upgradeUuid` (app-ui/build.gradle.kts) ne change JAMAIS.
 - Shell : Windows. Bash tool = Git Bash. Heredocs avec accents français cassent → écrire via Write / fichier python.

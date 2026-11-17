@@ -819,3 +819,12 @@ accroché, ce qui est deviné par défaut d'après sa position.
 Ajouter un détecteur : implémenter `SignalDetectorFactory`, déclarer la classe dans `META-INF/services/dev.highlights.core.analysis.SignalDetectorFactory`, puis la référencer par son `type` dans un profil.
 
 Un détecteur qui lit des images déclare ses zones dans `prepare()` auprès de `ctx.frames` (`FrameSampler`) plutôt que de lancer son propre FFmpeg : tous ceux qui demandent la même cadence se partagent alors un seul décodage de la capture, et deux zones identiques ne sont découpées qu'une fois.
+
+## Licence
+
+Highlights est un logiciel libre sous **GNU GPL version 3 ou ultérieure** ([`LICENSE`](LICENSE)). Les composants livrés
+avec l'installeur (FFmpeg, le runtime Java, YAMNet, les bibliothèques) et leurs licences sont listés dans
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), textes complets dans [`licenses/`](licenses/). L'installeur et
+la version portable embarquent ces fichiers dans `app/resources`, ainsi que `ffmpeg/VERSION.txt` (la version exacte
+du FFmpeg livré, pour en fournir les sources). Une bibliothèque ajoutée sans sa ligne dans les notices fait échouer
+la construction de l'installeur (`checkThirdPartyNotices`).
