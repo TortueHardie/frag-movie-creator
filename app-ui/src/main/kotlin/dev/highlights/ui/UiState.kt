@@ -377,6 +377,10 @@ data class PublishUiState(
     val publishAtText: String = "",
     /** Texte proposé, pour y revenir. */
     val suggested: YouTubeMetadata? = null,
+    /** Miniature écrite à côté de la vidéo (`<nom>_miniature.png`) ; null : pas encore faite. */
+    val thumbnail: Path? = null,
+    /** Miniature en cours de création. */
+    val thumbnailBusy: Boolean = false,
 ) {
     val tags: List<String> get() = tagsText.split(',').map { it.trim() }.filter { it.isNotEmpty() }
     val publishAt: Instant? get() = publishAtText.takeIf { it.isNotBlank() }?.let(YouTubeText::parseSchedule)

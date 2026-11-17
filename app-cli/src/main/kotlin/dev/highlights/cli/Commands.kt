@@ -42,6 +42,7 @@ import dev.highlights.montage.MontageReport
 import dev.highlights.montage.MontageScore
 import dev.highlights.montage.MusicAnalyzer
 import dev.highlights.montage.MusicLibrary
+import dev.highlights.montage.ThumbnailStyle
 import dev.highlights.core.profile.ProfileRepository
 import dev.highlights.pipeline.AnalysisOutcome
 import dev.highlights.pipeline.AnalyzeOptions
@@ -64,6 +65,12 @@ private fun PipelineCommand.platformOption() = option(
     "--platform",
     help = "Plateforme visée : tiktok, shorts, reels, youtube (ou définie dans app.yaml) — format, volume, débit, textes hors de l'interface de l'appli, durée maximale",
 )
+
+/** `--thumbnail` : miniature YouTube de chaque vidéo ; `--thumbnail-style` choisit son habillage (sobre par défaut). */
+private fun PipelineCommand.thumbnailFlag() = option("--thumbnail", help = "Écrit aussi une miniature YouTube (PNG 1280x720, 1080x1920 en vertical) à côté de chaque vidéo").flag()
+
+internal fun PipelineCommand.thumbnailStyleOption() = option("--thumbnail-style", help = "Habillage de la miniature : sober (défaut), vivid ou big (texte aussi large que l'image)")
+    .choice(*ThumbnailStyle.entries.map { it.id to it }.toTypedArray())
 
 private fun PipelineCommand.styleOption() = option(
     "--style",
@@ -153,6 +160,8 @@ class ExportCommand : PipelineCommand("export") {
     private val style by styleOption()
     private val music by musicOption()
     private val out by option("-o", "--out").path(canBeFile = false)
+    private val thumbnail by thumbnailFlag()
+    private val thumbnailStyle by thumbnailStyleOption()
 
     override fun help(context: Context) = "Exporte le montage à partir d'une session (segments enabled uniquement), sans réanalyser."
 
@@ -170,7 +179,7 @@ class ExportCommand : PipelineCommand("export") {
     }
 
     /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
-    internal fun exportOptions() = ExportOptions(formats, out, style, music, platform)
+    internal fun exportOptions() = ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.SOBER.takeIf { thumbnail })
 }
 
 class MontageCommand : PipelineCommand("montage") {
@@ -235,6 +244,8 @@ class MontageCommand : PipelineCommand("montage") {
         }.multiple()
     private val planOnly by option("--plan", help = "Affiche le plan sans rendre : la place de chaque kill et sa désignation pour --exclude, --force, --drop, --pin").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
+    private val thumbnail by thumbnailFlag()
+    private val thumbnailStyle by thumbnailStyleOption()
 
     override fun help(context: Context) =
         "Montage de tous les kills calé sur une musique : coupes sur le beat, chaque kill sur un temps, zoom, flash, ralenti, textes (--reactions pour mettre en avant voix et rires, --onetaps pour ne garder que les one taps). " +
@@ -358,6 +369,7 @@ class MontageCommand : PipelineCommand("montage") {
         fast = if (fast) true else null,
         style = style.let { if (it == "none") null else it ?: defaultStyle },
         constraints = constraints,
+        thumbnail = thumbnailStyle ?: ThumbnailStyle.SOBER.takeIf { thumbnail },
     )
 }
 
@@ -523,6 +535,7 @@ private fun PipelineCommand.printHighlights(highlights: List<Highlight>, warning
 internal fun PipelineCommand.printExport(result: ExportResult) {
     echo("Montage (${result.duration.toShortText()}, encodeur ${result.encoder}) :")
     result.videos.forEach { (format, path) -> echo("  ${format.label}  $path") }
+    result.thumbnails.forEach { echo("  miniature  $it") }
     echo("  rapport ${result.report}")
 }
 
