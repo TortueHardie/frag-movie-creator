@@ -148,8 +148,8 @@ class VeriteCommand : PipelineCommand("verite") {
             val threshold = truth.thresholds[s.detector]?.get(s.kind)
             val verdict = when {
                 threshold == null -> "-"
-                s.failures(threshold).isEmpty() -> "OK (p ≥ %.2f, r ≥ %.2f)".format(threshold.precision, threshold.recall)
-                else -> "ÉCHEC (p ≥ %.2f, r ≥ %.2f)".format(threshold.precision, threshold.recall)
+                s.failures(threshold).isEmpty() -> "OK (p >= %.2f, r >= %.2f)".format(threshold.precision, threshold.recall)
+                else -> "ÉCHEC (p >= %.2f, r >= %.2f)".format(threshold.precision, threshold.recall)
             }
             echo(
                 "  %-16s %-8s %5d %5d %7d %9s %7s  %s".format(

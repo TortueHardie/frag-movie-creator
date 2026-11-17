@@ -193,7 +193,9 @@ Pistes, de la plus simple à la plus lourde :
 - [ ] Préréglages d'export (« TikTok », « YouTube court », « complet »).
 
 ## Qualité de détection
-- [ ] Jeu de vérité terrain versionné (timecodes annotés) + test de non-régression précision/rappel, lancé à la main.
+- [x] Jeu de vérité terrain versionné (`verite/`, timecodes validés par le joueur) + `app verite` (précision/rappel par
+  détecteur, échec sous les seuils), lancé à la main (`gradlew :app-cli:verite`).
+- [ ] Vérité terrain VALORANT (killfeed, compteur de munitions, `kill-confirm`) : aucune capture VALORANT sur le disque.
 - [ ] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
 
 ## Entretien

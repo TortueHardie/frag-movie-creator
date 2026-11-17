@@ -105,6 +105,38 @@ MSI lui-même, qu'il s'installe sans droits administrateur et qu'il porte un cod
 .\gradlew.bat :app-cli:installDist    # → app-cli\build\install\app\bin\app.bat
 ```
 
+### Vérité terrain : prouver qu'un changement de détecteur n'a rien cassé
+
+`verite/<jeu>/*.yaml` liste, pour quelques vraies captures, les vrais kills et morts du joueur avec leurs temps, relevés
+image par image et validés par le joueur. Les vidéos ne sont pas dans le dépôt : une capture y est reconnue par son nom,
+sa taille et sa durée. `app verite` réanalyse chaque capture avec le code du moment et mesure chaque détecteur :
+
+```powershell
+.\gradlew.bat :app-cli:verite "-Pverite=--videos D:\Vidéo"          # réanalyse (longue : une analyse par capture)
+& $app verite verite --sessions D:\dev\editor\output\sessions        # mesure les analyses déjà enregistrées (immédiat)
+```
+
+Pour chaque capture et chaque détecteur : vrais (retrouvés dans la tolérance), faux (détections sans vrai événement),
+manqués, précision, rappel, avec l'instant de chaque faux et de chaque manqué. Une détection ne valide qu'un seul vrai
+événement (deux kills à 1 s d'écart demandent deux détections). Les seuils (`thresholds` du fichier) sont l'état mesuré
+au moment du relevé : la commande échoue (code 1) si un détecteur passe en dessous, et écrit `verite-rapport.json`.
+Les analyses refaites vont dans `-o` (défaut : `%TEMP%\highlights\verite`), avec leur propre mémoire d'analyses : la
+bibliothèque de l'utilisateur n'est pas touchée.
+
+Format d'un fichier :
+
+```yaml
+capture: { name: WARDOGS_09-23-2026_20-4-19-983.mp4, sizeBytes: 6911741815, duration: 2708.992s }
+profile: wardogs
+tolerance: 3s               # écart toléré entre l'instant relevé et l'instant détecté
+validated: joueur, 2026-11-18
+kinds: [kill, death]        # sortes relevées sans oubli ; les autres (réanimations…) ne comptent pas
+events:
+  - { at: "07:56", kind: kill, note: "ÉLIMINATION dans le journal" }
+thresholds:
+  game-events: { kill: { precision: 1.0, recall: 1.0 } }
+```
+
 ## Construire l'installeur
 
 ```powershell
