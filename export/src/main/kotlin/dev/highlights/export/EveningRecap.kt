@@ -25,6 +25,9 @@ private val log = KotlinLogging.logger {}
  */
 data class RecapCard(val title: String, val subtitle: String, val source: Path, val at: Duration, val length: Duration)
 
+/** Récap rendu : sa durée, et l'instant où commence chaque carton (les intercalaires, puis l'écran de fin). */
+data class RecapTimeline(val duration: Duration, val cards: List<Duration>)
+
 /** Une partie du récap : son carton, puis sa vidéo de moments déjà rendue (export highlights de la seule partie). */
 data class RecapPart(val card: RecapCard, val video: Path)
 
@@ -49,7 +52,7 @@ class RecapRenderer(private val ffmpeg: FfmpegService, private val encoders: Enc
         maxBitrate: String?,
         audioBitrate: String,
         progress: ProgressReporter,
-    ): Duration {
+    ): RecapTimeline {
         require(parts.isNotEmpty()) { "récap vide" }
         val first = ffmpeg.probe(parts.first().video)
         val video = first.video ?: error("vidéo sans image : ${parts.first().video}")
@@ -109,7 +112,12 @@ class RecapRenderer(private val ffmpeg: FfmpegService, private val encoders: Enc
         }
         part.moveTo(output, overwrite = false)
         progress.complete()
-        return total
+        // Début de chaque carton : les cartons et parties qui le précèdent.
+        var at = Duration.ZERO
+        val starts = mutableListOf<Duration>()
+        parts.forEachIndexed { i, p -> starts += at; at += p.card.length + partInfo[i].duration }
+        starts += at
+        return RecapTimeline(total, starts)
     }
 
     companion object {

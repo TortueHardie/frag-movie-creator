@@ -79,6 +79,9 @@ class RecapIT : FunSpec({
         val shared = pipeline.reselectAll(analyses.map { SessionStore.load(it.sessionFile) }, null, null)
         report.games.map { it.moments } shouldBe shared.map { s -> s.highlights.count { it.enabled } }.filter { it > 0 }
         report.games.map { it.number } shouldBe shared.mapIndexedNotNull { i, s -> (i + 1).takeIf { s.highlights.any { h -> h.enabled } } }
+        // Un carton par partie montrée, puis l'écran de fin ; le premier ouvre la vidéo.
+        report.cards.size shouldBe report.games.size + 1
+        report.cards.first() shouldBe 0.0
         // Durée : les parties, plus 1,5 s par intercalaire et 2,5 s pour la fin.
         val probed = TestMedia.requireFfmpeg().probe(video)
         (probed.duration.inWholeMilliseconds / 1000.0) shouldBe (result.duration.inWholeMilliseconds / 1000.0 plusOrMinus 0.5)

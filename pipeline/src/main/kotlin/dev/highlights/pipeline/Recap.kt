@@ -9,7 +9,15 @@ import java.time.ZoneId
 
 /** Rapport JSON du récap (à côté de la vidéo) : les parties montrées et ce qu'elles valent. */
 @kotlinx.serialization.Serializable
-data class RecapReport(val date: String, val game: String, val kills: Int, val games: List<Game>, val outputs: List<String>) {
+data class RecapReport(
+    val date: String,
+    val game: String,
+    val kills: Int,
+    val games: List<Game>,
+    val outputs: List<String>,
+    /** Début de chaque carton dans la vidéo (secondes) : intercalaires dans l'ordre, puis l'écran de fin. */
+    val cards: List<Double> = emptyList(),
+) {
     @kotlinx.serialization.Serializable
     data class Game(val number: Int, val source: String, val kills: Int, val moments: Int)
 }

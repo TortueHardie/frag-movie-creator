@@ -331,6 +331,29 @@ class HighlightPipeline(
     fun evenings(): List<Evening> = EveningPlanner.of(statistics())
 
     /**
+     * Les parties de [sessionFiles] prises comme une soirée, telles quelles : ni découpage de 6 h à 6 h, ni dédoublonnage
+     * (deux captures sans date d'enregistrement, copiées à la même minute, passent sinon pour la même partie).
+     */
+    fun eveningOf(sessionFiles: List<Path>): Evening {
+        val wanted = sessionFiles.map { it.toAbsolutePath().normalize() }.toSet()
+        val games = statistics().filter { it.sessionFile.toAbsolutePath().normalize() in wanted }.distinctBy { it.sessionFile.toAbsolutePath().normalize() }
+            .sortedBy { it.playedAt }
+        if (games.isEmpty()) throw InputException(Message("error.recap.noMoments"))
+        val zone = java.time.ZoneId.systemDefault()
+        val start = games.firstNotNullOfOrNull { it.playedAt } ?: Instant.now()
+        return Evening(
+            date = start.atZone(zone).minusHours(Statistics.EVENING_END.inWholeHours).toLocalDate(),
+            game = games.first().game,
+            profileId = games.first().profileId,
+            sessionFiles = games.map { it.sessionFile },
+            sources = games.map { it.source },
+            kills = games.sumOf { it.kills },
+            end = games.maxOf { (it.playedAt ?: start) + java.time.Duration.ofMillis(it.duration.inWholeMilliseconds) },
+            games = games,
+        )
+    }
+
+    /**
      * Montage kills d'une soirée entière ([killMontage] de toutes ses parties), retenu dans [eveningHistory] : le
      * montage automatique ne la refera pas. Un échec y est retenu aussi, puis relancé.
      */
@@ -645,18 +668,18 @@ class HighlightPipeline(
             val end = RecapCard(RecapText.endTitle(evening), RecapText.endSubtitle(evening), last.media.path, best(last), RecapRenderer.END_CARD)
             val names = OutputNamer.reserve(outputDir, profile.id, evening.date, formats, kind = "recap")
             val renderer = RecapRenderer(ffmpeg, exporter.encoders)
-            var duration = kotlin.time.Duration.ZERO
+            var timeline = dev.highlights.export.RecapTimeline(kotlin.time.Duration.ZERO, emptyList())
             formats.forEach { format ->
-                duration = renderer.render(
+                timeline = renderer.render(
                     parts(format), end, names.videos.getValue(format), workDir, edit.story.captions.font, edit.safeArea, edit.maxBitrate,
                     config.app.encoder.audioBitrate, progress.child(tr("progress.render"), 0.3 / formats.size),
                 )
             }
             val report = RecapReport(evening.date.toString(), profile.id, evening.kills, games.map { (index, s) ->
                 RecapReport.Game(index + 1, s.media.path.toString(), evening.games.getOrNull(index)?.kills ?: 0, s.highlights.count { it.enabled })
-            }, names.videos.values.map { it.toString() })
+            }, names.videos.values.map { it.toString() }, timeline.cards.map { it.inWholeMilliseconds / 1000.0 })
             java.nio.file.Files.writeString(names.report, SessionStore.json.encodeToString(RecapReport.serializer(), report))
-            ExportResult(names.videos, names.report, duration, exporter.encoders.select().name)
+            ExportResult(names.videos, names.report, timeline.duration, exporter.encoders.select().name)
         }
     }
 
