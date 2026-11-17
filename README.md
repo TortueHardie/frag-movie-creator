@@ -490,6 +490,11 @@ détecte les kills). En ligne de commande :
 - **Une emphase par plan** (`effectDensity`, `--effects sober|balanced|heavy`) : au rythme normal, un plan reçoit un
   ralenti *ou* un zoom, jamais les deux. Le ralenti va aux plans forts — drop, multi-kill visible à l'écran, accroche —
   et les autres prennent le zoom. `sober` ne garde que le ralenti de la drop, `heavy` remet tout partout.
+- **Compteur de kills** (désactivé par défaut ; « Compteur de kills à l'écran » du dialogue, `--kill-counter clip|montage`,
+  `text.killCounter` d'un profil) : « 1… 2… 3… » à chaque kill, tenu jusqu'au suivant, puis ACE (doré, sous le nombre)
+  sur le dernier kill d'un groupe qui finit un ace. `clip` : compté dans chaque plan (un multi-kill fait 1, 2, 3) ;
+  `montage` : cumul sur tout le montage, le total restant affiché d'un plan à l'autre. En 9:16, en haut à droite à
+  côté du kill feed recollé (à gauche si le HUD recollé du profil occupe ce coin), dans la zone sûre de la plateforme.
 - **Effets** (désactivables : `--no-zoom`, `--no-flash`, `--no-slowmo`, `--no-text`) : zoom punch, ralenti ×0,5 sur le
   kill (seulement s'il tient dans le plan), textes « DOUBLÉ / TRIPLÉ », fondu au noir final. Le ralenti s'installe par
   paliers avant le kill et le plein régime revient exactement sur un temps, au lieu d'un changement de vitesse net ;

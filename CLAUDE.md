@@ -241,6 +241,9 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   Dans le planificateur : plancher et `placeable` gardent les `kept` ; `layout` n'accepte que les fenêtres qui contiennent la drop/les temps épinglés ;
   `assign` BUILD_UP met l'épinglé sur la drop, les épinglés sur leur cellule, puis les forcés restés dehors remplacent le moins bon groupe non imposé ;
   CHRONOLOGICAL : épinglé sur la drop = `best`, les moins bons d'avant lui cèdent leur place ; `pairUp` ne déplace pas les épinglés ; `clipFor` ancre sur le temps épinglé.
+- `KillCounter.kt` : compteur de kills à l'écran (`TextEffect.killCounter: KillCounterMode{OFF,CLIP,MONTAGE}`) : `marks(clips, i, outKills, length, mode)` (nombre tenu jusqu'au kill suivant ;
+  cumul : total d'avant affiché dès le début du plan ; ACE sur le dernier kill d'un groupe `outcome.ace`), `filters` (drawtext ; 9:16 en haut à droite dans `safeArea`, à gauche si `rightCornerTaken(vertical)`),
+  une ligne dans `MontageRenderBuilder.build` ; `MontageOptions.killCounter`, `--kill-counter`, `KillCounterPicker` (dialogue) ; texte `video.counter.ace`.
 - `MontageScorer.kt` : `MontageScore(total, sync, accent, restraint, variety, fill, pacing, coverage, opening, lull, action, details)` ; critère null = exclu de la moyenne.
 - `KillMontageExporter.kt` : `MontageExportRequest(musicChoice)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates)`, `export`, `recordingDate`.
 
@@ -283,7 +286,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ### app-cli (`dev.highlights.cli`)
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
 - `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
-  `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --plan --exclude --force --drop --pin --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --style --out`.
+  `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --plan --exclude --force --drop --pin --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --kill-counter --balance --reactions --game-audio --style --out`.
   `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `EveningCommand.kt` : `soiree [--date --game --music --list -f --platform --style -o]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;
   `music` : `--max --clips` ; `preview` : `--at`.
