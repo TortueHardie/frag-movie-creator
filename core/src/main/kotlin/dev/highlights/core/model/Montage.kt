@@ -466,6 +466,14 @@ enum class EffectDensity {
     @SerialName("heavy") HEAVY,
 }
 
+/** Compteur de kills : aucun, compté dans chaque plan (un multi-kill fait 1, 2, 3), ou cumulé sur tout le montage. */
+@Serializable
+enum class KillCounterMode {
+    @SerialName("off") OFF,
+    @SerialName("clip") CLIP,
+    @SerialName("montage") MONTAGE,
+}
+
 @Serializable
 enum class MontageOrder {
     /** Du moins fort au plus fort, le meilleur moment tombe sur la partie la plus intense de la musique. */
@@ -794,8 +802,11 @@ data class TextEffect(
      * KILL… ou DOUBLÉ, TRIPLÉ…, clés `video.streak.*`). Le dernier vaut pour les séries plus longues.
      */
     val multiKillLabels: List<String>? = null,
-    /** Petit compteur « KILL n » à chaque kill. Désactivé par défaut : il n'apporte rien et surcharge l'image. */
-    val killCounter: Boolean = false,
+    /**
+     * Compteur de kills à l'écran (« 1… 2… 3… », puis ACE), compté dans chaque plan ou cumulé sur le montage. Désactivé
+     * par défaut : il charge l'image, à réserver aux montages qui veulent l'afficher.
+     */
+    val killCounter: KillCounterMode = KillCounterMode.OFF,
 ) {
     /** Libellés à incruster : ceux de la configuration, sinon ceux de la langue de l'interface. */
     val labels: List<String> get() = multiKillLabels ?: (2..5).map { tr("video.streak.$it") }

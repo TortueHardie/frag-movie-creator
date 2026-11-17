@@ -21,6 +21,7 @@ import dev.highlights.core.model.AudioRole
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.KillCounterMode
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
@@ -208,6 +209,8 @@ class MontageCommand : PipelineCommand("montage") {
     private val noSlowmo by option("--no-slowmo", help = "Sans ralenti").flag()
     private val noRamp by option("--no-ramp", help = "Sans rampe de vitesse entre les kills d'un multi-kill").flag()
     private val noText by option("--no-text", help = "Sans textes (DOUBLÉ, TRIPLÉ…)").flag()
+    private val killCounter by option("--kill-counter", help = "Compteur de kills à l'écran (« 1… 2… 3… », puis ACE) : clip (compté dans chaque plan), montage (cumulé), off")
+        .choice("off" to KillCounterMode.OFF, "clip" to KillCounterMode.CLIP, "montage" to KillCounterMode.MONTAGE)
     private val balance by option("--balance", help = "Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant) ; ±6 dB par cran")
         .convert { text ->
             text.replace(',', '.').toDoubleOrNull()?.takeIf { it in -1.0..1.0 } ?: throw BadParameterValue("équilibre invalide '$text' (entre -1 et 1)")
@@ -351,6 +354,7 @@ class MontageCommand : PipelineCommand("montage") {
         slowMotion = if (noSlowmo) false else null,
         speedRamp = if (noRamp) false else null,
         text = if (noText) false else null,
+        killCounter = killCounter,
         audioBalance = balance,
         gameAudio = gameAudio,
         reactions = if (reactions) true else null,

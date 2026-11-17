@@ -326,6 +326,8 @@ data class MontageUiState(
     val rounds: Boolean = true,
     val slowMotion: Boolean = true,
     val text: Boolean = true,
+    /** Compteur de kills à l'écran : aucun, par plan ou cumulé (voir [dev.highlights.core.model.KillCounterMode]). */
+    val killCounter: dev.highlights.core.model.KillCounterMode = dev.highlights.core.model.KillCounterMode.OFF,
     /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */
     val balance: Double = 0.0,
     val gameAudio: GameAudio = GameAudio.FULL,

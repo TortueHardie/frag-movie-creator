@@ -441,9 +441,15 @@ class MontageRenderBuilderTest : FunSpec({
         build(plan()).filterGraph shouldNotContain "minterpolate"
     }
 
-    test("compteur de kills : absent par défaut, présent sur demande") {
-        build(plan()).filterGraph shouldNotContain "text='KILL"
-        build(plan(settings.copy(text = settings.text.copy(killCounter = true)))).filterGraph shouldContain "text='KILL 3'"
+    test("compteur de kills : absent par défaut ; par plan 1, 2 puis 1 ; cumulé 1, 2, puis 3") {
+        val counter = Regex("""text='(\d+)'""")
+        fun numbers(mode: dev.highlights.core.model.KillCounterMode) =
+            counter.findAll(build(plan(settings.copy(text = settings.text.copy(killCounter = mode)))).filterGraph).map { it.groupValues[1] }.toList()
+        numbers(dev.highlights.core.model.KillCounterMode.OFF) shouldBe emptyList()
+        // Le doublé ouvre (accroche), le kill seul suit.
+        numbers(dev.highlights.core.model.KillCounterMode.CLIP) shouldBe listOf("1", "2", "1")
+        // Cumulé : le plan du kill seul garde 2 affiché jusqu'à son kill.
+        numbers(dev.highlights.core.model.KillCounterMode.MONTAGE) shouldBe listOf("1", "2", "2", "3")
     }
 
     test("chaque plan coupé à son nombre d'images, posé sur la grille : la vidéo ne dérive pas du son") {
