@@ -1,5 +1,6 @@
 package dev.highlights.publish
 
+import dev.highlights.core.i18n.Message
 import com.sun.net.httpserver.HttpServer
 import dev.highlights.core.ConfigException
 import dev.highlights.core.HighlightsException
@@ -46,16 +47,16 @@ data class OAuthClient(val id: String, val secret: String) {
          * y range son identifiant sous « installed » (« web » accepté aussi, pour qui se serait trompé de type).
          */
         fun fromFile(file: Path): OAuthClient {
-            if (!file.isRegularFile()) throw ConfigException("Fichier d'identifiant Google introuvable : $file")
+            if (!file.isRegularFile()) throw ConfigException(Message("error.google.secretNotFound", "file" to file))
             val root = try {
                 Json.parseToJsonElement(file.readText().removePrefix("﻿")).jsonObject
             } catch (e: Exception) {
-                throw ConfigException("Fichier d'identifiant Google illisible ($file) : ${e.message}", e)
+                throw ConfigException(Message("error.google.secretUnreadable", "file" to file, "detail" to e.message), e)
             }
             val block = (root["installed"] ?: root["web"])?.jsonObject
-                ?: throw ConfigException("$file n'est pas un identifiant OAuth Google (pas de bloc « installed »)")
-            val id = block.string("client_id") ?: throw ConfigException("$file : client_id manquant")
-            val secret = block.string("client_secret") ?: throw ConfigException("$file : client_secret manquant")
+                ?: throw ConfigException(Message("error.google.notOAuth", "file" to file))
+            val id = block.string("client_id") ?: throw ConfigException(Message("error.google.missingField", "file" to file, "field" to "client_id"))
+            val secret = block.string("client_secret") ?: throw ConfigException(Message("error.google.missingField", "file" to file, "field" to "client_secret"))
             return OAuthClient(id, secret)
         }
     }
@@ -148,8 +149,8 @@ class GoogleAuth(
             log.info { "Connexion à YouTube dans le navigateur : $url" }
             browse(url)
             val query = withTimeout(LOGIN_TIMEOUT) { answer.await() }
-            query["error"]?.let { throw HighlightsException("Connexion à YouTube refusée : $it") }
-            if (query["state"] != state) throw HighlightsException("Connexion à YouTube : réponse qui ne vient pas de cette demande (state)")
+            query["error"]?.let { throw HighlightsException(Message("error.youtube.loginRefused", "reason" to it)) }
+            if (query["state"] != state) throw HighlightsException(Message("error.youtube.loginState"))
             val json = post(
                 "code" to query.getValue("code"),
                 "client_id" to client.id,
@@ -159,7 +160,7 @@ class GoogleAuth(
                 "code_verifier" to verifier,
             )
             val refreshToken = json.string("refresh_token")
-                ?: throw HighlightsException("Google n'a pas donné de jeton de rafraîchissement : retire l'accès de Highlights dans ton compte Google puis reconnecte-toi")
+                ?: throw HighlightsException(Message("error.youtube.noRefreshToken"))
             return save(StoredToken(refreshToken, json.string("access_token"), expiry(json))).view()
         } finally {
             server.stop(0)
@@ -196,16 +197,16 @@ class GoogleAuth(
         val response = try {
             http.sendAsync(request, HttpResponse.BodyHandlers.ofString()).await()
         } catch (e: java.io.IOException) {
-            throw HighlightsException("Google injoignable : ${e.message}", e)
+            throw HighlightsException(Message("error.google.unreachable", "detail" to e.message), e)
         }
         val json = runCatching { Json.parseToJsonElement(response.body()).jsonObject }.getOrNull() ?: JsonObject(emptyMap())
         if (response.statusCode() !in 200..299) {
             val error = json.string("error") ?: "HTTP ${response.statusCode()}"
             if (error == "invalid_grant") throw RevokedException(json.string("error_description") ?: error)
-            if (error == "invalid_client") throw ConfigException("Identifiant OAuth refusé par Google (invalid_client) : vérifie publish.youtube dans app.yaml")
-            throw HighlightsException("Google refuse la connexion : $error ${json.string("error_description") ?: ""}".trim())
+            if (error == "invalid_client") throw ConfigException(Message("error.google.invalidClient"))
+            throw HighlightsException(Message("error.google.refused", "detail" to "$error ${json.string("error_description") ?: ""}".trim()))
         }
-        if (json.string("access_token") == null) throw HighlightsException("Réponse de Google sans jeton d'accès")
+        if (json.string("access_token") == null) throw HighlightsException(Message("error.google.noAccessToken"))
         return json
     }
 

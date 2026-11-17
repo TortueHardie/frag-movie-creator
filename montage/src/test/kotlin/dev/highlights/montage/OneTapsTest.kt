@@ -77,16 +77,16 @@ class OneTapsTest : FunSpec({
         selection.strict shouldBe false
         selection.groups.flatMap { it.kills } shouldBe listOf(100.seconds, 300.seconds)
         val strict = settings.copy(oneTaps = settings.oneTaps.copy(allowWithoutHeadshots = false))
-        shouldThrow<InputException> { select(s, strict) }.message shouldContain "Tirs à la tête inconnus"
+        shouldThrow<InputException> { select(s, strict) }.localizedMessage shouldContain "Tirs à la tête inconnus"
     }
 
     test("sans aucun tir entendu : on demande de réanalyser") {
         val s = session(listOf(Triple(100.0, null, true), Triple(200.0, null, true)))
-        shouldThrow<InputException> { select(s) }.message shouldContain "Réanalysez"
+        shouldThrow<InputException> { select(s) }.localizedMessage shouldContain "Réanalysez"
     }
 
     test("aucun one tap : on le dit") {
-        shouldThrow<InputException> { select(session(listOf(Triple(100.0, 4, true)))) }.message shouldContain "Aucun one tap"
+        shouldThrow<InputException> { select(session(listOf(Triple(100.0, 4, true)))) }.localizedMessage shouldContain "Aucun one tap"
     }
 
     /** Deux minutes de musique : intro, montée, drop au temps 64. */

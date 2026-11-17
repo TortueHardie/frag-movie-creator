@@ -1,5 +1,7 @@
 package dev.highlights.ui
 
+import dev.highlights.core.i18n.I18n
+import dev.highlights.core.i18n.tr
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -76,12 +78,12 @@ fun JobCard(job: JobState, actions: UiActions) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(job.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(job.stage.ifEmpty { "Préparation…" }, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                    Text(job.stage.ifEmpty { tr("ui.job.preparing") }, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
                 }
-                Text("%.0f %%".format(job.fraction * 100), style = MaterialTheme.typography.titleLarge, color = Palette.accent)
+                Text(I18n.percent(job.fraction), style = MaterialTheme.typography.titleLarge, color = Palette.accent)
                 if (job.cancellable) {
                     Spacer(Modifier.width(12.dp))
-                    OutlinedButton(onClick = actions::cancelJob) { Text("Annuler") }
+                    OutlinedButton(onClick = actions::cancelJob) { Text(tr("ui.common.cancel")) }
                 }
             }
             LinearProgressIndicator(
@@ -94,7 +96,7 @@ fun JobCard(job: JobState, actions: UiActions) {
                 drawStopIndicator = {},
             )
             Text(
-                "Écoulé ${job.elapsed.toShortText()} · reste ${job.eta?.toShortText() ?: "estimation en cours"}",
+                job.eta?.let { tr("ui.job.time", "elapsed" to job.elapsed, "remaining" to it) } ?: tr("ui.job.timeEstimating", "elapsed" to job.elapsed),
                 style = MaterialTheme.typography.bodySmall,
                 color = Palette.textMuted,
             )
@@ -111,34 +113,34 @@ fun UpdateCard(update: UpdateState, busy: Boolean, actions: UiActions) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     val title = when (update) {
-                        is UpdateState.Downloading -> "Téléchargement de la version $version…"
-                        is UpdateState.Installing -> "Installation de la version $version"
-                        is UpdateState.Failed -> "La mise à jour vers la version $version a échoué"
-                        is UpdateState.Available -> "Nouvelle version disponible : $version"
+                        is UpdateState.Downloading -> tr("ui.update.downloading", "version" to version)
+                        is UpdateState.Installing -> tr("ui.update.installing", "version" to version)
+                        is UpdateState.Failed -> tr("ui.update.failed", "version" to version)
+                        is UpdateState.Available -> tr("ui.update.available", "version" to version)
                     }
                     Text(title, style = MaterialTheme.typography.titleMedium)
                     val detail = when (update) {
-                        is UpdateState.Downloading -> "Highlights se fermera, s'installera puis se relancera tout seul."
-                        is UpdateState.Installing -> "Highlights se ferme et se relance une fois la nouvelle version installée."
+                        is UpdateState.Downloading -> tr("ui.update.downloadingHint")
+                        is UpdateState.Installing -> tr("ui.update.installingHint")
                         is UpdateState.Failed -> update.message
                         is UpdateState.Available ->
-                            if (busy) "À installer une fois le traitement en cours terminé."
-                            else "Highlights se fermera, s'installera puis se relancera. Montages et profils sont conservés."
+                            if (busy) tr("ui.update.busyHint")
+                            else tr("ui.update.availableHint")
                     }
                     Text(detail, style = MaterialTheme.typography.bodySmall, color = if (update is UpdateState.Failed) Palette.danger else Palette.textMuted)
                 }
                 when (update) {
                     is UpdateState.Downloading -> {
-                        Text("%.0f %%".format(update.fraction * 100), style = MaterialTheme.typography.titleLarge, color = Palette.accent)
+                        Text(I18n.percent(update.fraction), style = MaterialTheme.typography.titleLarge, color = Palette.accent)
                         Spacer(Modifier.width(12.dp))
-                        OutlinedButton(onClick = actions::dismissUpdate) { Text("Annuler") }
+                        OutlinedButton(onClick = actions::dismissUpdate) { Text(tr("ui.common.cancel")) }
                     }
                     is UpdateState.Installing -> Unit
                     is UpdateState.Available, is UpdateState.Failed -> {
-                        TextButton(onClick = actions::dismissUpdate) { Text("Plus tard") }
+                        TextButton(onClick = actions::dismissUpdate) { Text(tr("ui.update.later")) }
                         Spacer(Modifier.width(8.dp))
                         Button(onClick = actions::installUpdate, enabled = !busy) {
-                            Text(if (update is UpdateState.Failed) "Réessayer" else "Mettre à jour")
+                            Text(if (update is UpdateState.Failed) tr("ui.common.retry") else tr("ui.update.install"))
                         }
                     }
                 }
@@ -163,26 +165,26 @@ fun SessionHeader(state: UiState, session: SessionState, actions: UiActions) {
     val target = state.settings.target
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(if (session.multiple) "Moments détectés · ${session.entries.size} vidéos" else "Moments détectés", style = MaterialTheme.typography.titleLarge)
+            Text(if (session.multiple) tr("ui.session.titleMany", "count" to session.entries.size) else tr("ui.session.title"), style = MaterialTheme.typography.titleLarge)
             val targetText = when {
-                target?.totalDuration != null -> "cible ${target.totalDuration!!.toShortText()}"
-                target?.all == true -> "tout garder"
-                target?.topN != null -> "cible ${target.topN} moments"
-                else -> "cible invalide"
+                target?.totalDuration != null -> tr("ui.session.targetDuration", "duration" to target.totalDuration!!)
+                target?.all == true -> tr("ui.session.targetAll")
+                target?.topN != null -> tr("ui.session.targetTop", "count" to target.topN!!)
+                else -> tr("ui.session.targetInvalid")
             }
             Text(
-                "${session.enabledCount} / ${session.highlights.size} cochés · ${session.enabledDuration.toShortText()} · $targetText",
+                tr("ui.session.summary", "count" to session.enabledCount, "total" to session.highlights.size, "duration" to session.enabledDuration, "target" to targetText),
                 style = MaterialTheme.typography.bodyMedium,
                 color = Palette.textMuted,
             )
         }
         val kills = session.eventCounts["kill"] ?: 0
         Button(onClick = actions::openMontage, enabled = kills > 0 && state.job == null) {
-            Text(if (kills > 0) "Montage kills ($kills)" else "Montage kills")
+            Text(if (kills > 0) tr("ui.session.killMontageCount", "count" to kills) else tr("ui.session.killMontage"))
         }
         Spacer(Modifier.width(8.dp))
-        TextButton(onClick = { actions.setAllSegments(true) }, enabled = session.highlights.isNotEmpty()) { Text("Tout cocher") }
-        TextButton(onClick = { actions.setAllSegments(false) }, enabled = session.highlights.isNotEmpty()) { Text("Tout décocher") }
+        TextButton(onClick = { actions.setAllSegments(true) }, enabled = session.highlights.isNotEmpty()) { Text(tr("ui.session.checkAll")) }
+        TextButton(onClick = { actions.setAllSegments(false) }, enabled = session.highlights.isNotEmpty()) { Text(tr("ui.session.uncheckAll")) }
     }
 }
 
@@ -201,7 +203,7 @@ fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
       Column {
         if (session.multiple) {
             Text(
-                "Vidéo ${entry + 1} / ${session.entries.size} · ${session.entries[entry].session.media.path.name}",
+                tr("ui.session.videoOf", "index" to entry + 1, "count" to session.entries.size, "name" to session.entries[entry].session.media.path.name),
                 style = MaterialTheme.typography.labelMedium,
                 color = Palette.textMuted,
                 maxLines = 1,
@@ -326,7 +328,7 @@ fun SegmentList(session: SessionState, state: UiState, actions: UiActions, modif
     }
     if (segments.isEmpty()) {
         Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text("Aucun moment au-dessus du seuil : baisse-le à gauche.", color = Palette.textMuted)
+            Text(tr("ui.session.empty"), color = Palette.textMuted)
         }
         return
     }
@@ -367,7 +369,7 @@ private fun VideoHeader(index: Int, entry: SessionEntry, segments: List<Segment>
             modifier = Modifier.weight(1f),
         )
         Text(
-            if (segments.isEmpty()) "aucun moment retenu" else "${enabled.size} / ${segments.size} cochés · ${duration.toShortText()}",
+            if (segments.isEmpty()) tr("ui.session.videoEmpty") else tr("ui.session.videoSummary", "count" to enabled.size, "total" to segments.size, "duration" to duration),
             style = MaterialTheme.typography.bodySmall,
             color = Palette.textMuted,
         )
@@ -406,19 +408,19 @@ private fun SegmentRow(
                         color = if (highlight.enabled) Palette.text else Palette.textMuted,
                     )
                     Spacer(Modifier.width(10.dp))
-                    Text(highlight.range.length.toShortText(), style = MaterialTheme.typography.bodyMedium, color = Palette.textMuted)
+                    Text(I18n.duration(highlight.range.length), style = MaterialTheme.typography.bodyMedium, color = Palette.textMuted)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ScoreBar(highlight.score, Modifier.width(140.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("%.2f".format(highlight.score), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text(I18n.fixed(highlight.score, 2), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.width(14.dp))
                     if (highlight.events.isNotEmpty()) {
                         Text(eventsLabel(highlight.events), style = MaterialTheme.typography.labelLarge, color = Palette.accent)
                         Spacer(Modifier.width(12.dp))
                     }
                     Text(
-                        highlight.contributions.entries.filter { it.value > 0.005 }.joinToString("   ") { (k, v) -> "${signalLabel(k)} %.2f".format(v) },
+                        highlight.contributions.entries.filter { it.value > 0.005 }.joinToString("   ") { (k, v) -> "${signalLabel(k)} ${I18n.fixed(v, 2)}" },
                         style = MaterialTheme.typography.bodySmall,
                         color = Palette.textMuted,
                         maxLines = 1,
@@ -428,7 +430,7 @@ private fun SegmentRow(
             }
             Spacer(Modifier.width(10.dp))
             OutlinedButton(onClick = { actions.previewClip(segment.key) }, enabled = !clipBusy) {
-                Text(if (clipBusy) "Préparation…" else "▶ Revoir")
+                Text(if (clipBusy) tr("ui.job.preparing") else tr("ui.session.replay"))
             }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = { actions.previewVertical(segment.key) }, enabled = verticalAvailable) {
@@ -471,35 +473,35 @@ fun ExportBar(state: UiState, session: SessionState, actions: UiActions) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Montage", style = MaterialTheme.typography.titleMedium)
+                    Text(tr("ui.export.title"), style = MaterialTheme.typography.titleMedium)
                     val platform = state.platforms.firstOrNull { it.id == state.settings.platform }
                     val formats = platform?.let { "${it.name} (${it.format.label})" } ?: state.settings.orderedFormats.joinToString(" + ") {
                         when (it) {
-                            dev.highlights.core.model.OutputFormat.SOURCE -> state.source?.media?.video?.let { v -> aspectLabel(v.width, v.height) } ?: "source"
+                            dev.highlights.core.model.OutputFormat.SOURCE -> state.source?.media?.video?.let { v -> aspectLabel(v.width, v.height) } ?: tr("format.source.short")
                             else -> it.label
                         }
-                    }.ifEmpty { "aucun format coché" }
-                    val videos = if (session.multiple) " · ${session.entries.size} vidéos dans l'ordre où elles ont été jouées" else ""
+                    }.ifEmpty { tr("ui.export.noFormat") }
+                    val videos = if (session.multiple) tr("ui.export.videosInOrder", "count" to session.entries.size) else null
                     Text(
-                        "${session.enabledCount} segment(s) · ${session.enabledDuration.toShortText()} · $formats$videos",
+                        listOfNotNull(tr("ui.export.segments", "count" to session.enabledCount), I18n.duration(session.enabledDuration), formats, videos).joinToString(" · "),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Palette.textMuted,
                     )
                 }
                 Button(onClick = actions::export, enabled = state.canExport, modifier = Modifier.height(44.dp)) {
-                    Text("Exporter le montage", style = MaterialTheme.typography.titleMedium)
+                    Text(tr("ui.export.button"), style = MaterialTheme.typography.titleMedium)
                 }
             }
             state.lastExport?.let { result ->
                 Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                    Text("Export terminé (${result.duration.toShortText()}, ${result.encoder})", color = Palette.success, style = MaterialTheme.typography.labelLarge)
+                    Text(tr("ui.export.done", "duration" to result.duration, "encoder" to result.encoder), color = Palette.success, style = MaterialTheme.typography.labelLarge)
                     result.music?.let { music ->
-                        Text("Musique : ${music.fileName}", style = MaterialTheme.typography.bodyMedium, color = Palette.textMuted)
+                        Text(tr("ui.export.music", "name" to music.fileName.toString()), style = MaterialTheme.typography.bodyMedium, color = Palette.textMuted)
                     }
                     state.lastUpload?.let { uploaded ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Sur YouTube : ${uploaded.url}", color = Palette.success, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { actions.browse(uploaded.url) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Voir") }
+                            Text(tr("ui.export.onYouTube", "url" to uploaded.url.toString()), color = Palette.success, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { actions.browse(uploaded.url) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.export.view")) }
                             TextButton(onClick = { actions.browse(uploaded.studio) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Studio") }
                         }
                     }
@@ -509,8 +511,8 @@ fun ExportBar(state: UiState, session: SessionState, actions: UiActions) {
                             if (file != result.report) {
                                 TextButton(onClick = { actions.openPublish(file) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("YouTube") }
                             }
-                            TextButton(onClick = { actions.open(file) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Ouvrir") }
-                            TextButton(onClick = { actions.reveal(file) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Dans le dossier") }
+                            TextButton(onClick = { actions.open(file) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.common.open")) }
+                            TextButton(onClick = { actions.reveal(file) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.common.showInFolder")) }
                         }
                     }
                 }
@@ -532,8 +534,5 @@ fun rememberImage(path: java.nio.file.Path?, version: Long = 0): ImageBitmap? {
     return image
 }
 
-private fun signalLabel(id: String) = when (id) {
-    "game-audio" -> "son"
-    "mic-audio" -> "voix"
-    else -> id
-}
+/** Nom traduit d'un signal (« game-audio » → son) ; l'identifiant du profil s'il n'en a pas. */
+private fun signalLabel(id: String) = I18n.textOrNull("signal.$id") ?: id

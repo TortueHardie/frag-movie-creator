@@ -1,5 +1,6 @@
 package dev.highlights.publish
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.InputException
 import dev.highlights.core.progress.ProgressReporter
@@ -50,9 +51,9 @@ class YouTubeClient(
     }
 
     suspend fun upload(video: Path, metadata: YouTubeMetadata, progress: ProgressReporter = ProgressReporter.NONE): UploadedVideo {
-        if (!video.isRegularFile()) throw InputException("Vidéo introuvable : $video")
+        if (!video.isRegularFile()) throw InputException(Message("error.input.videoNotFound", "file" to video))
         val problems = metadata.problems()
-        if (problems.isNotEmpty()) throw InputException("Envoi YouTube impossible : ${problems.joinToString(" ; ")}")
+        if (problems.isNotEmpty()) throw InputException(Message("error.youtube.invalid", "problems" to problems))
         val size = video.fileSize()
         val session = openSession(size, metadata)
         log.info { "Envoi YouTube de ${video.fileName} (${size / 1_000_000} Mo), privée : ${metadata.privacy}" }
@@ -77,7 +78,7 @@ class YouTubeClient(
                         failures = 0
                     }
                     is ChunkResult.Retry -> {
-                        if (++failures > MAX_RETRIES) throw HighlightsException("Envoi YouTube interrompu (${result.reason}) après $MAX_RETRIES tentatives")
+                        if (++failures > MAX_RETRIES) throw HighlightsException(Message("error.youtube.interrupted", "reason" to result.reason, "tries" to MAX_RETRIES))
                         log.warn { "Envoi YouTube : ${result.reason}, nouvelle tentative ($failures/$MAX_RETRIES)" }
                         delay(RETRY_DELAY * (1 shl (failures - 1)))
                         offset = resumeOffset(session, size) ?: continue
@@ -116,7 +117,7 @@ class YouTubeClient(
         if (response.statusCode() == 401) response = open(url, body, size, auth.accessToken(forceRefresh = true))
         if (response.statusCode() !in 200..299) throw error("ouverture de l'envoi", response)
         return response.headers().firstValue("Location").map(::URI)
-            .orElseThrow { HighlightsException("YouTube n'a pas donné d'adresse d'envoi") }
+            .orElseThrow { HighlightsException(Message("error.youtube.noUploadUrl")) }
     }
 
     private suspend fun open(url: URI, body: String, size: Long, token: String): HttpResponse<String> {
@@ -130,7 +131,7 @@ class YouTubeClient(
         return try {
             http.sendAsync(request, HttpResponse.BodyHandlers.ofString()).await()
         } catch (e: IOException) {
-            throw HighlightsException("YouTube injoignable : ${e.message}", e)
+            throw HighlightsException(Message("error.youtube.unreachable", "detail" to e.message), e)
         }
     }
 
@@ -171,7 +172,7 @@ class YouTubeClient(
         return when (response.statusCode()) {
             RESUME_INCOMPLETE -> received(response) ?: 0L
             in 500..599 -> null
-            404, 410 -> throw HighlightsException("Session d'envoi YouTube expirée : relance l'envoi")
+            404, 410 -> throw HighlightsException(Message("error.youtube.sessionExpired"))
             else -> throw error("reprise", response)
         }
     }
@@ -182,7 +183,7 @@ class YouTubeClient(
 
     private fun videoId(response: HttpResponse<String>): String =
         runCatching { Json.parseToJsonElement(response.body()).jsonObject.string("id") }.getOrNull()
-            ?: throw HighlightsException("YouTube a reçu la vidéo mais n'a pas donné son identifiant")
+            ?: throw HighlightsException(Message("error.youtube.noVideoId"))
 
     /** Erreur de Google en clair, avec les cas qu'on sait expliquer (quota, chaîne non vérifiée…). */
     private fun error(step: String, response: HttpResponse<String>): HighlightsException {
@@ -191,13 +192,16 @@ class YouTubeClient(
         val message = error?.string("message") ?: response.body().take(200)
         val reason = error?.get("errors")?.let { runCatching { it.jsonArray.firstOrNull()?.jsonObject?.string("reason") }.getOrNull() }
         val hint = when (reason) {
-            "quotaExceeded" -> " — quota du projet Google Cloud épuisé pour aujourd'hui (environ 6 envois par jour avec le quota gratuit)"
-            "uploadLimitExceeded" -> " — limite d'envois de la chaîne atteinte, réessaie plus tard"
-            "youtubeSignupRequired" -> " — le compte Google n'a pas encore de chaîne YouTube"
-            "forbidden", "insufficientPermissions" -> " — accès refusé : reconnecte le compte"
-            else -> ""
+            "quotaExceeded" -> Message("error.youtube.hint.quota")
+            "uploadLimitExceeded" -> Message("error.youtube.hint.uploadLimit")
+            "youtubeSignupRequired" -> Message("error.youtube.hint.noChannel")
+            "forbidden", "insufficientPermissions" -> Message("error.youtube.hint.forbidden")
+            else -> null
         }
-        return HighlightsException("YouTube refuse : $step (HTTP ${response.statusCode()}${reason?.let { ", $it" } ?: ""}) : $message$hint")
+        val status = "HTTP ${response.statusCode()}${reason?.let { ", $it" } ?: ""}"
+        return HighlightsException(
+            Message(if (hint == null) "error.youtube.refused" else "error.youtube.refusedHint", "step" to step, "status" to status, "detail" to message, "hint" to hint),
+        )
     }
 
     companion object {

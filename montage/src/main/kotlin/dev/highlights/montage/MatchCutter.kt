@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.core.i18n.tr
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.StdoutHandler
@@ -74,7 +75,7 @@ class MatchCutter(private val ffmpeg: FfmpegService, private val cache: Inspecti
                         if (read.complete) cache?.putAim(group, scope, read.aim)
                         read.aim
                     }
-                    progress.update(done.incrementAndGet().toDouble() / read, "groupe ${done.get()}/$read")
+                    progress.update(done.incrementAndGet().toDouble() / read, tr("progress.group", "done" to done.get(), "total" to read))
                     group.copy(aim = aim)
                 }
             }.awaitAll()

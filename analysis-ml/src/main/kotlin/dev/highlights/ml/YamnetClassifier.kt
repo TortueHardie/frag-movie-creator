@@ -1,5 +1,6 @@
 package dev.highlights.ml
 
+import dev.highlights.core.i18n.Message
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
@@ -16,7 +17,7 @@ class YamnetClassifier(modelFile: Path, threads: Int = 4) : AutoCloseable {
     private val inputName: String
 
     init {
-        if (!modelFile.isRegularFile()) throw ConfigException("Modèle YAMNet introuvable : $modelFile")
+        if (!modelFile.isRegularFile()) throw ConfigException(Message("error.detector.modelNotFound", "file" to modelFile))
         session = env.createSession(
             modelFile.toString(),
             OrtSession.SessionOptions().apply { setIntraOpNumThreads(threads) },
@@ -43,7 +44,7 @@ class YamnetClassifier(modelFile: Path, threads: Int = 4) : AutoCloseable {
     companion object {
         /** yamnet_class_map.csv : index,mid,display_name (nom éventuellement entre guillemets). */
         fun loadClassNames(file: Path): List<String> {
-            if (!file.isRegularFile()) throw ConfigException("Liste des classes YAMNet introuvable : $file")
+            if (!file.isRegularFile()) throw ConfigException(Message("error.detector.modelNotFound", "file" to file))
             return file.readLines().drop(1).filter { it.isNotBlank() }.map { line ->
                 val rest = line.substringAfter(',').substringAfter(',')
                 rest.trim().removeSurrounding("\"")

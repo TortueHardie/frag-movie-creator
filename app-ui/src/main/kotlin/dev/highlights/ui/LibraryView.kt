@@ -1,5 +1,7 @@
 package dev.highlights.ui
 
+import dev.highlights.core.i18n.I18n
+import dev.highlights.core.i18n.tr
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,24 +50,24 @@ fun LibraryView(state: UiState, actions: UiActions, modifier: Modifier = Modifie
         startHint(state)?.let { Text(it, color = Palette.textMuted, style = MaterialTheme.typography.bodyMedium) }
         WatchCard(state, actions)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Analyses enregistrées", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(tr("ui.library.title"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             if (state.library.isNotEmpty()) {
-                OutlinedButton(onClick = actions::showSearch) { Text("Rechercher") }
+                OutlinedButton(onClick = actions::showSearch) { Text(tr("ui.library.search")) }
                 Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = actions::showStats) { Text("Statistiques") }
+                OutlinedButton(onClick = actions::showStats) { Text(tr("ui.library.stats")) }
             }
             Spacer(Modifier.width(8.dp))
             val selected = state.librarySelection.size
             if (selected > 0) {
                 Button(onClick = actions::openLibrarySelection, enabled = state.job == null) {
-                    Text(if (selected > 1) "Ouvrir les $selected ensemble" else "Ouvrir")
+                    Text(if (selected > 1) tr("ui.library.openTogether", "count" to selected) else tr("ui.common.open"))
                 }
             }
         }
         if (state.library.isEmpty()) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Text(
-                    "Aucune analyse pour l'instant. Chaque capture analysée apparaîtra ici et se rouvrira sans être réanalysée.",
+                    tr("ui.library.empty"),
                     color = Palette.textMuted,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.width(420.dp),
@@ -88,10 +90,9 @@ fun LibraryView(state: UiState, actions: UiActions, modifier: Modifier = Modifie
 }
 
 private fun startHint(state: UiState): String? = when {
-    state.config is ConfigStatus.Failed -> "Corrige la configuration à gauche pour commencer."
-    state.source == null -> "Choisis une ou plusieurs captures à gauche (ou glisse-les dans la fenêtre), ou rouvre une analyse ci-dessous. " +
-        "Plusieurs captures donnent un seul montage, dans l'ordre où les parties ont été jouées."
-    else -> "Vérifie les réglages puis clique sur « Analyser »."
+    state.config is ConfigStatus.Failed -> tr("ui.library.hintConfig")
+    state.source == null -> tr("ui.library.hintStart")
+    else -> tr("ui.library.hintAnalyze")
 }
 
 @Composable
@@ -101,10 +102,10 @@ private fun WatchCard(state: UiState, actions: UiActions) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Dossier surveillé", style = MaterialTheme.typography.titleMedium)
+                    Text(tr("ui.watch.title"), style = MaterialTheme.typography.titleMedium)
                     Text(
                         watch.folder?.toString()
-                            ?: "Choisis le dossier où ton enregistreur (Outplayed, OBS…) dépose les parties : chaque nouvelle capture y sera analysée en fond.",
+                            ?: tr("ui.watch.hint"),
                         style = MaterialTheme.typography.bodySmall,
                         color = Palette.textMuted,
                         maxLines = 2,
@@ -113,10 +114,10 @@ private fun WatchCard(state: UiState, actions: UiActions) {
                 }
                 Spacer(Modifier.width(12.dp))
                 if (watch.folder == null) {
-                    Button(onClick = actions::chooseWatchFolder, enabled = state.config is ConfigStatus.Ready) { Text("Surveiller un dossier…") }
+                    Button(onClick = actions::chooseWatchFolder, enabled = state.config is ConfigStatus.Ready) { Text(tr("ui.watch.choose")) }
                 } else {
-                    OutlinedButton(onClick = actions::chooseWatchFolder) { Text("Changer…") }
-                    TextButton(onClick = actions::stopWatching) { Text("Arrêter") }
+                    OutlinedButton(onClick = actions::chooseWatchFolder) { Text(tr("ui.common.changeEllipsis")) }
+                    TextButton(onClick = actions::stopWatching) { Text(tr("ui.watch.stop")) }
                 }
             }
             if (watch.folder != null) {
@@ -126,13 +127,13 @@ private fun WatchCard(state: UiState, actions: UiActions) {
                         CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Analyse de ${current.name}" + if (watch.pending.isNotEmpty()) " · ${watch.pending.size} en attente" else "",
+                            if (watch.pending.isNotEmpty()) tr("ui.watch.analyzingQueued", "name" to current.name, "count" to watch.pending.size) else tr("ui.watch.analyzing", "name" to current.name),
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        Text("%.0f %%".format(watch.fraction * 100), style = MaterialTheme.typography.labelLarge, color = Palette.accent)
+                        Text(I18n.percent(watch.fraction), style = MaterialTheme.typography.labelLarge, color = Palette.accent)
                     }
                     LinearProgressIndicator(
                         progress = { watch.fraction.toFloat() },
@@ -146,14 +147,14 @@ private fun WatchCard(state: UiState, actions: UiActions) {
                 } else {
                     Text(
                         when {
-                            watch.pending.isNotEmpty() -> "${watch.pending.size} capture(s) en attente, analysées dès la fin du traitement en cours."
-                            else -> "En attente de nouvelles captures. Une partie est analysée quelques secondes après la fin de son enregistrement."
+                            watch.pending.isNotEmpty() -> tr("ui.watch.pending", "count" to watch.pending.size)
+                            else -> tr("ui.watch.idle")
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = Palette.textMuted,
                     )
                 }
-                watch.lastError?.let { Text("Échec : $it", style = MaterialTheme.typography.bodySmall, color = Palette.danger, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                watch.lastError?.let { Text(tr("ui.watch.failed", "detail" to it), style = MaterialTheme.typography.bodySmall, color = Palette.danger, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             }
         }
     }
@@ -180,13 +181,13 @@ private fun LibraryRow(item: LibraryItem, checked: Boolean, fresh: Boolean, enab
                     )
                     if (fresh) {
                         Spacer(Modifier.width(8.dp))
-                        Text("NOUVEAU", style = MaterialTheme.typography.labelSmall, color = Palette.accent)
+                        Text(tr("ui.library.new"), style = MaterialTheme.typography.labelSmall, color = Palette.accent)
                     }
                 }
                 val played = (item.recordedAt ?: item.analyzedAt).atZone(ZoneId.systemDefault())
                 Text(
                     listOfNotNull(
-                        LIBRARY_DATE.format(played),
+                        I18n.date(played, "format.dateTime.medium"),
                         item.duration.toTimecode().substringBefore('.'),
                         item.profileId,
                         eventsLabel(item.events).ifEmpty { null },
@@ -197,11 +198,10 @@ private fun LibraryRow(item: LibraryItem, checked: Boolean, fresh: Boolean, enab
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (!item.sourceExists) {
-                    Text("Vidéo introuvable : l'analyse se rouvre, mais sans export ni aperçu.", style = MaterialTheme.typography.bodySmall, color = Palette.danger)
+                    Text(tr("ui.library.missingVideo"), style = MaterialTheme.typography.bodySmall, color = Palette.danger)
                 }
             }
         }
     }
 }
 
-private val LIBRARY_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM HH:mm", Locale.FRENCH)

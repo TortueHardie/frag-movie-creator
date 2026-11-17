@@ -1,5 +1,6 @@
 package dev.highlights.pipeline
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.ConfigException
 import java.nio.file.Path
 import kotlin.io.path.Path
@@ -19,7 +20,7 @@ object ConfigLocator {
             installDir()?.resolve("config")?.resolve("app.yaml"),
         )
         return candidates.firstOrNull { it.isRegularFile() }
-            ?: throw ConfigException("app.yaml introuvable (cherché : ${candidates.joinToString()})")
+            ?: throw ConfigException(Message("error.config.appYamlNotFound", "paths" to candidates.joinToString()))
     }
 
     /** Dossier d'installation : le jar est dans lib/ (distribution CLI). */

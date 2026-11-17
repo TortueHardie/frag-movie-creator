@@ -163,7 +163,7 @@ class YouTubeUploadTest : FunSpec({
         val video = dir.resolve("montage.mp4").also { it.writeBytes(ByteArray(10)) }
         val auth = GoogleAuth(OAuthClient("client", "secret"), dir.resolve("t.json"), google::browse, google.endpoints)
         shouldThrow<HighlightsException> { YouTubeClient(auth, google.endpoints).upload(video, metadata.copy(title = "")) }
-            .message shouldContain "titre est vide"
+            .localizedMessage shouldContain "titre est vide"
         google.tokenRequests.size shouldBe 0
         dir.resolve("t.json").exists() shouldBe false
         google.server.stop(0)
@@ -175,6 +175,6 @@ class YouTubeUploadTest : FunSpec({
         file.writeText("""{"installed":{"client_id":"123.apps.googleusercontent.com","client_secret":"GOCSPX-x","redirect_uris":["http://localhost"]}}""")
         OAuthClient.fromFile(file) shouldBe OAuthClient("123.apps.googleusercontent.com", "GOCSPX-x")
         file.writeText("""{"autre":{}}""")
-        shouldThrow<ConfigException> { OAuthClient.fromFile(file) }.message shouldContain "installed"
+        shouldThrow<ConfigException> { OAuthClient.fromFile(file) }.localizedMessage shouldContain "installed"
     }
 })

@@ -305,13 +305,14 @@ object StoryPlanner {
      * triplé même si son premier kill a été coupé.
      */
     internal fun streakLabels(timeline: ScoredTimeline?, settings: EventLabels): List<Pair<Duration, String>> {
-        if (!settings.enabled || settings.multiKill.isEmpty() || timeline == null) return emptyList()
+        val names = settings.labels
+        if (!settings.enabled || names.isEmpty() || timeline == null) return emptyList()
         val kills = timeline.events.filter { it.kind == settings.event }.map { it.at }.sorted()
         val labels = mutableListOf<Pair<Duration, String>>()
         var streak = 0
         kills.forEachIndexed { i, at ->
             streak = if (i > 0 && at - kills[i - 1] <= settings.gap) streak + 1 else 1
-            if (streak >= 2) labels += at to settings.multiKill[minOf(streak - 2, settings.multiKill.lastIndex)]
+            if (streak >= 2) labels += at to names[minOf(streak - 2, names.lastIndex)]
         }
         return labels
     }

@@ -87,13 +87,13 @@ class YouTubeTextTest : FunSpec({
         val ok = YouTubeText.suggest(montage, settings)
         val now = Instant.parse("2026-09-28T12:00:00Z")
         ok.copy(title = "").problems(now) shouldHaveSize 1
-        ok.copy(title = "a".repeat(101)).problems(now).single() shouldContain "trop long"
-        ok.copy(description = "<b>").problems(now).single() shouldContain "< et >"
-        ok.copy(categoryId = "jeux").problems(now).single() shouldContain "Catégorie"
+        ok.copy(title = "a".repeat(101)).problems(now).single().text() shouldContain "trop long"
+        ok.copy(description = "<b>").problems(now).single().text() shouldContain "< et >"
+        ok.copy(categoryId = "jeux").problems(now).single().text() shouldContain "Catégorie"
         val later = Instant.parse("2026-10-01T16:00:00Z")
         ok.copy(publishAt = later).problems(now) shouldBe emptyList()
-        ok.copy(publishAt = later, privacy = YouTubePrivacy.PUBLIC).problems(now).single() shouldContain "privée"
-        ok.copy(publishAt = now.minusSeconds(60)).problems(now).single() shouldContain "passée"
+        ok.copy(publishAt = later, privacy = YouTubePrivacy.PUBLIC).problems(now).single().text() shouldContain "privée"
+        ok.copy(publishAt = now.minusSeconds(60)).problems(now).single().text() shouldContain "passée"
     }
 
     test("heure programmée : locale, avec ou sans T, ou instant ISO") {

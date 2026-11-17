@@ -1,5 +1,7 @@
 package dev.highlights.export
 
+import dev.highlights.core.i18n.tr
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.InputException
 import dev.highlights.core.ffmpeg.EncoderSelector
@@ -86,8 +88,8 @@ class Exporter(
     /** Un seul montage pour toutes les [sessions] (une par capture). */
     suspend fun export(sessions: List<Session>, request: ExportRequest, progress: ProgressReporter): ExportResult {
         val settings = request.settings
-        if (settings.formats.isEmpty()) throw HighlightsException("Aucun format de sortie demandé")
-        if (sessions.isEmpty()) throw HighlightsException("Aucune session à exporter")
+        if (settings.formats.isEmpty()) throw HighlightsException(Message("error.export.noFormat"))
+        if (sessions.isEmpty()) throw HighlightsException(Message("error.export.noSession"))
         val plan = planner.plan(sessions, settings)
         // Montage « story » : les moments retenus sont redécoupés en plans (jump cuts, accroche, effets).
         val captionModel = settings.story.captions.takeIf { settings.style == EditStyle.STORY && it.enabled }?.model
@@ -98,7 +100,7 @@ class Exporter(
         val captionWeight = if (captionModel != null) CAPTION_WEIGHT else 0.0
         val story: StoryPlan? = if (settings.style == EditStyle.STORY) {
             val shots = StoryPlanner.plan(plan, sessions)
-            if (captionModel == null) shots else StoryPlanner.withCaptions(shots, transcribe(plan, sessions, captionModel, request, progress.child("Sous-titres", captionWeight)))
+            if (captionModel == null) shots else StoryPlanner.withCaptions(shots, transcribe(plan, sessions, captionModel, request, progress.child(tr("progress.captions"), captionWeight)))
         } else {
             null
         }
@@ -107,10 +109,7 @@ class Exporter(
         // Trop long pour la plateforme : on le dit avant le rendu, plutôt que de livrer une vidéo qu'elle refusera.
         request.maxDuration?.let { max ->
             if (duration > max) {
-                throw InputException(
-                    "Montage de ${duration.toShortText()} : la plateforme visée (${request.platform}) accepte ${max.toShortText()} au plus. " +
-                        "Réduis la durée visée ou décoche des moments.",
-                )
+                throw InputException(Message("error.export.platformTooLong", "duration" to duration, "platform" to request.platform, "max" to max))
             }
         }
         val encoder = encoders.select().withMaxBitrate(settings.maxBitrate)
@@ -127,7 +126,7 @@ class Exporter(
             ffmpeg,
             story?.let(StoryRenderBuilder::sourceCuts) ?: RenderCommandBuilder.sourceCuts(plan),
             request.workDir.resolve("cuts"),
-            progress.child("Préparation des extraits", CUT_WEIGHT),
+            progress.child(tr("progress.cuts"), CUT_WEIGHT),
         )
 
         val filterScriptOption = ffmpeg.filterScriptOption()
@@ -138,7 +137,7 @@ class Exporter(
             val target = paths.videos.getValue(format)
             val temp = OutputNamer.tempFor(target)
             ensureNotSource(temp, sources)
-            val step = progress.child(format.label, (1.0 - CUT_WEIGHT - captionWeight) / settings.formats.size)
+            val step = progress.child(tr("format.${format.name.lowercase()}.short"), (1.0 - CUT_WEIGHT - captionWeight) / settings.formats.size)
 
             val filterScript = request.workDir.resolve("filters_${format.name.lowercase()}.txt")
             val render = if (story != null) {
@@ -178,7 +177,7 @@ class Exporter(
 
             try {
                 runWithSoftwareFallback(render, request) { line ->
-                    FfmpegProgressParser.parseOutTime(line)?.let { t -> step.update(t / render.expectedDuration, format.label) }
+                    FfmpegProgressParser.parseOutTime(line)?.let { t -> step.update(t / render.expectedDuration, tr("format.${format.name.lowercase()}.short")) }
                 }
                 temp.moveTo(target)
                 done.add(target) // pas de += : Path est lui-même un Iterable<Path>
@@ -218,7 +217,7 @@ class Exporter(
         val settings = plan.settings.story.captions
         val result = mutableMapOf<Path, MutableList<Caption>>()
         plan.clips.forEachIndexed { i, clip ->
-            progress.update(i.toDouble() / plan.clips.size, "moment ${i + 1}/${plan.clips.size}")
+            progress.update(i.toDouble() / plan.clips.size, tr("progress.moment", "done" to i + 1, "total" to plan.clips.size))
             result.getOrPut(clip.media.path) { mutableListOf() } += transcriber.transcribe(
                 clip.media, clip.range, timelines[clip.media.path], settings, model, request.audioLayout,
                 request.workDir.resolve("captions"), request.captionCache,
@@ -329,7 +328,7 @@ class Exporter(
     private fun ensureNotSource(path: Path, sources: Set<Path>) {
         val normalized = path.toAbsolutePath().normalize().toString()
         if (sources.any { it.toAbsolutePath().normalize().toString().equals(normalized, ignoreCase = true) }) {
-            throw HighlightsException("Refus d'écrire sur un fichier source : $path")
+            throw HighlightsException(Message("error.export.wouldOverwriteSource", "file" to path))
         }
     }
 

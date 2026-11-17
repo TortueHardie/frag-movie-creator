@@ -1,5 +1,6 @@
 package dev.highlights.editing
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.FfmpegCommand
@@ -147,7 +148,7 @@ object RenderCommandBuilder {
 
     /** Chaîne vidéo d'une entrée jusqu'au label [out] : géométrie du format, cadence, HUD éventuel, étalonnage. */
     fun videoChain(input: Int, media: MediaInfo, format: OutputFormat, settings: EditSettings, out: String): List<String> {
-        val video = media.video ?: throw HighlightsException("${media.path} ne contient pas de flux vidéo")
+        val video = media.video ?: throw HighlightsException(Message("error.input.noVideo", "file" to media.path))
         val head = "[$input:v:0]setpts=PTS-STARTPTS,fps=${settings.fps}"
         // L'étalonnage vient après le recadrage et le HUD : il s'applique à l'image finale, avant les effets du montage.
         val tail = "${grade(settings.grade)}format=yuv420p,settb=AVTB[$out]"
@@ -215,7 +216,7 @@ object RenderCommandBuilder {
      * 10 × ce facteur dans la sortie (recadrage 9:16 compris, qui grossit l'image).
      */
     fun pixelScale(format: OutputFormat, media: MediaInfo, settings: EditSettings): Double {
-        val video = media.video ?: throw HighlightsException("${media.path} ne contient pas de flux vidéo")
+        val video = media.video ?: throw HighlightsException(Message("error.input.noVideo", "file" to media.path))
         return when (format) {
             OutputFormat.SOURCE -> settings.sourceHeight.toDouble() / video.height
             OutputFormat.LANDSCAPE -> minOf(settings.landscape.width.toDouble() / video.width, settings.landscape.height.toDouble() / video.height)
@@ -230,7 +231,7 @@ object RenderCommandBuilder {
 
     /** Dimensions de l'image produite pour un format donné. */
     fun outputSize(format: OutputFormat, media: MediaInfo, settings: EditSettings): Pair<Int, Int> {
-        val video = media.video ?: throw HighlightsException("${media.path} ne contient pas de flux vidéo")
+        val video = media.video ?: throw HighlightsException(Message("error.input.noVideo", "file" to media.path))
         return when (format) {
             OutputFormat.SOURCE -> even(settings.sourceHeight.toDouble() * video.width / video.height) to settings.sourceHeight
             OutputFormat.LANDSCAPE -> settings.landscape.width to settings.landscape.height

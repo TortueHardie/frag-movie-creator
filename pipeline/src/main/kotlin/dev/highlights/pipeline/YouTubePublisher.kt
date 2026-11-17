@@ -1,5 +1,6 @@
 package dev.highlights.pipeline
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.ConfigException
 import dev.highlights.core.InputException
 import dev.highlights.core.config.LoadedConfig
@@ -73,7 +74,7 @@ class YouTubePublisher(
         YouTubeClient(auth(), endpoints).upload(video, metadata, progress)
 
     private fun auth(): GoogleAuth {
-        if (!apiEnabled) throw ConfigException("Envoi par l'API YouTube désactivé : publish.youtube.api: true dans app.yaml pour l'activer")
+        if (!apiEnabled) throw ConfigException(Message("error.youtube.apiDisabled"))
         return GoogleAuth(client(), tokenFile, browse, endpoints)
     }
 
@@ -83,15 +84,12 @@ class YouTubePublisher(
         if (s.clientId != null && s.clientSecret != null) return OAuthClient(s.clientId!!, s.clientSecret!!)
         // Le plus simple : déposer le fichier téléchargé depuis la console Google Cloud à côté d'app.yaml.
         val dropped = runCatching { config.baseDir.listDirectoryEntries("client_secret*.json") }.getOrDefault(emptyList()).firstOrNull()
-        return dropped?.let(OAuthClient::fromFile) ?: throw ConfigException(
-            "Aucun identifiant YouTube : dépose le fichier client_secret….json de Google Cloud dans ${config.baseDir}, " +
-                "ou renseigne publish.youtube.clientSecretFile dans app.yaml (voir le README, « Publier sur YouTube »)",
-        )
+        return dropped?.let(OAuthClient::fromFile) ?: throw ConfigException(Message("error.youtube.noClient", "dir" to config.baseDir))
     }
 
     /** Ce qu'on sait de [video] : sa durée et son format, et ce que dit le rapport écrit avec elle. */
     suspend fun facts(video: Path): VideoFacts {
-        if (!video.isRegularFile()) throw InputException("Vidéo introuvable : $video")
+        if (!video.isRegularFile()) throw InputException(Message("error.input.videoNotFound", "file" to video))
         val media = ffmpeg.probe(video)
         val width = media.video?.width ?: 0
         val height = media.video?.height ?: 0

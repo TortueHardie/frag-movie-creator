@@ -1,5 +1,6 @@
 package dev.highlights.analysis.audio
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.analysis.AnalysisContext
 import dev.highlights.core.analysis.DetectorParams
 import dev.highlights.core.analysis.SignalDetector
@@ -81,7 +82,7 @@ class GameSoundsDetector(override val id: String, private val params: GameSounds
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
         val stream = if (params.stream != null) ctx.media.audio.getOrNull(params.stream) else ctx.audio[params.role]
             ?: ctx.audio.mixIndices().firstOrNull()?.let { ctx.media.audio.getOrNull(it) }
-        if (stream == null) return missing(ctx, "piste ${params.stream?.let { "a:$it" } ?: "du jeu"} absente")
+        if (stream == null) return missing(ctx, Message("notice.track.missing", "track" to (params.stream?.let { "a:$it" } ?: "game")))
 
         val matchers = params.sounds.mapNotNull { (kind, spec) ->
             val file = ctx.configDir.resolve(spec.file)
@@ -96,7 +97,7 @@ class GameSoundsDetector(override val id: String, private val params: GameSounds
             }
             Recognizer(kind, spec, TemplateMatcher(fingerprint))
         }
-        if (params.shots == null && matchers.isEmpty()) return missing(ctx, "ni tirs ni gabarit utilisable")
+        if (params.shots == null && matchers.isEmpty()) return missing(ctx, Message("notice.sounds.nothing"))
 
         val onsets = params.shots?.let { OnsetStream(RATE) }
         val total = ctx.media.duration
@@ -142,7 +143,7 @@ class GameSoundsDetector(override val id: String, private val params: GameSounds
             }
         }
         val raw = DoubleArray(ctx.grid.count) { Double.NaN }
-        return SignalTrack(id, raw, events.sortedBy { it.at }, note = "aucun son reconnu".takeIf { events.isEmpty() })
+        return SignalTrack(id, raw, events.sortedBy { it.at }, note = Message("notice.sounds.none").takeIf { events.isEmpty() })
     }
 
     /** Un gabarit et ses ressemblances trame par trame, calculées pendant le décodage. */
@@ -156,7 +157,7 @@ class GameSoundsDetector(override val id: String, private val params: GameSounds
         }
     }
 
-    private fun missing(ctx: AnalysisContext, reason: String): SignalTrack {
+    private fun missing(ctx: AnalysisContext, reason: Message): SignalTrack {
         if (params.optional) log.info { "$id ignoré : $reason" } else log.warn { "$id : $reason" }
         ctx.progress.complete()
         return SignalTrack.missing(id, ctx.grid.count, reason)

@@ -1,12 +1,17 @@
 package dev.highlights.ui
 
+import dev.highlights.core.i18n.I18n
+import dev.highlights.core.i18n.tr
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -20,9 +25,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,8 +44,11 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** Période de la recherche, en soirées. */
-enum class SearchPeriod(val label: String, val days: Long?) {
-    WEEK("7 jours", 7), MONTH("30 jours", 30), ALL("Tout", null),
+enum class SearchPeriod(val days: Long?) {
+    WEEK(7), MONTH(30), ALL(null),
+    ;
+
+    val label: String get() = days?.let { tr("ui.search.days", "count" to it.toInt()) } ?: tr("ui.search.allTime")
 }
 
 /**
@@ -83,8 +88,8 @@ data class SearchState(
 fun SearchView(search: SearchState, actions: UiActions, busy: Boolean, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Rechercher des moments", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            TextButton(onClick = actions::closeSearch) { Text("Analyses enregistrées") }
+            Text(tr("ui.search.title"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            TextButton(onClick = actions::closeSearch) { Text(tr("ui.library.title")) }
         }
         if (search.loading) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -95,19 +100,19 @@ fun SearchView(search: SearchState, actions: UiActions, busy: Boolean, modifier:
         val picked = search.picked
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "${results.size} moment(s)" + if (picked.size != results.size) " · ${picked.size} coché(s)" else "",
+                tr("ui.search.results", "count" to results.size) + if (picked.size != results.size) " · " + tr("ui.search.picked", "count" to picked.size) else "",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Palette.textMuted,
                 modifier = Modifier.weight(1f),
             )
             Button(onClick = actions::montageFromSearch, enabled = picked.isNotEmpty() && !busy) {
-                Text("Montage kills de ${picked.size} moment(s)")
+                Text(tr("ui.search.montage", "count" to picked.size))
             }
         }
         if (results.isEmpty()) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Text(
-                    "Aucun moment ne répond à ces critères. L'arme utilisée n'est pas connue : ni le jeu ni Outplayed ne la transmettent.",
+                    tr("ui.search.empty"),
                     color = Palette.textMuted,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.width(460.dp),
@@ -121,44 +126,34 @@ fun SearchView(search: SearchState, actions: UiActions, busy: Boolean, modifier:
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun Filters(search: SearchState, actions: UiActions) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        val games = listOf<Pair<String?, String>>(null to "Tous les jeux") + search.games
-        SingleChoiceSegmentedButtonRow {
-            games.forEachIndexed { i, (id, name) ->
-                SegmentedButton(
-                    selected = search.game == id,
-                    onClick = { actions.updateSearch { it.copy(game = id) } },
-                    shape = SegmentedButtonDefaults.itemShape(i, games.size),
-                ) { Text(name) }
-            }
+    // Puces dans des FlowRow : dans une langue aux libellés plus longs (allemand), elles passent à la ligne au lieu
+    // d'être coupées (les boutons segmentés ne prennent pas la largeur de leur texte).
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        val games = listOf<Pair<String?, String>>(null to tr("ui.search.allGames")) + search.games
+        games.forEach { (id, name) ->
+            FilterChip(selected = search.game == id, onClick = { actions.updateSearch { it.copy(game = id) } }, label = { Text(name, maxLines = 1) })
         }
-        SingleChoiceSegmentedButtonRow {
-            SearchPeriod.entries.forEachIndexed { i, period ->
-                SegmentedButton(
-                    selected = search.period == period,
-                    onClick = { actions.updateSearch { it.copy(period = period) } },
-                    shape = SegmentedButtonDefaults.itemShape(i, SearchPeriod.entries.size),
-                ) { Text(period.label) }
-            }
+        Spacer(Modifier.width(12.dp))
+        SearchPeriod.entries.forEach { period ->
+            FilterChip(selected = search.period == period, onClick = { actions.updateSearch { it.copy(period = period) } }, label = { Text(period.label, maxLines = 1) })
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        listOf(1 to "Tous les kills", 2 to "Doublés et plus", 3 to "Triplés et plus").forEach { (n, label) ->
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        listOf(1 to tr("ui.search.allKills"), 2 to tr("ui.search.doublesUp"), 3 to tr("ui.search.triplesUp")).forEach { (n, label) ->
             FilterChip(selected = search.minKills == n, onClick = { actions.updateSearch { it.copy(minKills = n) } }, label = { Text(label) })
         }
-        FilterChip(selected = search.ace, onClick = { actions.updateSearch { it.copy(ace = !it.ace) } }, label = { Text("Aces") })
-        FilterChip(selected = search.clutch, onClick = { actions.updateSearch { it.copy(clutch = !it.clutch) } }, label = { Text("Clutchs") })
-        FilterChip(selected = search.headshots, onClick = { actions.updateSearch { it.copy(headshots = !it.headshots) } }, label = { Text("Tout en headshot") })
-        FilterChip(selected = search.oneTaps, onClick = { actions.updateSearch { it.copy(oneTaps = !it.oneTaps) } }, label = { Text("One taps") })
+        FilterChip(selected = search.ace, onClick = { actions.updateSearch { it.copy(ace = !it.ace) } }, label = { Text(tr("ui.search.aces")) })
+        FilterChip(selected = search.clutch, onClick = { actions.updateSearch { it.copy(clutch = !it.clutch) } }, label = { Text(tr("ui.search.clutches")) })
+        FilterChip(selected = search.headshots, onClick = { actions.updateSearch { it.copy(headshots = !it.headshots) } }, label = { Text(tr("ui.search.allHeadshots")) })
+        FilterChip(selected = search.oneTaps, onClick = { actions.updateSearch { it.copy(oneTaps = !it.oneTaps) } }, label = { Text(tr("ui.search.oneTaps")) })
     }
 }
 
 @Composable
 private fun MomentRow(m: FoundMoment, checked: Boolean, actions: UiActions) {
-    val day = DateTimeFormatter.ofPattern("EEE d MMM · HH:mm", Locale.FRENCH)
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = if (checked) Palette.surfaceHigh else Palette.surface,
@@ -170,17 +165,17 @@ private fun MomentRow(m: FoundMoment, checked: Boolean, actions: UiActions) {
             Column(Modifier.weight(1f)) {
                 Text(
                     listOfNotNull(
-                        "ACE".takeIf { m.ace },
-                        "CLUTCH".takeIf { m.clutch },
+                        tr("video.ace").takeIf { m.ace },
+                        tr("video.clutch").takeIf { m.clutch },
                         multiKillName(m.kills.size),
-                        "${m.headshots} headshot${if (m.headshots > 1) "s" else ""}".takeIf { m.headshots > 0 },
-                        "${m.oneTaps} one tap${if (m.oneTaps > 1) "s" else ""}".takeIf { m.oneTaps > 0 },
+                        tr("ui.count.headshots", "count" to m.headshots).takeIf { m.headshots > 0 },
+                        tr("ui.count.oneTaps", "count" to m.oneTaps).takeIf { m.oneTaps > 0 },
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.titleSmall,
                     color = if (m.ace || m.clutch || m.kills.size >= 3) Palette.accent else Palette.text,
                 )
                 Text(
-                    "${m.game} · ${m.playedAt?.atZone(ZoneId.systemDefault())?.format(day) ?: "date inconnue"} · à ${m.kills.first().toTimecode()} dans ${m.source.fileName}",
+                    tr("ui.search.where", "game" to m.game, "date" to (m.playedAt?.let { I18n.date(it.atZone(ZoneId.systemDefault()), "format.dateTime.medium") } ?: tr("ui.search.unknownDate")), "at" to m.kills.first().toTimecode(), "file" to m.source.fileName.toString()),
                     style = MaterialTheme.typography.bodySmall,
                     color = Palette.textMuted,
                     maxLines = 1,
@@ -188,16 +183,14 @@ private fun MomentRow(m: FoundMoment, checked: Boolean, actions: UiActions) {
                 )
             }
             TextButton(onClick = { actions.openLibraryItem(m.sessionFile) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) {
-                Text("Ouvrir la partie")
+                Text(tr("ui.search.openGame"))
             }
         }
     }
 }
 
+/** « 1 kill », « Double kill »… : le nom d'un multi-kill, le nombre de kills au-delà du quadruplé. */
 private fun multiKillName(kills: Int) = when (kills) {
-    1 -> "1 kill"
-    2 -> "Doublé"
-    3 -> "Triplé"
-    4 -> "Quadruplé"
-    else -> "$kills kills"
+    2, 3, 4 -> tr("ui.multiKill.$kills")
+    else -> tr("ui.count.kills", "count" to kills)
 }

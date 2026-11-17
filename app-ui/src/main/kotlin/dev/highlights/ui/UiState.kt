@@ -1,5 +1,8 @@
 package dev.highlights.ui
 
+import dev.highlights.core.i18n.Message
+import dev.highlights.core.i18n.I18n
+import dev.highlights.core.i18n.tr
 import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
@@ -57,6 +60,8 @@ data class UiState(
     val update: UpdateState? = null,
     /** L'installeur de la mise à jour attend que l'application se ferme. */
     val exitRequested: Boolean = false,
+    /** Langue de l'interface (tag BCP 47) : la changer recompose tout l'écran dans la nouvelle langue. */
+    val language: String = I18n.locale.toLanguageTag(),
 ) {
     /** Première capture : celle qui décide du profil détecté et du ratio d'origine. */
     val source: SourceInfo? get() = sources.firstOrNull()
@@ -74,20 +79,25 @@ sealed interface ConfigStatus {
     data class Failed(val message: String) : ConfigStatus
 }
 
-data class ProfileInfo(val id: String, val displayName: String)
+/** Profil proposé : [displayName] du YAML, remplacé par une traduction `profile.<id>` si les bundles en ont une. */
+data class ProfileInfo(val id: String, val displayName: String) {
+    val name: String get() = I18n.textOrNull("profile.$id") ?: displayName
+}
 
-/** Plateforme visée à l'export : [id] (app.yaml), nom affiché et ce qu'elle impose, en clair. */
-data class PlatformInfo(val id: String, val name: String, val format: OutputFormat, val summary: String) {
+/** Plateforme visée à l'export : [id] (app.yaml), nom affiché et ce qu'elle impose. */
+data class PlatformInfo(val id: String, val name: String, val format: OutputFormat, val profile: PlatformProfile? = null) {
+    /** Ce qu'elle impose, en clair, dans la langue de l'interface. */
+    fun summary(): String = profile?.let { p ->
+        listOfNotNull(
+            tr("ui.platform.format", "format" to p.format.label),
+            p.maxDuration?.let { d -> tr("ui.platform.maxDuration", "duration" to d) },
+            tr("ui.platform.loudness", "lufs" to I18n.decimal(p.loudnessLufs, 0)),
+            tr("ui.platform.safeArea").takeIf { p.safeArea != SafeArea.NONE },
+        ).joinToString(" · ")
+    }.orEmpty()
+
     companion object {
-        fun of(id: String, p: PlatformProfile) = PlatformInfo(
-            id, p.name, p.format,
-            listOfNotNull(
-                "format ${p.format.label}",
-                p.maxDuration?.let { d -> (if (d.inWholeSeconds % 60 == 0L) "${d.inWholeMinutes} min" else d.toShortText()) + " au plus" },
-                "${String.format(java.util.Locale.ROOT, "%.0f", p.loudnessLufs)} LUFS",
-                "textes hors de l'interface de l'appli".takeIf { p.safeArea != SafeArea.NONE },
-            ).joinToString(" · "),
-        )
+        fun of(id: String, p: PlatformProfile) = PlatformInfo(id, p.name, p.format, p)
     }
 }
 
@@ -211,37 +221,28 @@ data class SessionState(
     }
 }
 
+/** Boîte d'erreur : textes déjà traduits au moment de l'erreur. */
 data class ErrorInfo(val title: String, val message: String, val details: List<String> = emptyList())
 
 data class ImagePreview(val path: Path, val title: String, val highlightId: String, val version: Long = System.nanoTime())
 
 fun formatLabel(format: OutputFormat, media: MediaInfo?): String = when (format) {
-    OutputFormat.SOURCE -> media?.video?.let { "Ratio d'origine (${aspectLabel(it.width, it.height)})" } ?: "Ratio d'origine"
-    OutputFormat.LANDSCAPE -> "16:9 (bandes noires si besoin)"
-    OutputFormat.VERTICAL -> "9:16 vertical (Shorts, TikTok)"
+    OutputFormat.SOURCE -> media?.video?.let { tr("format.source.withRatio", "ratio" to aspectLabel(it.width, it.height)) } ?: tr("format.source")
+    OutputFormat.LANDSCAPE -> tr("format.landscape")
+    OutputFormat.VERTICAL -> tr("format.vertical")
 }
 
+/** Taille de fichier : « 4,9 Go » en français, « 4.9 GB » en anglais (unités `unit.*`). */
 fun formatBytes(bytes: Long): String = when {
-    bytes >= 1L shl 30 -> "%.1f Go".format(bytes / (1L shl 30).toDouble())
-    bytes >= 1L shl 20 -> "${(bytes / (1L shl 20).toDouble()).roundToInt()} Mo"
-    else -> "${bytes / 1024} Ko"
+    bytes >= 1L shl 30 -> tr("unit.gb", "value" to I18n.fixed(bytes / (1L shl 30).toDouble(), 1))
+    bytes >= 1L shl 20 -> tr("unit.mb", "value" to (bytes / (1L shl 20).toDouble()).roundToInt())
+    else -> tr("unit.kb", "value" to bytes / 1024)
 }
 
-/** "2 kills · 1 assistance" (types connus traduits). */
+/** « 2 kills · 1 assist » : types connus traduits (`event.<type>`, au pluriel), les autres par leur nom brut. */
 fun eventsLabel(events: Map<String, Int>): String = events.entries
     .sortedBy { listOf("kill", "assist", "revive", "death", "laughter", "shout").indexOf(it.key).let { i -> if (i < 0) 99 else i } }
-    .joinToString(" · ") { (kind, n) ->
-        val (one, many) = when (kind) {
-            "kill" -> "kill" to "kills"
-            "assist" -> "assistance" to "assistances"
-            "revive" -> "réanimation" to "réanimations"
-            "death" -> "mort" to "morts"
-            "laughter" -> "rire" to "rires"
-            "shout" -> "exclamation" to "exclamations"
-            else -> kind to kind
-        }
-        "$n ${if (n > 1) many else one}"
-    }
+    .joinToString(" · ") { (kind, n) -> I18n.textOrNull("event.$kind", mapOf("count" to n)) ?: "${I18n.decimal(n.toDouble(), 0)} $kind" }
 
 data class MontageUiState(
     val music: Path? = null,
@@ -308,7 +309,7 @@ data class PublishUiState(
     val tagsText: String = "",
     val privacy: YouTubePrivacy = YouTubePrivacy.PRIVATE,
     val categoryText: String = "20",
-    val language: String = "fr",
+    val language: String = YouTubeText.language(dev.highlights.core.config.YouTubeSettings()),
     val madeForKids: Boolean = false,
     val notify: Boolean = true,
     /** Mise en ligne programmée, heure locale ; vide : tout de suite. */
@@ -327,13 +328,13 @@ data class PublishUiState(
         privacy = privacy,
         categoryId = categoryText.trim(),
         madeForKids = madeForKids,
-        language = language.trim().ifEmpty { "fr" },
+        language = language.trim().ifEmpty { YouTubeText.language(dev.highlights.core.config.YouTubeSettings()) },
         publishAt = publishAt,
         notifySubscribers = notify,
     )
 
-    val problems: List<String>
-        get() = if (scheduleInvalid) listOf("Heure de mise en ligne illisible (ex. 2026-10-01 18:00)") else metadata().problems()
+    val problems: List<Message>
+        get() = if (scheduleInvalid) listOf(Message("youtube.problem.scheduleUnreadable")) else metadata().problems()
 
     val canPublish: Boolean get() = api && !loading && configured && problems.isEmpty()
 

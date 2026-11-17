@@ -21,6 +21,8 @@ private val log = KotlinLogging.logger {}
 
 fun main() {
     Thread.setDefaultUncaughtExceptionHandler { t, e -> log.error(e) { "Exception non gérée dans ${t.name}" } }
+    // La langue avant toute fenêtre : celle choisie dans l'application, sinon celle de Windows.
+    dev.highlights.core.i18n.I18n.setLanguage(LanguagePrefsStore(LanguagePrefsStore.DEFAULT_FILE).load())
     Installation.setup()
     application {
         val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main) }

@@ -1,5 +1,6 @@
 package dev.highlights.ml
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.ConfigException
 import dev.highlights.core.analysis.AnalysisContext
 import dev.highlights.core.analysis.DetectorParams
@@ -65,7 +66,7 @@ class AudioEventDetector(override val id: String, private val params: AudioEvent
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
         val stream = if (params.stream != null) ctx.media.audio.getOrNull(params.stream) else ctx.audio[params.role]
         if (stream == null) {
-            val note = "piste ${params.stream?.let { "a:$it" } ?: "(rôle ${params.role.name.lowercase()})"} absente"
+            val note = Message("notice.track.missing", "track" to (params.stream?.let { "a:$it" } ?: params.role.name.lowercase()))
             if (params.optional) log.info { "$id ignoré : $note" } else log.warn { "$id : $note" }
             ctx.progress.complete()
             return SignalTrack.missing(id, ctx.grid.count, note)
@@ -73,7 +74,7 @@ class AudioEventDetector(override val id: String, private val params: AudioEvent
         val classNames = YamnetClassifier.loadClassNames(ctx.configDir.resolve(params.classMap))
         val kindIndices = params.kinds.mapValues { (kind, spec) ->
             spec.classes.map { name ->
-                classNames.indexOf(name).takeIf { it >= 0 } ?: throw ConfigException("$id : classe AudioSet inconnue '$name' (type $kind)")
+                classNames.indexOf(name).takeIf { it >= 0 } ?: throw ConfigException(Message("error.detector.audioSetClass", "id" to id, "name" to name, "kind" to kind))
             }
         }
         val scoresByKind = params.kinds.keys.associateWith { mutableMapOf<Int, Double>() }

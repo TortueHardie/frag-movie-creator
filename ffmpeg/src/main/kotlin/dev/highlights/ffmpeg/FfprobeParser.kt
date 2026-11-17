@@ -1,5 +1,6 @@
 package dev.highlights.ffmpeg
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.InputException
 import dev.highlights.core.model.AudioStream
 import dev.highlights.core.model.MediaInfo
@@ -23,9 +24,9 @@ object FfprobeParser {
         val root = try {
             json.parseToJsonElement(output).jsonObject
         } catch (e: Exception) {
-            throw InputException("Sortie ffprobe illisible pour $file : ${e.message}", e)
+            throw InputException(Message("error.probe.unreadable", "file" to file, "detail" to e.message), e)
         }
-        val format = root["format"]?.jsonObject ?: throw InputException("ffprobe n'a pas reconnu le format de $file")
+        val format = root["format"]?.jsonObject ?: throw InputException(Message("error.probe.unknownFormat", "file" to file))
         val streams = root["streams"]?.jsonArray?.map { it.jsonObject }.orEmpty()
 
         val video = streams
@@ -56,7 +57,7 @@ object FfprobeParser {
 
         val duration = format.str("duration")?.toDoubleOrNull()?.seconds
             ?: streams.mapNotNull { it.str("duration")?.toDoubleOrNull() }.maxOrNull()?.seconds
-            ?: throw InputException("Durée inconnue pour $file (fichier en cours d'écriture ou corrompu ?)")
+            ?: throw InputException(Message("error.probe.noDuration", "file" to file))
 
         return MediaInfo(
             path = file.toAbsolutePath().normalize(),

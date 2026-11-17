@@ -1,5 +1,7 @@
 package dev.highlights.vision
 
+import dev.highlights.core.i18n.tr
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.ConfigException
 import dev.highlights.core.analysis.AnalysisContext
 import dev.highlights.core.analysis.DetectorParams
@@ -72,9 +74,9 @@ class AmmoCounterDetector(override val id: String, private val params: AmmoCount
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
         val raw = DoubleArray(ctx.grid.count) { Double.NaN }
-        val video = ctx.media.video ?: return SignalTrack.missing(id, ctx.grid.count, "pas de vidéo")
+        val video = ctx.media.video ?: return SignalTrack.missing(id, ctx.grid.count, Message("notice.noVideo"))
         val kills = ctx.events.filter { it.kind == params.kill }.map { it.at }
-        if (kills.isEmpty()) return SignalTrack(id, raw, note = "aucun kill à relire")
+        if (kills.isEmpty()) return SignalTrack(id, raw, note = Message("notice.ammo.noKills"))
         val zone = zone(video.width, video.height)
         val tealZone = zone.copy(color = TEAL)
         val windows = windows(kills, params.before, params.after, ctx.media.duration)
@@ -99,7 +101,7 @@ class AmmoCounterDetector(override val id: String, private val params: AmmoCount
                                 teal += zones[1].pixels.copyOf()
                             },
                         )
-                        ctx.progress.update(done.incrementAndGet().toDouble() / windows.size, "${done.get()}/${windows.size} kills")
+                        ctx.progress.update(done.incrementAndGet().toDouble() / windows.size, tr("progress.kill", "done" to done.get(), "total" to windows.size))
                         val masked = refills(frames, teal, params.brightness, margin(params.fps))
                         changes(frames, params.brightness, params.minChange, sameShot(params.fps), masked).mapNotNull { times.getOrNull(it) }
                     }
@@ -107,7 +109,7 @@ class AmmoCounterDetector(override val id: String, private val params: AmmoCount
             }.awaitAll().flatten().distinct().sorted()
         }
         log.info { "$id : ${shots.size} balle(s) lue(s) sur le compteur autour de ${kills.size} kill(s)" }
-        return SignalTrack(id, raw, shots.map { SignalEvent(it, params.kind, 1.0) }, note = "compteur immobile autour des kills".takeIf { shots.isEmpty() })
+        return SignalTrack(id, raw, shots.map { SignalEvent(it, params.kind, 1.0) }, note = Message("notice.ammo.still").takeIf { shots.isEmpty() })
     }
 
     /** Zone des chiffres dans la capture, réduite à [WIDTH] x [HEIGHT]. */
@@ -117,7 +119,7 @@ class AmmoCounterDetector(override val id: String, private val params: AmmoCount
         val cy = (region.y * height).roundToInt().coerceIn(0, height - 1)
         val cw = (region.width * width).roundToInt().coerceIn(1, width - cx)
         val ch = (region.height * height).roundToInt().coerceIn(1, height - cy)
-        if (cw < 8 || ch < 8) throw ConfigException("$id : zone du compteur trop petite (${cw}x$ch)")
+        if (cw < 8 || ch < 8) throw ConfigException(Message("error.detector.zoneTooSmall", "id" to id, "size" to "${cw}x$ch"))
         return FrameZone(cx, cy, cw, ch, WIDTH, HEIGHT)
     }
 
@@ -214,6 +216,6 @@ class AmmoCounterDetectorFactory : SignalDetectorFactory {
     override val type = "ammo-counter"
 
     override fun create(id: String, params: DetectorParams): SignalDetector =
-        AmmoCounterDetector(id, params.decode(AmmoCounterParams.serializer()) { throw ConfigException("$id : paramètre region requis") })
+        AmmoCounterDetector(id, params.decode(AmmoCounterParams.serializer()) { throw ConfigException(Message("error.detector.paramRequired", "id" to id, "params" to "region")) })
 }
 

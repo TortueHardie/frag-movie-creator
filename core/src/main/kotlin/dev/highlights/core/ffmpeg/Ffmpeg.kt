@@ -1,6 +1,7 @@
 package dev.highlights.core.ffmpeg
 
 import dev.highlights.core.HighlightsException
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.PlatformProfile
 import java.io.InputStream
@@ -26,6 +27,10 @@ sealed interface StdoutHandler {
 
 data class FfmpegResult(val exitCode: Int, val elapsed: Duration, val stderrTail: List<String>)
 
+/**
+ * Échec d'un process FFmpeg. [description] (étape, en français : « rendu 9:16 ») reste technique : l'interface le montre
+ * dans le détail, à côté de la fin de stderr, pas dans le message traduit.
+ */
 class FfmpegException(
     val description: String,
     val exitCode: Int,
@@ -33,12 +38,12 @@ class FfmpegException(
     val stderrTail: List<String>,
     cause: Throwable? = null,
 ) : HighlightsException(
-    buildString {
-        append("FFmpeg a échoué ($description), code retour $exitCode")
-        stderrTail.lastOrNull { it.isNotBlank() }?.let { append(" : ").append(it.trim()) }
-    },
+    Message("error.ffmpeg.failed", "code" to exitCode.toString(), "detail" to (stderrTail.lastOrNull { it.isNotBlank() }?.trim() ?: "")),
     cause,
-)
+) {
+    override val message: String get() = "FFmpeg a échoué ($description), code retour $exitCode" +
+        (stderrTail.lastOrNull { it.isNotBlank() }?.let { " : ${it.trim()}" } ?: "")
+}
 
 interface FfmpegService {
     suspend fun probe(file: Path): MediaInfo

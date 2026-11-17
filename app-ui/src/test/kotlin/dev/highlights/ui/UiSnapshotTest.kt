@@ -3,6 +3,7 @@ package dev.highlights.ui
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
+import dev.highlights.core.i18n.I18n
 import dev.highlights.core.model.AudioStream
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
@@ -40,17 +41,33 @@ import kotlin.time.Duration.Companion.seconds
 class UiSnapshotTest : FunSpec({
     val outDir = Path("build", "ui-snapshots").createDirectories()
 
+    /**
+     * Chaque écran est rendu en français (nom simple), en anglais (`en/`) et dans la pseudo-langue `en-XA` (`long/` :
+     * textes allongés de 40 %, comme l'allemand) pour repérer les textes coupés ou qui débordent. Toute autre langue
+     * livrée l'est aussi, dans le dossier de son fichier (`ru/`, `ja/`, `zh_CN/`…) : on y voit les caractères que la
+     * police de l'interface n'aurait pas (carrés vides).
+     */
+    val languages = listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/") +
+        I18n.available().map { it.tag }.filter { it != "fr" && it != "en" }.sorted().map { it to "$it/" }
+
     fun render(name: String, state: UiState, width: Int = 1440, height: Int = 920): Path {
-        val scene = ImageComposeScene(width, height, Density(1f)) { App(state, NoopActions) }
-        try {
-            scene.render(0)
-            val image = scene.render(500.milliseconds.inWholeNanoseconds)
-            val file = outDir.resolve("$name.png")
-            file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
-            return file
-        } finally {
-            scene.close()
+        var french: Path? = null
+        for ((tag, folder) in languages) {
+            I18n.withLanguage(tag) {
+                val scene = ImageComposeScene(width, height, Density(1f)) { App(state.copy(language = tag), NoopActions) }
+                try {
+                    scene.render(0)
+                    val image = scene.render(500.milliseconds.inWholeNanoseconds)
+                    val file = outDir.resolve("$folder$name.png")
+                    file.parent.createDirectories()
+                    file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+                    if (tag == "fr") french = file
+                } finally {
+                    scene.close()
+                }
+            }
         }
+        return french!!
     }
 
     val media = MediaInfo(
@@ -355,4 +372,5 @@ private object NoopActions : UiActions {
     override fun dismissImagePreview() = Unit
     override fun installUpdate() = Unit
     override fun dismissUpdate() = Unit
+    override fun setLanguage(tag: String?) = Unit
 }

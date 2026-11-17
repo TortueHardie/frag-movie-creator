@@ -1,5 +1,6 @@
 package dev.highlights.ui
 
+import dev.highlights.core.i18n.tr
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,13 +33,13 @@ import kotlin.io.path.name
 fun PublishDialog(publish: PublishUiState, actions: UiActions) {
     AlertDialog(
         onDismissRequest = actions::closePublish,
-        title = { Text("Publier sur YouTube") },
+        title = { Text(tr("ui.publish.title")) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(publish.video.name, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
                 when {
                     !publish.configured -> NotConfigured(actions)
-                    publish.loading -> Text("Préparation du titre et de la description…", color = Palette.textMuted)
+                    publish.loading -> Text(tr("ui.publish.loading"), color = Palette.textMuted)
                     !publish.api -> ManualFields(publish, actions)
                     else -> PublishFields(publish, actions)
                 }
@@ -46,15 +47,15 @@ fun PublishDialog(publish: PublishUiState, actions: UiActions) {
         },
         confirmButton = {
             when {
-                !publish.api -> Button(onClick = actions::openYouTubeUpload, enabled = !publish.loading) { Text("Ouvrir YouTube") }
-                publish.configured -> Button(onClick = actions::publishToYouTube, enabled = publish.canPublish) { Text("Envoyer sur YouTube") }
+                !publish.api -> Button(onClick = actions::openYouTubeUpload, enabled = !publish.loading) { Text(tr("ui.publish.openYouTube")) }
+                publish.configured -> Button(onClick = actions::publishToYouTube, enabled = publish.canPublish) { Text(tr("ui.publish.upload")) }
             }
         },
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (publish.configured && !publish.loading) TextButton(onClick = actions::resetPublishText) { Text("Texte proposé") }
+                if (publish.configured && !publish.loading) TextButton(onClick = actions::resetPublishText) { Text(tr("ui.publish.reset")) }
                 // Envoi manuel : la fenêtre reste ouverte pendant qu'on colle les textes dans YouTube.
-                TextButton(onClick = actions::closePublish) { Text(if (publish.api && publish.configured) "Annuler" else "Fermer") }
+                TextButton(onClick = actions::closePublish) { Text(if (publish.api && publish.configured) tr("ui.common.cancel") else tr("ui.common.close")) }
             }
         },
     )
@@ -67,20 +68,18 @@ fun PublishDialog(publish: PublishUiState, actions: UiActions) {
 @Composable
 private fun ManualFields(publish: PublishUiState, actions: UiActions) {
     Text(
-        "« Ouvrir YouTube » ouvre la page d'envoi dans ton navigateur et montre la vidéo dans l'Explorateur : glisse-la " +
-            "dans la page, puis colle le titre, la description et les tags. Cette fenêtre reste ouverte en attendant.",
+        tr("ui.publish.manualIntro"),
         style = MaterialTheme.typography.bodyMedium,
     )
-    CopyField("Titre (${publish.title.length}/${YouTubeText.TITLE_MAX})", publish.title, actions, singleLine = true,
+    CopyField(tr("ui.publish.titleField", "length" to publish.title.length, "max" to YouTubeText.TITLE_MAX), publish.title, actions, singleLine = true,
         isError = publish.title.isBlank() || publish.title.length > YouTubeText.TITLE_MAX) { v -> actions.updatePublish { it.copy(title = v) } }
-    CopyField("Description", publish.description, actions) { v -> actions.updatePublish { it.copy(description = v) } }
-    CopyField("Tags (champ « Tags » de YouTube, dans « Afficher plus »)", publish.tagsText, actions, singleLine = true) { v ->
+    CopyField(tr("ui.publish.description"), publish.description, actions) { v -> actions.updatePublish { it.copy(description = v) } }
+    CopyField(tr("ui.publish.tagsManual"), publish.tagsText, actions, singleLine = true) { v ->
         actions.updatePublish { it.copy(tagsText = v) }
     }
-    publish.problems.forEach { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+    publish.problems.forEach { Text(it.text(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     Text(
-        "Dans YouTube : « Non, elle n'est pas conçue pour les enfants », catégorie « Jeux vidéo », puis la visibilité de ton choix. " +
-            "L'envoi direct par l'API se réactive avec publish.youtube.api dans app.yaml.",
+        tr("ui.publish.manualHint"),
         style = MaterialTheme.typography.bodySmall,
         color = Palette.textMuted,
     )
@@ -105,25 +104,21 @@ private fun CopyField(
             isError = isError,
             modifier = Modifier.weight(1f),
         )
-        OutlinedButton(onClick = { actions.copyToClipboard(value) }, enabled = value.isNotBlank()) { Text("Copier") }
+        OutlinedButton(onClick = { actions.copyToClipboard(value) }, enabled = value.isNotBlank()) { Text(tr("ui.common.copy")) }
     }
 }
 
 @Composable
 private fun NotConfigured(actions: UiActions) {
     Text(
-        "YouTube n'accepte les envois que d'une application déclarée chez Google. Une fois pour toutes : dans la console " +
-            "Google Cloud, crée un projet, active « YouTube Data API v3 », puis crée un identifiant OAuth de type " +
-            "« Application de bureau » et télécharge son fichier JSON.",
+        tr("ui.publish.setup1"),
         style = MaterialTheme.typography.bodyMedium,
     )
     Text(
-        "Dépose ce fichier client_secret….json dans le dossier de la configuration (à côté d'app.yaml), ou indique son " +
-            "chemin dans publish.youtube.clientSecretFile. Rouvre ensuite cette fenêtre : la connexion au compte se fera " +
-            "dans le navigateur au premier envoi.",
+        tr("ui.publish.setup2"),
         style = MaterialTheme.typography.bodyMedium,
     )
-    OutlinedButton(onClick = actions::editConfig) { Text("Ouvrir app.yaml") }
+    OutlinedButton(onClick = actions::editConfig) { Text(tr("ui.publish.openConfig")) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -132,7 +127,7 @@ private fun PublishFields(publish: PublishUiState, actions: UiActions) {
     OutlinedTextField(
         value = publish.title,
         onValueChange = { v -> actions.updatePublish { it.copy(title = v) } },
-        label = { Text("Titre (${publish.title.length}/${YouTubeText.TITLE_MAX})") },
+        label = { Text(tr("ui.publish.titleField", "length" to publish.title.length, "max" to YouTubeText.TITLE_MAX)) },
         singleLine = true,
         isError = publish.title.isBlank() || publish.title.length > YouTubeText.TITLE_MAX,
         modifier = Modifier.fillMaxWidth(),
@@ -140,19 +135,19 @@ private fun PublishFields(publish: PublishUiState, actions: UiActions) {
     OutlinedTextField(
         value = publish.description,
         onValueChange = { v -> actions.updatePublish { it.copy(description = v) } },
-        label = { Text("Description") },
+        label = { Text(tr("ui.publish.description")) },
         minLines = 5,
         modifier = Modifier.fillMaxWidth(),
     )
     OutlinedTextField(
         value = publish.tagsText,
         onValueChange = { v -> actions.updatePublish { it.copy(tagsText = v) } },
-        label = { Text("Tags, séparés par des virgules") },
+        label = { Text(tr("ui.publish.tags")) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
 
-    DialogGroup("Visibilité") {
+    DialogGroup(tr("ui.publish.visibility")) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             YouTubePrivacy.entries.forEachIndexed { i, privacy ->
                 SegmentedButton(
@@ -168,43 +163,43 @@ private fun PublishFields(publish: PublishUiState, actions: UiActions) {
                 // Une mise en ligne programmée part d'une vidéo privée : on la met privée dès qu'on en tape une.
                 actions.updatePublish { it.copy(publishAtText = v, privacy = if (v.isNotBlank()) YouTubePrivacy.PRIVATE else it.privacy) }
             },
-            label = { Text("Mise en ligne programmée (ex. 2026-10-01 18:00) — vide : tout de suite") },
+            label = { Text(tr("ui.publish.schedule")) },
             singleLine = true,
             isError = publish.publishAtText.isNotBlank() && publish.publishAt == null,
             modifier = Modifier.fillMaxWidth(),
         )
-        MontageToggle("Prévenir les abonnés (vidéo publique)", publish.notify) { v -> actions.updatePublish { it.copy(notify = v) } }
-        MontageToggle("Conçue pour les enfants (déclaration obligatoire)", publish.madeForKids) { v -> actions.updatePublish { it.copy(madeForKids = v) } }
+        MontageToggle(tr("ui.publish.notify"), publish.notify) { v -> actions.updatePublish { it.copy(notify = v) } }
+        MontageToggle(tr("ui.publish.madeForKids"), publish.madeForKids) { v -> actions.updatePublish { it.copy(madeForKids = v) } }
     }
 
-    DialogGroup("Classement") {
+    DialogGroup(tr("ui.publish.classification")) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = publish.categoryText,
                 onValueChange = { v -> actions.updatePublish { it.copy(categoryText = v) } },
-                label = { Text("Catégorie (20 = Jeux vidéo)") },
+                label = { Text(tr("ui.publish.category")) },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
             OutlinedTextField(
                 value = publish.language,
                 onValueChange = { v -> actions.updatePublish { it.copy(language = v) } },
-                label = { Text("Langue") },
+                label = { Text(tr("ui.publish.language")) },
                 singleLine = true,
                 modifier = Modifier.width(110.dp),
             )
         }
     }
 
-    publish.problems.forEach { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+    publish.problems.forEach { Text(it.text(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
-            if (publish.connected) "Compte YouTube connecté." else "La connexion au compte s'ouvrira dans le navigateur au premier envoi.",
+            if (publish.connected) tr("ui.publish.connected") else tr("ui.publish.notConnected"),
             style = MaterialTheme.typography.bodySmall,
             color = Palette.textMuted,
             modifier = Modifier.weight(1f),
         )
-        if (publish.connected) TextButton(onClick = actions::youtubeLogout) { Text("Se déconnecter") }
+        if (publish.connected) TextButton(onClick = actions::youtubeLogout) { Text(tr("ui.publish.logout")) }
     }
 }

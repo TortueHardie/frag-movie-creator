@@ -1,5 +1,7 @@
 package dev.highlights.ui
 
+import dev.highlights.core.i18n.I18n
+import dev.highlights.core.i18n.tr
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -44,8 +46,8 @@ import java.util.Locale
 fun StatsView(stats: StatsState, actions: UiActions, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Statistiques", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            TextButton(onClick = actions::closeStats) { Text("Analyses enregistrées") }
+            Text(tr("ui.library.stats"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            TextButton(onClick = actions::closeStats) { Text(tr("ui.library.title")) }
         }
         if (stats.loading) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -54,7 +56,7 @@ fun StatsView(stats: StatsState, actions: UiActions, modifier: Modifier = Modifi
         if (stats.evenings.isEmpty()) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Text(
-                    "Pas encore de partie à compter : il faut des captures d'au moins 5 minutes, analysées avec un profil qui détecte les kills.",
+                    tr("ui.stats.empty"),
                     color = Palette.textMuted,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.width(460.dp),
@@ -80,14 +82,12 @@ fun StatsView(stats: StatsState, actions: UiActions, modifier: Modifier = Modifi
             val unknown = outdatedGames.count { it.clutches == null }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "$outdated partie(s) analysée(s) avec d'anciens réglages de détection" +
-                        (if (unknown > 0) ", dont $unknown aux clutchs inconnus" else "") +
-                        ". La mise à jour les réanalyse (quelques secondes chacune ; les moments décochés redeviennent cochés).",
+                    if (unknown > 0) tr("ui.stats.outdatedClutches", "count" to outdated, "unknown" to unknown) else tr("ui.stats.outdated", "count" to outdated),
                     style = MaterialTheme.typography.bodySmall,
                     color = Palette.textMuted,
                     modifier = Modifier.weight(1f),
                 )
-                androidx.compose.material3.OutlinedButton(onClick = actions::refreshOutdated) { Text("Mettre à jour les analyses") }
+                androidx.compose.material3.OutlinedButton(onClick = actions::refreshOutdated) { Text(tr("ui.stats.refresh")) }
             }
         }
         Summary(evenings)
@@ -106,11 +106,11 @@ private fun Summary(evenings: List<EveningStats>) {
     val games = evenings.flatMap { it.games }
     val all = EveningStats(evenings.first().date, evenings.first().game, games)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        StatTile("Parties", "${games.size}", "${evenings.size} soirée(s)", Modifier.weight(1f))
-        StatTile("Kills par partie", decimal(all.killsPerGame), "${all.kills} au total", Modifier.weight(1f))
-        StatTile("K/D", all.kd?.let(::decimal) ?: "—", all.deaths?.let { "$it morts" } ?: "morts non détectées", Modifier.weight(1f))
-        StatTile("Tirs à la tête", all.headshotRate?.let { "${(it * 100).toInt()} %" } ?: "—", all.headshots?.let { "$it headshots" } ?: "non détectés", Modifier.weight(1f))
-        StatTile("Meilleur round", all.bestRound?.let { "$it kill${if (it > 1) "s" else ""}" } ?: "—", multiKillsLabel(all).ifEmpty { "aucun multi-kill" }, Modifier.weight(1.4f))
+        StatTile(tr("ui.stats.games"), "${games.size}", tr("ui.stats.evenings", "count" to evenings.size), Modifier.weight(1f))
+        StatTile(tr("ui.stats.killsPerGame"), decimal(all.killsPerGame), tr("ui.stats.totalKills", "count" to all.kills), Modifier.weight(1f))
+        StatTile(tr("ui.stats.kd"), all.kd?.let(::decimal) ?: "—", all.deaths?.let { tr("ui.count.deaths", "count" to it) } ?: tr("ui.stats.deathsUnknown"), Modifier.weight(1f))
+        StatTile(tr("ui.stats.headshots"), all.headshotRate?.let { I18n.percent(it) } ?: "—", all.headshots?.let { tr("ui.count.headshots", "count" to it) } ?: tr("ui.stats.headshotsUnknown"), Modifier.weight(1f))
+        StatTile(tr("ui.stats.bestRound"), all.bestRound?.let { tr("ui.count.kills", "count" to it) } ?: "—", multiKillsLabel(all).ifEmpty { tr("ui.stats.noMultiKill") }, Modifier.weight(1.4f))
     }
 }
 
@@ -130,10 +130,9 @@ private fun StatTile(label: String, value: String, detail: String, modifier: Mod
 private fun KillsChart(evenings: List<EveningStats>) {
     if (evenings.size < 2) return
     val max = evenings.maxOf { it.killsPerGame }.coerceAtLeast(1.0)
-    val day = DateTimeFormatter.ofPattern("dd/MM", Locale.FRENCH)
     Surface(shape = RoundedCornerShape(10.dp), color = Palette.surface, border = BorderStroke(1.dp, Palette.outline)) {
         Column(Modifier.padding(12.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Kills par partie, soirée après soirée", style = MaterialTheme.typography.labelLarge)
+            Text(tr("ui.stats.chart"), style = MaterialTheme.typography.labelLarge)
             Row(Modifier.fillMaxWidth().height(150.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
                 evenings.forEachIndexed { i, e ->
                     val latest = i == evenings.lastIndex
@@ -144,8 +143,8 @@ private fun KillsChart(evenings: List<EveningStats>) {
                                 .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
                                 .background(if (latest) Palette.accent else Palette.cyan),
                         )
-                        Text(e.date.format(day), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
-                        Text(e.kd?.let { "K/D ${decimal(it)}" } ?: " ", style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
+                        Text(I18n.date(e.date, "format.date.dayMonth"), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
+                        Text(e.kd?.let { tr("ui.stats.kdValue", "value" to decimal(it)) } ?: " ", style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
                     }
                 }
             }
@@ -155,19 +154,19 @@ private fun KillsChart(evenings: List<EveningStats>) {
 
 @Composable
 private fun EveningCard(e: EveningStats, actions: UiActions) {
-    val date = e.date.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.FRENCH)).replaceFirstChar { it.uppercase() }
+    val date = I18n.date(e.date, "format.date.long").replaceFirstChar { it.uppercase() }
     Surface(shape = RoundedCornerShape(10.dp), color = Palette.surface, border = BorderStroke(1.dp, Palette.outline)) {
         Column(Modifier.padding(12.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(date, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                Text("${e.games.size} partie(s) · ${e.playTime.toShortText()}", style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                Text(tr("ui.stats.eveningGames", "count" to e.games.size, "duration" to e.playTime), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
             }
             Text(
                 listOfNotNull(
-                    "${e.kills} kills (${decimal(e.killsPerGame)} par partie)",
-                    e.kd?.let { "K/D ${decimal(it)}" },
-                    e.headshotRate?.let { "${(it * 100).toInt()} % HS" },
-                    e.bestRound?.takeIf { it > 0 }?.let { "meilleur round : $it" },
+                    tr("ui.stats.eveningKills", "count" to e.kills, "perGame" to decimal(e.killsPerGame)),
+                    e.kd?.let { tr("ui.stats.kdValue", "value" to decimal(it)) },
+                    e.headshotRate?.let { tr("ui.stats.hsRate", "percent" to I18n.percent(it)) },
+                    e.bestRound?.takeIf { it > 0 }?.let { tr("ui.stats.bestRoundValue", "count" to it) },
                     multiKillsLabel(e).takeIf { it.isNotEmpty() },
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodyMedium,
@@ -185,10 +184,10 @@ private fun GameRow(g: GameStats, best: Boolean, actions: UiActions) {
         Text(time, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted, modifier = Modifier.width(44.dp))
         Text(
             listOfNotNull(
-                g.duration.toShortText(),
-                "${g.kills} kills" + (g.deaths?.let { " / $it morts" } ?: ""),
-                g.headshotRate?.let { "${(it * 100).toInt()} % HS" },
-                g.bestRound?.takeIf { it > 0 }?.let { "round max $it" },
+                I18n.duration(g.duration),
+                g.deaths?.let { tr("ui.stats.killsDeaths", "kills" to g.kills, "deaths" to it) } ?: tr("ui.count.kills", "count" to g.kills),
+                g.headshotRate?.let { tr("ui.stats.hsRate", "percent" to I18n.percent(it)) },
+                g.bestRound?.takeIf { it > 0 }?.let { tr("ui.stats.maxRound", "count" to it) },
                 multiKillsLabel(g.multiKills, g.aces, g.clutches).takeIf { it.isNotEmpty() },
             ).joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
@@ -197,7 +196,7 @@ private fun GameRow(g: GameStats, best: Boolean, actions: UiActions) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        TextButton(onClick = { actions.openLibraryItem(g.sessionFile) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("Ouvrir") }
+        TextButton(onClick = { actions.openLibraryItem(g.sessionFile) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.common.open")) }
     }
 }
 
@@ -205,13 +204,12 @@ private fun multiKillsLabel(e: EveningStats) = multiKillsLabel(e.multiKills, e.a
 
 /** « 2 doublés, 1 triplé, 1 ace » : du plus petit multi-kill au plus gros, puis aces et clutchs. */
 internal fun multiKillsLabel(multi: Map<Int, Int>, aces: Int, clutches: Int?): String = buildList {
-    val labels = mapOf(2 to "doublé", 3 to "triplé", 4 to "quadruplé", 5 to "quintuplé")
-    multi.toSortedMap().forEach { (size, n) -> labels[size.coerceAtMost(5)]?.let { add("$n $it${if (n > 1) "s" else ""}") } }
-    if (aces > 0) add("$aces ace${if (aces > 1) "s" else ""}")
-    if (clutches != null && clutches > 0) add("$clutches clutch${if (clutches > 1) "s" else ""}")
-}.joinToString(", ")
+    multi.toSortedMap().forEach { (size, n) -> if (size >= 2) add(tr("youtube.count.multi${size.coerceAtMost(5)}", "count" to n)) }
+    if (aces > 0) add(tr("youtube.count.ace", "count" to aces))
+    if (clutches != null && clutches > 0) add(tr("youtube.count.clutch", "count" to clutches))
+}.joinToString(tr("format.listComma"))
 
-private fun decimal(v: Double) = String.format(Locale.FRENCH, "%.1f", v)
+private fun decimal(v: Double) = I18n.fixed(v, 1)
 
 /** Statistiques affichées : parties chargées, jeu choisi (le plus joué par défaut). */
 data class StatsState(

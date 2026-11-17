@@ -1,5 +1,6 @@
 package dev.highlights.ffmpeg
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.ConfigException
 import java.io.File
 import java.nio.file.Files
@@ -16,12 +17,12 @@ object FfmpegLocator {
     const val BUNDLED_DIR = "highlights.ffmpeg.dir"
 
     /** Installation conseillée, selon le système : l'application est livrée avec FFmpeg, pas le projet. */
-    val INSTALL_HINT: String
+    val INSTALL_HINT: Message
         get() = System.getProperty("os.name").orEmpty().lowercase().let { os ->
             when {
-                os.startsWith("windows") -> "Installe-le avec « winget install Gyan.FFmpeg »"
-                os.startsWith("mac") -> "Installe-le avec « brew install ffmpeg »"
-                else -> "Installe-le avec le gestionnaire de paquets du système (ex. « apt install ffmpeg »)"
+                os.startsWith("windows") -> Message("error.ffmpeg.install", "command" to "winget install Gyan.FFmpeg")
+                os.startsWith("mac") -> Message("error.ffmpeg.install", "command" to "brew install ffmpeg")
+                else -> Message("error.ffmpeg.installLinux")
             }
         }
 
@@ -35,12 +36,12 @@ object FfmpegLocator {
             val p = Path(configured)
             if (p.isRegularFile()) return p.toRealPath()
             findOnPath(configured, env)?.let { return it }
-            throw ConfigException("$tool introuvable au chemin configuré : $configured")
+            throw ConfigException(Message("error.ffmpeg.notAtPath", "tool" to tool, "path" to configured))
         }
         bundledDir?.let { Path(it, "$tool.exe") }?.takeIf { it.isRegularFile() }?.let { return it.toRealPath() }
         return findOnPath(tool, env)
             ?: wingetCandidates(tool, env).firstOrNull { it.isRegularFile() }?.toRealPath()
-            ?: throw ConfigException("$tool introuvable. $INSTALL_HINT, ou renseigne ffmpeg.${tool}Path dans app.yaml")
+            ?: throw ConfigException(Message("error.ffmpeg.notFound", "tool" to tool, "hint" to INSTALL_HINT))
     }
 
     private fun findOnPath(name: String, env: Map<String, String>): Path? {

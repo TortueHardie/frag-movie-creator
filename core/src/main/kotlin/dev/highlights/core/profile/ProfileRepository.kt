@@ -1,5 +1,6 @@
 package dev.highlights.core.profile
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.ConfigException
 import dev.highlights.core.config.ConfigYaml
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -22,7 +23,7 @@ class ProfileRepository(
     fun all(): List<GameProfile> = byId.values.sortedBy { it.id }
 
     fun byId(id: String): GameProfile = byId[id]
-        ?: throw ConfigException("Profil inconnu '$id'. Disponibles : ${byId.keys.sorted().joinToString()}")
+        ?: throw ConfigException(Message("error.profile.unknown", "id" to id, "available" to byId.keys.sorted().joinToString()))
 
     /** Profil forcé, sinon celui dont un motif apparaît dans le chemin du fichier, sinon "default". */
     fun resolve(file: Path, forcedId: String? = null): GameProfile {
@@ -32,21 +33,21 @@ class ProfileRepository(
             .filter { p -> p.match.pathContains.any { haystack.contains(it.lowercase()) } }
             .maxByOrNull { it.match.priority }
             ?: byId[DEFAULT_ID]
-            ?: throw ConfigException("Aucun profil ne correspond à $file et le profil '$DEFAULT_ID' est absent")
+            ?: throw ConfigException(Message("error.profile.noMatch", "file" to file, "fallback" to DEFAULT_ID))
     }
 
     companion object {
         const val DEFAULT_ID = "default"
 
         fun loadDirectory(dir: Path): ProfileRepository {
-            if (!dir.isDirectory()) throw ConfigException("Dossier de profils introuvable : $dir")
+            if (!dir.isDirectory()) throw ConfigException(Message("error.profile.dirNotFound", "dir" to dir))
             val loaded = dir.listDirectoryEntries()
                 .filter { it.extension.lowercase() in setOf("yaml", "yml") }
                 .sorted()
                 .map { it to ConfigYaml.decodeFile(it, GameProfile.serializer()) }
             val profiles = loaded.map { it.second }
             val duplicates = profiles.groupBy { it.id }.filterValues { it.size > 1 }.keys
-            if (duplicates.isNotEmpty()) throw ConfigException("Profils en double dans $dir : $duplicates")
+            if (duplicates.isNotEmpty()) throw ConfigException(Message("error.profile.duplicates", "dir" to dir, "ids" to duplicates.toString()))
             log.info { "Profils chargés depuis $dir : ${profiles.joinToString { it.id }}" }
             return ProfileRepository(profiles, loaded.associate { (file, p) -> p.id to file })
         }

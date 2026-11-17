@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.InputException
 import dev.highlights.core.dsp.RealFft
@@ -202,7 +203,7 @@ object MusicAnalyzer {
     private const val DIP = 0.15
 
     suspend fun analyze(ffmpeg: FfmpegService, file: Path): MusicAnalysis {
-        if (!file.isRegularFile()) throw InputException("Musique introuvable : $file")
+        if (!file.isRegularFile()) throw InputException(Message("error.music.notFound", "file" to file))
         val chunks = mutableListOf<FloatArray>()
         var total = 0
         ffmpeg.run(
@@ -241,14 +242,14 @@ object MusicAnalyzer {
 
     fun analyzeSamples(samples: FloatArray, file: Path = Path.of("musique")): MusicAnalysis {
         val duration = (samples.size.toDouble() / SAMPLE_RATE).seconds
-        if (samples.size < SAMPLE_RATE * 5) throw HighlightsException("Musique trop courte (${duration.inWholeSeconds} s) pour détecter un tempo")
+        if (samples.size < SAMPLE_RATE * 5) throw HighlightsException(Message("error.music.tooShort", "duration" to duration))
 
         val spec = melSpectrogram(samples)
         val onset = onsetEnvelope(spec)
         // Tempo sur une enveloppe plus lissée : les pics fins (~12 ms) rendent l'autocorrélation sensible à la quantification du lag.
         val bpmEstimate = estimateTempo(smooth(onset, sigma = 3.0), FPS)
         val beatFrames = trackBeats(onset, FPS * 60.0 / bpmEstimate)
-        if (beatFrames.size < 8) throw HighlightsException("Tempo introuvable dans ${file.fileName} (musique sans rythme marqué ?)")
+        if (beatFrames.size < 8) throw HighlightsException(Message("error.music.noTempo", "name" to file.fileName.toString()))
 
         // Une trame est datée par son centre : l'attaque domine le flux quand elle y arrive.
         val beats = beatFrames.map { ((it * HOP + FRAME / 2).toDouble() / SAMPLE_RATE).seconds }

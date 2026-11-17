@@ -1,5 +1,6 @@
 package dev.highlights.ffmpeg
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.config.EncoderSettings
 import dev.highlights.core.ffmpeg.EncoderProfile
@@ -48,7 +49,7 @@ class FfmpegEncoderSelector(
             log.warn { "Encodeur $name inutilisable : ${check.reason}" }
             failures += "$name (${check.reason})"
         }
-        throw HighlightsException("Aucun encodeur utilisable : ${failures.joinToString("; ")}")
+        throw HighlightsException(Message("error.encoder.none", "detail" to failures.joinToString("; ")))
     }
 
     private suspend fun check(name: String, available: Set<String>): EncoderCheck {

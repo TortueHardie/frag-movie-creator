@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.InputException
 import dev.highlights.core.ffmpeg.FfmpegService
@@ -50,7 +51,7 @@ class MusicLibrary(private val cacheDir: Path) {
      */
     suspend fun load(ffmpeg: FfmpegService, dir: Path, progress: ProgressReporter = ProgressReporter.NONE): List<MusicAnalysis> {
         val files = files(dir)
-        if (files.isEmpty()) throw InputException("Aucune musique dans $dir (attendu : ${AUDIO_EXTENSIONS.joinToString()})")
+        if (files.isEmpty()) throw InputException(Message("error.music.emptyFolder", "dir" to dir, "expected" to AUDIO_EXTENSIONS.joinToString()))
         // Les musiques jamais vues s'analysent ensemble : décodage et calcul, chacune sur son cœur.
         val semaphore = Semaphore(ANALYSIS_PARALLELISM)
         val done = AtomicInteger()
@@ -64,7 +65,7 @@ class MusicLibrary(private val cacheDir: Path) {
             }.awaitAll()
         }.filterNotNull()
         progress.complete()
-        if (analyses.isEmpty()) throw HighlightsException("Aucune musique exploitable dans $dir : aucun tempo détecté")
+        if (analyses.isEmpty()) throw HighlightsException(Message("error.music.noUsable", "dir" to dir))
         log.info { "Bibliothèque $dir : ${analyses.size} musique(s) exploitable(s) sur ${files.size}" }
         return analyses
     }
@@ -128,7 +129,7 @@ class MusicLibrary(private val cacheDir: Path) {
 
         /** Musiques de [dir] et de ses sous-dossiers, dans l'ordre alphabétique des chemins. */
         fun files(dir: Path): List<Path> {
-            if (!dir.isDirectory()) throw InputException("Dossier de musiques introuvable : $dir")
+            if (!dir.isDirectory()) throw InputException(Message("error.music.folderNotFound", "dir" to dir))
             return Files.walk(dir).use { paths ->
                 paths.filter { it.isRegularFile() && it.extension.lowercase() in AUDIO_EXTENSIONS }.toList()
             }.sortedBy { it.toString().lowercase() }
@@ -295,7 +296,7 @@ object MusicChoice {
         recent: List<Path> = emptyList(),
         fromStart: (Path) -> Boolean,
     ): List<MusicCandidate> {
-        if (musics.isEmpty()) throw HighlightsException("Aucune musique à essayer")
+        if (musics.isEmpty()) throw HighlightsException(Message("error.music.noneToTry"))
         // Une planification par musique, indépendantes : sur tous les cœurs (l'ordre des musiques est gardé).
         val tried = musics.parallelStream().map { music ->
             val own = settingsFor(settings, fromStart(music.file))
@@ -304,9 +305,9 @@ object MusicChoice {
                 val plan = MontagePlanner.best(groups, prepared, own)
                 MusicCandidate(prepared, plan, MontageScorer.score(plan).total, plan.clips.map { it.group }.distinct().size, value = 0.0)
             } catch (e: HighlightsException) {
-                MusicCandidate(prepared, null, 0.0, 0, value = 0.0, error = e.message)
+                MusicCandidate(prepared, null, 0.0, 0, value = 0.0, error = e.localizedMessage)
             } catch (e: IllegalArgumentException) {
-                MusicCandidate(prepared, null, 0.0, 0, value = 0.0, error = e.message)
+                MusicCandidate(prepared, null, 0.0, 0, value = 0.0, error = e.localizedMessage)
             }
         }.toList()
         val most = tried.maxOf { it.groups }.coerceAtLeast(1)

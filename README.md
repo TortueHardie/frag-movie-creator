@@ -155,6 +155,37 @@ Dans l'application :
 5. décocher les segments à retirer (le seuil et la durée se recalculent sans réanalyser) ;
 6. cliquer sur « Exporter le montage ».
 
+## Langues de l'interface
+
+L'application parle anglais, français, russe, japonais, coréen et chinois simplifié ; d'autres langues s'ajoutent par
+simple fichier. Par défaut, la langue
+d'affichage de Windows (sinon l'anglais) ; le sélecteur en haut à gauche (à côté de « Highlights ») en choisit une
+autre, appliquée tout de suite et retenue dans `~/.highlights/language.json` (« Langue du système » revient au
+réglage de Windows). Sont traduits : toute l'interface, les messages d'erreur, les textes YouTube proposés et les
+textes incrustés par défaut dans les vidéos (DOUBLE KILL / DOUBLÉ…). La ligne de commande et les journaux restent en
+français.
+
+- **Ajouter une langue** : copier `core/src/main/resources/i18n/messages.properties` (l'anglais, langue de repli) en
+  `messages_<tag>.properties` (`de`, `es`, `pt_BR`, `zh_CN`…), UTF-8, et traduire les valeurs. Rien d'autre : la langue
+  apparaît dans le sélecteur sous son `language.name`. `plural.rule` choisit la famille de pluriels (`one`, `zero-one`,
+  `east-slavic`, `polish`, `czech`, `none`) ; une clé `….one/.few/.many/.other` est une forme plurielle choisie
+  d'après `{count}`. Les `{placeholders}` se gardent tels quels.
+- **Vérifier** : `.\gradlew.bat :core:test` (`BundlesTest` : clés manquantes ou en trop, placeholders différents de
+  l'anglais, formes plurielles absentes, clé citée dans le code mais absente) ; `.\gradlew.bat :app-ui:test` rend
+  chaque écran en français, en anglais, en pseudo-langue allongée de 40 % et dans chaque langue livrée
+  (`app-ui/build/ui-snapshots/`, `en/`, `long/`, `ru/`, `ja/`…) et signale tout texte écrit en dur (`HardcodedTextTest`).
+  Garder les `\u0020` de `format.listSeparator` / `format.listComma` : un éditeur (ou un outil) qui les remplace par
+  une espace la fait disparaître au chargement.
+- **Essayer une langue sans la choisir** : `-Dhighlights.lang=de` (ou `en-XA`, la pseudo-langue : textes accentués et
+  allongés, pour voir ceux qui débordent ou ne passent pas par les traductions).
+- **Textes incrustés** : les libellés DOUBLE KILL… viennent de la langue de l'interface au moment du rendu, sauf si le
+  profil en donne (`story.labels.multiKill`, `montage.text.multiKillLabels`). Polices : la police du profil
+  (`montage.text.font`, `story.captions.font`, Impact par défaut) sert tant qu'elle a tous les caractères du texte
+  (latin, cyrillique : DOUBLE KILL, ДАБЛ КИЛЛ) ; sinon le texte passe dans une police livrée avec Windows 10/11 qui
+  les a : Yu Gothic Bold (japonais), Malgun Gothic Bold (coréen), Microsoft YaHei Bold (chinois), Arial Black ou
+  Segoe UI Black (autres écritures). Les sous-titres whisper suivent la même règle, mot à mot selon la phrase.
+  `drawtext` n'a aucun repli : sans ce choix, un caractère absent de la police s'affiche en carré vide.
+
 ## Montage « story » (façon vidéo YouTube)
 
 Style par défaut des profils livrés (`edit.style: story`, ou `--style story|simple` sur `process` et `export`). Les
@@ -170,7 +201,8 @@ meilleurs moments ne sont plus posés bout à bout : chacun est remonté comme l
   `impactDir`) les remplace, chaque son à son tour, dans un ordre mélangé mais stable d'un export à l'autre.
 - **Ralenti** sur le pic des moments forts (le meilleur, les séries de kills) : l'image ralentit, le son du jeu garde
   sa vitesse puis s'efface.
-- **Libellés** « DOUBLÉ », « TRIPLÉ », « QUADRUPLÉ », « ACE » au kill qui prolonge une série (kills à moins de 5 s).
+- **Libellés** « DOUBLÉ », « TRIPLÉ », « QUADRUPLÉ », « ACE » (dans la langue de l'interface : DOUBLE KILL… en anglais) au kill
+  qui prolonge une série (kills à moins de 5 s).
 - **Musique de fond** facultative (`story.music.file` ou `--music`) : baissée sous la voix, coupée net sur le pic de
   chaque moment puis relancée en fondu.
 - **Sous-titres de la voix** : le micro est transcrit en local par whisper.cpp (filtre `whisper` de FFmpeg), deux à
@@ -472,8 +504,11 @@ notification des abonnés, et envoie la vidéo elle-même :
   VALORANT » (accroche : ace, clutch, sinon le plus gros multi-kill à partir du triplé), description avec kills,
   headshots, multi-kills, date de la partie, musique, puis `#VALORANT #Shorts` (#Shorts pour une vidéo verticale de 3
   minutes au plus). Highlights : « Meilleurs moments VALORANT du 27/09/2026 ». Les tags : le jeu, plus
-  `publish.youtube.tags`. Modèles réglables dans `app.yaml` (`titleTemplate`, `descriptionTemplate`, champs `{jeu}`
-  `{date}` `{accroche}` `{kills}` `{headshots}` `{detail}` `{moments}` `{duree}` `{musique}` `{hashtags}` `{titre}`).
+  `publish.youtube.tags`. Textes écrits dans la langue de l'interface (« TRIPLE KILL — 19 kills in 57s | VALORANT » en
+  anglais) ; `publish.youtube.language` (vide par défaut) impose la langue déclarée à YouTube. Modèles réglables dans
+  `app.yaml` (`titleTemplate`, `descriptionTemplate`, champs `{game}` `{date}` `{hook}` `{kills}` `{headshots}`
+  `{detail}` `{moments}` `{duration}` `{music}` `{hashtags}` `{title}` ; les anciens noms `{jeu}` `{accroche}`
+  `{duree}` `{musique}` `{titre}` restent acceptés).
 - **Mise en place de l'API, une fois** : YouTube n'accepte les envois directs que d'une application déclarée chez Google.
   1. [console.cloud.google.com](https://console.cloud.google.com) : créer un projet, puis activer « YouTube Data API
      v3 » (API et services › Bibliothèque).

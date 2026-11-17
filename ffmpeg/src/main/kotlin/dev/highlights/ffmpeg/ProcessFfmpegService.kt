@@ -1,5 +1,6 @@
 package dev.highlights.ffmpeg
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.InputException
 import dev.highlights.core.ffmpeg.FfmpegCommand
@@ -43,7 +44,7 @@ class ProcessFfmpegService(
     private var majorVersion: Int? = null
 
     override suspend fun probe(file: Path): MediaInfo {
-        if (!file.isRegularFile()) throw InputException("Fichier introuvable : $file")
+        if (!file.isRegularFile()) throw InputException(Message("error.input.notFound", "file" to file))
         val json = StringBuilder()
         exec(
             ffprobePath,
@@ -95,7 +96,7 @@ class ProcessFfmpegService(
             try {
                 ProcessBuilder(listOf(exe.toString()) + args).start().also { it.outputStream.close() }
             } catch (e: IOException) {
-                throw HighlightsException("Impossible de lancer $exe : ${e.message}", e)
+                throw HighlightsException(Message("error.process.launch", "exe" to exe, "detail" to e.message), e)
             }
         }
         val stderrTail = RingBuffer<String>(stderrLines)

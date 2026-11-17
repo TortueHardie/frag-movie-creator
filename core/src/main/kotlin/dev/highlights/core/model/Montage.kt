@@ -1,5 +1,6 @@
 package dev.highlights.core.model
 
+import dev.highlights.core.i18n.tr
 import dev.highlights.core.serialization.SerialDuration
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -777,12 +778,22 @@ data class SpeedRampEffect(
 @Serializable
 data class TextEffect(
     val enabled: Boolean = true,
+    /**
+     * Police des libellés, gardée tant qu'elle a tous leurs caractères ; sinon (ダブルキル, 더블 킬, 双杀 en Impact)
+     * un repli de Windows qui les a (`VideoFonts`, module editing).
+     */
     val font: String = "C:/Windows/Fonts/impact.ttf",
-    /** Texte affiché au 2e, 3e… kill d'un même clip. */
-    val multiKillLabels: List<String> = listOf("DOUBLÉ", "TRIPLÉ", "QUADRUPLÉ", "QUINTUPLÉ"),
+    /**
+     * Texte affiché au 2e, 3e… kill d'un même clip ; null = libellés de la langue de l'interface (DOUBLE KILL, TRIPLE
+     * KILL… ou DOUBLÉ, TRIPLÉ…, clés `video.streak.*`). Le dernier vaut pour les séries plus longues.
+     */
+    val multiKillLabels: List<String>? = null,
     /** Petit compteur « KILL n » à chaque kill. Désactivé par défaut : il n'apporte rien et surcharge l'image. */
     val killCounter: Boolean = false,
-)
+) {
+    /** Libellés à incruster : ceux de la configuration, sinon ceux de la langue de l'interface. */
+    val labels: List<String> get() = multiKillLabels ?: (2..5).map { tr("video.streak.$it") }
+}
 
 /**
  * Ouverture « vitrine », comme les kill montages de référence (12 à 15 s sans kill avant la partie kills) : des plans de
