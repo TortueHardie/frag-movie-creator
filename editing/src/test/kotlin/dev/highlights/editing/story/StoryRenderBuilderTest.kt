@@ -70,13 +70,16 @@ class StoryRenderBuilderTest : FunSpec({
         val line = build().lines().single { it.endsWith("[v2]") }
         line shouldContain "scale=w='trunc(1920*(1.0800*(1+0.1500*"
         line shouldContain ":eval=frame"
-        line shouldContain "crop=1920:1080:(iw-1920)/2:(ih-1080)/2"
+        // Centré à partir du zoom lui-même (iw resterait celui de la première image, voir ZoomCrop).
+        line shouldContain "crop=1920:1080:x='(trunc(1920*(1.0800*"
+        line shouldNotContain "iw-"
     }
 
     test("secousse : recadrage mobile borné à l'image, pas de bord noir") {
         val line = build().lines().single { it.endsWith("[v3]") }
-        line shouldContain "crop=1920:1080:x='clip((iw-1920)/2+"
-        line shouldContain "\\,0\\,iw-1920)'"
+        line shouldContain "crop=1920:1080:x='clip((trunc(1920*"
+        line shouldContain "\\,0\\,(trunc(1920*"
+        line shouldNotContain "iw-"
     }
 
     test("chaque plan remis à des pixels carrés avant concat : le zoom arrondi fausse sinon le SAR") {
@@ -194,7 +197,7 @@ class StoryRenderBuilderTest : FunSpec({
     test("9:16 : même montage recadré") {
         val cmd = build(format = OutputFormat.VERTICAL)
         cmd.filterGraph shouldContain "scale=1080:1920"
-        cmd.filterGraph shouldContain "crop=1080:1920:(iw-1080)/2:(ih-1920)/2"
+        cmd.filterGraph shouldContain "crop=1080:1920:x='(trunc(1080*"
     }
 })
 

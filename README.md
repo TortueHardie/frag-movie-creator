@@ -651,6 +651,33 @@ commande pour `export`, `process` et `montage`) adapte l'export à là où la vi
 & $app export output\sessions\partie.session.json --platform shorts
 ```
 
+## Miniature YouTube
+
+Chaque export lancé depuis l'application écrit aussi une miniature PNG prête pour YouTube, à côté de la vidéo
+(`<nom>_miniature.png`, `_miniature_2.png`… : jamais d'écrasement) : 1280x720 pour une vidéo en largeur, 1080x1920
+pour une vidéo verticale. La fenêtre de publication la montre, avec « Copier le chemin » (YouTube Studio la demande à
+part), ou « Créer la miniature » pour une vidéo exportée avant.
+
+- **Le moment** : le plus fort de la vidéo d'après son rapport JSON (kills du groupe, +3 pour un ace, +2 pour un clutch,
+  +0,3 par tir à la tête, +0,5 pour le kill posé sur la drop), comme l'accroche du titre.
+- **L'instant** : 10 images par seconde de 0,4 s avant à 1,2 s après le kill, au centre de l'écran, notées par leur
+  netteté (variance du laplacien : une image filée par un flick tombe), un peu plus après le kill (la notification de
+  kill est à l'écran) et moins dans le noir (luminosité moyenne ramenée à 80 ; écran noir écarté). Entre moments de
+  même force (sur une soirée de Wardogs, tous les kills sont seuls), c'est l'image la plus lisible qui l'emporte.
+- **L'image** vient de la capture d'origine en pleine résolution : recadrée au format, resserrée sur le réticule.
+- **L'habillage** : `sober` (défaut : couleurs à peine relevées, petit texte blanc), `vivid` (couleurs boostées comme
+  les kill montages de TikTok, texte jaune), `big` (texte aussi large que l'image, lisible en petite vignette). Texte :
+  ACE, CLUTCH, la série (TRIPLÉ…), sinon le nombre de kills de la vidéo, dans la langue de l'interface (`video.*`).
+
+```powershell
+& $app montage partie.session.json -m D:\Musique\son.mp3 --thumbnail               # miniature sobre à côté du montage
+& $app export partie.session.json --thumbnail-style vivid                            # habillage au choix
+& $app thumbnail output\wardogs_2026-09-22_killmontage_9x16.mp4 --thumbnail-style big   # vidéo déjà exportée
+```
+
+Une vidéo dont les captures ont été déplacées depuis l'export n'a plus d'image : la miniature est refusée avec un
+message qui le dit.
+
 ## Publier sur YouTube
 
 Après un export, le bouton **YouTube** à côté de chaque vidéo prépare la publication : titre, description et tags
@@ -821,7 +848,12 @@ ou le killfeed d'une capture OBS). La balle qui tue est la dernière vue entre 1
   qui repasse au blanc en 0,3 s), qui comptait pour trois balles de plus : aucun one tap n'y était jamais trouvé. La
   zone est aussi relue en turquoise, et les changements pendant une recharge ne comptent pas (2 balles sur 2 au lieu
   de 5, vérifié à l'image). Aucun turquoise autour des kills des parties classées.
-- Zone mesurée en 3440x1440 seulement. Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
+- Lecture en paliers : un changement ne compte que s'il fait passer le compteur d'un affichage stable (0,05 s au moins)
+  à un autre, et un compteur absent ou effacé (presque sans blanc : caché, flash) n'est pas lu. Avant, chaque image
+  était comparée à la précédente : le décor qui change derrière les chiffres (flash rouge des dégâts, mur clair,
+  compteur caché) comptait des balles. Sur une partie en 854x480 (16:9), autour de 5 kills vérifiés à l'image :
+  33 vraies balles sur 33 dans les deux cas, 29 fausses avant, 3 après (`minPlateau`, `minDigits`).
+- Zone mesurée en 3440x1440 et vérifiée en 854x480 (16:9). Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
   est à mettre à jour (**Mettre à jour les analyses**, ou `--reanalyze`).
 - Le gabarit du son headshot livré reconnaît la moitié des headshots (0,72 à 0,78) sans aucun faux (kills au corps à
   0,64 au plus), au seuil 0,7. Un premier réglage, pris dans l'une de ces deux parties : à revoir sur d'autres.
@@ -990,6 +1022,7 @@ $app = ".\app-cli\build\install\app\bin\app.bat"
 & $app music D:\Musique\son.mp3 --max 60s --clips 12         # tempo, sections, drop et grille de coupes d'un montage
 & $app music D:\Musique\TikTok                         # analyse d'avance chaque musique d'un dossier (bibliothèque)
 & $app publish output\partie_killmontage_9x16.mp4 --dry-run   # titre, description et tags proposés pour YouTube
+& $app thumbnail output\partie_killmontage_9x16.mp4           # miniature YouTube d'une vidéo exportée
 & $app stats --games                                  # statistiques par soirée, partie par partie
 & $app gouts                                         # goûts appris des choix de variantes (voir plus haut)
 & $app search --clutch --montage D:\Musique            # moments cherchés dans toutes les parties, et leur montage

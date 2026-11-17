@@ -66,6 +66,7 @@ import dev.highlights.montage.MontageEdits
 import dev.highlights.montage.MontageExportRequest
 import dev.highlights.montage.MontagePlan
 import dev.highlights.montage.MontagePlanner
+import dev.highlights.montage.ThumbnailStyle
 import dev.highlights.montage.MontageReportMusic
 import dev.highlights.montage.MusicAnalysis
 import dev.highlights.montage.MusicAnalyzer
@@ -125,6 +126,8 @@ data class ExportOptions(
     val platform: String? = null,
     /** Ordre des moments ; null = ordre manuel si l'interface en a fixé un ([ClipOrder.MANUAL]), sinon celui du profil. */
     val order: ClipOrder? = null,
+    /** Miniature de chaque vidéo, dans cet habillage ([Thumbnails]) ; null : pas de miniature. */
+    val thumbnail: ThumbnailStyle? = null,
 )
 
 /** Surcharges ponctuelles des réglages de montage du profil (null = valeur du profil). */
@@ -190,6 +193,8 @@ data class MontageOptions(
     val constraints: MontageConstraints = MontageConstraints.NONE,
     /** Rendre une des variantes proposées en aperçu ([HighlightPipeline.montagePreviews]) ; null : la mieux notée, sans aperçu. */
     val pick: VariantPick? = null,
+    /** Miniature de chaque vidéo du rendu final, dans cet habillage ([Thumbnails]) ; jamais pour les aperçus ; null : aucune. */
+    val thumbnail: ThumbnailStyle? = null,
 )
 
 /**
@@ -306,6 +311,7 @@ class HighlightPipeline(
 
     /** Musiques des derniers montages : une bibliothèque ne ressort pas toujours la même. */
     val musicHistory = MusicHistory(config.outputDir.resolve("sessions").resolve("music-history.json"))
+    private val thumbnails = Thumbnails(ffmpeg)
 
     /** Choix de variantes et corrections de l'éditeur : de quoi apprendre les goûts de l'utilisateur ([TasteLearner]). */
     val tasteHistory = TasteHistory(config.outputDir.resolve("sessions").resolve("taste-history.json"))
@@ -630,7 +636,7 @@ class HighlightPipeline(
                 ),
                 progress,
             )
-        }
+        }.let { result -> options.thumbnail?.let { result.copy(thumbnails = thumbnails.makeAll(result.videos.values, it)) } ?: result }
     }
 
     /**
@@ -688,6 +694,9 @@ class HighlightPipeline(
             ExportResult(names.videos, names.report, timeline.duration, exporter.encoders.select().name)
         }
     }
+
+    /** Miniature YouTube de [video] (highlights ou montage kills), d'après le rapport écrit avec elle ([Thumbnails]). */
+    suspend fun miniature(video: Path, style: ThumbnailStyle = ThumbnailStyle.SOBER): Path = thumbnails.make(video, style)
 
     /** Aperçu PNG des formats de sortie à un instant donné, sans analyse. */
     suspend fun preview(file: Path, at: Duration, profileId: String?, formats: List<OutputFormat>?, outputDir: Path?): List<Path> {
@@ -778,7 +787,8 @@ class HighlightPipeline(
         musicHistory.record(plan.music.file) // Choisie ou imposée : elle a servi, elle se repose un peu.
         if (pick != null) recordChoice(pick, plan, planned.variants, planned.variantsFile, planned.profile.id, result)
         recordTaste(pick, planned, options.constraints, result)
-        return result
+        // Rendu final seulement (variante choisie comprise) : les aperçus de variantes n'en ont pas.
+        return options.thumbnail?.let { result.copy(thumbnails = thumbnails.makeAll(result.videos.values, it)) } ?: result
     }
 
     /**
