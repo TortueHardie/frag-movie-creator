@@ -30,7 +30,8 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
   par défaut) : quand la soirée est finie (aucune nouvelle partie depuis 1 h, réglable, et rien en cours
   d'enregistrement ni d'analyse), un montage kills de toutes ses parties se fait seul : soirée découpée comme les
   statistiques (de 6 h à 6 h, un jeu à la fois), musique choisie dans le dossier de musiques du dialogue du montage,
-  formats et plateforme des réglages. Une notification Windows le dit (« Soirée du 16/11 : 47 kills, montage prêt »),
+  formats et plateforme des réglages, style choisi dans la carte (par défaut celui de `montage-styles.yaml`, « aucun »
+  pour les réglages du profil seuls ; `app soiree --style`). Une notification Windows le dit (« Soirée du 16/11 : 47 kills, montage prêt »),
   un clic ouvre la vidéo. Rien n'est monté ni notifié sous 5 kills (réglable). Seules les soirées d'une capture arrivée
   dans le dossier surveillé pendant que l'option est active comptent (l'activer ne remonte pas l'historique), et une
   soirée n'est jamais remontée d'office (`output/sessions/evening-montages.json`). Seulement quand l'application est

@@ -161,6 +161,8 @@ interface UiActions {
     /** Délai sans nouvelle partie après lequel la soirée est finie (« 1 h », « 45 min »). */
     fun setEveningDelay(text: String) {}
     fun setEveningMinKills(count: Int) {}
+    /** Style du montage de soirée : un identifiant, `none`, ou null (celui par défaut du fichier de styles). */
+    fun setEveningStyle(id: String?) {}
     /** Ouvre la vidéo du dernier montage de soirée. */
     fun openLastEvening() {}
 
@@ -1073,6 +1075,8 @@ class AppController(
         eveningCheckAt = clock()
     }
 
+    override fun setEveningStyle(id: String?) = updateEvenings { it.copy(style = id) }
+
     override fun openLastEvening() {
         state.value.watch.lastEvening?.video?.let(platform::open)
     }
@@ -1125,6 +1129,7 @@ class AppController(
                     platform = s.settings.platform,
                     outputDir = s.settings.outputDir,
                     fromStartMusics = musicPrefs.fromStartMusics(),
+                    style = EveningPlanner.style(watchSettings?.evenings?.style, runCatching { p.montageStyles.default }.getOrNull()),
                 ),
                 tracker.root,
             )
@@ -1155,7 +1160,12 @@ class AppController(
         // Au lancement, une soirée finie pendant que l'application était fermée se monte aussitôt.
         eveningCheckAt = clock()
         _state.update {
-            it.copy(watch = WatchState(folder = prefs.folder, fresh = it.watch.fresh, evenings = prefs.evenings, eveningDelayText = I18n.duration(prefs.evenings.delay)))
+            it.copy(
+                watch = WatchState(
+                    folder = prefs.folder, fresh = it.watch.fresh, evenings = prefs.evenings, eveningDelayText = I18n.duration(prefs.evenings.delay),
+                    eveningStyles = backend?.pipeline?.let { p -> runCatching { p.montageStyles }.getOrNull() } ?: dev.highlights.core.model.MontageStyles.NONE,
+                ),
+            )
         }
         log.info { "Surveillance de ${prefs.folder} (captures depuis ${prefs.since})" }
         watchJob = scope.launch(Dispatchers.IO) {

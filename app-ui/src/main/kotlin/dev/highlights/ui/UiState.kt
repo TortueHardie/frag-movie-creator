@@ -146,6 +146,8 @@ data class WatchState(
     val lastEvening: EveningReady? = null,
     /** Montage de soirée impossible (pas de dossier de musiques, échec) : dit dans la carte du dossier surveillé. */
     val eveningProblem: String? = null,
+    /** Styles proposés pour le montage de soirée ([dev.highlights.core.model.MontageStyles]), et celui par défaut du fichier. */
+    val eveningStyles: dev.highlights.core.model.MontageStyles = dev.highlights.core.model.MontageStyles.NONE,
 )
 
 data class EveningReady(val text: String, val video: Path?)
