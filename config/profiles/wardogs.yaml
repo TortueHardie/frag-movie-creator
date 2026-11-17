@@ -119,7 +119,11 @@ detectors:
       templates:
         - name: hud-heart
           file: templates/wardogs/hud_heart.png
-          region: { x: 0.951744, y: 0.9375, width: 0.016860, height: 0.027778 }
+          # Zone haute de deux lignes : en véhicule (URAL, KODIAK…), la ligne vie/armure descend de 31 px (sur 1440) et
+          # le cœur sortait d'une zone d'une ligne. Une partie passée au volant n'était reconnue que sur 8 % des images,
+          # sous le seuil : le filtre hors jeu se coupait. Zone agrandie, mesuré : 18-23-47 (au volant) 8 % → 80 %,
+          # 22-55-31 69 % → 71 % (2 min 30 en KODIAK rendues au jeu), écran titre 18-53-18 toujours à 0 %.
+          region: { x: 0.951744, y: 0.9375, width: 0.016860, height: 0.052083 }
           anchor: right
           threshold: 0.7
           # Écran noir (chargement, fondu, mort) : sans forme à reconnaître, la corrélation ne mesure que le
