@@ -74,6 +74,26 @@ class KillfeedTest : FunSpec({
         reader.rows(frame(100 to 20, 250 to 20)).map { it.role } shouldBe listOf(KillfeedRole.DEATH)
     }
 
+    test("basse définition : l'aplat plein du portrait est la ligne, le décor collé au bord droit n'en est pas une") {
+        // Réglages 480p : ligne de 16 px, aplat de 10x8 mesuré (rempli à 80 %), colonne de la victime de 40 px.
+        val solid = FeedReader(
+            threshold = 60, victimWidth = 40, bridge = 0,
+            shape = FrameShape(6, 18, 4, 26, minFill = 0.45, maxFill = 1.0, minTopEdge = 0.0, deathEdge = 13, selfShare = 0.1, solid = true),
+        )
+        val w = 334
+        val pixels = ByteArray(w * 118)
+        fun block(x0: Int, y0: Int, width: Int, height: Int) {
+            for (y in y0 until y0 + height) for (x in x0 until x0 + width) pixels[y * w + x] = yellow
+        }
+        block(151, 41, 8, 10) // aplat d'un kill (partie du 22/09 en 854x480, 903,5 s)
+        block(318, 7, 10, 13) // aplat d'une mort, fini 6 px avant le bord
+        block(328, 60, 6, 14) // bordure dorée d'une capacité, collée au bord
+        val rows = solid.rows(ZoneFrame(w, 118, pixels))
+        rows.map { it.role to it.left } shouldBe listOf(KillfeedRole.KILL to 151, KillfeedRole.DEATH to 318)
+        // Le lecteur de pleine définition ne prend pas ces aplats pleins pour des cadres (remplissage au-dessus de maxFill).
+        reader.rows(ZoneFrame(w, 118, pixels.copyOf())).shouldBeEmpty()
+    }
+
     fun tracker() = FeedTracker(tolerance = 6, minSightings = 3, maxGap = 1200.milliseconds, deathSpacing = 10.seconds)
     fun at(i: Int): Duration = 200.milliseconds * i
     fun kill(x: Int, y: Int) = FeedRow(KillfeedRole.KILL, y, y + 22, x, x + 37)
