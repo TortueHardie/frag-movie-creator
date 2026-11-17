@@ -271,7 +271,7 @@ class HighlightPipeline(
         val sessions: List<Pair<Path, Session>>,
         val outdated: Set<Path>,
     ) {
-        private val deaths = Statistics.sources(sessions.map { it.second }, settings.killStyle.deathEvent)
+        private val deaths = Statistics.sources(sessions.map { it.second }, settings.killStyle.deathKinds)
         private val headshots = Statistics.sources(sessions.map { it.second }, settings.killStyle.headshotEvent)
         private val clutches = Statistics.sources(sessions.map { it.second }, settings.killStyle.clutchEvent)
 

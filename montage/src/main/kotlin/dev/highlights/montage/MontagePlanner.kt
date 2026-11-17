@@ -326,7 +326,7 @@ object MontagePlanner {
         val allKills = timeline.events.filter { it.kind == settings.killEvent }.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
         // Rythme rapide : un kill aussitôt suivi de la mort du joueur ne montrerait que l'écran de mort.
         val kills = if (!settings.skipDeathWithin.isPositive() || settings.killStyle.deathEvent.isEmpty()) allKills else {
-            val died = timeline.events.filter { it.kind == settings.killStyle.deathEvent }.map { it.at + settings.killOffset }
+            val died = timeline.events.filter { it.kind in settings.killStyle.deathKinds }.map { it.at + settings.killOffset }
             allKills.filter { k -> died.none { it >= k - DEATH_TIE && it - k <= settings.skipDeathWithin } }
         }
         // Tirs à la tête : l'événement du jeu tombe au même instant que le kill (même retard de notification).
@@ -344,7 +344,7 @@ object MontagePlanner {
         val hud = instants(style.hudShotEvent).takeIf { it.isNotEmpty() }?.let { hudShots(kills, it, settings, confirmed) }
         val shots = hud?.mapValues { it.value.count } ?: shotCounts(kills, instants(style.shotEvent), settings)
         val deaths = if (style.deathEvent.isEmpty()) emptyList()
-        else timeline.events.filter { it.kind == style.deathEvent }.map { it.at + settings.killOffset }.sorted()
+        else timeline.events.filter { it.kind in style.deathKinds }.map { it.at + settings.killOffset }.sorted()
         val rounds = rounds(kills, deaths, style.roundGap)
         val clutches = if (style.clutchEvent.isEmpty()) null
         else timeline.events.filter { it.kind == style.clutchEvent }.map { it.at + settings.killOffset }.sorted()

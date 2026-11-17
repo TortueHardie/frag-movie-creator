@@ -106,7 +106,7 @@ object Statistics {
         val killSources = killEvents.map { it.detectorId }.toSet()
         // Sans kill, la partie ne dit rien de son détecteur : on se fie à ce que le profil sait voir.
         fun known(sources: Set<String>?) = sources == null || (sources.isNotEmpty() && (killSources.isEmpty() || killSources.any { it in sources }))
-        val deaths = if (style.deathEvent.isEmpty() || !known(deathSources)) null else events.filter { it.kind == style.deathEvent }.map { it.at }.sorted()
+        val deaths = if (style.deathEvent.isEmpty() || !known(deathSources)) null else events.filter { it.kind in style.deathKinds }.map { it.at }.sorted()
         val groups = MontagePlanner.groups(listOf(session), settings)
         // Les tirs à la tête peuvent venir d'un autre détecteur que les kills (le son du jeu, avec le killfeed) : il
         // suffit qu'il ait entendu quelque chose dans cette partie. On compte les kills à la tête, pas les événements :
@@ -140,8 +140,11 @@ object Statistics {
      * Détecteurs qui produisent cet événement dans au moins une partie du profil : une partie sans mort vaut alors 0
      * mort, et un profil qui n'en voit jamais (pas de killfeed, pas d'Outplayed) laisse le chiffre inconnu.
      */
-    fun sources(sessions: List<Session>, kind: String): Set<String> =
-        if (kind.isEmpty()) emptySet() else sessions.flatMap { s -> s.timeline.events.filter { it.kind == kind }.map { it.detectorId } }.toSet()
+    fun sources(sessions: List<Session>, kind: String): Set<String> = sources(sessions, setOf(kind))
+
+    /** Détecteurs qui ont émis l'une des sortes [kinds] (ex. mort et, si elle compte, mise à terre). */
+    fun sources(sessions: List<Session>, kinds: Set<String>): Set<String> =
+        sessions.flatMap { s -> s.timeline.events.filter { it.kind.isNotEmpty() && it.kind in kinds }.map { it.detectorId } }.toSet()
 
     /**
      * Parties regroupées par soirée et par jeu, la plus récente d'abord ; celles sans date d'enregistrement sont

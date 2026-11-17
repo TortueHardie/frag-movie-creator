@@ -61,6 +61,17 @@ class StatisticsTest : FunSpec({
         Statistics.sources(listOf(session("2026-09-27T20:00:00Z", events = killfeed)), "death") shouldBe setOf("killfeed")
     }
 
+    test("à terre (Wardogs) : pas une mort par défaut ; compté avec downedAsDeath") {
+        val wardogs = listOf(ev(100, "kill"), ev(200, "kill"), ev(205, "downed"))
+        val s = session("2026-09-27T20:00:00Z", events = wardogs)
+        val off = Statistics.game(s, settings, Path("w"), "Wardogs", Statistics.sources(listOf(s), settings.killStyle.deathKinds), emptySet())
+        off.deaths shouldBe null
+        val on = settings.copy(killStyle = settings.killStyle.copy(downedAsDeath = true))
+        val sources = Statistics.sources(listOf(s), on.killStyle.deathKinds)
+        sources shouldBe setOf("game-events")
+        Statistics.game(s, on, Path("w"), "Wardogs", sources, emptySet()).deaths shouldBe 1
+    }
+
     test("kills du killfeed, tirs à la tête entendus dans le son du jeu : seuls ceux qui tuent comptent") {
         val killfeed = events.filter { it.kind != "headshot" }.map { it.copy(detectorId = "killfeed") }
         // Deux tirs à la tête sur des kills, un troisième qui n'a pas tué (240 s, loin de tout kill).

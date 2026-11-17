@@ -688,6 +688,19 @@ class MontagePlannerTest : FunSpec({
         (groups[0].rank < groups[1].rank) shouldBe true
     }
 
+    test("à terre : ignoré par défaut, compté comme une mort avec downedAsDeath") {
+        val downed = session(listOf(100, 400)).let { s ->
+            s.copy(timeline = s.timeline.copy(events = (s.timeline.events + TimelineEvent(101.5.seconds, "downed", 1.0, "n")).sortedBy { it.at }))
+        }
+        settings.killStyle.downedAsDeath shouldBe false
+        MontagePlanner.groups(listOf(downed), settings).map { it.outcome.traded } shouldBe listOf(false, false)
+        val counted = settings.copy(killStyle = settings.killStyle.copy(downedAsDeath = true))
+        counted.killStyle.deathKinds shouldBe setOf("death", "downed")
+        MontagePlanner.groups(listOf(downed), counted).map { it.outcome.traded } shouldBe listOf(true, false)
+        // Sans rounds (deathEvent vide), à terre ne compte pas non plus.
+        counted.killStyle.copy(deathEvent = "").deathKinds shouldBe emptySet()
+    }
+
     test("une mort qui tombe bien plus tard ne coûte rien") {
         val group = MontagePlanner.groups(listOf(withDeaths(session(listOf(100)), listOf(110.0))), settings).single()
         group.outcome shouldBe RoundOutcome.NONE
