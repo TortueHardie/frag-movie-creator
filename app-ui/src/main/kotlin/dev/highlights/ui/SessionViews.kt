@@ -555,6 +555,10 @@ fun ExportBar(state: UiState, session: SessionState, actions: UiActions) {
                     result.music?.let { music ->
                         Text(tr("ui.export.music", "name" to music.fileName.toString()), style = MaterialTheme.typography.bodyMedium, color = Palette.textMuted)
                     }
+                    // Avertissements du travail (montage presque vide…) : à lire avant de publier.
+                    result.notices.forEach { notice ->
+                        Text(notice.text(), style = MaterialTheme.typography.bodyMedium, color = Palette.accent)
+                    }
                     state.lastUpload?.let { uploaded ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(tr("ui.export.onYouTube", "url" to uploaded.url.toString()), color = Palette.success, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))

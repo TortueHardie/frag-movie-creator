@@ -53,7 +53,13 @@ import org.jetbrains.skia.Image as SkiaImage
  * les regarde, puis rend celle qu'il préfère en pleine qualité. [requested] : nombre demandé ; moins de cartes quand les
  * variantes ne se distinguent pas assez.
  */
-data class VariantsUiState(val cards: List<VariantCard>, val requested: Int, val variantsFile: Path) {
+data class VariantsUiState(
+    val cards: List<VariantCard>,
+    val requested: Int,
+    val variantsFile: Path,
+    /** Avertissements du lot (peu de kills trouvés…), affichés une fois au-dessus des cartes. */
+    val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
+) {
     companion object {
         fun of(previews: MontagePreviews, requested: Int) = VariantsUiState(
             previews.previews.map { p ->
@@ -61,6 +67,7 @@ data class VariantsUiState(val cards: List<VariantCard>, val requested: Int, val
             },
             requested,
             previews.variantsFile,
+            previews.notices,
         )
     }
 }
@@ -91,6 +98,9 @@ fun VariantsWindow(variants: VariantsUiState, busy: Boolean, actions: UiActions)
             ) {
                 Text(tr("ui.variants.title"), style = MaterialTheme.typography.titleLarge, color = Palette.text)
                 Text(tr("ui.variants.intro"), style = MaterialTheme.typography.bodyMedium, color = Palette.textMuted)
+                variants.notices.forEach { notice ->
+                    Text(notice.text(), style = MaterialTheme.typography.bodyMedium, color = Palette.accent)
+                }
                 if (variants.cards.size < variants.requested) {
                     Text(tr("ui.variants.fewer", "count" to variants.cards.size), style = MaterialTheme.typography.bodySmall, color = Palette.accent)
                 }

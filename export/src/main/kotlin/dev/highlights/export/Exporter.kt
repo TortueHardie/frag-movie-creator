@@ -73,6 +73,8 @@ data class ExportResult(
     val encoder: String,
     /** Musique du montage kills (choisie dans une bibliothèque, ou imposée) ; null pour les highlights. */
     val music: Path? = null,
+    /** Avertissements à montrer à la fin du travail (montage presque vide…), traduits à l'affichage. */
+    val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
 )
 
 class Exporter(
