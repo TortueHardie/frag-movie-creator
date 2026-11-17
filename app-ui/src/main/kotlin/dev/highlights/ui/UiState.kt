@@ -33,6 +33,10 @@ data class UiState(
     val sources: List<SourceInfo> = emptyList(),
     val settings: SettingsState = SettingsState(),
     val job: JobState? = null,
+    /** File des traitements lourds : en cours, en attente, finis (voir [JobQueue]). */
+    val jobs: List<QueuedJob> = emptyList(),
+    /** Fermeture demandée avec ce nombre de traitements en cours ou en attente : confirmation affichée. */
+    val quitConfirm: Int? = null,
     val session: SessionState? = null,
     val lastExport: ExportResult? = null,
     val error: ErrorInfo? = null,
@@ -196,6 +200,8 @@ data class JobState(
     val elapsed: Duration = Duration.ZERO,
     val eta: Duration? = null,
     val cancellable: Boolean = true,
+    /** Traitement bloquant de la file qu'il représente (null : traitement immédiat, hors file). */
+    val queueId: Long? = null,
 )
 
 /** Analyse d'une capture et fichier où elle est enregistrée. */

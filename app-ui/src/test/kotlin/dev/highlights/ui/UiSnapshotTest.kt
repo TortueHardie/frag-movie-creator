@@ -182,6 +182,19 @@ class UiSnapshotTest : FunSpec({
         render("04_relecture_petite_fenetre", state, 1100, 700).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("file des traitements : un en cours, deux en attente, un fini, un en échec ; puis la confirmation de fermeture") {
+        val jobs = listOf(
+            QueuedJob(1, "Export : WARDOGS_09-16-2026_19-1-23-983.mp4", status = JobStatus.DONE, fraction = 1.0, result = Path("D:/Highlights/wardogs_highlights.mp4")),
+            QueuedJob(2, "Montage kills sur R2D2.mp3", status = JobStatus.FAILED, error = "Aucune musique ne convient à ce montage"),
+            QueuedJob(3, "Montage kills sur Rome Is Burning.mp3", status = JobStatus.RUNNING, fraction = 0.42, stage = "Rendu > 9:16", elapsed = 83.seconds, eta = 115.seconds),
+            QueuedJob(4, "Aperçus de variantes sur Rome Is Burning.mp3"),
+            QueuedJob(5, "Export : WARDOGS_09-22-2026_22-55-31-983.mp4"),
+        )
+        val state = UiState(config = ready, sources = listOf(source), settings = settings, session = SessionState(session, Path("D:/Highlights/sessions/x.session.json"), selectedId = "h003"), jobs = jobs)
+        render("16_file_des_traitements", state).fileSize() shouldBeGreaterThan 0L
+        render("17_fermeture_avec_traitements", state.copy(quitConfirm = 3)).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("réglages du montage kills") {
         val state = UiState(
             config = ready,
