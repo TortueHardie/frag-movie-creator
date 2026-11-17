@@ -891,6 +891,35 @@ La drop garde son plan d'élan, le premier plan en fait deux. Fichiers `…_onet
 - Sans tirs à la tête connus (ni Outplayed, ni gabarit du son), tout kill d'une balle compte, et le journal le dit ;
   `montage.oneTaps.allowWithoutHeadshots: false` refuse plutôt.
 
+## Aperçus : choisir parmi plusieurs versions du montage
+
+Un rendu pleine qualité du montage kills prend plusieurs minutes : le juger à l'aveugle coûte cher. Bouton « Aperçu de
+3 versions » du dialogue du montage, ou `montage … --variants 3` : trois versions du même montage sont rendues en petit
+(360 pixels sur le petit côté, vertical d'abord), vite (x264 `ultrafast`, sans flou par vecteurs), dans
+`<sortie>\apercus\`. Chaque plan y garde exactement son nombre d'images : coupes, kills sur les temps et son sont ceux
+du rendu final. Mesuré sur deux parties WARDOGS et « Rome Is Burning » : un aperçu se rend en 11,6 s contre 25,5 s pour le
+rendu final (35 s de montage), les trois aperçus en 47 s contre 35 s pour un seul rendu final. Le décodage des
+captures 3440x1440 domine : l'aperçu les décode en logiciel, sans filtre de boucle H.264 (plus rapide ici que le
+décodage matériel, dont chaque image pleine taille redescend de la carte graphique).
+
+- **Les versions** : celles que le planificateur note déjà (échelle de la grille de coupes × place de la drop) et le
+  plan de base, classées comme il les classe : la version 1 est celle qu'un montage sans aperçu aurait rendue. Les
+  suivantes doivent s'écarter d'au moins 0,25 de toutes les précédentes : un quart des plans changent de clip ou de
+  place, ou un quart des coupes tombent ailleurs (à un temps près), ou la musique part d'un quart de montage plus loin.
+  Moins de trois versions quand les autres se ressemblent trop.
+- **Choisir** : dans l'application, chaque version a sa vignette animée, « Lire » (lecteur du système) et « Rendre
+  celle-ci ». En ligne de commande, la même commande avec `--pick <n>` à la place de `--variants` (fichier des
+  versions : le plus récent pour ces parties et cette musique, ou `--variants-file`). Rien n'est réanalysé ; le montage
+  recalculé doit avoir la même empreinte que l'aperçu regardé, sinon il est refusé (réglages ou analyses changés).
+- **Fichiers** : `…_killmontage_variantes.json` (chaque version : réglage, empreinte, note critère par critère, écart
+  aux précédentes, aperçu) et, à côté du rapport du rendu final, `….choix.json` (version choisie, notes de toutes) :
+  de quoi apprendre plus tard ce qui fait préférer une version.
+
+```powershell
+& $app montage output\sessions\WARDOGS_*.session.json --music "D:\Musique\R2D2.mp3" --variants 3
+& $app montage output\sessions\WARDOGS_*.session.json --music "D:\Musique\R2D2.mp3" --pick 2
+```
+
 ## Ligne de commande
 
 ```powershell
