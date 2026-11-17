@@ -203,7 +203,7 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Supprimer / oublier une analyse dans `LibraryView`.
 
 ## Flux de travail
-- [ ] File d'attente de jobs (aujourd'hui un seul job à la fois via `runTask`).
+- [x] File d'attente de jobs (`JobQueue` : un traitement lourd à la fois, ordre modifiable, annulation, échecs lisibles).
 - [x] Dossier surveillé : monter seul chaque soirée finie, notifier (case « Monter chaque soirée finie », `app soiree`).
 - [ ] Préréglages d'export (« TikTok », « YouTube court », « complet »).
 
