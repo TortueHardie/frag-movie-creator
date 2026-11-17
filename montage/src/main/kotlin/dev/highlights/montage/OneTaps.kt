@@ -17,10 +17,14 @@ object OneTaps {
     /** Ce qui a été gardé, et si les tirs à la tête étaient connus ([strict]) ou seulement le nombre de balles. */
     data class Selection(val groups: List<KillGroup>, val strict: Boolean)
 
-    fun select(groups: List<KillGroup>, sessions: List<Session>, settings: MontageSettings): Selection {
+    /**
+     * [countsShots] : le profil a de quoi compter les balles (compteur de munitions ou tirs entendus). Sans, réanalyser
+     * ne servirait à rien : le message le dit, au lieu de renvoyer vers « Mettre à jour les analyses » (WARDOGS).
+     */
+    fun select(groups: List<KillGroup>, sessions: List<Session>, settings: MontageSettings, countsShots: Boolean = true): Selection {
         val style = settings.killStyle
         if (groups.none { g -> g.traits.any { it.shots != null } }) {
-            throw InputException(Message("error.onetaps.noShots"))
+            throw InputException(Message(if (countsShots) "error.onetaps.noShots" else "error.onetaps.noShotSource"))
         }
         // Une partie où aucun tir à la tête n'a été vu ni entendu : le profil n'en détecte pas (capture sans Outplayed,
         // gabarit du son absent). Une vraie partie sans aucun tir à la tête est rare.
@@ -36,7 +40,9 @@ object OneTaps {
                 "($known avec leurs balles comptées)" +
                 if (strict) "" else ", tirs à la tête inconnus : tout kill d'une balle compte"
         }
-        if (kept.isEmpty()) throw InputException(Message("error.onetaps.none"))
+        // Le nombre de kills trouvés dit tout de suite si c'est la partie ou la détection : 0 one tap sur 1 kill
+        // (VALORANT « 44 kills » mal lu) n'appelle pas la même réaction que 0 sur 40.
+        if (kept.isEmpty()) throw InputException(Message("error.onetaps.none", "count" to groups.sumOf { it.kills.size }))
         return Selection(kept, strict)
     }
 }

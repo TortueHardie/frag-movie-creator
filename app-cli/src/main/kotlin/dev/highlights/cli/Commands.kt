@@ -334,6 +334,7 @@ class MontageCommand : PipelineCommand("montage") {
             echo("  %d. note %.3f  %s, %d clips, %d kills, %.1f s, musique dès %s%s".format(e.index, e.score.total, e.label, e.clips, e.kills, e.durationSeconds, e.musicStart, distance))
             echo("     ${p.video}")
         }
+        result.notices.forEach { echo("  ! ${it.text()}") }
         echo("Rendre la variante choisie : la même commande avec --pick <n> à la place de --variants")
     }
 
@@ -573,6 +574,8 @@ internal fun PipelineCommand.printExport(result: ExportResult) {
     echo("Montage (${result.duration.toShortText()}, encodeur ${result.encoder}) :")
     result.videos.forEach { (format, path) -> echo("  ${format.label}  $path") }
     echo("  rapport ${result.report}")
+    // Avertissements (montage presque vide…) : visibles même quand on ne lit que la fin de la sortie.
+    result.notices.forEach { echo("  ! ${it.text()}") }
 }
 
 private val reportJson = Json { ignoreUnknownKeys = true }

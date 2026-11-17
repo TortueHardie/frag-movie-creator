@@ -170,6 +170,19 @@ edit:
   audio: mix
   # source = ratio de la capture (21:9 sur écran ultrawide).
   formats: ["source"]
+  # Vertical 9:16 : le recadrage au centre ne gardait que le milieu du bandeau du haut (score, minuteur), les avatars
+  # des deux équipes coupés sur les côtés. Le recadrage part donc sous le bandeau (y 0,09 : il ne s'y voit plus), et le
+  # bandeau entier est replacé en haut, sur toute la largeur. Mesuré sur une capture 16:9 ; centré, il garde sa taille
+  # en pixels en 21:9 (ScreenGeometry). Le réticule remonte de 5 % au-dessus du centre de l'image verticale.
+  vertical:
+    size: { width: 1080, height: 1920 }
+    reference: { width: 1920, height: 1080 }
+    cropRegion: { x: 0.0, y: 0.09, width: 1.0, height: 0.91 }
+    hud:
+      - name: topbar
+        source: { x: 0.20, y: 0.008, width: 0.60, height: 0.080 }
+        target: { x: 0.0, y: 0.0, width: 1.0 }
+        anchor: center
 
 montage:
   # Les instants des kills sont déjà corrigés du retard d'Outplayed (offsets de game-events) : rien à compenser.
