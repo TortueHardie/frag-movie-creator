@@ -37,6 +37,33 @@ class AmmoCounterTest : FunSpec({
         AmmoCounterDetector.changes(frames, 200, 0.15, gap = 3) shouldBe listOf(10, 16, 31)
     }
 
+    test("paliers : un décor qui scintille derrière les chiffres ne compte pas, les balles si") {
+        // 25 stable, puis un flash qui allume des pixels blancs une image sur deux (le décor), puis 24 et 23 stables.
+        fun flicker(i: Int) = frame(25).also { f -> if (i % 2 == 0) for (p in 0 until w) f[p] = 250.toByte() }
+        val frames = List(8) { frame(25) } + List(10) { flicker(it) } + List(6) { frame(24) } + List(6) { frame(23) }
+        // Image par image (paliers d'une image) : chaque scintillement passait pour une balle.
+        AmmoCounterDetector.changes(frames, 200, 0.15, gap = 1).size shouldBe 7
+        AmmoCounterDetector.changes(frames, 200, 0.15, gap = 1, plateau = 3, minDigits = 0.017) shouldBe listOf(18, 24)
+    }
+
+    test("paliers : un compteur absent puis revenu n'est pas une balle, la lecture repart du palier suivant") {
+        val empty = ByteArray(w * h) { 30 }
+        // 12, caché (décor sombre, puis quelques pixels clairs épars), revenu à 12, puis 11.
+        val sparse = ByteArray(w * h) { if (it == 7) 250.toByte() else 30 }
+        val frames = List(6) { frame(12) } + List(6) { empty } + List(6) { sparse } + List(6) { frame(12) } + List(6) { frame(11) }
+        AmmoCounterDetector.changes(frames, 200, 0.15, gap = 3, plateau = 3, minDigits = 0.1) shouldBe listOf(24)
+    }
+
+    test("paliers : la recharge animée reste écartée") {
+        val dark = ByteArray(w * h) { 30 }
+        val green = ByteArray(w * h) { 255.toByte() }
+        val none = ByteArray(w * h)
+        val frames = List(10) { frame(25) } + List(6) { frame(24) } + List(3) { frame(26) } + List(12) { dark } + List(10) { frame(25) }
+        val teal = List(19) { none } + List(12) { green } + List(10) { none }
+        val masked = AmmoCounterDetector.refills(frames, teal, 200, margin = 4)
+        AmmoCounterDetector.changes(frames, 200, 0.15, gap = 3, masked = masked, plateau = 3, minDigits = 0.1) shouldBe listOf(10)
+    }
+
     test("un décor turquoise derrière des chiffres blancs visibles n'est pas une recharge") {
         val frames = List(10) { frame(25) }
         val teal = List(10) { ByteArray(w * h) { 255.toByte() } }
