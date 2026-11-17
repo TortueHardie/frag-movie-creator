@@ -33,6 +33,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.reflect.typeOf
+import kotlin.time.Duration.Companion.seconds
 
 class ControlBridgeTest : FunSpec({
     fun props(vararg pairs: Pair<String, String>) = Properties().apply { pairs.forEach { (k, v) -> setProperty(k, v) } }
@@ -63,7 +64,7 @@ class ControlBridgeTest : FunSpec({
         val json = BridgeJson.toJson(state).jsonObject
         json["config"]!!.jsonPrimitive.content shouldBe "Loading"
         json["canAnalyze"]!!.jsonPrimitive.content shouldBe "false"
-        json["settings"]!!.jsonObject["durationText"]!!.jsonPrimitive.content shouldBe "60s"
+        json["settings"]!!.jsonObject["durationText"]!!.jsonPrimitive.content shouldBe dev.highlights.core.i18n.I18n.duration(60.seconds)
         json["settings"]!!.jsonObject["targetDuration"]!!.jsonPrimitive.content shouldBe "1m"
 
         val big = BridgeJson.toJson(DoubleArray(1000) { it.toDouble() }).jsonObject

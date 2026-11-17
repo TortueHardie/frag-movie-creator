@@ -11,6 +11,7 @@ import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.StdoutHandler
 import dev.highlights.core.model.AudioRole
+import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.serialization.SerialDuration
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
@@ -82,7 +83,7 @@ class GameSoundsDetector(override val id: String, private val params: GameSounds
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
         val stream = if (params.stream != null) ctx.media.audio.getOrNull(params.stream) else ctx.audio[params.role]
             ?: ctx.audio.mixIndices().firstOrNull()?.let { ctx.media.audio.getOrNull(it) }
-        if (stream == null) return missing(ctx, Message("notice.track.missing", "track" to (params.stream?.let { "a:$it" } ?: "game")))
+        if (stream == null) return missing(ctx, Message("notice.track.missing", "track" to (params.stream?.let { "a:$it" } ?: Message("audio.track.ofRole", "role" to AudioTracks.roleName(AudioRole.GAME)))))
 
         val matchers = params.sounds.mapNotNull { (kind, spec) ->
             val file = ctx.configDir.resolve(spec.file)

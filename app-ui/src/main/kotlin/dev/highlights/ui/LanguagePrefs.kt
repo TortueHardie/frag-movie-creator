@@ -1,6 +1,7 @@
 package dev.highlights.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
@@ -10,6 +11,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.i18n.tr
 import dev.highlights.core.session.SessionStore
@@ -66,9 +70,22 @@ internal fun LanguagePicker(current: String, actions: UiActions) {
             Text((languages.firstOrNull { it.tag == currentTag }?.name ?: current) + " ▾")
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text(tr("ui.language.system")) }, onClick = { expanded = false; actions.setLanguage(null) })
+            // Coche devant la langue affichée ; une colonne vide devant les autres pour garder les noms alignés.
+            val mark: @Composable (Boolean) -> Unit = { selected ->
+                Text(if (selected) "✓" else "", color = Palette.accent, modifier = Modifier.width(16.dp))
+            }
+            DropdownMenuItem(
+                text = { Text(tr("ui.language.system")) },
+                leadingIcon = { mark(false) },
+                onClick = { expanded = false; actions.setLanguage(null) },
+            )
             languages.forEach { lang ->
-                DropdownMenuItem(text = { Text(lang.name) }, onClick = { expanded = false; actions.setLanguage(lang.tag) })
+                val selected = lang.tag == currentTag
+                DropdownMenuItem(
+                    text = { Text(lang.name, fontWeight = if (selected) FontWeight.SemiBold else null) },
+                    leadingIcon = { mark(selected) },
+                    onClick = { expanded = false; actions.setLanguage(lang.tag) },
+                )
             }
         }
     }

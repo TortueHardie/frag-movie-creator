@@ -1,5 +1,6 @@
 package dev.highlights.core.model
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.i18n.tr
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -38,8 +39,8 @@ class AudioTracks private constructor(
     private val roles: Map<AudioRole, AudioStream>,
     /** Vrai quand une piste contient déjà tout le son : inutile d'en mélanger d'autres à l'export. */
     val hasPremix: Boolean,
-    /** Comment la disposition a été décidée, pour le journal et le diagnostic. */
-    val explanation: String,
+    /** Comment la disposition a été décidée, pour le journal, le diagnostic et les messages d'erreur (traduit). */
+    val explanation: Message,
 ) {
     operator fun get(role: AudioRole): AudioStream? = roles[role]
 
@@ -62,14 +63,23 @@ class AudioTracks private constructor(
         else -> tr("audio.tracks.mixed", "count" to streams.size)
     }
 
-    /** Résumé lisible : « 3 pistes : a:0 → mix, a:1 → game, a:2 → mic (…) ». */
-    fun describe(): String {
-        val head = if (streams.size > 1) "${streams.size} pistes : " else "${streams.size} piste : "
-        val body = streams.joinToString { s ->
-            val named = roles.entries.filter { it.value.audioIndex == s.audioIndex }.map { it.key.name.lowercase() }
-            s.label + if (named.isEmpty()) "" else " → " + named.joinToString("/")
+    /**
+     * Résumé lisible et traduit : « 3 pistes : a:0 → mix, a:1 → jeu, a:2 → micro (…) ». Il finit dans le message
+     * « aucun moment retenu » quand une piste manque : c'est un [Message], jamais un texte écrit en dur.
+     */
+    fun describe(): Message {
+        if (streams.isEmpty()) return explanation
+        val list = streams.map { s ->
+            val named = roles.entries.filter { it.value.audioIndex == s.audioIndex }.map { roleName(it.key) }
+            if (named.isEmpty()) {
+                Message.raw(s.label)
+            } else {
+                // « mix/jeu » : le séparateur de liste de la langue (« ; ») couperait une piste en deux.
+                val joined = named.reduce { a, b -> Message("audio.tracks.both", "a" to a, "b" to b) }
+                Message("audio.tracks.assigned", "track" to s.label, "roles" to joined)
+            }
         }
-        return "$head$body ($explanation)"
+        return Message("audio.tracks.describe", "count" to streams.size, "tracks" to list, "reason" to explanation)
     }
 
     companion object {
@@ -77,7 +87,10 @@ class AudioTracks private constructor(
         private val GAME_WORDS = listOf("game", "jeu", "desktop", "bureau", "system", "système", "application", "speaker", "haut-parleur")
         private val MIX_WORDS = listOf("mix", "all", "tout", "master", "global")
 
-        val EMPTY = AudioTracks(emptyList(), emptyMap(), hasPremix = false, explanation = "aucune piste audio")
+        val EMPTY = AudioTracks(emptyList(), emptyMap(), hasPremix = false, explanation = Message("audio.layout.none"))
+
+        /** Nom traduit d'un rôle (« jeu », « micro »), pour les messages. */
+        fun roleName(role: AudioRole): Message = Message("audio.role.${role.name.lowercase()}")
 
         /** Déduit les rôles des pistes de [streams], [layout] ayant le dernier mot. */
         fun of(streams: List<AudioStream>, layout: AudioLayout = AudioLayout()): AudioTracks {
@@ -85,25 +98,25 @@ class AudioTracks private constructor(
             val roles = LinkedHashMap<AudioRole, AudioStream>()
             val byTitle = fromTitles(streams)
             var premix: Boolean
-            var reason: String
+            var reason: Message
 
             if (byTitle.isNotEmpty()) {
                 roles += byTitle
                 premix = AudioRole.MIX in byTitle
-                reason = "d'après les titres des pistes"
+                reason = Message("audio.layout.titles")
             } else {
                 when (streams.size) {
                     1 -> {
                         roles[AudioRole.MIX] = streams[0]
                         premix = true
-                        reason = "piste unique : tout le son"
+                        reason = Message("audio.layout.single")
                     }
                     2 -> {
                         // OBS et les enregistreurs à deux pistes écrivent le son du jeu (ou le mix) puis le micro.
                         roles[AudioRole.GAME] = streams[0]
                         roles[AudioRole.MIC] = streams[1]
                         premix = false
-                        reason = "deux pistes : jeu puis micro, mélangés à l'export"
+                        reason = Message("audio.layout.two")
                     }
                     else -> {
                         // Disposition d'Outplayed, mesurée : mix, jeu, micro.
@@ -111,7 +124,7 @@ class AudioTracks private constructor(
                         roles[AudioRole.GAME] = streams[1]
                         roles[AudioRole.MIC] = streams[2]
                         premix = true
-                        reason = "trois pistes ou plus : mix, jeu, micro (disposition Outplayed)"
+                        reason = Message("audio.layout.outplayed")
                     }
                 }
             }
@@ -120,7 +133,7 @@ class AudioTracks private constructor(
                 layout.mix?.let { i -> streams.getOrNull(i)?.let { roles[AudioRole.MIX] = it; premix = true } }
                 layout.game?.let { i -> streams.getOrNull(i)?.let { roles[AudioRole.GAME] = it } }
                 layout.mic?.let { i -> streams.getOrNull(i)?.let { roles[AudioRole.MIC] = it } }
-                reason += ", indices du profil appliqués"
+                reason = Message("audio.layout.profile", "reason" to reason)
             }
 
             // Jeu et mix se remplacent l'un l'autre : ces deux rôles sont toujours servis, le micro peut manquer.

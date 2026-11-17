@@ -201,9 +201,14 @@ object YouTubeText {
         "#Shorts".takeIf { settings.shortsHashtag && facts.vertical && facts.duration <= SHORT_MAX },
     ).joinToString(" ")
 
-    /** Tags de la configuration plus le nom du jeu, sans doublon, dans la limite de YouTube. */
+    /**
+     * Nom du jeu, tags de la configuration (anglais par défaut : la portée la plus large), puis ceux de la langue du
+     * texte (clé `youtube.tags`, séparés par des virgules) pour être trouvé aussi dans sa langue ; sans doublon, dans
+     * la limite de YouTube (les derniers tombent les premiers).
+     */
     fun tags(facts: VideoFacts, settings: YouTubeSettings): List<String> {
-        val all = (listOf(facts.game) + settings.tags).map { it.replace("<", "").replace(">", "").trim() }
+        val local = I18n.text("youtube.tags", locale = if (I18n.pseudo) I18n.ENGLISH else I18n.locale).split(',')
+        val all = (listOf(facts.game) + settings.tags + local).map { it.replace("<", "").replace(">", "").trim() }
             .filter { it.isNotEmpty() }.distinctBy { it.lowercase() }
         val kept = mutableListOf<String>()
         for (tag in all) if (tagsLength(kept + tag) <= TAGS_MAX) kept += tag

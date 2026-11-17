@@ -95,7 +95,7 @@ class YouTubePublisher(
         val height = media.video?.height ?: 0
         val date = DATE.find(video.name)?.groupValues?.get(1)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
         val report = reportOf(video)
-        fun game(id: String?) = id?.let { runCatching { profiles().byId(it).displayName }.getOrNull() ?: it }
+        fun game(id: String?) = id?.let { runCatching { profiles().byId(it).name }.getOrNull() ?: it }
             ?: video.name.substringBefore('_').replaceFirstChar { it.uppercase() }
         val montage = report?.takeIf { "clips" in it }?.let { runCatching { json.decodeFromJsonElement(MontageReport.serializer(), it) }.getOrNull() }
         val highlights = report?.takeIf { "highlights" in it }?.let { runCatching { json.decodeFromJsonElement(ExportReport.serializer(), it) }.getOrNull() }

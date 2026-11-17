@@ -11,6 +11,7 @@ import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldStartWith
 import java.time.LocalDate
 import java.util.Locale
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -74,6 +75,24 @@ class I18nTest : FunSpec({
         I18n.date(LocalDate.of(2026, 9, 27), "format.date", fr) shouldBe "27/09/2026"
         I18n.date(LocalDate.of(2026, 9, 27), "format.date", en) shouldBe "Sep 27, 2026"
         I18n.text("ui.count.kills", mapOf("count" to 1234), en) shouldBe "1,234 kills"
+    }
+
+    test("durée saisie : format de chaque langue et formes techniques relus") {
+        // Les champs affichent « 60 s », « 60秒 », « 60 sn » ; avant, « 60s » partout.
+        I18n.parseDuration("1 min 30 s") shouldBe 90.seconds
+        I18n.parseDuration("1分30秒") shouldBe 90.seconds
+        I18n.parseDuration("2 dk") shouldBe 2.minutes
+        I18n.parseDuration("45 с") shouldBe 45.seconds
+        I18n.parseDuration("1 h 05") shouldBe 65.minutes
+        I18n.parseDuration("90s") shouldBe 90.seconds
+        I18n.parseDuration("5m") shouldBe 5.minutes
+        I18n.parseDuration("1:30") shouldBe 90.seconds
+        I18n.parseDuration("n'importe quoi") shouldBe null
+        for (lang in I18n.available()) {
+            val l = Locale.forLanguageTag(lang.tag.replace('_', '-'))
+            I18n.parseDuration(I18n.duration(75.seconds, l)) shouldBe 75.seconds
+            I18n.parseDuration(I18n.duration(2.hours + 5.minutes, l)) shouldBe 125.minutes
+        }
     }
 
     test("clé absente : repli sur l'anglais, sinon la clé elle-même") {

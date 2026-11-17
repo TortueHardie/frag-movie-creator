@@ -520,7 +520,7 @@ notification des abonnés, et envoie la vidéo elle-même :
   VALORANT » (accroche : ace, clutch, sinon le plus gros multi-kill à partir du triplé), description avec kills,
   headshots, multi-kills, date de la partie, musique, puis `#VALORANT #Shorts` (#Shorts pour une vidéo verticale de 3
   minutes au plus). Highlights : « Meilleurs moments VALORANT du 27/09/2026 ». Les tags : le jeu, plus
-  `publish.youtube.tags`. Textes écrits dans la langue de l'interface (« TRIPLE KILL — 19 kills in 57s | VALORANT » en
+  `publish.youtube.tags` (anglais par défaut), plus deux tags dans la langue de l'interface. Textes écrits dans la langue de l'interface (« TRIPLE KILL — 19 kills in 57s | VALORANT » en
   anglais) ; `publish.youtube.language` (vide par défaut) impose la langue déclarée à YouTube. Modèles réglables dans
   `app.yaml` (`titleTemplate`, `descriptionTemplate`, champs `{game}` `{date}` `{hook}` `{kills}` `{headshots}`
   `{detail}` `{moments}` `{duration}` `{music}` `{hashtags}` `{title}` ; les anciens noms `{jeu}` `{accroche}`
