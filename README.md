@@ -185,12 +185,24 @@ Dans l'application :
 3. cliquer sur « Analyser » ;
 4. relire les segments : timeline, vignettes, « ▶ Revoir » ouvre un extrait dans le lecteur, « 9:16 » affiche l'aperçu vertical avec le HUD ;
 5. décocher les segments à retirer (le seuil et la durée se recalculent sans réanalyser) ;
-6. cliquer sur « Exporter le montage ».
+6. retoucher à la main si besoin (voir ci-dessous) ;
+7. cliquer sur « Exporter le montage ».
+
+**Retoucher les moments.** Un moment sélectionné montre une barre de retouche : « Début » et « Fin » se déplacent de
+−1 s, −0,5 s, +0,5 s ou +1 s, dans les limites de la vidéo et des longueurs du profil (`selection.minClip`/`maxClip` ;
+un moment déjà étendu au-delà peut raccourcir, pas grandir). « ↑ Plus tôt » / « ↓ Plus tard » changent sa place dans
+le montage (n° affiché sur chaque ligne) : l'export suit alors cet ordre manuel (`order: manual`), toutes captures de la
+soirée confondues. Un double-clic sur la courbe ajoute un moment de 8 s centré à cet endroit, marqué « ajouté à la
+main ». Ces retouches sont enregistrées dans la session (`origin`, `order` de chaque moment) et survivent au changement
+de seuil ou de durée : un moment détecté qui recouvre un moment retouché laisse la place à la retouche.
+**Oublier une analyse.** Dans la liste des analyses, « Oublier » (après confirmation) retire l'analyse de la mémoire
+et efface sa session ; la vidéo n'est jamais touchée et peut être réanalysée.
 
 ### Pont de pilotage (outils de développement)
 
 ```powershell
 .\gradlew.bat :app-ui:run -Pbridge
+.\gradlew.bat :app-ui:run -Pbridge -PuserHome=D:/tmp/maison   # préférences isolées : pas de dossier surveillé repris
 ```
 
 Démarre aussi un petit serveur HTTP local (127.0.0.1, port au hasard, jeton au hasard, tous deux dans
