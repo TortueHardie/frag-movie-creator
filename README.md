@@ -617,6 +617,33 @@ commande pour `export`, `process` et `montage`) adapte l'export à là où la vi
 & $app export output\sessions\partie.session.json --platform shorts
 ```
 
+## Miniature YouTube
+
+Chaque export lancé depuis l'application écrit aussi une miniature PNG prête pour YouTube, à côté de la vidéo
+(`<nom>_miniature.png`, `_miniature_2.png`… : jamais d'écrasement) : 1280x720 pour une vidéo en largeur, 1080x1920
+pour une vidéo verticale. La fenêtre de publication la montre, avec « Copier le chemin » (YouTube Studio la demande à
+part), ou « Créer la miniature » pour une vidéo exportée avant.
+
+- **Le moment** : le plus fort de la vidéo d'après son rapport JSON (kills du groupe, +3 pour un ace, +2 pour un clutch,
+  +0,3 par tir à la tête, +0,5 pour le kill posé sur la drop), comme l'accroche du titre.
+- **L'instant** : 10 images par seconde de 0,4 s avant à 1,2 s après le kill, au centre de l'écran, notées par leur
+  netteté (variance du laplacien : une image filée par un flick tombe), un peu plus après le kill (la notification de
+  kill est à l'écran) et moins dans le noir (luminosité moyenne ramenée à 80 ; écran noir écarté). Entre moments de
+  même force (sur une soirée de Wardogs, tous les kills sont seuls), c'est l'image la plus lisible qui l'emporte.
+- **L'image** vient de la capture d'origine en pleine résolution : recadrée au format, resserrée sur le réticule.
+- **L'habillage** : `sober` (défaut : couleurs à peine relevées, petit texte blanc), `vivid` (couleurs boostées comme
+  les kill montages de TikTok, texte jaune), `big` (texte aussi large que l'image, lisible en petite vignette). Texte :
+  ACE, CLUTCH, la série (TRIPLÉ…), sinon le nombre de kills de la vidéo, dans la langue de l'interface (`video.*`).
+
+```powershell
+& $app montage partie.session.json -m D:\Musique\son.mp3 --thumbnail               # miniature sobre à côté du montage
+& $app export partie.session.json --thumbnail-style vivid                            # habillage au choix
+& $app thumbnail output\wardogs_2026-09-22_killmontage_9x16.mp4 --thumbnail-style big   # vidéo déjà exportée
+```
+
+Une vidéo dont les captures ont été déplacées depuis l'export n'a plus d'image : la miniature est refusée avec un
+message qui le dit.
+
 ## Publier sur YouTube
 
 Après un export, le bouton **YouTube** à côté de chaque vidéo prépare la publication : titre, description et tags
@@ -892,6 +919,7 @@ $app = ".\app-cli\build\install\app\bin\app.bat"
 & $app music D:\Musique\son.mp3 --max 60s --clips 12         # tempo, sections, drop et grille de coupes d'un montage
 & $app music D:\Musique\TikTok                         # analyse d'avance chaque musique d'un dossier (bibliothèque)
 & $app publish output\partie_killmontage_9x16.mp4 --dry-run   # titre, description et tags proposés pour YouTube
+& $app thumbnail output\partie_killmontage_9x16.mp4           # miniature YouTube d'une vidéo exportée
 & $app stats --games                                  # statistiques par soirée, partie par partie
 & $app search --clutch --montage D:\Musique            # moments cherchés dans toutes les parties, et leur montage
 & $app process "D:\Videos\...\partie.mp4"         # analyse + montage

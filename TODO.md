@@ -267,7 +267,9 @@ Pistes, de la plus simple à la plus lourde :
 - [ ] Webcam en incrustation : seconde source synchronisée, disposition 9:16 webcam au-dessus du jeu.
 - [ ] Compteur de kills à l'écran (« 1… 2… 3… ACE ») et bandeau de score de round.
 - [ ] Intro/outro personnalisées (logo, pseudo, fond) définies dans le profil.
-- [ ] Miniature automatique : image du meilleur kill + punch-in + texte, PNG prêt pour YouTube.
+- [x] Miniature automatique : image du meilleur kill + punch-in + texte, PNG prêt pour YouTube (`--thumbnail`,
+  `app thumbnail`, fenêtre de publication).
+- [ ] Choisir l'habillage de miniature par défaut (sobre, vif, texte gros : planche dans `output/revue/miniature-auto/`).
 
 ## Musique
 - [x] Bibliothèque musicale : analyser un dossier une fois (BPM, drop, sections), choisir automatiquement la musique selon le nombre de kills et la durée visée.
