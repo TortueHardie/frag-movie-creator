@@ -89,7 +89,7 @@ fun VariantsWindow(variants: VariantsUiState, busy: Boolean, actions: UiActions)
                 Modifier.fillMaxSize().background(Palette.background).padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(tr("ui.variants.title"), style = MaterialTheme.typography.titleLarge)
+                Text(tr("ui.variants.title"), style = MaterialTheme.typography.titleLarge, color = Palette.text)
                 Text(tr("ui.variants.intro"), style = MaterialTheme.typography.bodyMedium, color = Palette.textMuted)
                 if (variants.cards.size < variants.requested) {
                     Text(tr("ui.variants.fewer", "count" to variants.cards.size), style = MaterialTheme.typography.bodySmall, color = Palette.accent)
@@ -116,7 +116,7 @@ private fun VariantCardView(card: VariantCard, busy: Boolean, actions: UiActions
         Box(Modifier.weight(1f).fillMaxWidth().background(Palette.surface, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
             AnimatedFrames(card.frames, tr("ui.variants.version", "index" to card.index))
         }
-        Text(tr("ui.variants.score", "score" to I18n.decimal(card.score, 3)), style = MaterialTheme.typography.bodyMedium)
+        Text(tr("ui.variants.score", "score" to I18n.decimal(card.score, 3)), style = MaterialTheme.typography.bodyMedium, color = Palette.text)
         Text(
             listOf(
                 tr("ui.variants.clips", "count" to card.clips),
@@ -143,6 +143,7 @@ internal fun PreviewVariantsButton(montage: MontageUiState, actions: UiActions) 
                 tr("ui.montage.previewsHint"),
                 modifier = Modifier.background(Palette.surfaceHigh, RoundedCornerShape(6.dp)).padding(10.dp).widthIn(max = 320.dp),
                 style = MaterialTheme.typography.bodySmall,
+                color = Palette.text,
             )
         },
     ) {
