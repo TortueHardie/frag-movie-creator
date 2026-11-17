@@ -17,6 +17,8 @@ import dev.highlights.core.session.Session
 import dev.highlights.core.session.SessionStore
 import dev.highlights.pipeline.AnalyzeOptions
 import dev.highlights.pipeline.ConfigLocator
+import dev.highlights.pipeline.Evening
+import dev.highlights.pipeline.EveningPlanner
 import dev.highlights.pipeline.ExportOptions
 import dev.highlights.pipeline.FolderWatcher
 import dev.highlights.pipeline.HighlightPipeline
@@ -154,6 +156,13 @@ interface UiActions {
     fun cancelForget()
     fun chooseWatchFolder()
     fun stopWatching()
+    /** Montage automatique de chaque soirée finie (voir [EveningAuto]). */
+    fun setEveningMontage(enabled: Boolean) {}
+    /** Délai sans nouvelle partie après lequel la soirée est finie (« 1 h », « 45 min »). */
+    fun setEveningDelay(text: String) {}
+    fun setEveningMinKills(count: Int) {}
+    /** Ouvre la vidéo du dernier montage de soirée. */
+    fun openLastEvening() {}
 
     fun open(path: Path)
     fun reveal(path: Path)
@@ -243,6 +252,7 @@ class AppController(
     /** Intervalle entre deux passages sur le dossier surveillé, et temps sans écriture avant qu'une capture soit prise. */
     private val watchInterval: Duration = 5.seconds,
     private val watchSettle: Duration = 15.seconds,
+    private val clock: () -> Instant = Instant::now,
     private val updater: Updater = Updater.NONE,
     private val reportEnv: ReportEnvironment = ReportEnvironment(),
     private val backendFactory: () -> Backend = {
@@ -260,6 +270,11 @@ class AppController(
     private var thumbnailJob: Job? = null
     private var saveJob: Job? = null
     private var watchJob: Job? = null
+    private var watchSettings: WatchPrefs? = null
+    private var watcher: FolderWatcher? = null
+    /** Prochaine relecture des soirées (null : à la prochaine analyse en fond) ; voir [checkEvenings]. */
+    @Volatile
+    private var eveningCheckAt: Instant? = null
     private var updateJob: Job? = null
     private var planJob: Job? = null
 
@@ -1032,8 +1047,108 @@ class AppController(
     override fun stopWatching() {
         watchJob?.cancel()
         watchJob = null
+        watchSettings = null
+        watcher = null
         watchPrefs.save(null)
         _state.update { it.copy(watch = WatchState(fresh = it.watch.fresh)) }
+    }
+
+    // ---------------------------------------------------------------- montage automatique des soirées
+
+    private fun updateEvenings(change: (EveningAuto) -> EveningAuto) {
+        val prefs = watchSettings ?: return
+        val next = prefs.copy(evenings = change(prefs.evenings))
+        watchSettings = next
+        watchPrefs.save(next)
+        _state.update { it.copy(watch = it.watch.copy(evenings = next.evenings)) }
+    }
+
+    override fun setEveningMontage(enabled: Boolean) {
+        updateEvenings { it.copy(enabled = enabled) }
+        if (enabled) eveningCheckAt = clock()
+        _state.update { it.copy(watch = it.watch.copy(eveningProblem = if (enabled && musicPrefs.library() == null) tr("ui.evening.noLibrary") else null)) }
+    }
+
+    override fun setEveningDelay(text: String) {
+        _state.update { it.copy(watch = it.watch.copy(eveningDelayText = text)) }
+        val delay = I18n.parseDuration(text)?.takeIf { it.isPositive() } ?: return
+        updateEvenings { it.copy(delay = delay) }
+        eveningCheckAt = clock()
+    }
+
+    override fun setEveningMinKills(count: Int) {
+        updateEvenings { it.copy(minKills = count.coerceAtLeast(0)) }
+        eveningCheckAt = clock()
+    }
+
+    override fun openLastEvening() {
+        state.value.watch.lastEvening?.video?.let(platform::open)
+    }
+
+    /**
+     * Monte les soirées finies, s'il y en a. La bibliothèque n'est relue qu'au moment prévu ([eveningCheckAt] : après
+     * une analyse en fond, puis quand la prochaine soirée en attente sera finie), pas à chaque passage sur le dossier.
+     * Rien tant qu'une capture s'écrit, qu'une analyse attend ou qu'un traitement lancé à la main tourne.
+     */
+    private suspend fun checkEvenings(p: HighlightPipeline) {
+        val auto = watchSettings?.evenings ?: return
+        if (!auto.enabled) return
+        val at = eveningCheckAt ?: return
+        val now = clock()
+        if (now.isBefore(at)) return
+        if (watcher?.writing() == true || state.value.watch.pending.isNotEmpty() || mainJob?.isActive == true) return
+        val arrived = auto.arrived
+        val eligible = { e: Evening -> e.sources.any { it.toAbsolutePath().normalize() in arrived } }
+        val evenings = runCatching { p.evenings() }.onFailure { log.warn(it) { "Soirées illisibles" } }.getOrDefault(emptyList())
+        val due = EveningPlanner.due(evenings, p.eveningHistory::done, now, auto.delay, auto.minKills, eligible, busy = false)
+        eveningCheckAt = EveningPlanner.nextCheck(evenings, p.eveningHistory::done, now, auto.delay, auto.minKills, eligible)
+        due.forEach { montageEvening(p, it) }
+    }
+
+    private suspend fun montageEvening(p: HighlightPipeline, evening: Evening) {
+        val music = musicPrefs.library()
+        if (music == null) {
+            // Pas de dossier de musiques : rien à monter, l'utilisateur le voit dans la carte (pas de notification).
+            _state.update { it.copy(watch = it.watch.copy(eveningProblem = tr("ui.evening.noLibrary"))) }
+            eveningCheckAt = null
+            return
+        }
+        val label = tr("ui.evening.label", "date" to I18n.date(evening.date, "format.date.dayMonth"))
+        _state.update { it.copy(watch = it.watch.copy(montaging = label, montageFraction = 0.0, eveningProblem = null)) }
+        val lastUpdate = AtomicLong(0)
+        val tracker = ProgressTracker { snap ->
+            val now = System.currentTimeMillis()
+            if (now - lastUpdate.getAndUpdate { prev -> if (now - prev >= 250) now else prev } >= 250) {
+                _state.update { s -> s.copy(watch = s.watch.copy(montageFraction = snap.fraction)) }
+            }
+        }
+        try {
+            val s = state.value
+            log.info { "Montage de la soirée du ${evening.date} (${evening.game}) : ${evening.sessionFiles.size} partie(s), ${evening.kills} kills" }
+            val result = p.eveningMontage(
+                evening,
+                music,
+                MontageOptions(
+                    formats = OutputFormat.entries.filter { it in s.settings.formats },
+                    platform = s.settings.platform,
+                    outputDir = s.settings.outputDir,
+                    fromStartMusics = musicPrefs.fromStartMusics(),
+                ),
+                tracker.root,
+            )
+            val video = result.videos.values.firstOrNull()
+            val text = tr("ui.evening.ready", "date" to I18n.date(evening.date, "format.date.dayMonth"), "count" to evening.kills)
+            _state.update { it.copy(watch = it.watch.copy(lastEvening = EveningReady(text, video))) }
+            platform.notify(tr("ui.evening.notifyTitle"), text) { video?.let(platform::open) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Retenue comme faite (voir [HighlightPipeline.eveningMontage]) : pas de nouvel essai toutes les 5 s.
+            log.error(e) { "Montage de la soirée du ${evening.date} impossible" }
+            _state.update { s -> s.copy(watch = s.watch.copy(eveningProblem = tr("ui.evening.failed", "date" to label, "detail" to (e.localizedMessage ?: e.toString())))) }
+        } finally {
+            _state.update { s -> s.copy(watch = s.watch.copy(montaging = null, montageFraction = 0.0)) }
+        }
     }
 
     /**
@@ -1043,7 +1158,13 @@ class AppController(
     private fun startWatching(prefs: WatchPrefs) {
         watchJob?.cancel()
         val watcher = FolderWatcher(prefs.folder, prefs.since, watchSettle)
-        _state.update { it.copy(watch = WatchState(folder = prefs.folder, fresh = it.watch.fresh)) }
+        this.watcher = watcher
+        watchSettings = prefs
+        // Au lancement, une soirée finie pendant que l'application était fermée se monte aussitôt.
+        eveningCheckAt = clock()
+        _state.update {
+            it.copy(watch = WatchState(folder = prefs.folder, fresh = it.watch.fresh, evenings = prefs.evenings, eveningDelayText = I18n.duration(prefs.evenings.delay)))
+        }
         log.info { "Surveillance de ${prefs.folder} (captures depuis ${prefs.since})" }
         watchJob = scope.launch(Dispatchers.IO) {
             while (true) {
@@ -1057,6 +1178,7 @@ class AppController(
                         while (mainJob?.isActive == true) delay(1.seconds)
                         analyzeInBackground(p, state.value.watch.pending.first())
                     }
+                    checkEvenings(p)
                 }
                 delay(watchInterval)
             }
@@ -1075,6 +1197,12 @@ class AppController(
         try {
             val outcome = p.analyze(file, AnalyzeOptions(outputDir = state.value.settings.outputDir), tracker.root)
             val sessionFile = outcome.sessionFile.toAbsolutePath().normalize()
+            // Capture arrivée pendant que le montage des soirées est actif : sa soirée se montera une fois finie.
+            if (watchSettings?.evenings?.enabled == true) {
+                val key = file.toAbsolutePath().normalize()
+                updateEvenings { it.copy(arrived = (it.arrived.plusElement(key)).toList().takeLast(EveningAuto.KEEP_ARRIVED).toSet()) }
+                eveningCheckAt = clock()
+            }
             _state.update { s -> s.copy(watch = s.watch.copy(fresh = s.watch.fresh + setOf(sessionFile), lastError = null)) }
             refreshLibrary()
         } catch (e: CancellationException) {

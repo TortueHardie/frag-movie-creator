@@ -160,6 +160,7 @@ private fun WatchCard(state: UiState, actions: UiActions) {
                     )
                 }
                 watch.lastError?.let { Text(tr("ui.watch.failed", "detail" to it), style = MaterialTheme.typography.bodySmall, color = Palette.danger, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                EveningAutoSection(watch, actions)
             }
         }
     }
