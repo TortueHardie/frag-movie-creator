@@ -575,7 +575,7 @@ soirée des statistiques (passe par la file des traitements). En ligne de comman
 
 ```powershell
 & $app recap --date 2026-09-22 --game wardogs --style story --platform tiktok
-& $app recap output\sessions.session.json output\sessions.session.json   # ces parties-là, telles quelles
+& $app recap output\sessions\a.session.json output\sessions\b.session.json   # ces parties-là, telles quelles
 ```
 
 Sortie : `<jeu>_<date>_recap[_9x16].mp4` et un rapport JSON (parties montrées, kills, début de chaque carton). La carte
