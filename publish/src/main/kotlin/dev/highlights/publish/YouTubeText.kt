@@ -2,14 +2,16 @@ package dev.highlights.publish
 
 import dev.highlights.core.config.YouTubePrivacy
 import dev.highlights.core.config.YouTubeSettings
+import dev.highlights.core.i18n.I18n
+import dev.highlights.core.i18n.Message
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 enum class VideoKind { KILL_MONTAGE, HIGHLIGHTS }
 
@@ -47,29 +49,29 @@ data class YouTubeMetadata(
     val privacy: YouTubePrivacy,
     val categoryId: String = "20",
     val madeForKids: Boolean = false,
-    val language: String = "fr",
+    val language: String = "en",
     /** Mise en ligne programmée : la vidéo reste privée jusque-là. */
     val publishAt: Instant? = null,
     val notifySubscribers: Boolean = true,
 ) {
-    /** Ce qui ferait refuser l'envoi par YouTube, en clair ; vide : prêt à partir. */
-    fun problems(now: Instant = Instant.now()): List<String> = buildList {
-        if (title.isBlank()) add("Le titre est vide")
-        if (title.length > YouTubeText.TITLE_MAX) add("Titre trop long (${title.length} caractères, ${YouTubeText.TITLE_MAX} au plus)")
-        if (description.toByteArray().size > YouTubeText.DESCRIPTION_MAX) add("Description trop longue (${YouTubeText.DESCRIPTION_MAX} octets au plus)")
-        if ('<' in title || '>' in title || '<' in description || '>' in description) add("YouTube refuse les caractères < et > dans le titre et la description")
-        if (YouTubeText.tagsLength(tags) > YouTubeText.TAGS_MAX) add("Tags trop longs (${YouTubeText.TAGS_MAX} caractères au plus en tout)")
-        if (categoryId.isEmpty() || !categoryId.all { it.isDigit() }) add("Catégorie invalide : un numéro (20 = Jeux vidéo)")
+    /** Ce qui ferait refuser l'envoi par YouTube, traduisible ; vide : prêt à partir. */
+    fun problems(now: Instant = Instant.now()): List<Message> = buildList {
+        if (title.isBlank()) add(Message("youtube.problem.titleEmpty"))
+        if (title.length > YouTubeText.TITLE_MAX) add(Message("youtube.problem.titleTooLong", "length" to title.length, "max" to YouTubeText.TITLE_MAX))
+        if (description.toByteArray().size > YouTubeText.DESCRIPTION_MAX) add(Message("youtube.problem.descriptionTooLong", "max" to YouTubeText.DESCRIPTION_MAX))
+        if ('<' in title || '>' in title || '<' in description || '>' in description) add(Message("youtube.problem.angleBrackets"))
+        if (YouTubeText.tagsLength(tags) > YouTubeText.TAGS_MAX) add(Message("youtube.problem.tagsTooLong", "max" to YouTubeText.TAGS_MAX))
+        if (categoryId.isEmpty() || !categoryId.all { it.isDigit() }) add(Message("youtube.problem.category"))
         publishAt?.let {
-            if (privacy != YouTubePrivacy.PRIVATE) add("Une mise en ligne programmée se fait depuis une vidéo privée")
-            if (it <= now) add("L'heure de mise en ligne programmée est passée")
+            if (privacy != YouTubePrivacy.PRIVATE) add(Message("youtube.problem.scheduleNotPrivate"))
+            if (it <= now) add(Message("youtube.problem.schedulePast"))
         }
     }
 }
 
 /**
- * Titre, description et tags écrits d'après la vidéo, ou d'après les modèles de la configuration
- * ([YouTubeSettings.titleTemplate], [YouTubeSettings.descriptionTemplate]).
+ * Titre, description et tags écrits d'après la vidéo, dans la langue de l'interface (clés `youtube.*` des bundles), ou
+ * d'après les modèles de la configuration ([YouTubeSettings.titleTemplate], [YouTubeSettings.descriptionTemplate]).
  */
 object YouTubeText {
     const val TITLE_MAX = 100
@@ -79,15 +81,14 @@ object YouTubeText {
     /** Au-delà, YouTube ne classe plus une vidéo verticale en Short. */
     private val SHORT_MAX = 3.minutes
 
-    /** Les mêmes libellés qu'à l'écran dans le montage (voir `TextEffect.multiKillLabels`). */
-    private val MULTI_KILLS = mapOf(2 to "DOUBLÉ", 3 to "TRIPLÉ", 4 to "QUADRUPLÉ", 5 to "QUINTUPLÉ")
-
-    private val DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+    /** Langue déclarée à YouTube : celle de la configuration, sinon celle de l'interface. */
+    fun language(settings: YouTubeSettings): String =
+        settings.language ?: if (I18n.pseudo) "en" else I18n.locale.toLanguageTag()
 
     fun suggest(facts: VideoFacts, settings: YouTubeSettings): YouTubeMetadata {
         val values = values(facts, settings)
         val title = settings.titleTemplate?.let { fill(it, values) } ?: defaultTitle(facts, values)
-        val withTitle = values + ("titre" to title)
+        val withTitle = values + mapOf("titre" to title, "title" to title)
         val description = settings.descriptionTemplate?.let { fill(it, withTitle) } ?: defaultDescription(facts, withTitle)
         return YouTubeMetadata(
             title = clip(sanitize(title), TITLE_MAX),
@@ -96,23 +97,35 @@ object YouTubeText {
             privacy = settings.privacy,
             categoryId = settings.categoryId,
             madeForKids = settings.madeForKids,
-            language = settings.language,
+            language = language(settings),
             notifySubscribers = settings.notifySubscribers,
         )
     }
 
-    /** Valeurs des champs des modèles. Un champ sans valeur (pas de musique, pas de date) vaut "". */
-    fun values(facts: VideoFacts, settings: YouTubeSettings): Map<String, String> = mapOf(
-        "jeu" to facts.game,
-        "date" to (facts.date?.format(DATE) ?: ""),
-        "accroche" to hook(facts),
-        "kills" to if (facts.kills > 0) facts.kills.toString() else "",
-        "headshots" to if (facts.headshots > 0) facts.headshots.toString() else "",
-        "detail" to detail(facts),
-        "moments" to if (facts.moments > 0) facts.moments.toString() else "",
-        "duree" to duration(facts.duration),
-        "musique" to (facts.music ?: ""),
-        "hashtags" to hashtags(facts, settings),
+    /**
+     * Valeurs des champs des modèles, sous leur nom anglais ({game}, {hook}, {duration}…) et sous leur ancien nom
+     * français ({jeu}, {accroche}, {duree}…), que les configurations existantes emploient. Un champ sans valeur (pas de
+     * musique, pas de date) vaut "".
+     */
+    fun values(facts: VideoFacts, settings: YouTubeSettings): Map<String, String> {
+        val v = mapOf(
+            "game" to facts.game,
+            "date" to (facts.date?.let { I18n.date(it, "format.date") } ?: ""),
+            "hook" to hook(facts),
+            "kills" to if (facts.kills > 0) facts.kills.toString() else "",
+            "headshots" to if (facts.headshots > 0) facts.headshots.toString() else "",
+            "detail" to detail(facts),
+            "moments" to if (facts.moments > 0) facts.moments.toString() else "",
+            "duration" to duration(facts.duration),
+            "music" to (facts.music ?: ""),
+            "hashtags" to hashtags(facts, settings),
+        )
+        return v + LEGACY_FIELDS.mapValues { (_, english) -> v.getValue(english) }
+    }
+
+    /** Anciens noms français des champs → nom anglais. */
+    private val LEGACY_FIELDS = mapOf(
+        "jeu" to "game", "accroche" to "hook", "duree" to "duration", "musique" to "music",
     )
 
     /** Remplace les {champs} ; ceux qui manquent laissent des séparateurs orphelins, retirés. */
@@ -130,49 +143,54 @@ object YouTubeText {
     /**
      * Ce qui fait cliquer : un ace, un clutch, sinon le plus gros multi-kill à partir du triplé. Un doublé ne mérite pas
      * la tête du titre : quatre doublés sur 19 kills donnaient « DOUBLÉ — 19 kills », qui vend moins que les 19 kills.
+     * Les libellés sont ceux incrustés dans le montage (`video.*`).
      */
     fun hook(facts: VideoFacts): String = when {
-        facts.aces > 1 -> "${facts.aces} ACES"
-        facts.aces == 1 -> "ACE"
-        facts.clutches > 0 -> "CLUTCH"
-        else -> facts.multiKills.filterValues { it > 0 }.keys.filter { it >= 3 }.maxOrNull()?.let { MULTI_KILLS[it.coerceAtMost(5)] } ?: ""
+        facts.aces > 1 -> I18n.text("video.aces", mapOf("count" to facts.aces))
+        facts.aces == 1 -> I18n.text("video.ace")
+        facts.clutches > 0 -> I18n.text("video.clutch")
+        else -> facts.multiKills.filterValues { it > 0 }.keys.filter { it >= 3 }.maxOrNull()
+            ?.let { I18n.text("video.streak.${it.coerceAtMost(5)}") } ?: ""
     }
 
     /** « 2 doublés, 1 triplé, 1 ace » : ce qu'il y a dans la vidéo, du plus gros au plus petit. */
     fun detail(facts: VideoFacts): String = buildList {
-        if (facts.aces > 0) add(plural(facts.aces, "ace", "aces"))
-        if (facts.clutches > 0) add(plural(facts.clutches, "clutch", "clutchs"))
+        if (facts.aces > 0) add(I18n.text("youtube.count.ace", mapOf("count" to facts.aces)))
+        if (facts.clutches > 0) add(I18n.text("youtube.count.clutch", mapOf("count" to facts.clutches)))
         facts.multiKills.filterValues { it > 0 }.toSortedMap(reverseOrder()).forEach { (size, n) ->
-            val label = MULTI_KILLS[size.coerceAtMost(5)]!!.lowercase()
-            add(plural(n, label, label + "s"))
+            add(I18n.text("youtube.count.multi${size.coerceAtMost(5)}", mapOf("count" to n)))
         }
-    }.joinToString(", ")
+    }.joinToString(I18n.text("format.listComma"))
 
     private fun defaultTitle(facts: VideoFacts, v: Map<String, String>): String = when (facts.kind) {
         VideoKind.KILL_MONTAGE -> when {
-            v.getValue("kills").isEmpty() -> "Montage ${facts.game}"
-            v.getValue("accroche").isNotEmpty() -> fill("{accroche} — {kills} kills en {duree} | {jeu}", v)
-            else -> fill("{kills} kills en {duree} | {jeu}", v)
+            v.getValue("kills").isEmpty() -> fill(I18n.text("youtube.title.montage"), v)
+            v.getValue("hook").isNotEmpty() -> fill(I18n.text("youtube.title.killsHook", mapOf("count" to facts.kills)), v)
+            else -> fill(I18n.text("youtube.title.kills", mapOf("count" to facts.kills)), v)
         }
-        VideoKind.HIGHLIGHTS -> if (facts.date != null) fill("Meilleurs moments {jeu} du {date}", v) else fill("Meilleurs moments {jeu}", v)
+        VideoKind.HIGHLIGHTS -> fill(I18n.text(if (facts.date != null) "youtube.title.highlightsDate" else "youtube.title.highlights"), v)
     }
 
     private fun defaultDescription(facts: VideoFacts, v: Map<String, String>): String {
         val summary = when (facts.kind) {
-            VideoKind.KILL_MONTAGE -> buildString {
-                if (facts.kills > 0) {
-                    append(plural(facts.kills, "kill", "kills"))
-                    if (facts.headshots > 0) append(", dont ${plural(facts.headshots, "headshot", "headshots")}")
-                    v.getValue("detail").takeIf { it.isNotEmpty() }?.let { append(" · $it") }
-                    append('.')
+            VideoKind.KILL_MONTAGE -> if (facts.kills > 0) {
+                val kills = I18n.text("youtube.desc.kills", mapOf("count" to facts.kills))
+                val withHeadshots = if (facts.headshots > 0) {
+                    I18n.text("youtube.desc.withHeadshots", mapOf("kills" to kills, "headshots" to I18n.text("youtube.desc.headshots", mapOf("count" to facts.headshots))))
+                } else {
+                    kills
                 }
+                val detail = v.getValue("detail")
+                I18n.text(if (detail.isEmpty()) "youtube.desc.summary" else "youtube.desc.summaryDetail", mapOf("kills" to withHeadshots, "detail" to detail))
+            } else {
+                ""
             }
-            VideoKind.HIGHLIGHTS -> if (facts.moments > 0) "${plural(facts.moments, "moment", "moments")} de la partie." else ""
+            VideoKind.HIGHLIGHTS -> if (facts.moments > 0) I18n.text("youtube.desc.moments", mapOf("count" to facts.moments)) else ""
         }
         val body = listOfNotNull(
             summary.takeIf { it.isNotEmpty() },
-            facts.date?.let { "Partie du ${it.format(DATE)}." },
-            facts.music?.let { "Musique : $it" },
+            facts.date?.let { I18n.text("youtube.desc.date", mapOf("date" to v.getValue("date"))) },
+            facts.music?.let { I18n.text("youtube.desc.music", mapOf("music" to it)) },
         ).joinToString("\n")
         return listOf(body, v.getValue("hashtags")).filter { it.isNotEmpty() }.joinToString("\n\n")
     }
@@ -210,12 +228,7 @@ object YouTubeText {
         }
     }
 
-    private fun duration(d: Duration): String {
-        val s = d.inWholeSeconds.coerceAtLeast(1)
-        return if (s < 60) "$s s" else "${s / 60} min${if (s % 60 > 0) " ${s % 60} s" else ""}"
-    }
-
-    private fun plural(n: Int, one: String, many: String) = "$n ${if (n > 1) many else one}"
+    private fun duration(d: Duration): String = I18n.duration(d.coerceAtLeast(1.seconds))
 
     private fun sanitize(text: String) = text.replace("<", "").replace(">", "")
 

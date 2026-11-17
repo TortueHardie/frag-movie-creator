@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.model.CutSettings
 import dev.highlights.core.model.EffectDensity
@@ -746,7 +747,7 @@ object MontagePlanner {
     }
 
     fun plan(all: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings, variant: PlanVariant = PlanVariant.BASE): MontagePlan {
-        if (all.isEmpty()) throw HighlightsException("Aucun kill à monter : lance l'analyse avec un profil qui détecte les kills")
+        if (all.isEmpty()) throw HighlightsException(Message("error.montage.noKills"))
         // Plancher de qualité : mieux vaut un montage plus court qu'un plan sans intérêt. Les meilleurs passent toujours.
         val groups = if (settings.minScore > 0.0) {
             all.filter { it.score >= settings.minScore }
@@ -826,7 +827,7 @@ object MontagePlanner {
         } else {
             select()
         }
-        if (selected.isEmpty()) throw HighlightsException("Musique trop courte pour un seul clip (${music.duration.inWholeSeconds} s)")
+        if (selected.isEmpty()) throw HighlightsException(Message("error.montage.musicTooShortForClip", "duration" to music.duration))
         // Le premier plan n'a pas de précédent sur lequel prendre le contexte d'avant le kill : pas d'un seul temps. Il
         // prend le suivant, d'où le slot de plus demandé à la grille.
         val window = if (selected.size > 1 && selected.first().beats == 1) {
@@ -1164,7 +1165,7 @@ object MontagePlanner {
             }
             i++
         }
-        if (cells.isEmpty() || cells.any { it.group == null }) throw HighlightsException("Aucun clip ne tient dans la musique")
+        if (cells.isEmpty() || cells.any { it.group == null }) throw HighlightsException(Message("error.montage.noClipFits"))
         return cells.map { it.toSlot() to it.group!! }
     }
 

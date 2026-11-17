@@ -1,5 +1,6 @@
 package dev.highlights.analysis.audio
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.analysis.AnalysisContext
 import dev.highlights.core.analysis.DetectorParams
 import dev.highlights.core.analysis.SignalDetector
@@ -52,7 +53,7 @@ class AudioLoudnessDetector(override val id: String, private val params: AudioLo
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
         val grid = ctx.grid
         val stream = selectStream(ctx)
-            ?: return missing(ctx, "piste audio ${wanted()} absente (${ctx.audio.describe()})")
+            ?: return missing(ctx, Message("notice.track.missingAmong", "track" to wanted(), "tracks" to ctx.audio.describe()))
 
         val windowMax = DoubleArray(grid.count) { Double.NaN }
         val parser = Ebur128MetadataParser { t, lufs -> accumulate(grid, windowMax, t, lufs) }
@@ -81,12 +82,12 @@ class AudioLoudnessDetector(override val id: String, private val params: AudioLo
         )
         ctx.progress.complete()
 
-        if (windowMax.all { it.isNaN() }) return missing(ctx, "aucune mesure de loudness produite pour ${stream.label}")
+        if (windowMax.all { it.isNaN() }) return missing(ctx, Message("notice.loudness.none", "track" to stream.label))
         log.info { "$id : ${parser.samples} mesures sur ${stream.label}" }
 
         val covered = parser.lastTime ?: Duration.ZERO
         val note = if (total.isPositive() && covered < total * 0.9) {
-            "audio lu jusqu'à ${covered.inWholeSeconds}s sur ${total.inWholeSeconds}s (fichier tronqué ou en cours d'écriture ?)"
+            Message("notice.audio.truncated", "read" to covered, "total" to total)
                 .also { log.warn { "$id : $it" } }
         } else {
             null
@@ -121,7 +122,7 @@ class AudioLoudnessDetector(override val id: String, private val params: AudioLo
         }
     }
 
-    private fun missing(ctx: AnalysisContext, reason: String): SignalTrack {
+    private fun missing(ctx: AnalysisContext, reason: Message): SignalTrack {
         if (params.optional) log.info { "$id ignoré : $reason" } else log.warn { "$id : $reason" }
         ctx.progress.complete()
         return SignalTrack.missing(id, ctx.grid.count, reason)

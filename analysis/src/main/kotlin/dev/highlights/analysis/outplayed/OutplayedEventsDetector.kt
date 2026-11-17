@@ -1,5 +1,6 @@
 package dev.highlights.analysis.outplayed
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.analysis.AnalysisContext
 import dev.highlights.core.analysis.DetectorAvailability
 import dev.highlights.core.analysis.DetectorParams
@@ -44,15 +45,15 @@ class OutplayedEventsDetector(override val id: String, private val params: Outpl
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
         val database = params.database?.let { Path(it) } ?: OutplayedLibrary.defaultDatabase()
-        if (database == null || !database.isDirectory()) return missing(ctx, "base Outplayed introuvable (${database ?: "LOCALAPPDATA inconnu"})")
+        if (database == null || !database.isDirectory()) return missing(ctx, Message("notice.outplayed.notFound", "path" to (database?.toString() ?: "LOCALAPPDATA")))
         val library = try {
             withContext(Dispatchers.IO) { OutplayedLibrary.load(database) }
         } catch (e: Exception) {
             log.warn(e) { "$id : lecture de la base Outplayed impossible" }
-            return missing(ctx, "base Outplayed illisible : ${e.message}")
+            return missing(ctx, Message("notice.outplayed.unreadable", "detail" to e.message))
         }
         val media = library.find(ctx.media.path)
-            ?: return missing(ctx, "capture inconnue d'Outplayed (${library.size} vidéos dans sa base)")
+            ?: return missing(ctx, Message("notice.outplayed.unknownCapture", "count" to library.size))
 
         val end = ctx.media.duration
         val events = media.events.mapNotNull { e ->
@@ -67,7 +68,7 @@ class OutplayedEventsDetector(override val id: String, private val params: Outpl
         return SignalTrack(id, DoubleArray(ctx.grid.count) { Double.NaN }, events)
     }
 
-    private fun missing(ctx: AnalysisContext, note: String): SignalTrack {
+    private fun missing(ctx: AnalysisContext, note: Message): SignalTrack {
         log.info { "$id : $note" }
         return SignalTrack.missing(id, ctx.grid.count, note)
     }

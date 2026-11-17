@@ -1,5 +1,6 @@
 package dev.highlights.ui
 
+import dev.highlights.core.i18n.tr
 import dev.highlights.montage.MusicLibrary
 import dev.highlights.pipeline.HighlightPipeline
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -20,7 +21,7 @@ interface Platform {
     fun chooseVideos(initialDir: Path?): List<Path>
     fun chooseAudio(initialDir: Path?): Path?
     fun chooseSessions(initialDir: Path?): List<Path>
-    fun chooseDirectory(initialDir: Path?, title: String = "Dossier de sortie"): Path?
+    fun chooseDirectory(initialDir: Path?, title: String = tr("ui.dialog.outputFolder")): Path?
     fun open(path: Path)
     fun reveal(path: Path)
     fun edit(path: Path)
@@ -36,17 +37,17 @@ class DesktopPlatform(private val owner: () -> Frame?) : Platform {
     }
 
     override fun chooseVideos(initialDir: Path?): List<Path> =
-        filesDialog("Choisir une ou plusieurs captures", initialDir) { name ->
+        filesDialog(tr("ui.dialog.chooseVideos"), initialDir) { name ->
             name.lowercase().substringAfterLast('.', "") in HighlightPipeline.SUPPORTED_EXTENSIONS
         }
 
     override fun chooseAudio(initialDir: Path?): Path? =
-        fileDialog("Choisir une musique", initialDir) { name ->
+        fileDialog(tr("ui.dialog.chooseTrack"), initialDir) { name ->
             name.lowercase().substringAfterLast('.', "") in MusicLibrary.AUDIO_EXTENSIONS
         }
 
     override fun chooseSessions(initialDir: Path?): List<Path> =
-        filesDialog("Ouvrir une ou plusieurs sessions", initialDir) { it.lowercase().endsWith(".session.json") }
+        filesDialog(tr("ui.dialog.chooseSessions"), initialDir) { it.lowercase().endsWith(".session.json") }
 
     override fun chooseDirectory(initialDir: Path?, title: String): Path? {
         val chooser = JFileChooser(initialDir?.takeIf { it.isDirectory() }?.toFile()).apply {

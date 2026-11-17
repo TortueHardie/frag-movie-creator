@@ -1,5 +1,7 @@
 package dev.highlights.editing
 
+import dev.highlights.core.i18n.tr
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
@@ -128,7 +130,7 @@ object SourceCutter {
                             ffmpeg.run(cutCommand(cut, file))
                             val input = CutInput(file, seekIn(ffmpeg, file, cut))
                             val n = done.incrementAndGet()
-                            progress.update(n.toDouble() / distinct.size, "extrait $n/${distinct.size}")
+                            progress.update(n.toDouble() / distinct.size, tr("progress.cut", "done" to n, "total" to distinct.size))
                             cut to input
                         }
                     }
@@ -187,7 +189,7 @@ object SourceCutter {
             StdoutHandler.Lines { output.appendLine(it) },
         )
         val start = output.toString().trim().toDoubleOrNull()?.seconds
-            ?: throw HighlightsException("Début illisible de la découpe $file : \"${output.toString().trim()}\"")
+            ?: throw HighlightsException(Message("error.cut.unreadableStart", "file" to file, "output" to output.toString().trim()))
         return (cut.range.start - start).coerceAtLeast(Duration.ZERO)
     }
 

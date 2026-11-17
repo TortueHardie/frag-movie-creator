@@ -1,5 +1,6 @@
 package dev.highlights.core.analysis
 
+import dev.highlights.core.i18n.Message
 import com.charleskorn.kaml.YamlNode
 import com.charleskorn.kaml.YamlNull
 import dev.highlights.core.ConfigException
@@ -75,14 +76,14 @@ class SignalTrack(
     val raw: DoubleArray,
     val events: List<SignalEvent> = emptyList(),
     /** Raison pour laquelle le signal est vide, le cas échéant. */
-    val note: String? = null,
+    val note: Message? = null,
     /** Intervalles étiquetés (voix, rire…) : utilisés pour ne pas couper un moment au milieu. */
     val segments: List<SignalSegment> = emptyList(),
 ) {
     val isMissing: Boolean get() = raw.all { it.isNaN() } && events.isEmpty() && segments.isEmpty()
 
     companion object {
-        fun missing(detectorId: String, windows: Int, note: String) =
+        fun missing(detectorId: String, windows: Int, note: Message) =
             SignalTrack(detectorId, DoubleArray(windows) { Double.NaN }, note = note)
     }
 }
@@ -98,7 +99,7 @@ class DetectorParams(val node: YamlNode?) {
         return try {
             ConfigYaml.yaml.decodeFromYamlNode(deserializer, node)
         } catch (e: Exception) {
-            throw ConfigException("Paramètres de détecteur invalides (${node.path.toHumanReadableString()}) : ${e.message}", e)
+            throw ConfigException(Message("error.detector.params", "path" to node.path.toHumanReadableString(), "detail" to e.message), e)
         }
     }
 

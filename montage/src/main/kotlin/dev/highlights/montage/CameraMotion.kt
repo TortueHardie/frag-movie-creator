@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.core.i18n.tr
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.StdoutHandler
@@ -59,7 +60,7 @@ class CameraMotion(private val ffmpeg: FfmpegService) {
                         } catch (e: Exception) {
                             log.warn { "Mouvement de caméra illisible (${clip.group.media.path.fileName} à ${Durations.format(clip.start)}) : ${e.message}" }
                             null
-                        }.also { progress.update(done.incrementAndGet().toDouble() / plan.clips.size, "plan ${done.get()}/${plan.clips.size}") }
+                        }.also { progress.update(done.incrementAndGet().toDouble() / plan.clips.size, tr("progress.shot", "done" to done.get(), "total" to plan.clips.size)) }
                     }
                 }
             }.awaitAll()

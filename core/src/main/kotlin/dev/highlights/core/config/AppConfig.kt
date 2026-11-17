@@ -1,5 +1,6 @@
 package dev.highlights.core.config
 
+import dev.highlights.core.i18n.Message
 import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlConfiguration
 import com.charleskorn.kaml.YamlException
@@ -91,21 +92,21 @@ object ConfigYaml {
         val text = try {
             file.readText().removePrefix("﻿")
         } catch (e: Exception) {
-            throw ConfigException("Lecture impossible de $file : ${e.message}", e)
+            throw ConfigException(Message("error.config.read", "file" to file, "detail" to e.message), e)
         }
         return try {
             yaml.decodeFromString(deserializer, text)
         } catch (e: YamlException) {
-            throw ConfigException("$file ligne ${e.line}, colonne ${e.column} : ${e.message}", e)
+            throw ConfigException(Message("error.config.yamlAt", "file" to file, "line" to e.line.toString(), "column" to e.column.toString(), "detail" to e.message), e)
         } catch (e: SerializationException) {
-            throw ConfigException("$file : ${e.message}", e)
+            throw ConfigException(Message("error.config.invalid", "file" to file, "detail" to e.message), e)
         } catch (e: IllegalArgumentException) {
-            throw ConfigException("$file : ${e.message}", e)
+            throw ConfigException(Message("error.config.invalid", "file" to file, "detail" to e.message), e)
         }
     }
 
     fun load(file: Path): LoadedConfig {
-        if (!file.isRegularFile()) throw ConfigException("Fichier de configuration introuvable : $file")
+        if (!file.isRegularFile()) throw ConfigException(Message("error.config.notFound", "file" to file))
         val abs = file.toAbsolutePath().normalize()
         return LoadedConfig(decodeFile(abs, AppConfig.serializer()), abs.parent, abs)
     }

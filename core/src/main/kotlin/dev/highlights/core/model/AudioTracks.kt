@@ -1,5 +1,6 @@
 package dev.highlights.core.model
 
+import dev.highlights.core.i18n.tr
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -55,10 +56,10 @@ class AudioTracks private constructor(
 
     /** Résumé court pour l'interface : « 3 pistes audio : jeu + micro séparés ». */
     fun shortLabel(): String = when {
-        streams.isEmpty() -> "aucune piste audio"
-        this[AudioRole.MIC] != null -> "${streams.size} pistes audio : jeu + micro séparés"
-        streams.size == 1 -> "1 piste audio : tout le son"
-        else -> "${streams.size} pistes audio : micro non séparé"
+        streams.isEmpty() -> tr("audio.tracks.none")
+        this[AudioRole.MIC] != null -> tr("audio.tracks.separate", "count" to streams.size)
+        streams.size == 1 -> tr("audio.tracks.single")
+        else -> tr("audio.tracks.mixed", "count" to streams.size)
     }
 
     /** Résumé lisible : « 3 pistes : a:0 → mix, a:1 → game, a:2 → mic (…) ». */

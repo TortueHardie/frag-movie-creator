@@ -414,7 +414,7 @@ private fun PipelineCommand.printAnalyses(outcomes: List<AnalysisOutcome>) {
     outcomes.forEach { outcome ->
         if (outcomes.size > 1) echo("== ${outcome.session.media.path.fileName}")
         if (outcome.reused) echo("Déjà analysée : analyse reprise (--reanalyze pour tout recalculer).")
-        printHighlights(outcome.session.highlights, outcome.session.warnings)
+        printHighlights(outcome.session.highlights, outcome.session.shownWarnings.map { it.text() })
         echo("Session : ${outcome.sessionFile}")
     }
 }

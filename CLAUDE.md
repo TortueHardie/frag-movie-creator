@@ -11,7 +11,8 @@ meilleurs moments → montages vidéo via FFmpeg (process externe). 3 sorties :
 punch-in, secousse, sous-titres whisper, SFX, musique de fond) ; 3. **montage kills** (TikTok, calé sur une musique :
 tempo/sections/drop, ralentis, rampes, whip pan, raccords sur la pose de l'arme).
 2 frontends sur le même moteur `HighlightPipeline` : CLI Clikt (`app-cli`) et bureau Compose (`app-ui`, MSI).
-Tout (code, KDoc, logs, messages d'erreur, commits, README) est **en français**. Package racine `dev.highlights.*`.
+Code, KDoc, logs, commits, README **en français** ; tout texte que l'utilisateur lit (interface, erreurs, textes YouTube, textes
+incrustés) passe par les bundles `core/src/main/resources/i18n/messages*.properties` (anglais = base, français…). Package racine `dev.highlights.*`.
 
 ## 1. Commandes
 - Tests : `.\gradlew.bat test` (kotest FunSpec + JUnit5). Les `*IT.kt` et tests vidéo sont `enabledIf = { TestMedia.available }`
@@ -81,7 +82,14 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ## 4. Index par fichier (main)
 
 ### core (`core/src/main/kotlin/dev/highlights/core/`)
-- `Errors.kt` : `HighlightsException` > `ConfigException`, `InputException`.
+- `Errors.kt` : `HighlightsException(text: Message)` > `ConfigException`, `InputException` ; `message` = anglais (journaux), `localizedMessage` = langue de
+  l'interface ; constructeur `String` = texte brut non traduit (Google, tests) ; `Throwable.userMessage()`.
+- `i18n/I18n.kt` : `I18n.locale`, `setLanguage(tag?)` (null = Windows ; `-Dhighlights.lang` prioritaire, `fr` dans tous les tests via build-logic),
+  `forceLanguage/withLanguage` (tests, captures), `resolve` (pt_BR → pt → en), `available()` (fichiers `messages_<tag>` scannés sur le classpath,
+  nom = `language.name`), `text/textOrNull(key, args, locale)` (`{nom}` remplacés, inconnus laissés tels quels ; pluriel `clé.one/few/many/other`
+  choisi par `count`), `decimal/fixed/percent/duration/date(value, patternKey)`, `bundle(tag)`, pseudo-langue `en-XA` (`Pseudo.expand`) ;
+  `tr(key, "arg" to v)`. `i18n/PluralRule.kt` : familles CLDR (`plural.rule` du fichier). `i18n/Message.kt` : `Message(key, args)` traduit
+  à l'affichage (`text()`, `english()`), `Message.raw(texte)`, sérialisé en JSON (`MessageSerializer`, texte nu relu en raw).
 - `analysis/SignalDetector.kt` : `SignalDetector{id; prepare(ctx); analyze(ctx): SignalTrack}`, `SignalDetectorFactory{type; create; availability()}`,
   `AnalysisContext`, `SignalTrack(detectorId, raw: DoubleArray par fenêtre, NaN = pas de donnée; events; note; segments)`,
   `SignalEvent(at, kind, confidence)`, `SignalSegment(range, kind)`, `DetectorParams.decode(serializer){default}` (YAML libre → data class du détecteur).
@@ -115,7 +123,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `profile/ProfileRepository.kt` : `loadDirectory`, `resolve`, `byId`, `fileOf`, `DEFAULT_ID="default"`.
 - `progress/Progress.kt` : `ProgressReporter{update, child(label, weight), complete}`, `ProgressTracker`, `EtaEstimator`, `ProgressSnapshot`.
 - `serialization/` : `SerialDuration` (texte "1500ms", "2s", "1m30s"), `SerialPath`, `SerialInstant`, `Durations.parseOrNull/format/ffmpegSeconds`, `toTimecode`, `roundTo`.
-- `session/Session.kt` : `Session(version=1, createdAt, media, profileId, timeline, highlights, warnings)`, `SessionStore.save/load/json`.
+- `session/Session.kt` : `Session(version=1, createdAt, media, profileId, timeline, highlights, warnings (anglais), notices: List<Message>)`,
+  `shownWarnings` (notices, sinon anciens warnings en raw), `SessionStore.save/load/json`. `SignalTrack.note` est un `Message`.
 - `video/FrameSampler.kt` : décodage vidéo partagé. `subscribe(FrameSpec.keyframes(i)|fps(f,hw), zones: List<FrameZone>, label, progress, onReset, onFrame)` →
   `Subscription.await()`. Pixels gris par zone sur stdout FFmpeg (ou `FrameZone.color` : expression `geq` sur RVB, un octet/pixel) ;
   `keyframeInterval()` mémoïsé ; repli logiciel (onReset).
@@ -261,7 +270,10 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - Vues : `App.kt` (layout, drop de fichiers), `SidePanel.kt` (`AppHeader, SourceSection, SettingsSection`), `SessionViews.kt` (`JobCard, SessionHeader, TimelineCard, SegmentList, ExportBar`),
   `LibraryView.kt` (analyses enregistrées + `WatchCard`), `Dialogs.kt` (`ErrorDialog, VerticalPreviewWindow, MontageDialog`), `Theme.kt` (`Palette`, `HighlightsTheme`).
 - `Platform.kt` (`DesktopPlatform` : FileDialog/JFileChooser, open/reveal/edit), `Installation.kt`, prefs : `WatchPrefs.kt` (`~/.highlights/watch.json`), `MusicPrefs.kt` (`~/.highlights/music.json` : fromStart par musique, dossier `library` + `useLibrary` ; ajouter un Path à un Set avec `plusElement`, un Path est itérable).
-- Tests : `UiStateTest`, `InstallationTest`, `UiSnapshotTest` (rendu composables), `AppControllerIT` (parcours complet, FFmpeg requis).
+- Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
+  `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).
+- Tests : `UiStateTest`, `InstallationTest`, `UiSnapshotTest` (rendu composables en fr, `en/`, `long/` = pseudo-langue), `HardcodedTextTest`
+  (texte d'interface en dur, exceptions métier en texte brut), `AppControllerIT` (parcours complet, FFmpeg requis).
 
 ## 5. Configuration (`config/`)
 - `app.yaml` → `AppConfig`. Installée : `%APPDATA%\Highlights\config`, sortie `~/Videos/Highlights` (filtre au packaging).
@@ -279,6 +291,10 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   option dans `MontageCommand` (Commands.kt) → README (section montage) → tests (`MontagePlannerTest`, `MontageRenderBuilderTest`, `KillMontageIT`).
 - **Réglage highlights/story** : `Settings.kt`/`Story.kt` → `StoryPlanner`/`StoryRenderBuilder` ou `RenderCommandBuilder` ; chemins de fichiers à résoudre dans `gradedEdit`.
 - **Nouveau critère de note** : `MontageScore` (nullable pour compat des anciens rapports) + `MontageScorer.score` + `criteria()` de `ScoreCommand`.
+- **Texte affiché à l'utilisateur** : jamais en dur. Clé dans `messages.properties` (anglais naturel pour joueurs) ET `messages_fr.properties`,
+  puis `tr("ui.zone.nom", "arg" to v)` dans l'interface, `Message("error.zone.nom", …)` dans une exception ou un avertissement (traduit à
+  l'affichage). Clés : `ui.<écran>.*`, `error.*`, `notice.*` (avertissements de session), `progress.*`, `youtube.*`, `video.*` (textes
+  incrustés), `format.*`, `event.*`. Placeholders nommés `{nom}` ; nombres → `count` pour le pluriel. `BundlesTest` + `HardcodedTextTest` vérifient.
 - **Changement de format de session** : `Session.CURRENT_VERSION`, `ignoreUnknownKeys` déjà actif ; défauts obligatoires pour les nouveaux champs.
 - **Sélection des moments** : `ThresholdMomentSelector` (+ `SegmentExtension`) ; appelé aussi à chaud par `reselect` (UI seuil/durée sans réanalyse).
 
@@ -296,6 +312,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ## 8. Conventions de travail
 - Commits en français, infinitif, une ligne (« Raccorder les coupes visée sur visée »). Une branche par fonctionnalité (noms FR en kebab, ex. `montage-arme-en-main`),
   mergée dans master par commit de merge (« Merge branch '…' »). Merge sur master seulement si branche complète + tests verts. Commit/merge seulement sur demande.
+- Textes utilisateur : bundles i18n (§6), jamais de littéral dans `app-ui` ni d'exception métier en texte brut.
 - Commentaires/KDoc en français, qui expliquent le pourquoi (mesures réelles citées). Garder ce style et cette densité.
 - Tests kotest `FunSpec({ test("…") { … } })`, noms de tests en français ; `shouldBe` ; tests d'intégration conditionnés à FFmpeg.
 - Après une nouvelle fonctionnalité : mettre à jour README (et TODO.md si concerné) et **cette carte** si un fichier/symbole/flux change.

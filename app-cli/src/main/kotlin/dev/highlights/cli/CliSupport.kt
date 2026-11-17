@@ -68,14 +68,14 @@ abstract class PipelineCommand(name: String) : CliktCommand(name = name) {
             }
         } catch (e: FfmpegException) {
             System.err.println()
-            System.err.println("Erreur : ${e.message}")
+            System.err.println("Erreur : ${e.localizedMessage}")
             System.err.println("  commande : ${e.commandLine}")
             e.stderrTail.takeLast(15).forEach { System.err.println("  | $it") }
             System.err.println("Détails complets dans le journal : ${LogFiles.current()}")
             throw ProgramResult(2)
         } catch (e: HighlightsException) {
             System.err.println()
-            System.err.println("Erreur : ${e.message}")
+            System.err.println("Erreur : ${e.localizedMessage}")
             log.debug(e) { "Détail de l'erreur" }
             throw ProgramResult(1)
         } catch (e: CancellationException) {

@@ -25,7 +25,7 @@ object HumanDurationSerializer : KSerializer<Duration> {
     override fun deserialize(decoder: Decoder): Duration {
         val text = decoder.decodeString()
         return Durations.parseOrNull(text) ?: throw SerializationException(
-            "Durée invalide '$text' (exemples acceptés : 2s, 1.5s, 300ms, 1m30s, 01:23.5)",
+            dev.highlights.core.i18n.I18n.text("error.duration.invalid", mapOf("text" to text)),
         )
     }
 }

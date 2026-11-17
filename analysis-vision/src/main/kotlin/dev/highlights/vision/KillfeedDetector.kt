@@ -1,5 +1,7 @@
 package dev.highlights.vision
 
+import dev.highlights.core.i18n.tr
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.ConfigException
 import dev.highlights.core.analysis.AnalysisContext
 import dev.highlights.core.analysis.DetectorParams
@@ -425,7 +427,7 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         val k = zone.height.toDouble() / ch * video.height / params.referenceHeight
         fun px(v: Int) = (v * k).roundToInt().coerceAtLeast(1)
         if (zone.height < px(params.maxHeight) || zone.width < px(params.victimWidth + params.minWidth)) {
-            throw ConfigException("$id : zone du killfeed trop petite (${zone.width}x${zone.height} après réduction)")
+            throw ConfigException(Message("error.detector.zoneTooSmall", "id" to id, "size" to "${zone.width}x${zone.height}"))
         }
         val shape = FrameShape(
             px(params.minHeight), px(params.maxHeight), px(params.minWidth), px(params.maxWidth),
@@ -439,7 +441,7 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
             "$id : killfeed ${cw}x$ch à ($cx, $cy), lu en ${zone.width}x${zone.height}, ${params.fps} img/s" +
                 (keyframes?.let { ", repéré sur les images clés (toutes les $it)" } ?: ", toute la vidéo")
         }
-        val scanProgress = if (keyframes == null) ctx.progress else ctx.progress.child("images clés", SCAN_SHARE)
+        val scanProgress = if (keyframes == null) ctx.progress else ctx.progress.child(tr("progress.keyframes"), SCAN_SHARE)
         val subscription = ctx.frames.subscribe(
             spec = keyframes?.let { FrameSpec.keyframes(it) } ?: FrameSpec.fps(params.fps, params.hwaccel),
             zones = listOf(zone),
@@ -453,13 +455,13 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
     }
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
-        if (ctx.media.video == null) return SignalTrack.missing(id, ctx.grid.count, "pas de flux vidéo")
+        if (ctx.media.video == null) return SignalTrack.missing(id, ctx.grid.count, Message("notice.noVideo"))
         // Hors pipeline (tests, usage direct), personne n'a préparé le détecteur : il décode alors pour lui seul.
         if (prepared == null) prepare(ctx)
-        val state = prepared ?: return SignalTrack.missing(id, ctx.grid.count, "pas de flux vidéo")
+        val state = prepared ?: return SignalTrack.missing(id, ctx.grid.count, Message("notice.noVideo"))
         val times = state.subscription.await()
         val count = minOf(times.size, state.rows.size)
-        if (count == 0) return SignalTrack.missing(id, ctx.grid.count, "aucune image analysée")
+        if (count == 0) return SignalTrack.missing(id, ctx.grid.count, Message("notice.noFrames"))
 
         val tracker = FeedTracker(state.tolerance, params.minSightings, params.maxGap, params.deathSpacing)
         val end = ctx.media.duration
@@ -507,7 +509,7 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
                             onFrame = { _, zones -> rows += state.reader.rows(zones[0]) },
                         )
                         val read = done.addAndGet((r.stop - r.start).inWholeMilliseconds).milliseconds
-                        state.review.update(read / total, "${Durations.format(read)} relues sur ${Durations.format(total)}")
+                        state.review.update(read / total, tr("progress.reviewed", "done" to Durations.format(read), "total" to Durations.format(total)))
                         times.zip(rows)
                     }
                 }
@@ -583,5 +585,5 @@ class KillfeedDetectorFactory : SignalDetectorFactory {
     override val type = "killfeed"
 
     override fun create(id: String, params: DetectorParams): SignalDetector =
-        KillfeedDetector(id, params.decode(KillfeedParams.serializer()) { throw ConfigException("$id : paramètre region requis") })
+        KillfeedDetector(id, params.decode(KillfeedParams.serializer()) { throw ConfigException(Message("error.detector.paramRequired", "id" to id, "params" to "region")) })
 }

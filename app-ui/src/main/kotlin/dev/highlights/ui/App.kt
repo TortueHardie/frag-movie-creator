@@ -1,5 +1,6 @@
 package dev.highlights.ui
 
+import dev.highlights.core.i18n.tr
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -24,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -57,6 +59,8 @@ fun App(state: UiState, actions: UiActions) {
             }
         }
     }
+    // Changer de langue recompose tout : chaque tr() relit le texte dans la nouvelle langue.
+    key(state.language) {
     HighlightsTheme {
         // Surface racine : fournit la couleur de texte par défaut (sinon noire sur fond sombre).
         Surface(
@@ -69,7 +73,7 @@ fun App(state: UiState, actions: UiActions) {
                 Modifier.width(380.dp).fillMaxHeight().background(Palette.surface).verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                AppHeader(state.config, actions)
+                AppHeader(state.config, state.language, actions)
                 SourceSection(state, actions)
                 SettingsSection(state, actions)
             }
@@ -99,13 +103,14 @@ fun App(state: UiState, actions: UiActions) {
                 Modifier.fillMaxSize().background(Palette.background.copy(alpha = 0.85f)).border(BorderStroke(3.dp, Palette.accent)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("Dépose les vidéos (ou les sessions) ici", style = MaterialTheme.typography.titleLarge, color = Palette.accent)
+                Text(tr("ui.app.dropHere"), style = MaterialTheme.typography.titleLarge, color = Palette.accent)
             }
         }
         }
         state.montage?.let { MontageDialog(it, state, actions) }
         state.publish?.let { PublishDialog(it, actions) }
         state.error?.let { ErrorDialog(it, actions) }
+    }
     }
 }
 

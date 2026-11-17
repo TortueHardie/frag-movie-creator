@@ -1,5 +1,6 @@
 package dev.highlights.core.config
 
+import dev.highlights.core.i18n.tr
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -11,14 +12,17 @@ data class PublishSettings(
 
 /** Visibilité d'une vidéo envoyée sur YouTube. */
 @Serializable
-enum class YouTubePrivacy(val label: String) {
-    @SerialName("private") PRIVATE("Privée"),
-    @SerialName("unlisted") UNLISTED("Non répertoriée"),
-    @SerialName("public") PUBLIC("Publique"),
+enum class YouTubePrivacy {
+    @SerialName("private") PRIVATE,
+    @SerialName("unlisted") UNLISTED,
+    @SerialName("public") PUBLIC,
     ;
 
     /** Nom attendu par l'API YouTube (`status.privacyStatus`). */
     val apiName: String get() = name.lowercase()
+
+    /** Libellé dans la langue de l'interface (« Private », « Privée »). */
+    val label: String get() = tr("youtube.privacy.$apiName")
 }
 
 /**
@@ -49,12 +53,13 @@ data class YouTubeSettings(
     val madeForKids: Boolean = false,
     /** Tags ajoutés à ceux tirés de la vidéo (nom du jeu). */
     val tags: List<String> = listOf("gaming", "highlights"),
-    /** Langue du titre, de la description et de la voix. */
-    val language: String = "fr",
+    /** Langue du titre, de la description et de la voix (code YouTube : fr, en, pt-BR) ; null = langue de l'interface. */
+    val language: String? = null,
     /**
-     * Modèles de titre et de description ; null = texte écrit d'après la vidéo. Champs : {jeu}, {date}, {accroche}
-     * (ACE, CLUTCH, TRIPLÉ…), {kills}, {headshots}, {detail} (doublés, triplés, ace…), {moments}, {duree}, {musique},
-     * {hashtags}, {titre} (description seulement).
+     * Modèles de titre et de description ; null = texte écrit d'après la vidéo, dans la langue de l'interface. Champs :
+     * {game}, {date}, {hook} (ACE, CLUTCH, TRIPLE KILL…), {kills}, {headshots}, {detail} (double kills, ace…),
+     * {moments}, {duration}, {music}, {hashtags}, {title} (description seulement). Les anciens noms français restent
+     * acceptés : {jeu}, {accroche}, {duree}, {musique}, {titre}.
      */
     val titleTemplate: String? = null,
     val descriptionTemplate: String? = null,

@@ -1,5 +1,8 @@
 package dev.highlights.ui
 
+import dev.highlights.publish.YouTubeText
+import dev.highlights.core.i18n.I18n
+import dev.highlights.core.i18n.tr
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.config.ConfigYaml
 import dev.highlights.core.ffmpeg.FfmpegException
@@ -138,6 +141,9 @@ interface UiActions {
     /** Télécharge la nouvelle version, ferme l'application et l'installe par-dessus. */
     fun installUpdate()
     fun dismissUpdate()
+
+    /** Langue de l'interface ([tag] d'un fichier de traduction, null = celle de Windows), retenue d'un lancement à l'autre. */
+    fun setLanguage(tag: String?)
 }
 
 /**
@@ -149,6 +155,7 @@ class AppController(
     private val platform: Platform,
     private val watchPrefs: WatchPrefsStore = WatchPrefsStore(WatchPrefsStore.DEFAULT_FILE),
     private val musicPrefs: MusicPrefsStore = MusicPrefsStore(MusicPrefsStore.DEFAULT_FILE),
+    private val languagePrefs: LanguagePrefsStore = LanguagePrefsStore(LanguagePrefsStore.DEFAULT_FILE),
     /** Intervalle entre deux passages sur le dossier surveillé, et temps sans écriture avant qu'une capture soit prise. */
     private val watchInterval: Duration = 5.seconds,
     private val watchSettle: Duration = 15.seconds,
@@ -200,7 +207,7 @@ class AppController(
                 throw e
             } catch (e: Exception) {
                 log.error(e) { "Chargement de la configuration impossible" }
-                _state.update { it.copy(config = ConfigStatus.Failed(e.message ?: e.toString())) }
+                _state.update { it.copy(config = ConfigStatus.Failed(e.localizedMessage ?: e.toString())) }
             }
         }
     }
@@ -251,14 +258,14 @@ class AppController(
         val unsupported = paths.filter { it.extension.lowercase() !in HighlightPipeline.SUPPORTED_EXTENSIONS }
         if (unsupported.isNotEmpty()) {
             showError(
-                "Fichier non supporté",
-                "${unsupported.joinToString { it.name }} : pas une vidéo (${HighlightPipeline.SUPPORTED_EXTENSIONS.sorted().joinToString()}).",
+                tr("ui.error.unsupportedTitle"),
+                tr("ui.error.unsupported", "files" to unsupported.joinToString { it.name }, "expected" to HighlightPipeline.SUPPORTED_EXTENSIONS.sorted().joinToString()),
             )
             return
         }
-        val p = backend?.pipeline ?: return showError("Configuration non chargée", "Attends la fin du chargement ou corrige la configuration.")
+        val p = backend?.pipeline ?: return showError(tr("ui.error.noConfigTitle"), tr("ui.error.noConfig"))
         val files = paths.map { it.toAbsolutePath().normalize() }.distinct()
-        runTask(if (files.size == 1) "Lecture du fichier" else "Lecture de ${files.size} fichiers", cancellable = false) {
+        runTask(if (files.size == 1) tr("ui.job.readFile") else tr("ui.job.readFiles", "count" to files.size), cancellable = false) {
             val sources = files.map { path -> SourceInfo(path, p.probe(path), p.resolveProfile(path).id, p.library.contains(path)) }
                 .sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { it.media })
             val profile = p.resolveProfile(sources.first().path)
@@ -278,8 +285,8 @@ class AppController(
     /** [then] : après l'ouverture réussie (montage d'une recherche). */
     private fun openSessions(files: List<Path>, then: (() -> Unit)? = null) {
         if (state.value.job != null || files.isEmpty()) return
-        val p = backend?.pipeline ?: return showError("Configuration non chargée", "Attends la fin du chargement ou corrige la configuration.")
-        runTask(if (files.size == 1) "Ouverture de la session" else "Ouverture de ${files.size} sessions", cancellable = false) {
+        val p = backend?.pipeline ?: return showError(tr("ui.error.noConfigTitle"), tr("ui.error.noConfig"))
+        runTask(if (files.size == 1) tr("ui.job.openSession") else tr("ui.job.openSessions", "count" to files.size), cancellable = false) {
             val entries = withContext(Dispatchers.IO) { files.distinct().map { SessionEntry(SessionStore.load(it), it) } }
                 .sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { it.session.media })
             val profile = p.profiles.byId(entries.first().session.profileId)
@@ -296,7 +303,7 @@ class AppController(
             _state.update { s -> s.copy(watch = s.watch.copy(fresh = s.watch.fresh - openedFiles), librarySelection = emptySet()) }
             val missing = entries.map { it.session.media.path }.filterNot { it.exists() }
             if (missing.isNotEmpty()) {
-                showError("Vidéo source introuvable", "${missing.joinToString()} n'existe plus : l'export et les aperçus seront impossibles.")
+                showError(tr("ui.error.sourceMissingTitle"), tr("ui.error.sourceMissing", "files" to missing.joinToString()))
             }
             loadThumbnails()
             then?.invoke()
@@ -356,7 +363,7 @@ class AppController(
         val reselected = try {
             p.reselectAll(current.sessions, s.settings.threshold, target, s.settings.momentMode.requiredEvent)
         } catch (e: HighlightsException) {
-            return showError("Recalcul impossible", e.message ?: "")
+            return showError(tr("ui.error.reselect"), e.localizedMessage ?: "")
         }
         _state.update { st ->
             val sel = st.session ?: return@update st
@@ -373,8 +380,8 @@ class AppController(
         val s = state.value
         val sources = s.sources.takeIf { it.isNotEmpty() } ?: return
         val p = backend?.pipeline ?: return
-        val target = s.settings.target ?: return showError("Réglage invalide", "La durée cible ou le nombre de moments n'est pas valide.")
-        val title = if (sources.size == 1) "Analyse de ${sources.single().path.name}" else "Analyse de ${sources.size} vidéos"
+        val target = s.settings.target ?: return showError(tr("ui.error.invalidSettingTitle"), tr("ui.error.invalidSetting"))
+        val title = if (sources.size == 1) tr("ui.job.analyze", "name" to sources.single().path.name) else tr("ui.job.analyzeMany", "count" to sources.size)
         runTask(title) { progress ->
             val outcomes = p.analyzeAll(
                 sources.map { it.path },
@@ -398,13 +405,11 @@ class AppController(
                 )
             }
             if (analyzed.highlights.isEmpty()) {
-                val hint = if (s.settings.momentMode == MomentMode.KILLS) {
-                    "Aucun kill détecté : ce profil n'a peut-être pas de détection de kills. Essaie « Les meilleurs moments »."
-                } else {
-                    "Baisse le seuil pour retenir plus de moments."
+                val hint = tr(if (s.settings.momentMode == MomentMode.KILLS) "ui.error.noKillsHint" else "ui.error.lowerThresholdHint")
+                val warnings = outcomes.flatMap { o ->
+                    o.session.shownWarnings.map { w -> if (outcomes.size > 1) tr("ui.error.inFile", "file" to o.session.media.path.name, "detail" to w) else w.text() }
                 }
-                val warnings = outcomes.flatMap { o -> o.session.warnings.map { w -> if (outcomes.size > 1) "${o.session.media.path.name} : $w" else w } }
-                showError("Aucun moment retenu", (warnings + hint).joinToString("\n"))
+                showError(tr("ui.error.noMomentTitle"), (warnings + hint).joinToString("\n"))
             }
             loadThumbnails()
         }
@@ -414,7 +419,7 @@ class AppController(
         val s = state.value
         val current = s.session ?: return
         val p = backend?.pipeline ?: return
-        runTask("Export du montage") { progress ->
+        runTask(tr("ui.job.export")) { progress ->
             saveNow(current)
             val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform), progress)
             _state.update { it.copy(lastExport = result, lastUpload = null) }
@@ -472,7 +477,7 @@ class AppController(
                 log.info { "Téléchargement de la version ${release.version} annulé" }
             } catch (e: Exception) {
                 log.error(e) { "Mise à jour vers la version ${release.version} impossible" }
-                _state.update { it.copy(update = UpdateState.Failed(release, e.message ?: e.toString())) }
+                _state.update { it.copy(update = UpdateState.Failed(release, e.localizedMessage ?: e.toString())) }
             }
         }
     }
@@ -505,7 +510,7 @@ class AppController(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                reportFailure("Aperçu impossible", e)
+                reportFailure(tr("ui.error.preview"), e)
             } finally {
                 _state.update { it.copy(busyClips = it.busyClips - id) }
             }
@@ -528,12 +533,16 @@ class AppController(
                     p.reloadProfiles()
                     p.preview(session.media.path, highlight.peak, session.profileId, listOf(OutputFormat.VERTICAL), p.previewDir).single()
                 }
-                val where = if (current.multiple) " de ${session.media.path.name}" else ""
-                _state.update { it.copy(imagePreview = ImagePreview(image, "Aperçu 9:16 — ${highlight.id}$where au pic", id)) }
+                val title = if (current.multiple) {
+                    tr("ui.preview.titleIn", "id" to highlight.id, "file" to session.media.path.name)
+                } else {
+                    tr("ui.preview.title", "id" to highlight.id)
+                }
+                _state.update { it.copy(imagePreview = ImagePreview(image, title, id)) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                reportFailure("Aperçu 9:16 impossible", e)
+                reportFailure(tr("ui.error.verticalPreview"), e)
             } finally {
                 _state.update { it.copy(busyVerticalPreview = null) }
             }
@@ -590,7 +599,7 @@ class AppController(
 
     override fun chooseMusicLibrary() {
         val current = state.value.montage?.musicLibrary ?: musicPrefs.library()
-        platform.chooseDirectory(current ?: state.value.lastMusic?.parent, "Dossier de musiques")?.let { dir ->
+        platform.chooseDirectory(current ?: state.value.lastMusic?.parent, tr("ui.dialog.musicFolder"))?.let { dir ->
             _state.update { it.copy(montage = it.montage?.copy(musicLibrary = dir, useLibrary = true)) }
         }
     }
@@ -607,7 +616,7 @@ class AppController(
         val session = s.session ?: return
         val p = backend?.pipeline ?: return
         _state.update { it.copy(montage = null) }
-        val title = if (montage.useLibrary) "Montage kills, musique choisie dans ${music.name}" else "Montage kills sur ${music.name}"
+        val title = if (montage.useLibrary) tr("ui.job.montageFolder", "folder" to music.name) else tr("ui.job.montage", "track" to music.name)
         runTask(title) { progress ->
             saveNow(session)
             val result = p.killMontage(
@@ -662,7 +671,7 @@ class AppController(
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(publish = null) }
-                reportFailure("Préparation de la publication", e)
+                reportFailure(tr("ui.error.publish"), e)
             }
         }
     }
@@ -680,8 +689,8 @@ class AppController(
         val yt = youtube() ?: return
         val metadata = publish.metadata()
         _state.update { it.copy(publish = null, lastUpload = null) }
-        runTask("Envoi sur YouTube : ${publish.video.name}") { progress ->
-            if (!yt.connected) progress.update(0.0, "Connexion au compte YouTube dans le navigateur…")
+        runTask(tr("ui.job.upload", "name" to publish.video.name)) { progress ->
+            if (!yt.connected) progress.update(0.0, tr("ui.job.youtubeLogin"))
             val uploaded = yt.upload(publish.video, metadata, progress)
             _state.update { it.copy(lastUpload = uploaded) }
         }
@@ -759,7 +768,7 @@ class AppController(
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(search = null) }
-                reportFailure("Recherche", e)
+                reportFailure(tr("ui.library.search"), e)
             }
         }
     }
@@ -798,7 +807,7 @@ class AppController(
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(stats = null) }
-                reportFailure("Statistiques", e)
+                reportFailure(tr("ui.library.stats"), e)
             }
         }
     }
@@ -810,7 +819,7 @@ class AppController(
     override fun refreshOutdated() {
         val p = backend?.pipeline ?: return
         val game = state.value.stats?.game
-        runTask("Mise à jour des analyses") { progress ->
+        runTask(tr("ui.job.refresh")) { progress ->
             p.refreshOutdated(progress)
             refreshLibrary()
             showStats()
@@ -822,7 +831,7 @@ class AppController(
 
     override fun chooseWatchFolder() {
         val initial = state.value.watch.folder ?: state.value.source?.path?.parent
-        val folder = platform.chooseDirectory(initial, "Dossier où arrivent les captures") ?: return
+        val folder = platform.chooseDirectory(initial, tr("ui.dialog.watchFolder")) ?: return
         // Les captures déjà présentes ne sont pas analysées d'office : seulement celles qui arrivent à partir de maintenant.
         val prefs = WatchPrefs(folder.toAbsolutePath().normalize(), Instant.now())
         watchPrefs.save(prefs)
@@ -883,9 +892,18 @@ class AppController(
             // En fond, pas de boîte de dialogue : l'échec est signalé au-dessus de la liste, et la capture n'est pas
             // retentée tant qu'elle ne change pas.
             log.error(e) { "Analyse en fond de $file impossible" }
-            _state.update { s -> s.copy(watch = s.watch.copy(lastError = "${file.name} : ${e.message ?: e}")) }
+            _state.update { s -> s.copy(watch = s.watch.copy(lastError = tr("ui.error.inFile", "file" to file.name, "detail" to (e.localizedMessage ?: e.toString())))) }
         } finally {
             _state.update { s -> s.copy(watch = s.watch.copy(current = null, fraction = 0.0)) }
+        }
+    }
+
+    override fun setLanguage(tag: String?) {
+        languagePrefs.save(tag)
+        val locale = I18n.setLanguage(tag)
+        _state.update { s ->
+            // Ce qui a été traduit d'avance (titre du traitement, erreur affichée) garde sa langue jusqu'au suivant.
+            s.copy(language = locale.toLanguageTag(), publish = s.publish?.copy(language = YouTubeText.language(dev.highlights.core.config.YouTubeSettings())))
         }
     }
 
@@ -972,7 +990,7 @@ class AppController(
             } catch (e: CancellationException) {
                 log.info { "$title annulé" }
             } catch (e: Exception) {
-                reportFailure("$title : échec", e)
+                reportFailure(tr("ui.error.taskFailed", "task" to title), e)
             } finally {
                 _state.update { it.copy(job = null) }
             }
@@ -983,12 +1001,15 @@ class AppController(
         when (e) {
             is FfmpegException -> {
                 log.error { "$title : ${e.message}" }
-                showError(title, e.message ?: "", e.stderrTail.takeLast(20) + listOf("", "Commande : ${e.commandLine}", "Journal : $LOG_FILE"))
+                showError(
+                    title, e.localizedMessage,
+                    e.stderrTail.takeLast(20) + listOf("", tr("ui.error.step", "step" to e.description), tr("ui.error.command", "command" to e.commandLine), tr("ui.error.log", "file" to LOG_FILE)),
+                )
             }
-            is HighlightsException -> showError(title, e.message ?: "")
+            is HighlightsException -> showError(title, e.localizedMessage)
             else -> {
                 log.error(e) { title }
-                showError(title, e.toString(), listOf("Journal : $LOG_FILE"))
+                showError(title, e.toString(), listOf(tr("ui.error.log", "file" to LOG_FILE)))
             }
         }
     }

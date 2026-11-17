@@ -1,5 +1,6 @@
 package dev.highlights.core.analysis
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.ConfigException
 import java.util.ServiceLoader
 
@@ -13,7 +14,7 @@ class DetectorRegistry(factories: Iterable<SignalDetectorFactory>) {
 
     fun create(type: String, id: String, params: DetectorParams): SignalDetector {
         val factory = byType[type] ?: throw ConfigException(
-            "Détecteur inconnu '$type' (instance '$id'). Disponibles : ${types.sorted().joinToString().ifEmpty { "aucun" }}",
+            Message("error.detector.unknown", "type" to type, "id" to id, "available" to types.sorted().joinToString().ifEmpty { "—" }),
         )
         return factory.create(id, params)
     }

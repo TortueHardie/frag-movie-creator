@@ -1,5 +1,7 @@
 package dev.highlights.montage
 
+import dev.highlights.core.i18n.tr
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.ffmpeg.EncoderSelector
 import dev.highlights.core.ffmpeg.FfmpegException
@@ -138,7 +140,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
     private val json = Json { prettyPrint = true }
 
     suspend fun export(plan: MontagePlan, request: MontageExportRequest, progress: ProgressReporter): ExportResult {
-        if (request.formats.isEmpty()) throw HighlightsException("Aucun format de sortie demandé")
+        if (request.formats.isEmpty()) throw HighlightsException(Message("error.export.noFormat"))
         val encoder = encoders.select().withMaxBitrate(request.edit.maxBitrate)
         request.outputDir.createDirectories()
         request.workDir.createDirectories()
@@ -147,13 +149,13 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         val sources = plan.clips.map { it.group.media.path.toAbsolutePath().normalize().toString().lowercase() }.toSet() +
             plan.music.file.toAbsolutePath().normalize().toString().lowercase()
         paths.all.forEach {
-            if (it.toAbsolutePath().normalize().toString().lowercase() in sources) throw HighlightsException("Refus d'écrire sur un fichier source : $it")
+            if (it.toAbsolutePath().normalize().toString().lowercase() in sources) throw HighlightsException(Message("error.export.wouldOverwriteSource", "file" to it))
         }
 
         // Découpe des extraits avant le rendu (une seule fois pour tous les formats, voir SourceCuts) et rotation de la
         // caméra de chaque plan (le flou par vecteurs) : l'une copie des flux, l'autre décode, elles vont ensemble.
-        val cutStep = progress.child("Préparation des extraits", CUT_WEIGHT)
-        val motionStep = progress.child("Mouvements de caméra", MOTION_WEIGHT)
+        val cutStep = progress.child(tr("progress.cuts"), CUT_WEIGHT)
+        val motionStep = progress.child(tr("progress.cameraMotion"), MOTION_WEIGHT)
         val (cuts, motion) = coroutineScope {
             val motion = async { if (plan.settings.motionBlur.usesVectors) CameraMotion(ffmpeg).measure(plan, motionStep) else emptyList() }
             SourceCutter.prepare(ffmpeg, MontageRenderBuilder.sourceCuts(plan, request.edit.fps), request.workDir.resolve("cuts"), cutStep) to motion.await()
@@ -163,7 +165,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         for (format in request.formats) {
             val target = paths.videos.getValue(format)
             val temp = OutputNamer.tempFor(target)
-            val step = progress.child(format.label, (1.0 - CUT_WEIGHT - MOTION_WEIGHT) / request.formats.size)
+            val step = progress.child(tr("format.${format.name.lowercase()}.short"), (1.0 - CUT_WEIGHT - MOTION_WEIGHT) / request.formats.size)
             val script = request.workDir.resolve("montage_${format.name.lowercase()}.txt")
             val render = MontageRenderBuilder.build(
                 MontageRenderRequest(
@@ -174,7 +176,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             script.writeText(render.filterGraph)
             log.info { "Montage ${format.label} → $target (${plan.clips.size} clips, ${plan.duration}, ${MontageRenderBuilder.whips(plan).count { it != null }} whip pan(s))" }
             val onLine = { line: String ->
-                FfmpegProgressParser.parseOutTime(line)?.let { step.update(it / render.expectedDuration, format.label) }
+                FfmpegProgressParser.parseOutTime(line)?.let { step.update(it / render.expectedDuration, tr("format.${format.name.lowercase()}.short")) }
                 Unit
             }
             try {

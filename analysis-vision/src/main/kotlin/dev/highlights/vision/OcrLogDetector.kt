@@ -1,5 +1,6 @@
 package dev.highlights.vision
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.ConfigException
 import dev.highlights.core.analysis.AnalysisContext
 import dev.highlights.core.analysis.DetectorAvailability
@@ -132,10 +133,10 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
     }
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
-        if (ctx.media.video == null) return SignalTrack.missing(id, ctx.grid.count, "pas de flux vidéo")
-        if (!WindowsOcr.supported) return SignalTrack.missing(id, ctx.grid.count, "OCR indisponible hors de Windows")
+        if (ctx.media.video == null) return SignalTrack.missing(id, ctx.grid.count, Message("notice.noVideo"))
+        if (!WindowsOcr.supported) return SignalTrack.missing(id, ctx.grid.count, Message("notice.ocr.unavailable"))
         if (prepared == null) prepare(ctx)
-        val state = prepared ?: return SignalTrack.missing(id, ctx.grid.count, "pas de flux vidéo")
+        val state = prepared ?: return SignalTrack.missing(id, ctx.grid.count, Message("notice.noVideo"))
         try {
             val times = state.subscription.await()
             // OCR en échec (langue absente, PowerShell bloqué…) : les icônes seules restent utilisables.
@@ -179,5 +180,5 @@ class OcrLogDetectorFactory : SignalDetectorFactory {
     )
 
     override fun create(id: String, params: DetectorParams): SignalDetector =
-        OcrLogDetector(id, params.decode(OcrLogParams.serializer()) { throw ConfigException("$id : paramètres region et rules requis") })
+        OcrLogDetector(id, params.decode(OcrLogParams.serializer()) { throw ConfigException(Message("error.detector.paramRequired", "id" to id, "params" to "region, rules")) })
 }

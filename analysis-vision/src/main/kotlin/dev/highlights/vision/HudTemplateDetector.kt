@@ -1,5 +1,6 @@
 package dev.highlights.vision
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.ConfigException
 import dev.highlights.core.analysis.AnalysisContext
 import dev.highlights.core.analysis.DetectorParams
@@ -201,15 +202,15 @@ class HudTemplateDetector(override val id: String, private val params: HudTempla
     }
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
-        if (ctx.media.video == null) return SignalTrack.missing(id, ctx.grid.count, "pas de flux vidéo")
+        if (ctx.media.video == null) return SignalTrack.missing(id, ctx.grid.count, Message("notice.noVideo"))
         // Hors pipeline (tests, usage direct), personne n'a préparé le détecteur : il décode alors pour lui seul.
         if (prepared == null) prepare(ctx)
-        val state = prepared ?: return SignalTrack.missing(id, ctx.grid.count, "pas de flux vidéo")
+        val state = prepared ?: return SignalTrack.missing(id, ctx.grid.count, Message("notice.noVideo"))
 
         val sampleTimes = state.subscription.await()
         val scores = state.scores
         val count = minOf(sampleTimes.size, scores.firstOrNull()?.size ?: 0)
-        if (count == 0) return SignalTrack.missing(id, ctx.grid.count, "aucune image analysée")
+        if (count == 0) return SignalTrack.missing(id, ctx.grid.count, Message("notice.noFrames"))
 
         return when (params.mode) {
             HudMode.EVENTS -> eventsTrack(ctx, state.zones, scores, sampleTimes.subList(0, count))
@@ -264,7 +265,7 @@ class HudTemplateDetector(override val id: String, private val params: HudTempla
             val sh = (ch * scale).roundToInt().coerceAtLeast(1)
             if (sw < largest.width || sh < largest.height) {
                 throw ConfigException(
-                    "$id : la zone de '${spec.name}' (${sw}x$sh à l'échelle) est plus petite que le modèle (${largest.width}x${largest.height})",
+                    Message("error.detector.zoneSmallerThanTemplate", "id" to id, "name" to spec.name, "zone" to "${sw}x$sh", "template" to "${largest.width}x${largest.height}"),
                 )
             }
             val area = FrameZone(cx, cy, cw, ch, sw, sh)
@@ -324,7 +325,7 @@ class HudTemplateDetector(override val id: String, private val params: HudTempla
         val seen = times.indices.filter { i -> zones.indices.any { k -> scores[k][i] >= zones[k].spec.threshold } }.map { times[it] }
         val ratio = seen.size.toDouble() / times.size
         if (ratio < params.minPresenceRatio) {
-            val note = "HUD reconnu sur seulement ${(ratio * 100).toInt()} % des images : filtre hors jeu désactivé (zones du profil à vérifier)"
+            val note = Message("notice.hud.rare", "percent" to (ratio * 100).toInt())
             log.warn { "$id : $note" }
             return SignalTrack.missing(id, ctx.grid.count, note)
         }
@@ -345,5 +346,5 @@ class HudTemplateDetectorFactory : SignalDetectorFactory {
     override val type = "hud-template"
 
     override fun create(id: String, params: DetectorParams): SignalDetector =
-        HudTemplateDetector(id, params.decode(HudTemplateParams.serializer()) { throw ConfigException("$id : paramètres templates requis") })
+        HudTemplateDetector(id, params.decode(HudTemplateParams.serializer()) { throw ConfigException(Message("error.detector.paramRequired", "id" to id, "params" to "templates")) })
 }

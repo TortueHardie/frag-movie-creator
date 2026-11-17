@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.core.i18n.tr
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.StdoutHandler
@@ -63,7 +64,7 @@ class KillInspector(private val ffmpeg: FfmpegService, private val cache: Inspec
                             if (complete) cache?.putKill(group.media, kill, traits, align, style, layout, result)
                             result
                         }
-                        progress.update(done.incrementAndGet().toDouble() / total, "kill ${done.get()}/$total")
+                        progress.update(done.incrementAndGet().toDouble() / total, tr("progress.kill", "done" to done.get(), "total" to total))
                         result
                     }
                     MontagePlanner.withTraits(group, results.map { it.first }, results.map { it.second }, style)

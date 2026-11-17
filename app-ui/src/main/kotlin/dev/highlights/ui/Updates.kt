@@ -1,5 +1,7 @@
 package dev.highlights.ui
 
+import dev.highlights.core.HighlightsException
+import dev.highlights.core.i18n.Message
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -71,8 +73,8 @@ interface Updater {
         val NONE = object : Updater {
             override val currentVersion: String? = null
             override fun latest(): Release? = null
-            override fun download(release: Release, onProgress: (Double) -> Unit): Path = error("Mises à jour désactivées")
-            override fun installAfterExit(msi: Path) = error("Mises à jour désactivées")
+            override fun download(release: Release, onProgress: (Double) -> Unit): Path = throw HighlightsException(Message("ui.update.error.disabled"))
+            override fun installAfterExit(msi: Path) = throw HighlightsException(Message("ui.update.error.disabled"))
         }
     }
 }
@@ -134,7 +136,7 @@ class GitHubUpdater(
         return when (response.statusCode()) {
             200 -> parseRelease(response.body())
             404 -> null // aucune release publiée
-            else -> error("GitHub a répondu ${response.statusCode()}")
+            else -> throw HighlightsException(Message("ui.update.error.github", "status" to response.statusCode().toString()))
         }
     }
 
@@ -147,7 +149,7 @@ class GitHubUpdater(
             .header("User-Agent", "Highlights/${currentVersion ?: "dev"}")
             .build()
         val response = http.send(request, HttpResponse.BodyHandlers.ofInputStream())
-        check(response.statusCode() == 200) { "Téléchargement de ${release.msiName} : réponse ${response.statusCode()}" }
+        if (response.statusCode() != 200) throw HighlightsException(Message("ui.update.error.download", "file" to release.msiName, "status" to response.statusCode().toString()))
         val total = release.size.takeIf { it > 0 } ?: response.headers().firstValueAsLong("Content-Length").orElse(-1)
         val digest = MessageDigest.getInstance("SHA-256")
         try {
@@ -167,10 +169,10 @@ class GitHubUpdater(
                 }
             }
             if (release.size > 0) check(partial.fileSize() == release.size) {
-                "Téléchargement incomplet : ${partial.fileSize()} octets sur ${release.size}"
+                Message("ui.update.error.incomplete", "done" to partial.fileSize(), "total" to release.size).text()
             }
             val sha = digest.digest().toHex()
-            release.sha256?.let { expected -> check(sha.equals(expected, ignoreCase = true)) { "Installeur corrompu : empreinte $sha au lieu de $expected" } }
+            release.sha256?.let { expected -> check(sha.equals(expected, ignoreCase = true)) { Message("ui.update.error.corrupt", "actual" to sha, "expected" to expected).text() } }
             partial.moveTo(target, StandardCopyOption.REPLACE_EXISTING)
         } catch (e: Throwable) {
             partial.deleteIfExists()
@@ -181,7 +183,7 @@ class GitHubUpdater(
     }
 
     override fun installAfterExit(msi: Path) {
-        val exe = checkNotNull(appExe) { "Emplacement de l'application inconnu : installer ${msi.name} à la main" }
+        val exe = checkNotNull(appExe) { Message("ui.update.error.noExe", "file" to msi.name).text() }
         val script = installScript(ProcessHandle.current().pid(), msi, exe, downloadDir.resolve("installation.log"))
         // Script encodé (UTF-16LE en base 64) : aucun souci de guillemets ni d'accents dans les chemins.
         val encoded = Base64.getEncoder().encodeToString(script.toByteArray(Charsets.UTF_16LE))

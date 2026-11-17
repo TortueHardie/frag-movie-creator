@@ -1,5 +1,6 @@
 package dev.highlights.core.video
 
+import dev.highlights.core.i18n.tr
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegException
 import dev.highlights.core.ffmpeg.FfmpegService
@@ -290,7 +291,7 @@ class FrameSampler(private val ffmpeg: FfmpegService, private val media: MediaIn
                     index++
                     if (index % 20 == 0) {
                         val fraction = (index / expected).coerceAtMost(0.99)
-                        subs.forEach { it.progress.update(fraction, "$index images") }
+                        subs.forEach { it.progress.update(fraction, tr("progress.frames", "count" to index)) }
                     }
                 }
                 count = index

@@ -1,5 +1,6 @@
 package dev.highlights.core.model
 
+import dev.highlights.core.i18n.tr
 import dev.highlights.core.serialization.SerialDuration
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -243,8 +244,11 @@ data class EventLabels(
     val enabled: Boolean = true,
     val event: String = "kill",
     val gap: SerialDuration = 5.seconds,
-    /** Libellé du 2e, 3e… kill d'une série ; le dernier vaut pour les séries plus longues. */
-    val multiKill: List<String> = listOf("DOUBLÉ", "TRIPLÉ", "QUADRUPLÉ", "ACE"),
+    /**
+     * Libellé du 2e, 3e… kill d'une série ; le dernier vaut pour les séries plus longues. null = libellés de la langue
+     * de l'interface (DOUBLE KILL, TRIPLE KILL, QUADRA KILL, ACE en anglais ; clés `video.streak.*`, `video.ace`).
+     */
+    val multiKill: List<String>? = null,
     val color: String = "0xFFD21F",
     val duration: SerialDuration = 1100.milliseconds,
     /** Position verticale du centre du libellé, en paysage et en vertical. */
@@ -253,6 +257,9 @@ data class EventLabels(
     /** Taille, en part de la hauteur de l'image. */
     val size: Double = 0.09,
 ) {
+    /** Libellés à incruster : ceux de la configuration, sinon ceux de la langue de l'interface. */
+    val labels: List<String> get() = multiKill ?: listOf(tr("video.streak.2"), tr("video.streak.3"), tr("video.streak.4"), tr("video.ace"))
+
     init {
         require(y in 0.0..1.0 && verticalY in 0.0..1.0) { "story.labels.y doit être entre 0 et 1" }
         require(size in 0.02..0.25) { "story.labels.size doit être entre 0,02 et 0,25" }

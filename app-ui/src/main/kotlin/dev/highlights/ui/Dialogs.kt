@@ -1,5 +1,7 @@
 package dev.highlights.ui
 
+import dev.highlights.core.i18n.I18n
+import dev.highlights.core.i18n.tr
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -67,13 +69,13 @@ fun ErrorDialog(error: ErrorInfo, actions: UiActions) {
                 }
             }
         },
-        confirmButton = { Button(onClick = actions::dismissError) { Text("OK") } },
+        confirmButton = { Button(onClick = actions::dismissError) { Text(tr("ui.common.ok")) } },
         dismissButton = {
             if (error.details.isNotEmpty()) {
                 TextButton(onClick = {
                     val text = (listOf(error.title, error.message) + error.details).joinToString("\n")
                     Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
-                }) { Text("Copier le détail") }
+                }) { Text(tr("ui.error.copyDetails")) }
             }
         },
     )
@@ -98,14 +100,14 @@ fun VerticalPreviewWindow(preview: ImagePreview, busy: Boolean, actions: UiActio
                     }
                 }
                 Text(
-                    "Zones du HUD : « Éditer » le profil, enregistre, puis « Régénérer ».",
+                    tr("ui.preview.hint"),
                     style = MaterialTheme.typography.bodySmall,
                     color = Palette.textMuted,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = actions::editProfile) { Text("Éditer le profil") }
-                    Button(onClick = actions::regenerateVerticalPreview, enabled = !busy) { Text(if (busy) "Génération…" else "Régénérer") }
-                    TextButton(onClick = { actions.reveal(preview.path) }) { Text("Fichier") }
+                    OutlinedButton(onClick = actions::editProfile) { Text(tr("ui.preview.editProfile")) }
+                    Button(onClick = actions::regenerateVerticalPreview, enabled = !busy) { Text(if (busy) tr("ui.preview.generating") else tr("ui.preview.regenerate")) }
+                    TextButton(onClick = { actions.reveal(preview.path) }) { Text(tr("ui.preview.file")) }
                 }
             }
         }
@@ -118,7 +120,7 @@ fun VerticalPreviewWindow(preview: ImagePreview, busy: Boolean, actions: UiActio
 fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
     AlertDialog(
         onDismissRequest = actions::closeMontage,
-        title = { Text("Montage kills") },
+        title = { Text(tr("ui.montage.title")) },
         text = {
             // La liste dépasse les petits écrans : elle défile plutôt que de rogner les boutons du bas.
             Column(
@@ -126,23 +128,22 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text(
-                    "Coupes et kills calés sur les temps de la musique, meilleur moment sur la partie la plus intense. " +
-                        "C'est l'écran qui compte : le micro reste au niveau du jeu, sauf si tu mets les réactions en avant.",
+                    tr("ui.montage.intro"),
                     style = MaterialTheme.typography.bodySmall,
                     color = Palette.textMuted,
                 )
 
                 montage.pick?.let { pick ->
                     Text(
-                        "Seulement les ${pick.size} kill(s) choisis dans la recherche.",
+                        tr("ui.montage.picked", "count" to pick.size),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Palette.accent,
                     )
                 }
 
-                DialogGroup("Musique") {
+                DialogGroup(tr("ui.montage.music")) {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        listOf(false to "Une musique", true to "Choisir dans un dossier").forEachIndexed { i, (library, label) ->
+                        listOf(false to tr("ui.montage.oneTrack"), true to tr("ui.montage.fromFolder")).forEachIndexed { i, (library, label) ->
                             SegmentedButton(
                                 selected = montage.useLibrary == library,
                                 onClick = { actions.updateMontage { it.copy(useLibrary = library) } },
@@ -153,35 +154,34 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     if (montage.useLibrary) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                montage.musicLibrary?.toString() ?: "Aucun dossier choisi",
+                                montage.musicLibrary?.toString() ?: tr("ui.montage.noFolder"),
                                 modifier = Modifier.weight(1f),
                                 color = if (montage.musicLibrary == null) Palette.textMuted else Palette.text,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            OutlinedButton(onClick = actions::chooseMusicLibrary) { Text("Choisir…") }
+                            OutlinedButton(onClick = actions::chooseMusicLibrary) { Text(tr("ui.common.chooseEllipsis")) }
                         }
                         Text(
-                            "Le montage est préparé sur chaque musique du dossier : celle où les kills tombent le mieux, sans en perdre, " +
-                                "est retenue. Chaque musique n'est analysée qu'une fois et garde son réglage « depuis le début ».",
+                            tr("ui.montage.folderHint"),
                             style = MaterialTheme.typography.bodySmall,
                             color = Palette.textMuted,
                         )
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                montage.music?.fileName?.toString() ?: "Aucune musique choisie",
+                                montage.music?.fileName?.toString() ?: tr("ui.montage.noTrack"),
                                 modifier = Modifier.weight(1f),
                                 color = if (montage.music == null) Palette.textMuted else Palette.text,
                             )
-                            OutlinedButton(onClick = actions::chooseMusic) { Text("Choisir…") }
+                            OutlinedButton(onClick = actions::chooseMusic) { Text(tr("ui.common.chooseEllipsis")) }
                         }
-                        MontageToggle("Musique depuis le début (sinon : le passage le plus intense, autour de la drop)", montage.musicFromStart) { v ->
+                        MontageToggle(tr("ui.montage.fromStart"), montage.musicFromStart) { v ->
                             actions.updateMontage { it.copy(musicFromStart = v) }
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Durée maximale", modifier = Modifier.weight(1f))
+                        Text(tr("ui.montage.maxDuration"), modifier = Modifier.weight(1f))
                         OutlinedTextField(
                             value = montage.maxDurationText,
                             onValueChange = { v -> actions.updateMontage { it.copy(maxDurationText = v) } },
@@ -190,21 +190,21 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                             modifier = Modifier.width(110.dp),
                         )
                     }
-                    MontageToggle("Durée adaptée au nombre de kills (la durée maximale reste un plafond)", montage.fitKills) { v ->
+                    MontageToggle(tr("ui.montage.fitKills"), montage.fitKills) { v ->
                         actions.updateMontage { it.copy(fitKills = v) }
                     }
-                    MontageToggle("Montée en puissance (meilleur kill sur la drop)", montage.buildUp) { v ->
+                    MontageToggle(tr("ui.montage.buildUp"), montage.buildUp) { v ->
                         actions.updateMontage { it.copy(buildUp = v) }
                     }
-                    MontageToggle("Onetaps : que les kills d'une balle à la tête, enchaînés très vite", montage.oneTaps) { v ->
+                    MontageToggle(tr("ui.montage.oneTaps"), montage.oneTaps) { v ->
                         actions.updateMontage { it.copy(oneTaps = v) }
                     }
-                    MontageToggle("Rythme rapide : un kill sur chaque temps (chaque coup de basse)", montage.fast) { v ->
+                    MontageToggle(tr("ui.montage.fast"), montage.fast) { v ->
                         actions.updateMontage { it.copy(fast = v) }
                     }
                 }
 
-                DialogGroup("Formats") {
+                DialogGroup(tr("ui.montage.formats")) {
                     PlatformPicker(state.platforms, montage.platform) { id -> actions.updateMontage { it.copy(platform = id) } }
                     // Une plateforme impose son format (et sa durée maximale devient un plafond de plus).
                     if (montage.platform == null) {
@@ -216,7 +216,7 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     }
                 }
 
-                DialogGroup("Effets") {
+                DialogGroup(tr("ui.montage.effects")) {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                         EffectDensity.entries.forEachIndexed { i, density ->
                             SegmentedButton(
@@ -227,19 +227,19 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                         }
                     }
                     Text(densityHint(montage.density), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
-                    MontageToggle("Zoom punch sur le kill", montage.zoom) { v -> actions.updateMontage { it.copy(zoom = v) } }
-                    MontageToggle("Flash blanc aux coupes fortes", montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
-                    MontageToggle("Whip pan dans le sens du flick", montage.whip) { v -> actions.updateMontage { it.copy(whip = v) } }
-                    MontageToggle("Ouverture vitrine (passages calmes, sans kill, avant le premier kill)", montage.showcase) { v -> actions.updateMontage { it.copy(showcase = v) } }
-                    MontageToggle("Couleurs boostées (le jeu ressort, comme sur TikTok)", montage.boostColors) { v -> actions.updateMontage { it.copy(boostColors = v) } }
-                    MontageToggle("Flou de mouvement (mouvements rapides et coupes)", montage.motionBlur) { v -> actions.updateMontage { it.copy(motionBlur = v) } }
-                    MontageToggle("Raccords sur la pose de l'arme (elle reste en place, le décor change)", montage.matchCut) { v -> actions.updateMontage { it.copy(matchCut = v) } }
-                    MontageToggle("Classer les kills selon le round (mort, ace, clutch)", montage.rounds) { v -> actions.updateMontage { it.copy(rounds = v) } }
-                    MontageToggle("Ralenti sur le kill", montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
-                    MontageToggle("Textes DOUBLÉ / TRIPLÉ", montage.text) { v -> actions.updateMontage { it.copy(text = v) } }
+                    MontageToggle(tr("ui.montage.zoom"), montage.zoom) { v -> actions.updateMontage { it.copy(zoom = v) } }
+                    MontageToggle(tr("ui.montage.flash"), montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
+                    MontageToggle(tr("ui.montage.whip"), montage.whip) { v -> actions.updateMontage { it.copy(whip = v) } }
+                    MontageToggle(tr("ui.montage.showcase"), montage.showcase) { v -> actions.updateMontage { it.copy(showcase = v) } }
+                    MontageToggle(tr("ui.montage.colors"), montage.boostColors) { v -> actions.updateMontage { it.copy(boostColors = v) } }
+                    MontageToggle(tr("ui.montage.motionBlur"), montage.motionBlur) { v -> actions.updateMontage { it.copy(motionBlur = v) } }
+                    MontageToggle(tr("ui.montage.matchCut"), montage.matchCut) { v -> actions.updateMontage { it.copy(matchCut = v) } }
+                    MontageToggle(tr("ui.montage.rounds"), montage.rounds) { v -> actions.updateMontage { it.copy(rounds = v) } }
+                    MontageToggle(tr("ui.montage.slowMotion"), montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
+                    MontageToggle(tr("ui.montage.text", "double" to tr("video.streak.2"), "triple" to tr("video.streak.3")), montage.text) { v -> actions.updateMontage { it.copy(text = v) } }
                 }
 
-                DialogGroup("Son") {
+                DialogGroup(tr("ui.montage.sound")) {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                         GameAudio.entries.forEachIndexed { i, mode ->
                             SegmentedButton(
@@ -251,16 +251,16 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     }
                     Text(gameAudioHint(montage.gameAudio, montage.reactions), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
                     if (montage.gameAudio == GameAudio.FULL) {
-                        MontageToggle("Mettre en avant les réactions (voix, rires)", montage.reactions) { v ->
+                        MontageToggle(tr("ui.montage.reactions"), montage.reactions) { v ->
                             actions.updateMontage { it.copy(reactions = v) }
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Équilibre", modifier = Modifier.weight(1f))
+                        Text(tr("ui.montage.balance"), modifier = Modifier.weight(1f))
                         Text(balanceLabel(montage.balance), color = Palette.accent)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Musique", style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                        Text(tr("ui.montage.balanceMusic"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
                         Slider(
                             value = montage.balance.toFloat(),
                             onValueChange = { v -> actions.updateMontage { it.copy(balance = v.toDouble()) } },
@@ -269,53 +269,37 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                             steps = 7,
                             modifier = Modifier.weight(1f),
                         )
-                        Text("Jeu", style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                        Text(tr("ui.montage.balanceGame"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
                     }
                 }
             }
         },
-        confirmButton = { Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text("Créer le montage") } },
-        dismissButton = { TextButton(onClick = actions::closeMontage) { Text("Annuler") } },
+        confirmButton = { Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text(tr("ui.montage.create")) } },
+        dismissButton = { TextButton(onClick = actions::closeMontage) { Text(tr("ui.common.cancel")) } },
     )
 }
 
-internal fun densityLabel(density: EffectDensity) = when (density) {
-    EffectDensity.SOBER -> "Sobre"
-    EffectDensity.BALANCED -> "Normal"
-    EffectDensity.HEAVY -> "Chargé"
-}
+internal fun densityLabel(density: EffectDensity) = tr("ui.montage.density.${density.name.lowercase()}")
 
-internal fun densityHint(density: EffectDensity) = when (density) {
-    EffectDensity.SOBER -> "Ralenti sur la drop seulement, aucun zoom : l'action reste lisible."
-    EffectDensity.BALANCED -> "Une emphase par plan : ralenti sur les moments forts, zoom sur les autres."
-    EffectDensity.HEAVY -> "Tous les effets sur tous les plans : l'image finit par être surchargée."
-}
+internal fun densityHint(density: EffectDensity) = tr("ui.montage.density.${density.name.lowercase()}.hint")
 
-internal fun gameAudioLabel(mode: GameAudio) = when (mode) {
-    GameAudio.FULL -> "Tout le jeu"
-    GameAudio.KILLS -> "Kills seulement"
-}
+internal fun gameAudioLabel(mode: GameAudio) = tr("ui.montage.gameAudio.${mode.name.lowercase()}")
 
 internal fun gameAudioHint(mode: GameAudio, reactions: Boolean = false) = when (mode) {
-    GameAudio.FULL -> if (reactions) {
-        "Son du jeu en continu, plus fort aux kills ; la voix est montée et la musique baisse quand on parle ou qu'on rit."
-    } else {
-        "Son du jeu en continu, plus fort aux kills ; le micro reste au niveau du jeu."
-    }
-    GameAudio.KILLS -> "Seul le son du kill s'entend, et la musique baisse dessous pour le laisser passer."
+    GameAudio.FULL -> tr(if (reactions) "ui.montage.gameAudio.full.hintReactions" else "ui.montage.gameAudio.full.hint")
+    GameAudio.KILLS -> tr("ui.montage.gameAudio.kills.hint")
 }
 
 /** Écart entre jeu et musique, en dB : chaque côté bouge de 6 dB par cran de 1, en sens opposés. */
 internal fun balanceLabel(balance: Double): String {
     val db = Math.round(balance * 12 * 2) / 2.0
     return when {
-        db == 0.0 -> "Neutre"
-        db > 0 -> "Jeu +%s dB".format(fmtDb(db))
-        else -> "Musique +%s dB".format(fmtDb(-db))
+        db == 0.0 -> tr("ui.montage.balanceNeutral")
+        db > 0 -> tr("ui.montage.balanceGameDb", "db" to I18n.decimal(db))
+        else -> tr("ui.montage.balanceMusicDb", "db" to I18n.decimal(-db))
     }
 }
 
-private fun fmtDb(db: Double) = if (db % 1.0 == 0.0) "%.0f".format(db) else "%.1f".format(db)
 
 /** Un bloc du dialogue : un intitulé discret et ses réglages, séparés du bloc suivant. */
 @Composable

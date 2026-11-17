@@ -1,5 +1,8 @@
 package dev.highlights.pipeline
 
+import dev.highlights.core.i18n.tr
+import dev.highlights.core.userMessage
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.InputException
 import dev.highlights.core.analysis.AnalysisContext
@@ -277,7 +280,7 @@ class HighlightPipeline(
     val platforms: Map<String, PlatformProfile> get() = config.platforms
 
     private fun platform(id: String?): PlatformProfile? = id?.let {
-        config.platforms[it] ?: throw InputException("Plateforme inconnue : $it (connues : ${config.platforms.keys.joinToString()})")
+        config.platforms[it] ?: throw InputException(Message("error.platform.unknown", "id" to it, "known" to config.platforms.keys.joinToString()))
     }
 
     /** Relit les profils sur disque (après modification d'un YAML). */
@@ -326,11 +329,11 @@ class HighlightPipeline(
         if (options.reuse) {
             library.find(file, profileForFile.id, fingerprint)?.let { entry -> reuse(entry, profileForFile, options, progress)?.let { return it } }
         }
-        val probeStep = progress.child("Lecture", 0.02)
+        val probeStep = progress.child(tr("progress.probe"), 0.02)
         val media = ffmpeg.probe(file)
         probeStep.complete()
-        if (media.video == null) throw InputException("$file ne contient pas de flux vidéo")
-        if (!media.duration.isPositive()) throw InputException("$file a une durée nulle")
+        if (media.video == null) throw InputException(Message("error.input.noVideo", "file" to file))
+        if (!media.duration.isPositive()) throw InputException(Message("error.input.zeroDuration", "file" to file))
 
         val profile = profileForFile
         val selection = profile.selection.let { s ->
@@ -339,22 +342,22 @@ class HighlightPipeline(
         log.info { "Analyse de ${media.path} (${media.duration}, ${media.audio.size} piste(s) audio) avec le profil ${profile.id}" }
 
         val grid = WindowGrid(profile.window.size, profile.window.hop, media.duration)
-        val warnings = Collections.synchronizedList(mutableListOf<String>())
+        val warnings = Collections.synchronizedList(mutableListOf<Message>())
 
         val tracks = withJobDir { workDir ->
-            runDetectors(profile, media, grid, workDir, progress.child("Analyse", 0.93), warnings)
+            runDetectors(profile, media, grid, workDir, progress.child(tr("progress.analysis"), 0.93), warnings)
         }
         if (tracks.all { it.second.isMissing }) {
-            throw HighlightsException("Aucun signal exploitable pour $file : ${warnings.joinToString("; ").ifEmpty { "tous les détecteurs sont vides" }}")
+            throw HighlightsException(Message("error.analysis.noSignal", "file" to file, "reasons" to warnings.toList().ifEmpty { listOf(Message("notice.detectors.empty")) }))
         }
 
-        val scoreStep = progress.child("Scoring", 0.05)
+        val scoreStep = progress.child(tr("progress.scoring"), 0.05)
         val timeline = scoring.score(tracks, grid)
         val highlights = scoring.select(timeline, selection, media.path)
         scoreStep.complete()
 
         if (highlights.isEmpty()) {
-            warnings += "Aucun moment au-dessus du seuil ${selection.threshold} (score max ${timeline.total.maxOrNull() ?: 0.0})"
+            warnings += Message("notice.belowThreshold", "threshold" to selection.threshold, "max" to (timeline.total.maxOrNull() ?: 0.0))
         }
         val session = Session(
             createdAt = Instant.now(),
@@ -362,7 +365,8 @@ class HighlightPipeline(
             profileId = profile.id,
             timeline = timeline,
             highlights = highlights,
-            warnings = warnings.toList(),
+            warnings = warnings.map { it.english() },
+            notices = warnings.toList(),
         )
         val sessionFile = (options.outputDir ?: config.outputDir).resolve("sessions").resolve("$sessionName.session.json")
         SessionStore.save(session, sessionFile)
@@ -388,7 +392,7 @@ class HighlightPipeline(
         if (stored.media.path.toAbsolutePath().normalize() != entry.source || stored.profileId != entry.profileId) return null
         val session = reselect(stored, options.threshold, options.target, options.requiredEvent)
         SessionStore.save(session, entry.sessionFile)
-        progress.child("Analyse reprise", 1.0).complete()
+        progress.child(tr("progress.reused"), 1.0).complete()
         log.info { "${entry.source} déjà analysé le ${entry.analyzedAt} : analyse reprise (${entry.sessionFile})" }
         return AnalysisOutcome(session, entry.sessionFile, profile, reused = true)
     }
@@ -399,7 +403,7 @@ class HighlightPipeline(
      * Les sessions sont rendues dans l'ordre d'enregistrement des captures.
      */
     suspend fun analyzeAll(files: List<Path>, options: AnalyzeOptions, progress: ProgressReporter): List<AnalysisOutcome> {
-        if (files.isEmpty()) throw InputException("Aucune vidéo à analyser")
+        if (files.isEmpty()) throw InputException(Message("error.analysis.noVideos"))
         files.forEach(::validateInput)
         val distinct = files.map { it.toAbsolutePath().normalize() }.distinct()
         // Deux captures du même nom (dossiers différents) ne doivent pas écrire la même session.
@@ -421,7 +425,7 @@ class HighlightPipeline(
 
     /** Un seul montage des segments cochés de toutes les [sessions]. Réglages du profil de la première. */
     suspend fun export(sessions: List<Session>, options: ExportOptions, progress: ProgressReporter): ExportResult {
-        if (sessions.isEmpty()) throw InputException("Aucune session à exporter")
+        if (sessions.isEmpty()) throw InputException(Message("error.export.noSession"))
         val profile = profiles.byId(sessions.first().profileId)
         val edit = profile.gradedEdit()
         val platform = platform(options.platform)
@@ -454,9 +458,9 @@ class HighlightPipeline(
     suspend fun preview(file: Path, at: Duration, profileId: String?, formats: List<OutputFormat>?, outputDir: Path?): List<Path> {
         validateInput(file)
         val media = ffmpeg.probe(file)
-        if (media.video == null) throw InputException("$file ne contient pas de flux vidéo")
+        if (media.video == null) throw InputException(Message("error.input.noVideo", "file" to file))
         if (at < Duration.ZERO || at >= media.duration) {
-            throw InputException("Instant ${at.toTimecode()} hors de la vidéo (durée ${media.duration.toTimecode()})")
+            throw InputException(Message("error.preview.outOfRange", "at" to at.toTimecode(), "duration" to media.duration.toTimecode()))
         }
         val profile = profiles.resolve(file, profileId)
         val edit = profile.gradedEdit()
@@ -517,7 +521,7 @@ class HighlightPipeline(
      * [music] peut être un dossier : la musique y est choisie ([MusicChoice]), celle sur laquelle le montage est le mieux noté.
      */
     suspend fun killMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter): ExportResult {
-        if (sessions.isEmpty()) throw InputException("Aucune session pour le montage")
+        if (sessions.isEmpty()) throw InputException(Message("error.montage.noSession"))
         val profile = profiles.byId(sessions.first().profileId)
         val base = profile.montage
         val platform = platform(options.platform)
@@ -567,25 +571,25 @@ class HighlightPipeline(
                 else -> it
             }
         }
-        val musicStep = progress.child(if (music.isDirectory()) "Musiques" else "Musique", 0.06)
+        val musicStep = progress.child(tr(if (music.isDirectory()) "progress.musics" else "progress.music"), 0.06)
         val musics = if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music))
         musicStep.complete()
         val picked = MontagePlanner.groups(sessions, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: all }
-        if (picked.isEmpty()) throw InputException("Aucun des moments choisis ne se retrouve dans ces sessions")
+        if (picked.isEmpty()) throw InputException(Message("error.montage.pickedMissing"))
         // Une capture effacée ou déplacée depuis l'analyse : ses kills ne se rendraient pas, et FFmpeg ferait échouer
         // tout le montage. On monte les autres.
         val missing = picked.map { it.media.path }.distinct().filterNot { it.isRegularFile() }.toSet()
         missing.forEach { log.warn { "Capture introuvable, ses kills sont écartés du montage : $it" } }
         val available = picked.filterNot { it.media.path in missing }
-        if (available.isEmpty()) throw InputException("Captures introuvables (effacées ou déplacées depuis l'analyse) : ${missing.joinToString()}")
+        if (available.isEmpty()) throw InputException(Message("error.montage.capturesMissing", "files" to missing.joinToString()))
         val found = if (options.oneTaps) OneTaps.select(available, sessions, settings).groups else available
         // Les multi-kills étalés deviennent plusieurs plans (classement, aces et clutchs déjà tirés du groupe entier).
-        val inspected = MontagePlanner.split(KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child("Kills", 0.06)), settings)
+        val inspected = MontagePlanner.split(KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child(tr("progress.kills"), 0.06)), settings)
         // La pose de l'arme ne sert qu'aux groupes qui peuvent entrer dans le montage : la lire coûte un décodage par groupe.
         // Ouverture vitrine : sa place est réservée dans la durée maximale, les kills se planifient dans le reste.
         val planning = if (!settings.showcase.enabled) settings
         else settings.copy(maxDuration = (settings.maxDuration - settings.showcase.length).coerceAtLeast(settings.maxDuration / 2))
-        val groups = MatchCutter(ffmpeg, inspections).inspect(inspected, settings, progress.child("Visée", 0.02), MontagePlanner.placeable(inspected, musics, planning))
+        val groups = MatchCutter(ffmpeg, inspections).inspect(inspected, settings, progress.child(tr("progress.aim"), 0.02), MontagePlanner.placeable(inspected, musics, planning))
         val fromStart = options.fromStartMusics.map { it.toAbsolutePath().normalize() }.toSet()
         val (chosen, choice) = if (music.isDirectory()) {
             // Le réglage « depuis le début » de chaque musique, sauf si l'appel l'impose à toutes.
@@ -593,7 +597,7 @@ class HighlightPipeline(
                 options.musicFromStart ?: (f.toAbsolutePath().normalize() in fromStart || base.cuts.fromStart)
             }
             val best = ranked.first()
-            val plan = best.plan ?: throw HighlightsException("Aucune musique de $music ne permet ce montage : ${best.error}")
+            val plan = best.plan ?: throw HighlightsException(Message("error.montage.noMusicFits", "dir" to music, "reason" to best.error))
             log.info { "Musique choisie : ${best.music.file.fileName} (note ${"%.3f".format(best.score)}, ${best.groups} groupe(s), parmi ${ranked.size})" }
             plan to ranked.map(MontageReportMusic::of)
         } else {
@@ -619,7 +623,7 @@ class HighlightPipeline(
                     platform = options.platform,
                     kind = if (options.oneTaps) "onetaps" else "killmontage",
                 ),
-                progress.child("Rendu", 0.86),
+                progress.child(tr("progress.render"), 0.86),
             )
         }.also { musicHistory.record(plan.music.file) } // Choisie ou imposée : elle a servi, elle se repose un peu.
     }
@@ -629,13 +633,13 @@ class HighlightPipeline(
         val analyses = analyzeAll(files, analyze.copy(outputDir = analyze.outputDir ?: export.outputDir), progress.child("", 0.6))
         val sessions = analyses.map { it.session }
         if (sessions.none { s -> s.highlights.any { it.enabled } }) return BatchOutcome(analyses, null)
-        return BatchOutcome(analyses, export(sessions, export, progress.child("Export", 0.4)))
+        return BatchOutcome(analyses, export(sessions, export, progress.child(tr("progress.export"), 0.4)))
     }
 
     suspend fun process(file: Path, analyze: AnalyzeOptions, export: ExportOptions, progress: ProgressReporter): ProcessOutcome {
         val analysis = analyze(file, analyze.copy(outputDir = analyze.outputDir ?: export.outputDir), progress.child("", 0.6))
         if (analysis.session.highlights.isEmpty()) return ProcessOutcome(analysis, null)
-        val result = export(analysis.session, export, progress.child("Export", 0.4))
+        val result = export(analysis.session, export, progress.child(tr("progress.export"), 0.4))
         return ProcessOutcome(analysis, result)
     }
 
@@ -645,10 +649,10 @@ class HighlightPipeline(
         grid: WindowGrid,
         workDir: Path,
         progress: ProgressReporter,
-        warnings: MutableList<String>,
+        warnings: MutableList<Message>,
     ): List<Pair<DetectorConfig, SignalTrack>> {
         val enabled = profile.detectors.filter { it.enabled }
-        if (enabled.isEmpty()) throw HighlightsException("Le profil ${profile.id} n'a aucun détecteur actif")
+        if (enabled.isEmpty()) throw HighlightsException(Message("error.profile.noDetector", "id" to profile.id))
         val tracks = AudioTracks.of(media.audio, profile.audio)
         log.info { "Pistes audio : ${tracks.describe()}" }
         val steps = enabled.associate { it.id to progress.child(it.id, 1.0 / enabled.size) }
@@ -684,7 +688,7 @@ class HighlightPipeline(
         workDir: Path,
         steps: Map<String, ProgressReporter>,
         tracks: AudioTracks,
-        warnings: MutableList<String>,
+        warnings: MutableList<Message>,
         events: (DetectorConfig) -> List<SignalEvent> = { emptyList() },
     ): List<Pair<DetectorConfig, SignalTrack>> {
         val instances = configs.map { it to detectors.create(it.type, it.id, it.detectorParams()) }
@@ -715,10 +719,10 @@ class HighlightPipeline(
                         } catch (e: Exception) {
                             if (!config.app.analysis.continueOnDetectorError) throw e
                             log.error(e) { "Détecteur ${cfg.id} en échec, poursuite sans ce signal" }
-                            SignalTrack.missing(cfg.id, grid.count, "échec : ${e.message}")
+                            SignalTrack.missing(cfg.id, grid.count, Message("notice.detector.failed", "detail" to e.userMessage()))
                         }
                         step.complete()
-                        track.note?.let { warnings += "${cfg.id} : $it" }
+                        track.note?.let { warnings += Message("notice.detector", "id" to cfg.id, "note" to it) }
                         cfg to track
                     }
                 }
@@ -727,10 +731,10 @@ class HighlightPipeline(
     }
 
     private fun validateInput(file: Path) {
-        if (!file.isRegularFile()) throw InputException("Fichier introuvable : $file")
-        if (!file.isReadable()) throw InputException("Fichier illisible : $file")
+        if (!file.isRegularFile()) throw InputException(Message("error.input.notFound", "file" to file))
+        if (!file.isReadable()) throw InputException(Message("error.input.unreadable", "file" to file))
         if (file.extension.lowercase() !in SUPPORTED_EXTENSIONS) {
-            throw InputException("Extension non supportée : ${file.fileName} (attendu : ${SUPPORTED_EXTENSIONS.joinToString()})")
+            throw InputException(Message("error.input.unsupported", "name" to file.fileName.toString(), "expected" to SUPPORTED_EXTENSIONS.joinToString()))
         }
     }
 

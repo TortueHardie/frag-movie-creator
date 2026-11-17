@@ -84,7 +84,7 @@ class UiStateTest : FunSpec({
         p.tagsText shouldBe "VALORANT, gaming"
         p.copy(tagsText = " fps ,, VALORANT ").metadata().tags shouldBe listOf("fps", "VALORANT")
         p.copy(title = " ").canPublish shouldBe false
-        p.copy(publishAtText = "demain").problems.single() shouldBe "Heure de mise en ligne illisible (ex. 2026-10-01 18:00)"
+        p.copy(publishAtText = "demain").problems.single().text() shouldBe "Heure de mise en ligne illisible (ex. 2026-10-01 18:00)"
         p.copy(publishAtText = "2999-01-01 18:00").metadata().publishAt shouldBe
             java.time.LocalDateTime.of(2999, 1, 1, 18, 0).atZone(java.time.ZoneId.systemDefault()).toInstant()
         PublishUiState(java.nio.file.Path.of("montage.mp4")).canPublish shouldBe false
@@ -94,8 +94,8 @@ class UiStateTest : FunSpec({
 
     test("plateforme : son format remplace les cases, et ce qu'elle impose se lit en clair") {
         val tiktok = PlatformInfo.of("tiktok", dev.highlights.core.model.PlatformProfile.DEFAULTS.getValue("tiktok"))
-        tiktok.summary shouldBe "format 9:16 · 10 min au plus · -14 LUFS · textes hors de l'interface de l'appli"
-        PlatformInfo.of("youtube", dev.highlights.core.model.PlatformProfile.DEFAULTS.getValue("youtube")).summary shouldBe "format source · -14 LUFS"
+        tiktok.summary() shouldBe "format 9:16 · 10 min au plus · -14 LUFS · textes hors de l'interface de l'appli"
+        PlatformInfo.of("youtube", dev.highlights.core.model.PlatformProfile.DEFAULTS.getValue("youtube")).summary() shouldBe "format source · -14 LUFS"
         MontageUiState(music = java.nio.file.Path.of("m.mp3"), formats = emptySet()).canCreate shouldBe false
         MontageUiState(music = java.nio.file.Path.of("m.mp3"), formats = emptySet(), platform = "tiktok").canCreate shouldBe true
     }

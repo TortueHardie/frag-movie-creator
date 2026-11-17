@@ -1,5 +1,6 @@
 package dev.highlights.vision
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.ConfigException
 import java.awt.image.BufferedImage
 import java.nio.file.Path
@@ -17,8 +18,8 @@ class GrayImage(val width: Int, val height: Int, val pixels: ByteArray) {
 
     companion object {
         fun load(file: Path): GrayImage {
-            if (!file.isRegularFile()) throw ConfigException("Modèle d'image introuvable : $file")
-            val image: BufferedImage = ImageIO.read(file.toFile()) ?: throw ConfigException("Image illisible : $file")
+            if (!file.isRegularFile()) throw ConfigException(Message("error.detector.templateNotFound", "file" to file))
+            val image: BufferedImage = ImageIO.read(file.toFile()) ?: throw ConfigException(Message("error.detector.imageUnreadable", "file" to file))
             val pixels = ByteArray(image.width * image.height)
             // Niveaux de gris : échantillons bruts. getRGB appliquerait une conversion gamma qui éclaircit les gris moyens
             // (un modèle de traits fins passait de 165 à 724 pixels « clairs »).
@@ -59,7 +60,7 @@ class PreparedTemplate(image: GrayImage, val name: String) {
             sq += v * v
         }
         norm = sqrt(sq)
-        if (norm < 1e-6) throw ConfigException("Modèle '$name' uniforme : impossible à reconnaître")
+        if (norm < 1e-6) throw ConfigException(Message("error.detector.templateUniform", "name" to name))
         for (ty in height - 1 downTo 0) {
             var row = 0.0
             for (tx in 0 until width) {
@@ -122,7 +123,7 @@ class BrightTemplate(image: GrayImage, val brightness: Int, val name: String, va
     init {
         val points = mutableListOf<Int>()
         for (y in 0 until height) for (x in 0 until width) if (image[x, y] >= brightness) points += x or (y shl 16)
-        if (points.size < 8) throw ConfigException("Modèle '$name' : trop peu de pixels ≥ $brightness pour une détection fiable")
+        if (points.size < 8) throw ConfigException(Message("error.detector.templateTooDark", "name" to name, "brightness" to brightness))
         on = points.toIntArray()
     }
 }

@@ -187,10 +187,11 @@ object MontageRenderBuilder {
                 // Vertical : entre le kill feed replacé en haut et le réticule ; sinon sous la boussole.
                 val (labelY, counterY) = if (request.format == OutputFormat.VERTICAL) "h*0.25" to "h*0.35" else "h*0.20" to "h*0.11"
                 val font = settings.text.font.replace("\\", "/").replace(":", "\\:")
+                val labels = settings.text.labels
                 outKills.forEachIndexed { j, k ->
                     killCounter++
-                    if (j >= 1 && settings.text.multiKillLabels.isNotEmpty()) {
-                        val label = settings.text.multiKillLabels[minOf(j - 1, settings.text.multiKillLabels.lastIndex)]
+                    if (j >= 1 && labels.isNotEmpty()) {
+                        val label = labels[minOf(j - 1, labels.lastIndex)]
                         effects += drawText(font, label, k, (h * 0.10).roundToInt(), labelY, border = (h * 0.006).roundToInt().coerceAtLeast(3), safe = request.edit.safeArea)
                     }
                     if (settings.text.killCounter) {

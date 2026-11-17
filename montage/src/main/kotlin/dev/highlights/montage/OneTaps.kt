@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.InputException
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.session.Session
@@ -19,20 +20,13 @@ object OneTaps {
     fun select(groups: List<KillGroup>, sessions: List<Session>, settings: MontageSettings): Selection {
         val style = settings.killStyle
         if (groups.none { g -> g.traits.any { it.shots != null } }) {
-            throw InputException(
-                "Aucune balle comptée dans ces parties : le montage onetaps les lit sur le compteur de munitions " +
-                    "(détecteur ammo-counter) ou dans le son du jeu (game-sounds). Réanalysez-les avec un profil à jour " +
-                    "(« Mettre à jour les analyses »).",
-            )
+            throw InputException(Message("error.onetaps.noShots"))
         }
         // Une partie où aucun tir à la tête n'a été vu ni entendu : le profil n'en détecte pas (capture sans Outplayed,
         // gabarit du son absent). Une vraie partie sans aucun tir à la tête est rare.
         val strict = style.headshotEvent.isNotEmpty() && sessions.any { s -> s.timeline.events.any { it.kind == style.headshotEvent } }
         if (!strict && !settings.oneTaps.allowWithoutHeadshots) {
-            throw InputException(
-                "Tirs à la tête inconnus dans ces parties (ni Outplayed, ni gabarit du son de l'impact) : impossible de " +
-                    "distinguer un one tap d'un kill au corps d'une balle.",
-            )
+            throw InputException(Message("error.onetaps.noHeadshots"))
         }
         fun oneTap(t: KillTraits) = t.shots == 1 && (t.headshot || !strict)
         val kept = groups.filter { g -> g.kills.isNotEmpty() && g.kills.all { oneTap(g.traitsOf(it)) } }
@@ -42,7 +36,7 @@ object OneTaps {
                 "($known avec leurs balles comptées)" +
                 if (strict) "" else ", tirs à la tête inconnus : tout kill d'une balle compte"
         }
-        if (kept.isEmpty()) throw InputException("Aucun one tap dans ces parties")
+        if (kept.isEmpty()) throw InputException(Message("error.onetaps.none"))
         return Selection(kept, strict)
     }
 }

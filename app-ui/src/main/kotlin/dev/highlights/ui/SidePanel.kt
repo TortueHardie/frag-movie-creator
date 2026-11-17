@@ -1,5 +1,7 @@
 package dev.highlights.ui
 
+import dev.highlights.core.i18n.I18n
+import dev.highlights.core.i18n.tr
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -49,33 +51,34 @@ import kotlin.io.path.name
 import kotlin.time.Duration
 
 @Composable
-fun AppHeader(config: ConfigStatus, actions: UiActions) {
+fun AppHeader(config: ConfigStatus, language: String, actions: UiActions) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(10.dp).border(BorderStroke(5.dp, Palette.accent), RoundedCornerShape(50)))
             Spacer(Modifier.width(10.dp))
-            Text("Highlights", style = MaterialTheme.typography.titleLarge)
+            Text("Highlights", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            LanguagePicker(language, actions)
         }
         when (config) {
             ConfigStatus.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
-                Text("Chargement de la configuration…", style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                Text(tr("ui.header.loading"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
             }
             is ConfigStatus.Ready -> Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "${config.profiles.size} profils · ${config.configFile.parent}",
+                    tr("ui.header.profiles", "count" to config.profiles.size, "dir" to config.configFile.parent),
                     style = MaterialTheme.typography.bodySmall,
                     color = Palette.textMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = actions::reloadConfig) { Text("Recharger") }
+                TextButton(onClick = actions::reloadConfig) { Text(tr("ui.header.reload")) }
             }
             is ConfigStatus.Failed -> Column {
                 Text(config.message, style = MaterialTheme.typography.bodySmall, color = Palette.danger)
-                TextButton(onClick = actions::reloadConfig) { Text("Réessayer") }
+                TextButton(onClick = actions::reloadConfig) { Text(tr("ui.common.retry")) }
             }
         }
     }
@@ -84,7 +87,7 @@ fun AppHeader(config: ConfigStatus, actions: UiActions) {
 @Composable
 fun SourceSection(state: UiState, actions: UiActions) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionTitle(if (state.sources.size > 1) "Captures (${state.sources.size})" else "Capture")
+        SectionTitle(if (state.sources.size > 1) tr("ui.source.titleMany", "count" to state.sources.size) else tr("ui.source.title"))
         val source = state.source
         if (source == null) {
             Surface(
@@ -94,18 +97,18 @@ fun SourceSection(state: UiState, actions: UiActions) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Glisse une ou plusieurs vidéos (ou sessions) ici", color = Palette.textMuted, style = MaterialTheme.typography.bodyMedium)
+                    Text(tr("ui.source.dropHint"), color = Palette.textMuted, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = actions::chooseSource, enabled = state.job == null && state.config is ConfigStatus.Ready) {
-                        Text("Choisir des vidéos…")
+                        Text(tr("ui.source.choose"))
                     }
                 }
             }
         } else if (state.sources.size > 1) {
             SourceList(state, actions)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = actions::addSources, enabled = state.job == null) { Text("Ajouter") }
-                OutlinedButton(onClick = actions::chooseSource, enabled = state.job == null) { Text("Changer") }
+                OutlinedButton(onClick = actions::addSources, enabled = state.job == null) { Text(tr("ui.source.add")) }
+                OutlinedButton(onClick = actions::chooseSource, enabled = state.job == null) { Text(tr("ui.source.change")) }
             }
         } else {
             val media = source.media
@@ -123,28 +126,28 @@ fun SourceSection(state: UiState, actions: UiActions) {
                     val video = media.video
                     val line = listOfNotNull(
                         video?.let { "${it.width}x${it.height} (${aspectLabel(it.width, it.height)})" },
-                        video?.let { "${it.fps.toInt()} fps" },
+                        video?.let { tr("ui.source.fps", "fps" to it.fps.toInt()) },
                         media.duration.toTimecode().substringBefore('.'),
                         formatBytes(media.sizeBytes),
                         AudioTracks.of(media.audio).shortLabel(),
                     ).joinToString(" · ")
                     Text(line, style = MaterialTheme.typography.bodySmall)
                     if (source.alreadyAnalyzed && state.session == null) {
-                        Text("Déjà analysée : l'analyse sera reprise sans recalcul.", style = MaterialTheme.typography.bodySmall, color = Palette.success)
+                        Text(tr("ui.source.alreadyAnalyzed"), style = MaterialTheme.typography.bodySmall, color = Palette.success)
                     }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = actions::chooseSource, enabled = state.job == null) { Text("Changer de vidéo") }
-                OutlinedButton(onClick = actions::addSources, enabled = state.job == null) { Text("Ajouter des vidéos") }
+                OutlinedButton(onClick = actions::chooseSource, enabled = state.job == null) { Text(tr("ui.source.changeVideo")) }
+                OutlinedButton(onClick = actions::addSources, enabled = state.job == null) { Text(tr("ui.source.addVideos")) }
             }
         }
         Row {
             if (state.source != null) {
-                TextButton(onClick = actions::showLibrary, enabled = state.job == null) { Text("Analyses enregistrées") }
+                TextButton(onClick = actions::showLibrary, enabled = state.job == null) { Text(tr("ui.library.title")) }
             }
             TextButton(onClick = actions::chooseSession, enabled = state.job == null && state.config is ConfigStatus.Ready) {
-                Text("Ouvrir un fichier de session…")
+                Text(tr("ui.source.openSession"))
             }
         }
     }
@@ -164,19 +167,19 @@ private fun SourceList(state: UiState, actions: UiActions) {
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
                         Text(source.path.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val recorded = source.media.recordedAt?.let { RECORDED.format(it.atZone(ZoneId.systemDefault())) }
+                        val recorded = source.media.recordedAt?.let { I18n.date(it.atZone(ZoneId.systemDefault()), "format.dateTime.short") }
                         Text(
                             listOfNotNull(recorded, source.media.duration.toTimecode().substringBefore('.')).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = Palette.textMuted,
                         )
                     }
-                    TextButton(onClick = { actions.removeSource(source.path) }, enabled = state.job == null) { Text("Retirer") }
+                    TextButton(onClick = { actions.removeSource(source.path) }, enabled = state.job == null) { Text(tr("ui.source.remove")) }
                 }
             }
             val total = state.sources.fold(Duration.ZERO) { acc, s -> acc + s.media.duration }
             Text(
-                "${total.toTimecode().substringBefore('.')} au total · rangées par date d'enregistrement",
+                tr("ui.source.total", "duration" to total.toTimecode().substringBefore('.')),
                 style = MaterialTheme.typography.bodySmall,
                 color = Palette.textMuted,
                 modifier = Modifier.padding(top = 4.dp),
@@ -185,43 +188,42 @@ private fun SourceList(state: UiState, actions: UiActions) {
     }
 }
 
-private val RECORDED: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM HH:mm", Locale.FRENCH)
 
 @Composable
 fun SettingsSection(state: UiState, actions: UiActions) {
     val settings = state.settings
     val profiles = (state.config as? ConfigStatus.Ready)?.profiles.orEmpty()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionTitle("Réglages")
+        SectionTitle(tr("ui.settings.title"))
 
         // Profil
-        Text("Profil de jeu", style = MaterialTheme.typography.labelLarge)
+        Text(tr("ui.settings.profile"), style = MaterialTheme.typography.labelLarge)
         Row(verticalAlignment = Alignment.CenterVertically) {
             var expanded by remember { mutableStateOf(false) }
-            val detected = state.source?.detectedProfileId?.let { id -> profiles.firstOrNull { it.id == id }?.displayName ?: id }
-            val label = settings.profileId?.let { id -> profiles.firstOrNull { it.id == id }?.displayName ?: id }
-                ?: ("Automatique" + (detected?.let { " ($it)" } ?: ""))
+            val detected = state.source?.detectedProfileId?.let { id -> profiles.firstOrNull { it.id == id }?.name ?: id }
+            val label = settings.profileId?.let { id -> profiles.firstOrNull { it.id == id }?.name ?: id }
+                ?: (detected?.let { tr("ui.settings.profileAutoDetected", "profile" to it) } ?: tr("ui.settings.profileAuto"))
             Box(Modifier.weight(1f)) {
                 OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), enabled = profiles.isNotEmpty()) {
                     Text(label, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("▾")
                 }
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    DropdownMenuItem(text = { Text("Automatique (d'après le dossier)") }, onClick = { expanded = false; actions.setProfile(null) })
+                    DropdownMenuItem(text = { Text(tr("ui.settings.profileAutoMenu")) }, onClick = { expanded = false; actions.setProfile(null) })
                     profiles.forEach { p ->
-                        DropdownMenuItem(text = { Text(p.displayName) }, onClick = { expanded = false; actions.setProfile(p.id) })
+                        DropdownMenuItem(text = { Text(p.name) }, onClick = { expanded = false; actions.setProfile(p.id) })
                     }
                 }
             }
-            TextButton(onClick = actions::editProfile, enabled = state.config is ConfigStatus.Ready && state.source != null) { Text("Éditer") }
+            TextButton(onClick = actions::editProfile, enabled = state.config is ConfigStatus.Ready && state.source != null) { Text(tr("ui.settings.edit")) }
         }
         if (state.session?.profileChanged == true) {
-            Text("Profil modifié : relance l'analyse pour l'appliquer.", style = MaterialTheme.typography.bodySmall, color = Palette.accent)
+            Text(tr("ui.settings.profileChanged"), style = MaterialTheme.typography.bodySmall, color = Palette.accent)
         }
 
         // Formats
         Spacer(Modifier.height(2.dp))
-        Text("Formats de sortie", style = MaterialTheme.typography.labelLarge)
+        Text(tr("ui.settings.formats"), style = MaterialTheme.typography.labelLarge)
         PlatformPicker(state.platforms, settings.platform, actions::setPlatform)
         // Une plateforme impose son format : les cases ne comptent plus tant qu'elle est choisie.
         val chosen = state.platforms.firstOrNull { it.id == settings.platform }
@@ -246,10 +248,10 @@ fun SettingsSection(state: UiState, actions: UiActions) {
 
         // Style
         Spacer(Modifier.height(2.dp))
-        Text("Style du montage", style = MaterialTheme.typography.labelLarge)
+        Text(tr("ui.settings.style"), style = MaterialTheme.typography.labelLarge)
         listOf(
-            EditStyle.STORY to "Façon YouTube : temps morts coupés, accroche, effets",
-            EditStyle.SIMPLE to "Moments bout à bout",
+            EditStyle.STORY to tr("ui.settings.styleStory"),
+            EditStyle.SIMPLE to tr("ui.settings.styleSimple"),
         ).forEach { (style, label) ->
             Row(Modifier.fillMaxWidth().clickable { actions.setStyle(style) }, verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = settings.style == style, onClick = { actions.setStyle(style) })
@@ -259,8 +261,8 @@ fun SettingsSection(state: UiState, actions: UiActions) {
 
         // Cible
         Spacer(Modifier.height(2.dp))
-        Text("Moments à garder", style = MaterialTheme.typography.labelLarge)
-        listOf(MomentMode.BEST to "Les meilleurs moments", MomentMode.KILLS to "Tous les kills").forEach { (mode, label) ->
+        Text(tr("ui.settings.moments"), style = MaterialTheme.typography.labelLarge)
+        listOf(MomentMode.BEST to tr("ui.settings.momentsBest"), MomentMode.KILLS to tr("ui.settings.momentsKills")).forEach { (mode, label) ->
             Row(Modifier.fillMaxWidth().clickable { actions.setMomentMode(mode) }, verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = settings.momentMode == mode, onClick = { actions.setMomentMode(mode) })
                 Text(label)
@@ -270,10 +272,10 @@ fun SettingsSection(state: UiState, actions: UiActions) {
             val counts = session.eventCounts
             Text(
                 when {
-                    counts.isEmpty() && session.multiple -> "Aucun événement détecté dans ces parties."
-                    counts.isEmpty() -> "Aucun événement détecté dans cette partie."
-                    session.multiple -> "Dans les ${session.entries.size} parties : ${eventsLabel(counts)}"
-                    else -> "Dans la partie : ${eventsLabel(counts)}"
+                    counts.isEmpty() && session.multiple -> tr("ui.settings.noEventsMany")
+                    counts.isEmpty() -> tr("ui.settings.noEvents")
+                    session.multiple -> tr("ui.settings.eventsMany", "count" to session.entries.size, "events" to eventsLabel(counts))
+                    else -> tr("ui.settings.events", "events" to eventsLabel(counts))
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = Palette.textMuted,
@@ -281,42 +283,42 @@ fun SettingsSection(state: UiState, actions: UiActions) {
         }
 
         Spacer(Modifier.height(2.dp))
-        Text("Longueur du montage", style = MaterialTheme.typography.labelLarge)
+        Text(tr("ui.settings.length"), style = MaterialTheme.typography.labelLarge)
         Row(verticalAlignment = Alignment.CenterVertically) {
             RadioButton(selected = settings.targetMode == TargetMode.DURATION, onClick = { actions.setTargetMode(TargetMode.DURATION) })
-            Text("Durée cible", Modifier.width(130.dp).clickable { actions.setTargetMode(TargetMode.DURATION) })
+            Text(tr("ui.settings.targetDuration"), Modifier.width(150.dp).clickable { actions.setTargetMode(TargetMode.DURATION) })
             OutlinedTextField(
                 value = settings.durationText,
                 onValueChange = actions::setDurationText,
                 singleLine = true,
                 enabled = settings.targetMode == TargetMode.DURATION,
                 isError = settings.targetMode == TargetMode.DURATION && settings.targetDuration == null,
-                placeholder = { Text("60s, 5m") },
-                modifier = Modifier.width(120.dp),
+                placeholder = { Text(tr("ui.settings.durationExample")) },
+                modifier = Modifier.width(110.dp),
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             RadioButton(selected = settings.targetMode == TargetMode.TOP_N, onClick = { actions.setTargetMode(TargetMode.TOP_N) })
-            Text("Meilleurs moments", Modifier.width(130.dp).clickable { actions.setTargetMode(TargetMode.TOP_N) })
+            Text(tr("ui.settings.topN"), Modifier.width(150.dp).clickable { actions.setTargetMode(TargetMode.TOP_N) })
             OutlinedTextField(
                 value = settings.topNText,
                 onValueChange = actions::setTopNText,
                 singleLine = true,
                 enabled = settings.targetMode == TargetMode.TOP_N,
                 isError = settings.targetMode == TargetMode.TOP_N && settings.topN == null,
-                modifier = Modifier.width(120.dp),
+                modifier = Modifier.width(110.dp),
             )
         }
         Row(Modifier.fillMaxWidth().clickable { actions.setTargetMode(TargetMode.ALL) }, verticalAlignment = Alignment.CenterVertically) {
             RadioButton(selected = settings.targetMode == TargetMode.ALL, onClick = { actions.setTargetMode(TargetMode.ALL) })
-            Text("Tout garder (sans limite)")
+            Text(tr("ui.settings.keepAll"))
         }
 
         // Seuil
         Spacer(Modifier.height(2.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Seuil de score", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-            Text("%.2f".format(settings.threshold), fontWeight = FontWeight.SemiBold, color = Palette.accent)
+            Text(tr("ui.settings.threshold"), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+            Text(I18n.fixed(settings.threshold, 2), fontWeight = FontWeight.SemiBold, color = Palette.accent)
         }
         Slider(
             value = settings.threshold.toFloat(),
@@ -325,9 +327,9 @@ fun SettingsSection(state: UiState, actions: UiActions) {
         )
         Text(
             when {
-                settings.momentMode == MomentMode.KILLS -> "Ignoré en mode « Tous les kills »."
-                state.session != null -> "Moments, seuil et longueur s'appliquent tout de suite, sans réanalyser."
-                else -> "Plus bas = plus de moments retenus."
+                settings.momentMode == MomentMode.KILLS -> tr("ui.settings.thresholdIgnored")
+                state.session != null -> tr("ui.settings.thresholdLive")
+                else -> tr("ui.settings.thresholdHint")
             },
             style = MaterialTheme.typography.bodySmall,
             color = Palette.textMuted,
@@ -335,7 +337,7 @@ fun SettingsSection(state: UiState, actions: UiActions) {
 
         // Sortie
         Spacer(Modifier.height(2.dp))
-        Text("Dossier de sortie", style = MaterialTheme.typography.labelLarge)
+        Text(tr("ui.settings.outputDir"), style = MaterialTheme.typography.labelLarge)
         Text(
             settings.outputDir?.toString() ?: "—",
             style = MaterialTheme.typography.bodySmall,
@@ -344,13 +346,13 @@ fun SettingsSection(state: UiState, actions: UiActions) {
             overflow = TextOverflow.Ellipsis,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = actions::chooseOutputDir) { Text("Changer…") }
-            TextButton(onClick = actions::openOutputDir) { Text("Ouvrir") }
+            OutlinedButton(onClick = actions::chooseOutputDir) { Text(tr("ui.common.changeEllipsis")) }
+            TextButton(onClick = actions::openOutputDir) { Text(tr("ui.common.open")) }
         }
 
         Spacer(Modifier.height(6.dp))
         Button(onClick = actions::analyze, enabled = state.canAnalyze, modifier = Modifier.fillMaxWidth().height(44.dp)) {
-            Text(if (state.session == null) "Analyser" else "Réanalyser", style = MaterialTheme.typography.titleMedium)
+            Text(if (state.session == null) tr("ui.settings.analyze") else tr("ui.settings.reanalyze"), style = MaterialTheme.typography.titleMedium)
         }
     }
 }
@@ -367,16 +369,16 @@ internal fun PlatformPicker(platforms: List<PlatformInfo>, selected: String?, on
         Box(Modifier.fillMaxWidth()) {
             var expanded by remember { mutableStateOf(false) }
             OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Plateforme : " + (chosen?.name ?: "aucune (formats cochés)"), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(chosen?.let { tr("ui.platform.selected", "platform" to it.name) } ?: tr("ui.platform.none"), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("▾")
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                DropdownMenuItem(text = { Text("Aucune : les formats cochés") }, onClick = { expanded = false; onSelect(null) })
+                DropdownMenuItem(text = { Text(tr("ui.platform.noneMenu")) }, onClick = { expanded = false; onSelect(null) })
                 platforms.forEach { p ->
                     DropdownMenuItem(text = { Text(p.name) }, onClick = { expanded = false; onSelect(p.id) })
                 }
             }
         }
-        chosen?.let { Text(it.summary, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted) }
+        chosen?.let { Text(it.summary(), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted) }
     }
 }

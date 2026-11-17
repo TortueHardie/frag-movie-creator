@@ -1,5 +1,6 @@
 package dev.highlights.editing
 
+import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.model.ClipOrder
 import dev.highlights.core.model.EditSettings
@@ -34,7 +35,7 @@ fun interface EditPlanner {
 object DefaultEditPlanner : EditPlanner {
     override fun plan(sessions: List<Session>, settings: EditSettings): EditPlan {
         val enabled = sessions.flatMap { s -> s.highlights.filter { it.enabled }.map { PlannedClip(it, s.media) } }
-        if (enabled.isEmpty()) throw HighlightsException("Aucun segment activé à exporter")
+        if (enabled.isEmpty()) throw HighlightsException(Message("error.export.noSegment"))
 
         // Chronologique : les parties dans l'ordre où elles ont été jouées, puis les moments dans l'ordre de chaque
         // partie. Le montage raconte la soirée telle qu'elle s'est déroulée, quel que soit l'ordre des fichiers.
