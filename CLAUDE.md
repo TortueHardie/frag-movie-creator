@@ -19,6 +19,7 @@ incrustés) passe par les bundles `core/src/main/resources/i18n/messages*.proper
   (FFmpeg requis, vidéos synthétiques générées par `ffmpeg/src/testFixtures/.../TestMedia.kt`). Un module : `:montage:test`.
 - CLI : `.\gradlew.bat :app-cli:installDist` → `app-cli\build\install\app\bin\app.bat` ; ou `:app-cli:run --args="..."`.
 - UI dev : `.\gradlew.bat :app-ui:run` (lit `config/` du projet via `-Dhighlights.config`).
+  Piloter l'app sans souris ni computer-use : `:app-ui:run -Pbridge` + skill `.claude/skills/drive-app` (curl sur le pont, voir §4 app-ui `bridge/`).
 - Installeur : `:app-ui:packageMsi`, `:app-ui:portableZip` (WiX 3 ; FFmpeg téléchargé si absent).
 - Version : `highlights.version` dans `gradle.properties` ; release = tag `v<version>` → `.github/workflows/installeur.yml`
   (+ `installeur-verif.yml` : cycle install/maj/réinstall/désinstall). `upgradeUuid` (app-ui/build.gradle.kts) ne change JAMAIS.
@@ -277,6 +278,12 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `Platform.kt` (`DesktopPlatform` : FileDialog/JFileChooser, open/reveal/edit), `Installation.kt`, prefs : `WatchPrefs.kt` (`~/.highlights/watch.json`), `MusicPrefs.kt` (`~/.highlights/music.json` : fromStart par musique, dossier `library` + `useLibrary` ; ajouter un Path à un Set avec `plusElement`, un Path est itérable).
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).
+- Pont de pilotage (dev seulement) `bridge/` : `ControlBridge` (HttpServer 127.0.0.1, port+jeton dans `~/.highlights/control-bridge.json` ; `enabled` = `-Dhighlights.bridge=true`
+  posée par `:app-ui:run -Pbridge` ET pas de `jpackage.app-path` ; routes /state /actions /action /wait /windows /screenshot /tree /click /scroll /type /key /logs),
+  `BridgeJson` (UiState → JSON par kotlin-reflect, args JSON → paramètres, `update*` = champs à changer via `copy`), `BridgePlatform` (dialogues de fichiers
+  répondus par `paths`, open/reveal/browse notés pendant une action pilotée), `BridgeWindows` (capture `SkiaLayer.screenshot`, arbre d'accessibilité AWT de Compose,
+  événements AWT `dispatchEvent`, jamais Robot). Branché dans `Main.kt` (`ControlBridge.platform` + `startIfEnabled`), sans toucher aux composables.
+  Garde-fou de construction : `createDistributable` vérifie que `Highlights.cfg` ne pose pas `highlights.bridge`. Test : `ControlBridgeTest`.
 - Tests : `UiStateTest`, `InstallationTest`, `UiSnapshotTest` (rendu composables en fr, `en/`, `long/` = pseudo-langue, puis `<tag>/` pour chaque autre langue livrée), `HardcodedTextTest`
   (texte d'interface en dur, exceptions métier en texte brut), `AppControllerIT` (parcours complet, FFmpeg requis).
 

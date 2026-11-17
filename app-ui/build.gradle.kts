@@ -11,6 +11,8 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.coroutines.swing)
     implementation(libs.logback)
+    // Pont de pilotage (bridge/) : état et actions de l'interface lus par réflexion.
+    implementation(libs.kotlin.reflect)
 
     // Détecteurs chargés par ServiceLoader.
     runtimeOnly(project(":analysis"))
@@ -146,7 +148,27 @@ val portableZip by tasks.registering(Zip::class) {
 // En développement (gradlew run), l'application lit directement la config du projet : les profils modifiés dans
 // config/ s'appliquent sans reconstruire.
 tasks.withType<JavaExec>().configureEach {
-    if (name == "run") systemProperty("highlights.config", rootProject.file("config/app.yaml").absolutePath)
+    if (name == "run") {
+        systemProperty("highlights.config", rootProject.file("config/app.yaml").absolutePath)
+        // Pont de pilotage pour le développement (gradlew :app-ui:run -Pbridge) : jamais ailleurs que dans `run`.
+        if (project.hasProperty("bridge")) systemProperty("highlights.bridge", "true")
+    }
+}
+
+/**
+ * L'application installée ne doit jamais démarrer le pont de pilotage : le lanceur produit (Highlights.cfg) ne doit pas
+ * poser highlights.bridge. (Le pont refuse aussi de démarrer sous un lanceur jpackage, voir ControlBridge.enabled.)
+ */
+fun checkNoBridge(cfgFiles: Collection<File>) {
+    check(cfgFiles.isNotEmpty()) { "Lanceur de l'application introuvable : vérification du pont de pilotage impossible" }
+    for (cfg in cfgFiles) {
+        check("highlights.bridge" !in cfg.readText()) { "${cfg.name} active le pont de pilotage : interdit dans l'application livrée" }
+    }
+}
+
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    val appDir = layout.buildDirectory.dir("compose/binaries/main/app")
+    doLast { checkNoBridge(appDir.get().asFile.walkTopDown().filter { it.extension == "cfg" }.toList()) }
 }
 
 compose.desktop {
@@ -156,6 +178,7 @@ compose.desktop {
             "-Dkotlin-logging.logStartupMessage=false",
             "-Dfile.encoding=UTF-8",
         )
+        check(jvmArgs.none { "highlights.bridge" in it }) { "Le pont de pilotage ne doit pas être activé dans l'application livrée" }
         nativeDistributions {
             targetFormats(TargetFormat.Msi)
             packageName = "Highlights"

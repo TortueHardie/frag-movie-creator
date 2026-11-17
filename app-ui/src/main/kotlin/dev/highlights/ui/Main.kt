@@ -10,6 +10,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import dev.highlights.ui.bridge.ControlBridge
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +28,13 @@ fun main() {
     application {
         val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
         var windowRef: java.awt.Frame? = null
-        val controller = remember { AppController(scope, DesktopPlatform { windowRef }, updater = GitHubUpdater()) }
+        // Pont de pilotage (développement seulement, -Dhighlights.bridge=true) : voir ControlBridge.
+        val platform = remember { ControlBridge.platform(DesktopPlatform { windowRef }) }
+        val controller = remember { AppController(scope, platform, updater = GitHubUpdater()) }
+        DisposableEffect(controller) {
+            val bridge = ControlBridge.startIfEnabled(controller.state, controller, platform)
+            onDispose { bridge?.close() }
+        }
         val state by controller.state.collectAsState()
         val quit = {
             controller.shutdown()
