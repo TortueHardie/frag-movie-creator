@@ -37,6 +37,9 @@ import dev.highlights.core.session.SessionStore
 import dev.highlights.core.serialization.toTimecode
 import dev.highlights.core.video.FrameSampler
 import dev.highlights.export.OutputNamer
+import dev.highlights.export.RecapCard
+import dev.highlights.export.RecapPart
+import dev.highlights.export.RecapRenderer
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
@@ -604,6 +607,56 @@ class HighlightPipeline(
                 ),
                 progress,
             )
+        }
+    }
+
+    /**
+     * Récap d'une soirée, partie par partie : pour chaque partie (dans l'ordre joué), un intercalaire « Partie 3 – 14
+     * kills » puis ses meilleurs moments, rendus par l'export habituel ; un écran de fin avec le bilan. Les moments de
+     * chaque partie sont recalculés avec une cible de durée partagée sur la soirée ([reselectAll] : réglages du profil,
+     * moments retouchés à la main gardés). Une partie sans moment n'a pas d'intercalaire mais garde son numéro.
+     */
+    suspend fun eveningRecap(evening: Evening, options: RecapOptions, progress: ProgressReporter): ExportResult {
+        val loaded = evening.sessionFiles.mapIndexed { i, f -> i to SessionStore.load(f) }.filter { (_, s) -> s.media.path.isRegularFile() }
+        if (loaded.isEmpty()) throw InputException(Message("error.recap.capturesMissing"))
+        val selected = reselectAll(loaded.map { it.second }, null, null)
+        val games = loaded.map { it.first }.zip(selected).filter { (_, s) -> s.highlights.any { it.enabled } }
+        if (games.isEmpty()) throw InputException(Message("error.recap.noMoments"))
+        val profile = profiles.byId(games.first().second.profileId)
+        val platform = platform(options.platform)
+        val edit = profile.gradedEdit().let { platform?.applyTo(it) ?: it }
+        val formats = platform?.let { listOf(it.format) } ?: options.formats ?: edit.formats
+        val outputDir = options.outputDir ?: config.outputDir
+        return withJobDir { workDir ->
+            // Les moments de chaque partie, rendus comme un export ordinaire (mêmes transitions, même style).
+            val exports = games.mapIndexed { k, (_, session) ->
+                export(listOf(session), ExportOptions(formats, workDir.resolve("part$k"), options.style, platform = options.platform), progress.child(session.media.path.fileName.toString(), 0.7 / games.size))
+            }
+            fun best(session: Session) = session.highlights.filter { it.enabled }.maxBy { it.score }.peak
+            val parts = { format: OutputFormat ->
+                games.mapIndexed { k, (index, session) ->
+                    val stats = evening.games.getOrNull(index)
+                    val title = RecapText.gameTitle(index + 1, stats?.kills ?: 0)
+                    val subtitle = stats?.let(RecapText::gameSubtitle) ?: profile.name
+                    RecapPart(RecapCard(title, subtitle, session.media.path, best(session), RecapRenderer.CARD), exports[k].videos.getValue(format))
+                }
+            }
+            val last = games.maxBy { (_, s) -> s.highlights.filter { it.enabled }.maxOf { it.score } }.second
+            val end = RecapCard(RecapText.endTitle(evening), RecapText.endSubtitle(evening), last.media.path, best(last), RecapRenderer.END_CARD)
+            val names = OutputNamer.reserve(outputDir, profile.id, evening.date, formats, kind = "recap")
+            val renderer = RecapRenderer(ffmpeg, exporter.encoders)
+            var duration = kotlin.time.Duration.ZERO
+            formats.forEach { format ->
+                duration = renderer.render(
+                    parts(format), end, names.videos.getValue(format), workDir, edit.story.captions.font, edit.safeArea, edit.maxBitrate,
+                    config.app.encoder.audioBitrate, progress.child(tr("progress.render"), 0.3 / formats.size),
+                )
+            }
+            val report = RecapReport(evening.date.toString(), profile.id, evening.kills, games.map { (index, s) ->
+                RecapReport.Game(index + 1, s.media.path.toString(), evening.games.getOrNull(index)?.kills ?: 0, s.highlights.count { it.enabled })
+            }, names.videos.values.map { it.toString() })
+            java.nio.file.Files.writeString(names.report, SessionStore.json.encodeToString(RecapReport.serializer(), report))
+            ExportResult(names.videos, names.report, duration, exporter.encoders.select().name)
         }
     }
 

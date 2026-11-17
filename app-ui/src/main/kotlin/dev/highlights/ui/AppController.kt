@@ -161,6 +161,8 @@ interface UiActions {
     fun setStatsGame(game: String)
     /** Réanalyse les parties analysées avec d'anciens réglages de détection, puis rouvre les statistiques. */
     fun refreshOutdated()
+    /** Récap d'une soirée ([date] AAAA-MM-JJ, jeu [profileId]) : intercalaire par partie, moments, bilan ; dans la file. */
+    fun recapEvening(date: String, profileId: String) {}
 
     /** Ferme l'analyse ouverte (elle reste enregistrée) et revient à la liste des analyses. */
     fun showLibrary()
@@ -1178,6 +1180,22 @@ class AppController(
                 showStats()
                 _state.update { s -> s.copy(stats = s.stats?.copy(game = game)) }
                 null
+            }
+        }
+    }
+
+    override fun recapEvening(date: String, profileId: String) {
+        val p = backend?.pipeline ?: return
+        val s = state.value
+        val title = tr("ui.job.recap", "date" to I18n.date(java.time.LocalDate.parse(date), "format.date.dayMonth"))
+        withMemory(title, MEMORY_EXPORT) {
+            enqueue(title) { progress ->
+                val evening = p.evenings().firstOrNull { it.date.toString() == date && it.profileId == profileId }
+                    ?: throw dev.highlights.core.InputException(dev.highlights.core.i18n.Message("error.recap.noMoments"))
+                val options = dev.highlights.pipeline.RecapOptions(OutputFormat.entries.filter { it in s.settings.formats }, s.settings.style, s.settings.platform, s.settings.outputDir)
+                val result = p.eveningRecap(evening, options, progress)
+                _state.update { it.copy(lastExport = result, lastUpload = null) }
+                result.videos.values.firstOrNull()
             }
         }
     }
