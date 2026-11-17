@@ -26,6 +26,16 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
   depuis 15 s), puis apparaît dans la liste marquée « nouveau » ; l'export reste à lancer soi-même. Les captures déjà
   présentes quand le dossier est choisi ne sont pas analysées d'office, celles arrivées pendant que l'application était
   fermée le sont à la relance. Le dossier est retenu d'un lancement à l'autre (`~/.highlights/watch.json`).
+- **Montage de la soirée, sans clic** (case « Monter chaque soirée finie » de la carte du dossier surveillé, désactivée
+  par défaut) : quand la soirée est finie (aucune nouvelle partie depuis 1 h, réglable, et rien en cours
+  d'enregistrement ni d'analyse), un montage kills de toutes ses parties se fait seul : soirée découpée comme les
+  statistiques (de 6 h à 6 h, un jeu à la fois), musique choisie dans le dossier de musiques du dialogue du montage,
+  formats et plateforme des réglages. Une notification Windows le dit (« Soirée du 16/11 : 47 kills, montage prêt »),
+  un clic ouvre la vidéo. Rien n'est monté ni notifié sous 5 kills (réglable). Seules les soirées d'une capture arrivée
+  dans le dossier surveillé pendant que l'option est active comptent (l'activer ne remonte pas l'historique), et une
+  soirée n'est jamais remontée d'office (`output/sessions/evening-montages.json`). Seulement quand l'application est
+  ouverte : ni service ni tâche planifiée. `app soiree [--date AAAA-MM-JJ] [--game wardogs] --music <musique ou
+  dossier>` monte une soirée analysée à la demande, `app soiree --list` liste les soirées et celles déjà montées.
 
 ## Installer l'application (Windows)
 

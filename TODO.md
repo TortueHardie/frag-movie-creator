@@ -191,7 +191,7 @@ Pistes, de la plus simple à la plus lourde :
 
 ## Flux de travail
 - [ ] File d'attente de jobs (aujourd'hui un seul job à la fois via `runTask`).
-- [ ] Dossier surveillé : enchaîner l'export automatiquement après l'analyse.
+- [x] Dossier surveillé : monter seul chaque soirée finie, notifier (case « Monter chaque soirée finie », `app soiree`).
 - [ ] Préréglages d'export (« TikTok », « YouTube court », « complet »).
 
 ## Qualité de détection

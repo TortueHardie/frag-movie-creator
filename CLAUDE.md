@@ -256,7 +256,10 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `Pipelines.kt` : câblage manuel (pas de DI) `Pipelines.ffmpeg(config)`, `Pipelines.create(config)`.
 - `ConfigLocator.locate` : explicite > env `HIGHLIGHTS_CONFIG` > prop `highlights.config` > `./config/app.yaml` > `<install>/config/app.yaml`.
 - `AnalysisLibrary.kt` : index `outputDir/sessions/library.json` (`LibraryEntry`), `find/contains/record/entries/forget` (oublie : entrée + `*.session.json`, jamais une capture), `fingerprint`, `stamp`, `ANALYSIS_VERSION`.
-- `FolderWatcher.kt` : `poll(isKnown)` → fichiers stables depuis `settle`.
+- `FolderWatcher.kt` : `poll(isKnown)` → fichiers stables depuis `settle` ; `writing()` (une capture s'écrit encore : soirée pas finie).
+- `Evenings.kt` (montage de soirée) : `Evening(date, game, profileId, sessionFiles, sources, kills, end)`, `EveningPlanner.of(GameStats)` (= `Statistics.evenings`),
+  `due(evenings, done, now, quiet, minKills, eligible, busy)`, `nextCheck` ; `EveningHistory` (`outputDir/sessions/evening-montages.json`, `done/record`, échecs retenus aussi).
+  `HighlightPipeline.evenings()`, `eveningMontage(evening, music, options, progress)` (= `killMontage` des sessions, puis `eveningHistory.record`), `eveningHistory`.
 - `YouTubePublisher.kt` : `HighlightPipeline.youtube(browse)` → `apiEnabled` (`publish.youtube.api`, false par défaut : envoi manuel, `UPLOAD_PAGE`), `configured` (app.yaml `publish.youtube` ou `client_secret*.json` déposé dans le dossier de config), `connected`,
   `facts(video)` (probe + rapport JSON du même dossier qui liste la vidéo dans `outputs`), `suggest`, `login/logout`, `upload` ; jeton `~/.highlights/youtube-token.json`.
 - `Statistics.kt` : `GameStats` (kills, deaths?, headshots?, multiKills, aces, clutches, bestRound?, rounds? ; kd, headshotRate), `EveningStats` (date, game, games ; taux sur les parties où c'est connu),
@@ -276,7 +279,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
 - `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
   `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --plan --exclude --force --drop --pin --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --out`.
-  `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
+  `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `EveningCommand.kt` : `soiree [--date --game --music --list -f --platform -o]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;
   `music` : `--max --clips` ; `preview` : `--at`.
 - Logs : `~/.highlights/logs/highlights.log` (logback.xml).
@@ -297,6 +300,10 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   `MontagePlanEntry` (une ligne dans `MontageDialog`), `MontagePlanWindow` (fenêtre à part, ouverte depuis App.kt quand `montage.plan` != null), `MontagePlanContent`) ;
   `MontageUiState.constraints/plan` ; actions `openMontagePlan/closeMontagePlan/replanMontage/editMontageKill(kills, KillEdit)/resetMontagePlan`
   (`AppController.montageOptions` : mêmes options pour la frise et le rendu) ; test `MontageTimelineTest` (captures `build/ui-snapshots/montage_plan*.png`).
+- Montage des soirées : `WatchPrefs.evenings: EveningAuto(enabled=false, delay 60 min, minKills 5, arrived)` ; `WatchState.evenings/eveningDelayText/montaging/montageFraction/lastEvening/eveningProblem` ;
+  `AppController.checkEvenings` (appelé par la boucle du dossier surveillé, relit la bibliothèque seulement à `eveningCheckAt`) → `montageEvening` (musique = `MusicPrefs.library`,
+  formats/plateforme des réglages) → `Platform.notify` (DesktopPlatform : `TrayIcon.displayMessage`, clic = ouvre la vidéo) ; `EveningView.kt` (`EveningAutoSection`, une ligne dans `WatchCard`) ;
+  actions `setEveningMontage/setEveningDelay/setEveningMinKills/openLastEvening` ; `AppController(clock)`.
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).
 - Pont de pilotage (dev seulement) `bridge/` : `ControlBridge` (HttpServer 127.0.0.1, port+jeton dans `~/.highlights/control-bridge.json` ; `enabled` = `-Dhighlights.bridge=true`
