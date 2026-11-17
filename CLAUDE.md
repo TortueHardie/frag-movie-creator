@@ -82,7 +82,7 @@ puis `killMontage` avec `MontageOptions.pick` (`VariantPick`) rend la variante n
 `app-ui/Main.kt main()` → `Installation.setup()` (FFmpeg livré → prop `highlights.ffmpeg.dir` ; recopie config livrée vers
 `%APPDATA%\Highlights\config` via manifeste SHA-256 sans écraser les fichiers modifiés) → `AppController` (implémente
 `UiActions`, expose `StateFlow<UiState>`) → composables purs (`App`, `SidePanel`, `SessionViews`, `LibraryView`, `Dialogs`).
-Un seul job long à la fois (`runTask`). Sauvegarde session différée (`scheduleSave`). Dossier surveillé :
+Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soirée) dans une file (`JobQueue`, un à la fois) ; `runTask` ne garde que les tâches immédiates (lecture, ouverture, envoi YouTube). Sauvegarde session différée (`scheduleSave`). Dossier surveillé :
 `FolderWatcher.poll` toutes les 5 s, fichier stable 15 s → `analyzeInBackground`.
 
 ## 4. Index par fichier (main)
@@ -338,6 +338,10 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   `AppController.checkEvenings` (appelé par la boucle du dossier surveillé, relit la bibliothèque seulement à `eveningCheckAt`) → `montageEvening` (musique = `MusicPrefs.library`,
   formats/plateforme des réglages) → `Platform.notify` (DesktopPlatform : `TrayIcon.displayMessage`, clic = ouvre la vidéo) ; `EveningView.kt` (`EveningAutoSection`, une ligne dans `WatchCard`) ;
   actions `setEveningMontage/setEveningDelay/setEveningMinKills/setEveningStyle/openLastEvening` (`EveningAuto.style`, `WatchState.eveningStyles`) ; `AppController(clock)`.
+- File des traitements : `JobQueue.kt` (`QueuedJob(id, title, blocking, status JobStatus, fraction…, result, error, details)`, `submit/cancel/move/clearFinished/cancelAll`, un à la fois,
+  échec sans bloquer la suite) ; `AppController.enqueue` (bloquant : analyse, réanalyse → `UiState.job` avec `queueId`, l'écran attend ; sinon libre), `describeFailure`,
+  `watchJobs`/`queuedEvenings` (dossier surveillé, soirées) ; `UiState.jobs`, `quitConfirm` ; `JobsView.kt` (`JobsCard`, `QuitDialog`) ; actions `cancelQueuedJob/moveQueuedJob/openJobResult/showJobError/clearFinishedJobs/confirmQuit/cancelQuit`,
+  `requestQuit()` (Main) ; tests `JobQueueTest`, capture `16_file_des_traitements`.
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).
 - Pont de pilotage (dev seulement) `bridge/` : `ControlBridge` (HttpServer 127.0.0.1, port+jeton dans `~/.highlights/control-bridge.json` ; `enabled` = `-Dhighlights.bridge=true`
