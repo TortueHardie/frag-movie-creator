@@ -119,6 +119,16 @@ class MontageVariantsIT : FunSpec({
         }
         MontageChoiceRecord.fileFor(result.report).exists() shouldBe true
 
+        // Partie à deux kills : l'avertissement « peu de kills » vient une fois pour tout le lot d'aperçus (pas une
+        // par variante), et avec le rendu final.
+        val few = session.copy(timeline = session.timeline.copy(events = session.timeline.events.take(2)))
+        val fewPreviews = pipeline.montagePreviews(listOf(few), music, options, 3, ProgressReporter.NONE)
+        fewPreviews.notices.map { it.key } shouldBe listOf("notice.montage.fewKills")
+        fewPreviews.previews.forEach { p -> json.decodeFromString(MontageReport.serializer(), p.report.readText()).notices shouldBe emptyList() }
+        val fewResult = pipeline.killMontage(listOf(few), music, options, ProgressReporter.NONE)
+        fewResult.notices.map { it.key } shouldBe listOf("notice.montage.fewKills")
+        json.decodeFromString(MontageReport.serializer(), fewResult.report.readText()).notices.map { it.key } shouldBe listOf("notice.montage.fewKills")
+
         // Corrections de l'éditeur de plan : un kill exclu n'apparaît dans aucune variante.
         val excluded = pipeline.planKillMontage(listOf(session), music, options, ProgressReporter.NONE).plan.clips.first { it.kills.isNotEmpty() }.kills.first()
         val constrained = pipeline.montagePreviews(

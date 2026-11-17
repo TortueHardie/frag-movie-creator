@@ -52,6 +52,8 @@ data class MontageExportRequest(
     val platform: String? = null,
     /** Genre de montage, dans le nom des fichiers : killmontage, onetaps. */
     val kind: String = "killmontage",
+    /** Avertissements du montage, repris dans le rapport et le résultat (voir [ExportResult.notices]). */
+    val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
     /**
      * Aperçu ([MontagePreview]) : petite taille, encodage rapide, sans flou par vecteurs ; même calage, image pour image.
      * Un seul format, celui de [MontagePreview.format].
@@ -79,6 +81,8 @@ data class MontageReport(
     val musicCandidates: List<MontageReportMusic> = emptyList(),
     /** Profil (jeu) du montage ; null dans les rapports écrits avant. */
     val profile: String? = null,
+    /** Avertissements du montage (peu de kills trouvés…) ; vide dans les rapports écrits avant. */
+    val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
     /** Empreinte du montage ([MontageVariants.signature]) : la même pour un aperçu et le rendu final de sa variante. */
     val signature: String? = null,
     /** Aperçu basse résolution ([MontagePreview]) plutôt que rendu final. */
@@ -246,6 +250,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             variant = plan.variant.toString(),
             musicCandidates = request.musicChoice,
             profile = request.gameName,
+            notices = request.notices,
             signature = signature,
             preview = request.preview,
             clips = plan.clips.zip(plan.clipOffsets()).mapIndexed { i, (c, offset) ->
@@ -269,7 +274,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             },
         )
         paths.report.writeText(json.encodeToString(MontageReport.serializer(), report))
-        return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file)
+        return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file, notices = request.notices)
     }
 
     /** Souffles du dossier `whip.sounds` ; un dossier absent ou sans son est signalé, les souffles générés le remplacent. */

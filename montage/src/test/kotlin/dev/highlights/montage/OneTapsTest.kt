@@ -85,8 +85,19 @@ class OneTapsTest : FunSpec({
         shouldThrow<InputException> { select(s) }.localizedMessage shouldContain "Réanalysez"
     }
 
-    test("aucun one tap : on le dit") {
-        shouldThrow<InputException> { select(session(listOf(Triple(100.0, 4, true)))) }.localizedMessage shouldContain "Aucun one tap"
+    test("profil sans source de balles : on dit que le jeu ne le permet pas, pas de réanalyser") {
+        val s = session(listOf(Triple(100.0, null, true), Triple(200.0, null, true)))
+        val groups = MontagePlanner.groups(listOf(s), settings)
+        val message = shouldThrow<InputException> { OneTaps.select(groups, listOf(s), settings, countsShots = false) }.localizedMessage
+        message shouldContain "ne permet pas encore de compter les balles"
+        (message.contains("Réanalysez")) shouldBe false
+    }
+
+    test("aucun one tap : on le dit, avec le nombre de kills trouvés") {
+        shouldThrow<InputException> { select(session(listOf(Triple(100.0, 4, true)))) }.localizedMessage shouldBe
+            "Aucun one tap (1 kill trouvé dans ces parties)."
+        shouldThrow<InputException> { select(session(listOf(Triple(100.0, 4, true), Triple(200.0, 3, true)))) }.localizedMessage shouldContain
+            "parmi les 2 kills trouvés"
     }
 
     /** Deux minutes de musique : intro, montée, drop au temps 64. */
