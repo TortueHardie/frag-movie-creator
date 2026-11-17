@@ -198,6 +198,11 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Jeu de vérité terrain versionné (`verite/`, timecodes validés par le joueur) + `app verite` (précision/rappel par
   détecteur, échec sous les seuils), lancé à la main (`gradlew :app-cli:verite`).
 - [ ] Vérité terrain VALORANT (killfeed, compteur de munitions, `kill-confirm`) : aucune capture VALORANT sur le disque.
+- [ ] Valider avec le joueur la vérité provisoire de `verite/wardogs/` (planches dans `output/revue/verite-terrain/`) et y
+  ajouter les morts.
+- [ ] Wardogs `ocr-log` : « AIDE : ÉLIMINATION » lue comme kill (22-55-31 à 38:37, la tête de mort de l'icône l'emporte) ;
+  « UN PASSAGER A SURVÉCU » (poignée de main) lu comme aide (18-23-47 à 15:14) ; aucune mort détectée alors que le
+  journal affiche « EN ATTENTE DE RÉANIMATION » quand le joueur est à terre.
 - [ ] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
 
 ## Entretien
