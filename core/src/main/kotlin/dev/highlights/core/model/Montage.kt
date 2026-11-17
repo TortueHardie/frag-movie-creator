@@ -91,9 +91,16 @@ data class MontageSettings(
      * de mort. Posé par [forFast], dont les plans finissent 0,17 s après le kill.
      */
     val skipDeathWithin: SerialDuration = Duration.ZERO,
+    /**
+     * En dessous de ce nombre de kills trouvés dans les parties, le montage se fait quand même, mais avec un
+     * avertissement : une partie VALORANT de 44 kills en donnait un seul (détection en défaut) et le montage de 2 s
+     * sortait sans un mot. Zéro : jamais d'avertissement.
+     */
+    val minKills: Int = 3,
 ) {
     init {
         require(minScore in 0.0..1.0) { "montage.minScore doit être entre 0 et 1" }
+        require(minKills >= 0) { "montage.minKills ne peut pas être négatif" }
     }
 
     /**

@@ -203,6 +203,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `ExportReport.kt` : rapport JSON des highlights.
 
 ### montage (montage kills)
+- Peu de kills : `MontageSettings.minKills` (3) → `PlannedMontage.fewKills` / `fewKillsNotice` → `MontageExportRequest.notices` → `MontageReport.notices` et `ExportResult.notices` (CLI `printExport` « ! … », app : sous le résultat dans `SessionViews`).
 - Styles de montage : `core/model/MontageStyle.kt` (`MontageStyle` : réglages nullables, nom `style.<id>` traduit sinon `displayName` ; `MontageStyles(default, styles)`),
   fichier `config/montage-styles.yaml` lu par `LoadedConfig.loadMontageStyles()` (`AppConfig.montageStyles`), `HighlightPipeline.montageStyles/montageStyle(id)` ;
   `MontageOptions.style` + `MontageOptions.withStyle` (pipeline/MontageStyles.kt : le style ne remplit que les options null, `oneTaps` est nullable) ; CLI `montage --style <id>|none` (défaut = `default` du fichier) ;
@@ -226,7 +227,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   Constantes de réglage fin : `MIN_KEPT, MONOTONY_PENALTY, RAMP_COST, OFF_BEAT_DISCOUNT, MIN_CLIP_SHARE, TARGET_STEP, MATCH_BONUS, MATCH_VALUE, ORDER_TOLERANCE, MIN_GAIN, SCALES, DROP_SHIFTS`.
 - `MontagePlanner.split` (appelé par `killMontage` après `KillInspector`) : multi-kill étalé (> `splitGap`) → plusieurs parties, même rang, issue au dernier. `need` ne réserve la place du ralenti que sur la drop (`onDrop`) ou en effets HEAVY.
 - Rythme rapide : `MontageSettings.forFast` / `FastMontage` (cadence `calm`/`mid`/`cut` ; zoom d'approche vers le réticule avant le kill, `zoomApproach` → `ZoomEffect.approach`) (un kill par plan, plans d'un temps via `cuts.singleBeat`, contexte 0,2 s + 0,15 s, ni ralenti ni rampe, échanges écartés par `skipDeathWithin` dans `MontagePlanner.groups`) ; `MontageOptions.fast`, `--fast` (montage, search), case « Rythme rapide ».
-- `OneTaps.kt` (branche `montage-onetaps`) : `OneTaps.select` (kills d'une balle à la tête, `strict` si headshots connus) ; réglages `MontageSettings.forOneTaps` / `OneTapMontage`.
+- `OneTaps.kt` (branche `montage-onetaps`) : `OneTaps.select` (kills d'une balle à la tête, `strict` si headshots connus ; `countsShots` = le profil a `ammo-counter`/`game-sounds`, `HighlightPipeline.SHOT_SOURCES`, sinon `error.onetaps.noShotSource`) ; réglages `MontageSettings.forOneTaps` / `OneTapMontage`.
 - Morts : `KillStyle.deathKinds` = `deathEvent` (+ `downedEvent` « downed » si `downedAsDeath`, faux par défaut), lu par `MontagePlanner.groups` (rounds, `skipDeathWithin`), `Statistics.game` et `Statistics.sources(sessions, kinds)`.
 - Kill confirmé à l'image : détecteur `kill-confirm` (type `killfeed`, toujours actif, 30 img/s, événements `feed-kill`) → `KillStyle.confirmEvent` ; `MontagePlanner.groups` associe chaque kill à la confirmation la plus proche (`CONFIRM_WINDOW` 0,8 s), `hudShots(…, confirmed)` cherche la balle qui tue jusqu'à `CONFIRM_AFTER` (0,12 s) après elle, sinon `fatal` = confirmation − `CONFIRM_LAG`.
 - Balles d'un kill : `MontagePlanner.hudShotCounts` (événements `hud-shot` du compteur de munitions, préférés) ou `shotCounts` (tirs entendus) → `KillTraits.shots`.
@@ -344,7 +345,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ## 5. Configuration (`config/`)
 - `app.yaml` → `AppConfig`. Installée : `%APPDATA%\Highlights\config`, sortie `~/Videos/Highlights` (filtre au packaging).
 - `profiles/{default,lol,valorant,wardogs}.yaml` → `GameProfile`. Sections : `id, displayName, match{pathContains, priority}, window{size,hop}, audio{mix,game,mic}, detectors[], selection, edit{style, story, grade, vertical{reference, hud[]}, formats…}, montage{…}`.
-  YAML strict : une clé inconnue = `ConfigException`. Profils : wardogs (ocr-log + icônes + gate hud-template, pose `aim`), valorant (outplayed-events avec offsets −390 ms, killfeed en secours et `kill-confirm` toujours, `matchCut.pose: rest`, weapon ammo_icon), lol (audio+voix+rires), default.
+  YAML strict : une clé inconnue = `ConfigException`. Profils : wardogs (ocr-log + icônes + gate hud-template, pose `aim`), valorant (outplayed-events avec offsets −390 ms, killfeed en secours et `kill-confirm` toujours, `matchCut.pose: rest`, weapon ammo_icon, `vertical` : recadrage sous le bandeau du haut + bandeau `topbar` replacé, mesuré en 16:9, test `ValorantVerticalTest`), lol (audio+voix+rires), default.
 - `templates/<jeu>/*.png` (modèles HUD), `models/yamnet.onnx` + `yamnet_class_map.csv` ; `models/ggml-*.bin` (whisper) hors dépôt et hors installeur.
 - Chemins relatifs dans les profils → résolus par `LoadedConfig.resolve` (dans `gradedEdit`, `killMontage` pour `matchCut.weapon.template`, et `ctx.configDir` pour les détecteurs).
 

@@ -51,6 +51,8 @@ data class MontageExportRequest(
     val platform: String? = null,
     /** Genre de montage, dans le nom des fichiers : killmontage, onetaps. */
     val kind: String = "killmontage",
+    /** Avertissements du montage, repris dans le rapport et le résultat (voir [ExportResult.notices]). */
+    val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
 )
 
 @Serializable
@@ -73,6 +75,8 @@ data class MontageReport(
     val musicCandidates: List<MontageReportMusic> = emptyList(),
     /** Profil (jeu) du montage ; null dans les rapports écrits avant. */
     val profile: String? = null,
+    /** Avertissements du montage (peu de kills trouvés…) ; vide dans les rapports écrits avant. */
+    val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
 )
 
 /** Musique d'une bibliothèque essayée pour le montage ; [error] : aucun plan possible sur elle. */
@@ -224,6 +228,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             variant = plan.variant.toString(),
             musicCandidates = request.musicChoice,
             profile = request.gameName,
+            notices = request.notices,
             clips = plan.clips.zip(plan.clipOffsets()).mapIndexed { i, (c, offset) ->
                 MontageReportClip(
                     c.group.media.path.toString(), c.start.toTimecode(), c.end.toTimecode(), c.kills.map { it.toTimecode() },
@@ -245,7 +250,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             },
         )
         paths.report.writeText(json.encodeToString(MontageReport.serializer(), report))
-        return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file)
+        return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file, notices = request.notices)
     }
 
     /** Souffles du dossier `whip.sounds` ; un dossier absent ou sans son est signalé, les souffles générés le remplacent. */

@@ -387,6 +387,10 @@ détecte les kills). En ligne de commande :
 - **Choix et ordre des clips** : deux plans voisins ne viennent pas du même moment de la même partie (`varietyGap`), et
   `minScore` permet d'écarter les groupes de kills trop faibles quitte à raccourcir le montage (0 = tout garder ; les
   trois meilleurs sont gardés quoi qu'il arrive). Les meilleurs groupes restants terminent naturellement le montage.
+- **Peu de kills trouvés** (`minKills`, 3 par défaut, 0 : jamais) : le montage se fait quand même, mais un
+  avertissement le dit (« Seulement 2 kills trouvés dans ces parties : vérifiez l'analyse »), sur la console, dans le
+  rapport JSON (`notices`) et sous le résultat dans l'application. Le plus souvent, c'est la détection des kills qui a
+  manqué (une partie VALORANT de 44 kills en donnait un). Pas d'avertissement pour des moments choisis dans la recherche.
 - **Clips taillés pour la musique** : chaque clip est étendu ou coupé pour remplir exactement son plan ; le dernier kill
   tombe sur le temps le plus accentué du plan, le meilleur groupe (multi-kill, ace) exactement sur la drop — en ordre
   chronologique aussi : le passage de la musique est alors choisi pour que la drop tombe sur lui (ou sur un groupe qui
@@ -887,7 +891,9 @@ La drop garde son plan d'élan, le premier plan en fait deux. Fichiers `…_onet
   l'affiche (« rythme +0,100 »).
 
 - Les balles viennent du compteur de munitions (`ammo-counter`), à défaut des tirs entendus (`game-sounds`) : une partie
-  analysée avant eux est à réanalyser. Une capacité ou le couteau (compteur immobile) n'est jamais un one tap.
+  analysée avant eux est à réanalyser. Une capacité ou le couteau (compteur immobile) n'est jamais un one tap. Un
+  profil qui n'a ni l'un ni l'autre (WARDOGS) ne peut pas faire de montage onetaps, et le message le dit au lieu de
+  proposer une réanalyse ; « aucun one tap » donne le nombre de kills trouvés.
 - Sans tirs à la tête connus (ni Outplayed, ni gabarit du son), tout kill d'une balle compte, et le journal le dit ;
   `montage.oneTaps.allowWithoutHeadshots: false` refuse plutôt.
 

@@ -524,6 +524,8 @@ internal fun PipelineCommand.printExport(result: ExportResult) {
     echo("Montage (${result.duration.toShortText()}, encodeur ${result.encoder}) :")
     result.videos.forEach { (format, path) -> echo("  ${format.label}  $path") }
     echo("  rapport ${result.report}")
+    // Avertissements (montage presque vide…) : visibles même quand on ne lit que la fin de la sortie.
+    result.notices.forEach { echo("  ! ${it.text()}") }
 }
 
 private val reportJson = Json { ignoreUnknownKeys = true }

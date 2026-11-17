@@ -178,7 +178,21 @@ class PlannedMontage internal constructor(
     internal val choice: List<MontageReportMusic>,
     internal val profile: GameProfile,
     internal val platform: PlatformProfile?,
-)
+    /** Kills trouvés dans les parties (avant le tri des one taps et les corrections), pour l'avertissement [fewKills]. */
+    val killsFound: Int = candidates.sumOf { it.kills.size },
+) {
+    /**
+     * Avertissement quand les parties n'ont presque pas de kills ([MontageSettings.minKills]) : le montage se fait,
+     * mais c'est le plus souvent une détection en défaut, à vérifier. Pas pour une sélection faite à la main (recherche).
+     */
+    fun fewKills(options: MontageOptions): Message? = fewKillsNotice(killsFound, plan.settings.minKills, options.onlyKills != null)
+
+    companion object {
+        /** Avertissement pour [found] kills trouvés quand il en faut [minKills] ; aucun sur une sélection à la main ([picked]). */
+        fun fewKillsNotice(found: Int, minKills: Int, picked: Boolean): Message? =
+            Message("notice.montage.fewKills", "count" to found).takeIf { !picked && found < minKills }
+    }
+}
 
 /** [reused] : analyse reprise de la mémoire, sans recalcul. */
 data class AnalysisOutcome(val session: Session, val sessionFile: Path, val profile: GameProfile, val reused: Boolean = false)
@@ -340,6 +354,9 @@ class HighlightPipeline(
 
     /** Styles de montage kills (`config/montage-styles.yaml`), relus à chaque appel : une modification du fichier compte aussitôt. */
     val montageStyles: MontageStyles get() = config.loadMontageStyles()
+
+    /** Détecteurs qui comptent les balles d'un kill (montage onetaps). */
+    private val SHOT_SOURCES = setOf("ammo-counter", "game-sounds")
 
     /** Options complétées par leur style ([MontageOptions.style]), s'il y en a un. */
     private fun styled(options: MontageOptions): MontageOptions = options.style?.let { options.withStyle(montageStyle(it)) } ?: options
@@ -614,6 +631,7 @@ class HighlightPipeline(
                     musicChoice = planned.choice,
                     platform = options.platform,
                     kind = if (options.oneTaps == true) "onetaps" else "killmontage",
+                    notices = listOfNotNull(planned.fewKills(options)),
                 ),
                 progress.child(tr("progress.render"), 0.86),
             )
@@ -689,7 +707,7 @@ class HighlightPipeline(
         missing.forEach { log.warn { "Capture introuvable, ses kills sont écartés du montage : $it" } }
         val available = picked.filterNot { it.media.path in missing }
         if (available.isEmpty()) throw InputException(Message("error.montage.capturesMissing", "files" to missing.joinToString()))
-        val found = if (options.oneTaps == true) OneTaps.select(available, sessions, settings).groups else available
+        val found = if (options.oneTaps == true) OneTaps.select(available, sessions, settings, countsShots = profile.detectors.any { it.enabled && it.type in SHOT_SOURCES }).groups else available
         // Les multi-kills étalés deviennent plusieurs plans (classement, aces et clutchs déjà tirés du groupe entier).
         val inspected = MontagePlanner.split(KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child(tr("progress.kills"), 0.06)), settings)
         // Corrections de l'utilisateur : kills exclus retirés, groupes forcés ou épinglés marqués pour le planificateur.
@@ -716,7 +734,7 @@ class HighlightPipeline(
         // Raccords d'abord : un plan raccordé garde son début dans la pose, il n'est pas coupé dans l'attente.
         val plan = MontagePlanner.showcase(MontagePlanner.jumpCuts(ScopeCuts.apply(chosen)).let { it.copy(settings = it.settings.copy(maxDuration = settings.maxDuration)) })
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(plan.music.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
-        return PlannedMontage(plan, inspected, choice, profile, platform)
+        return PlannedMontage(plan, inspected, choice, profile, platform, killsFound = available.sumOf { it.kills.size })
     }
 
     /** [analyzeAll] puis un seul montage de toutes les captures. */
