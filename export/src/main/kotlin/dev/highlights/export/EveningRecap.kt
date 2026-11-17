@@ -123,8 +123,11 @@ class RecapRenderer(private val ffmpeg: FfmpegService, private val encoders: Enc
     companion object {
         private val TIME = Regex("""time=(\d+:\d{2}:\d{2}(?:\.\d+)?)""")
 
-        /** Repère des deux-points d'un libellé (séparateur invisible, que le nettoyage des libellés laisse passer). */
-        private const val COLON = "⁣"
+        /**
+         * Repère des deux-points d'un libellé, que le nettoyage des libellés laisse passer : « ¦ », qu'Impact a (un
+         * séparateur invisible faisait chercher une autre police, faute de glyphe) et qu'aucun libellé n'emploie.
+         */
+        private const val COLON = "¦"
 
         /** Fondu d'entrée et de sortie d'un carton : celui du fondu final des exports, en plus court. */
         val FADE = 250.milliseconds

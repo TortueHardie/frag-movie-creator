@@ -75,10 +75,11 @@ class RecapIT : FunSpec({
         val video = result.videos.getValue(OutputFormat.SOURCE)
         video.fileName.toString() shouldContain "_recap"
         val report = SessionStore.json.decodeFromString(RecapReport.serializer(), result.report.readText())
-        // Cible partagée : les moments de chaque partie sont ceux de la sélection commune à la soirée.
+        // Cible partagée : les moments de chaque partie sont ceux de la sélection commune à la soirée ; une partie avec
+        // des kills (toutes ici) qui n'y garde rien a son meilleur moment.
         val shared = pipeline.reselectAll(analyses.map { SessionStore.load(it.sessionFile) }, null, null)
-        report.games.map { it.moments } shouldBe shared.map { s -> s.highlights.count { it.enabled } }.filter { it > 0 }
-        report.games.map { it.number } shouldBe shared.mapIndexedNotNull { i, s -> (i + 1).takeIf { s.highlights.any { h -> h.enabled } } }
+        report.games.map { it.moments } shouldBe shared.map { s -> s.highlights.count { it.enabled }.coerceAtLeast(1) }
+        report.games.map { it.number } shouldBe listOf(1, 2)
         // Un carton par partie montrée, puis l'écran de fin ; le premier ouvre la vidéo.
         report.cards.size shouldBe report.games.size + 1
         report.cards.first() shouldBe 0.0

@@ -637,12 +637,18 @@ class HighlightPipeline(
      * Récap d'une soirée, partie par partie : pour chaque partie (dans l'ordre joué), un intercalaire « Partie 3 – 14
      * kills » puis ses meilleurs moments, rendus par l'export habituel ; un écran de fin avec le bilan. Les moments de
      * chaque partie sont recalculés avec une cible de durée partagée sur la soirée ([reselectAll] : réglages du profil,
-     * moments retouchés à la main gardés). Une partie sans moment n'a pas d'intercalaire mais garde son numéro.
+     * moments retouchés à la main gardés) ; une partie avec des kills garde au moins son meilleur moment. Une partie sans
+     * moment n'a pas d'intercalaire mais garde son numéro.
      */
     suspend fun eveningRecap(evening: Evening, options: RecapOptions, progress: ProgressReporter): ExportResult {
         val loaded = evening.sessionFiles.mapIndexed { i, f -> i to SessionStore.load(f) }.filter { (_, s) -> s.media.path.isRegularFile() }
         if (loaded.isEmpty()) throw InputException(Message("error.recap.capturesMissing"))
-        val selected = reselectAll(loaded.map { it.second }, null, null)
+        // Cible partagée : la soirée garde la durée du profil. Une partie avec des kills qui n'y a rien gardé (une partie
+        // à 46 kills prenait toute la minute, celle à 15 n'avait plus d'intercalaire) garde au moins son meilleur moment.
+        val selected = reselectAll(loaded.map { it.second }, null, null).mapIndexed { k, s ->
+            val kills = evening.games.getOrNull(loaded[k].first)?.kills ?: 0
+            if (kills > 0 && s.highlights.none { it.enabled }) reselect(s, null, dev.highlights.core.model.SelectionTarget(topN = 1)) else s
+        }
         val games = loaded.map { it.first }.zip(selected).filter { (_, s) -> s.highlights.any { it.enabled } }
         if (games.isEmpty()) throw InputException(Message("error.recap.noMoments"))
         val profile = profiles.byId(games.first().second.profileId)
