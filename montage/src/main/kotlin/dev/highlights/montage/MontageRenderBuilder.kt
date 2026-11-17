@@ -17,6 +17,7 @@ import dev.highlights.core.model.WhipPanEffect
 import dev.highlights.core.serialization.Durations
 import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
+import dev.highlights.editing.ZoomCrop
 import dev.highlights.editing.SourceCut
 import dev.highlights.editing.SourceCuts
 import dev.highlights.editing.story.StoryRenderBuilder
@@ -177,8 +178,10 @@ object MontageRenderBuilder {
                     } + ")"
                 } ?: ""
                 val z = "(1+$punch$approach)"
-                effects += "scale=w='trunc($w*$z/2)*2':h='trunc($h*$z/2)*2':eval=frame:flags=${settings.zoom.scaleFlags}"
-                effects += "crop=$w:$h:(iw-$w)/2:(ih-$h)/2"
+                // Recadrage recentré à chaque image (voir ZoomCrop : `iw` resterait celui de la première image).
+                // Vers le réticule réel : le centre de la capture, qui n'est plus au centre du cadre si le 9:16 est décalé.
+                val (fx, fy) = RenderCommandBuilder.crosshair(request.format, media, edit)
+                effects += ZoomCrop.filters(w, h, z, settings.zoom.scaleFlags, focusX = fx, focusY = fy)
             }
             // Flou de mouvement après le zoom : le punch-in traîne lui aussi ; avant textes et flash, qui restent nets.
             if (blend > 1) effects += "tmix=frames=$blend"
@@ -458,8 +461,8 @@ object MontageRenderBuilder {
                 lines += "[${prefix}a$j]$trim,split=$COPIES" + (0 until COPIES).joinToString("") { "[${prefix}b$j$it]" }
                 for (c in 1 until COPIES) {
                     val f = "(1+${num(zoom * c / (COPIES - 1))}*$strength)"
-                    lines += "[${prefix}b$j$c]scale=w='trunc($w*$f/2)*2':h='trunc($h*$f/2)*2':eval=frame," +
-                        "crop=$w:$h:(iw-$w)/2:(ih-$h)/2,setsar=1[${prefix}c$j$c]"
+                    lines += "[${prefix}b$j$c]scale=w='${ZoomCrop.scaled(w, f)}':h='${ZoomCrop.scaled(h, f)}':eval=frame," +
+                        "${ZoomCrop.crop(w, h, f)},setsar=1[${prefix}c$j$c]"
                 }
                 lines += "[${prefix}b${j}0]" + (1 until COPIES).joinToString("") { "[${prefix}c$j$it]" } +
                     "mix=inputs=$COPIES[${prefix}s$j]"

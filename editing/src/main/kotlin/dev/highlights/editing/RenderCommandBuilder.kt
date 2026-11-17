@@ -242,6 +242,22 @@ object RenderCommandBuilder {
     internal data class CropBox(val x: Int, val y: Int, val w: Int, val h: Int)
 
     /** Plus grand rectangle au ratio [aspect] inscrit dans la zone (ou l'image entière), centré sur elle, borné à l'image. */
+    /**
+     * Réticule (centre de la capture) dans l'image de sortie du [format], en fractions de sa largeur et de sa hauteur :
+     * le point que visent les zooms. Au centre sauf en 9:16 quand le recadrage n'est pas centré sur lui (zone
+     * `vertical.cropRegion` décalée, par exemple sous le bandeau du haut).
+     */
+    fun crosshair(format: OutputFormat, media: MediaInfo, settings: EditSettings): Pair<Double, Double> {
+        val video = media.video ?: return 0.5 to 0.5
+        if (format != OutputFormat.VERTICAL) return 0.5 to 0.5
+        val size = settings.vertical.size
+        val region = settings.vertical.cropRegion?.let { ScreenGeometry.forVideo(it, settings.vertical.reference, video.width, video.height) }
+        val box = cropBox(video.width, video.height, size.width.toDouble() / size.height, region)
+        val x = ((video.width / 2.0 - box.x) / box.w).coerceIn(0.0, 1.0)
+        val y = ((video.height / 2.0 - box.y) / box.h).coerceIn(0.0, 1.0)
+        return x to y
+    }
+
     internal fun cropBox(srcWidth: Int, srcHeight: Int, aspect: Double, region: CropRegion?): CropBox {
         val rx = (region?.x ?: 0.0) * srcWidth
         val ry = (region?.y ?: 0.0) * srcHeight
