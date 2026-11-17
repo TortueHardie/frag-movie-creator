@@ -633,6 +633,8 @@ class AppController(
         val p = backend?.pipeline ?: return
         val profileId = s.session?.sessions?.firstOrNull()?.profileId ?: return
         val montage = runCatching { p.profiles.byId(profileId).montage }.getOrNull()
+        // Fichier de styles illisible : la fenêtre s'ouvre quand même, sans styles (l'erreur est dans le journal).
+        val styles = runCatching { p.montageStyles }.onFailure { log.warn(it) { "Styles de montage illisibles" } }.getOrDefault(dev.highlights.core.model.MontageStyles.NONE)
         _state.update {
             it.copy(
                 montage = MontageUiState(
@@ -642,25 +644,13 @@ class AppController(
                     musicLibrary = musicPrefs.library(),
                     maxDurationText = I18n.duration(montage?.maxDuration ?: 60.seconds),
                     fitKills = montage?.length?.fitKills ?: true,
-                    buildUp = montage?.order != dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
                     formats = montage?.formats?.toSet() ?: setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
-                    zoom = montage?.zoom?.enabled ?: true,
-                    flash = montage?.flash?.enabled ?: true,
-                    whip = montage?.whip?.enabled ?: true,
-                    whoosh = (montage?.whip?.whoosh ?: 0.5) > 0,
-                    showcase = montage?.showcase?.enabled ?: false,
-                    boostColors = montage?.colors?.enabled ?: false,
-                    motionBlur = montage?.motionBlur?.enabled ?: true,
-                    matchCut = montage?.matchCut?.enabled ?: true,
                     rounds = montage?.killStyle?.deathEvent?.isNotEmpty() ?: true,
-                    slowMotion = montage?.slowMotion?.enabled ?: true,
-                    text = montage?.text?.enabled ?: true,
                     balance = montage?.audio?.balance ?: 0.0,
-                    gameAudio = montage?.audio?.game ?: GameAudio.FULL,
-                    reactions = montage?.reactions ?: false,
-                    fast = montage?.fast?.enabled ?: false,
                     platform = it.settings.platform,
-                ),
+                    styles = styles.styles,
+                    profileKnobs = StyleKnobs.of(montage),
+                ).chooseStyle(styles.default),
             )
         }
     }
@@ -681,7 +671,7 @@ class AppController(
     }
 
     override fun updateMontage(change: (MontageUiState) -> MontageUiState) =
-        _state.update { s -> s.copy(montage = s.montage?.let(change)) }
+        _state.update { s -> s.copy(montage = s.montage?.let { before -> change(before).trackedFrom(before) }) }
 
     override fun createMontage() {
         val s = state.value
@@ -727,6 +717,8 @@ class AppController(
                         onlyKills = montage.pick,
                         oneTaps = montage.oneTaps,
                         fast = montage.fast,
+                        // Les cases de la fenêtre sont déjà passées ; le style garde ce qu'elle ne montre pas (accroche, rampes…).
+                        style = montage.style,
                     ),
                     progress,
                 )
@@ -869,7 +861,7 @@ class AppController(
         openSessions(picked.map { it.sessionFile }.distinct()) {
             openMontage()
             // Des one taps cherchés : le montage qui va avec, que l'on peut encore décocher.
-            _state.update { s -> s.copy(montage = s.montage?.let { m -> m.copy(pick = pick, oneTaps = search.oneTaps || m.oneTaps) }) }
+            _state.update { s -> s.copy(montage = s.montage?.let { m -> m.copy(pick = pick, oneTaps = search.oneTaps || m.oneTaps, touched = if (search.oneTaps) m.touched + "oneTaps" else m.touched) }) }
         }
     }
 

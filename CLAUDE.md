@@ -197,6 +197,11 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `ExportReport.kt` : rapport JSON des highlights.
 
 ### montage (montage kills)
+- Styles de montage : `core/model/MontageStyle.kt` (`MontageStyle` : réglages nullables, nom `style.<id>` traduit sinon `displayName` ; `MontageStyles(default, styles)`),
+  fichier `config/montage-styles.yaml` lu par `LoadedConfig.loadMontageStyles()` (`AppConfig.montageStyles`), `HighlightPipeline.montageStyles/montageStyle(id)` ;
+  `MontageOptions.style` + `MontageOptions.withStyle` (pipeline/MontageStyles.kt : le style ne remplit que les options null, `oneTaps` est nullable) ; CLI `montage --style <id>|none` (défaut = `default` du fichier) ;
+  UI `MontageStyleUi.kt` (`StyleKnobs`, `chooseStyle`, `trackedFrom` : cases modifiées à la main dans `MontageUiState.touched`, gardées au changement de style ; `resetToStyle`),
+  `MontageStylePicker` en haut de `MontageDialog`, détail replié sous `MontageUiState.advanced`.
 - `MusicLibrary.kt` : `MusicLibrary(cacheDir).load(ffmpeg, dir)` (analyses gardées en JSON par musique, `StoredMusic` en µs, échecs gardés aussi,
   invalidées par taille/date/`MusicAnalyzer.VERSION`), `files(dir)`, `AUDIO_EXTENSIONS` ; `MusicChoice.rank(groups, musics, settings, fromStart)`
   (plan par musique, en parallèle, `value` = note × groupes gardés / max − `recency`), `recency` (`RECENT_PENALTY` 0,03 sur les `RECENT_DEPTH` 3 derniers montages),
@@ -266,7 +271,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ### app-cli (`dev.highlights.cli`)
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
 - `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
-  `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --out`.
+  `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --style --out`.
   `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;
   `music` : `--max --clips` ; `preview` : `--at`.
@@ -315,7 +320,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   Si le calcul d'un détecteur existant change : incrémenter `AnalysisLibrary.ANALYSIS_VERSION`.
 - **Nouveau réglage de montage kills (exposé UI+CLI)** : champ dans la data class de `core/model/Montage.kt` (défaut + KDoc + `require`) → usage dans `montage/` →
   `MontageOptions` + bloc `base.copy(...)` de `HighlightPipeline.killMontage` → `MontageUiState` + `AppController.createMontage` + `Dialogs.MontageDialog` (+ `MusicPrefs` si mémorisé par musique) →
-  option dans `MontageCommand` (Commands.kt) → README (section montage) → tests (`MontagePlannerTest`, `MontageRenderBuilderTest`, `KillMontageIT`).
+  option dans `MontageCommand` (Commands.kt) → si un style peut le poser : champ de `MontageStyle`, `withStyle`, `StyleKnobs` → README (section montage) → tests (`MontagePlannerTest`, `MontageRenderBuilderTest`, `KillMontageIT`).
 - **Réglage highlights/story** : `Settings.kt`/`Story.kt` → `StoryPlanner`/`StoryRenderBuilder` ou `RenderCommandBuilder` ; chemins de fichiers à résoudre dans `gradedEdit`.
 - **Nouveau critère de note** : `MontageScore` (nullable pour compat des anciens rapports) + `MontageScorer.score` + `criteria()` de `ScoreCommand`.
 - **Texte affiché à l'utilisateur** : jamais en dur. Clé dans `messages.properties` (anglais naturel pour joueurs) ET `messages_fr.properties`,

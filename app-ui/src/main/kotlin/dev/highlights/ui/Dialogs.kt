@@ -144,6 +144,8 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     )
                 }
 
+                MontageStylePicker(montage, actions)
+
                 DialogGroup(tr("ui.montage.music")) {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                         listOf(false to tr("ui.montage.oneTrack"), true to tr("ui.montage.fromFolder")).forEachIndexed { i, (library, label) ->
@@ -196,15 +198,6 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     MontageToggle(tr("ui.montage.fitKills"), montage.fitKills) { v ->
                         actions.updateMontage { it.copy(fitKills = v) }
                     }
-                    MontageToggle(tr("ui.montage.buildUp"), montage.buildUp) { v ->
-                        actions.updateMontage { it.copy(buildUp = v) }
-                    }
-                    MontageToggle(tr("ui.montage.oneTaps"), montage.oneTaps) { v ->
-                        actions.updateMontage { it.copy(oneTaps = v) }
-                    }
-                    MontageToggle(tr("ui.montage.fast"), montage.fast) { v ->
-                        actions.updateMontage { it.copy(fast = v) }
-                    }
                 }
 
                 DialogGroup(tr("ui.montage.formats")) {
@@ -217,32 +210,6 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                             }
                         }
                     }
-                }
-
-                DialogGroup(tr("ui.montage.effects")) {
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        EffectDensity.entries.forEachIndexed { i, density ->
-                            SegmentedButton(
-                                selected = montage.density == density,
-                                onClick = { actions.updateMontage { it.copy(density = density) } },
-                                shape = SegmentedButtonDefaults.itemShape(i, EffectDensity.entries.size),
-                            ) { Text(densityLabel(density)) }
-                        }
-                    }
-                    Text(densityHint(montage.density), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
-                    MontageToggle(tr("ui.montage.zoom"), montage.zoom) { v -> actions.updateMontage { it.copy(zoom = v) } }
-                    MontageToggle(tr("ui.montage.flash"), montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
-                    MontageToggle(tr("ui.montage.whip"), montage.whip) { v -> actions.updateMontage { it.copy(whip = v) } }
-                    if (montage.whip) {
-                        MontageToggle(tr("ui.montage.whoosh"), montage.whoosh) { v -> actions.updateMontage { it.copy(whoosh = v) } }
-                    }
-                    MontageToggle(tr("ui.montage.showcase"), montage.showcase) { v -> actions.updateMontage { it.copy(showcase = v) } }
-                    MontageToggle(tr("ui.montage.colors"), montage.boostColors) { v -> actions.updateMontage { it.copy(boostColors = v) } }
-                    MontageToggle(tr("ui.montage.motionBlur"), montage.motionBlur) { v -> actions.updateMontage { it.copy(motionBlur = v) } }
-                    MontageToggle(tr("ui.montage.matchCut"), montage.matchCut) { v -> actions.updateMontage { it.copy(matchCut = v) } }
-                    MontageToggle(tr("ui.montage.rounds"), montage.rounds) { v -> actions.updateMontage { it.copy(rounds = v) } }
-                    MontageToggle(tr("ui.montage.slowMotion"), montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
-                    MontageToggle(tr("ui.montage.text", "double" to tr("video.streak.2"), "triple" to tr("video.streak.3")), montage.text) { v -> actions.updateMontage { it.copy(text = v) } }
                 }
 
                 DialogGroup(tr("ui.montage.sound")) {
@@ -278,11 +245,93 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                         Text(tr("ui.montage.balanceGame"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
                     }
                 }
+
+                // Le détail des cases, replié : le style les règle d'un coup ; une case modifiée ici passe devant lui.
+                TextButton(onClick = { actions.updateMontage { it.copy(advanced = !it.advanced) } }) {
+                    Text(tr(if (montage.advanced) "ui.montage.advancedHide" else "ui.montage.advancedShow"))
+                }
+                if (montage.advanced) {
+                    DialogGroup(tr("ui.montage.pace")) {
+                        MontageToggle(tr("ui.montage.buildUp"), montage.buildUp) { v ->
+                            actions.updateMontage { it.copy(buildUp = v) }
+                        }
+                        MontageToggle(tr("ui.montage.oneTaps"), montage.oneTaps) { v ->
+                            actions.updateMontage { it.copy(oneTaps = v) }
+                        }
+                        MontageToggle(tr("ui.montage.fast"), montage.fast) { v ->
+                            actions.updateMontage { it.copy(fast = v) }
+                        }
+                    }
+                    DialogGroup(tr("ui.montage.effects")) {
+                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                            EffectDensity.entries.forEachIndexed { i, density ->
+                                SegmentedButton(
+                                    selected = montage.density == density,
+                                    onClick = { actions.updateMontage { it.copy(density = density) } },
+                                    shape = SegmentedButtonDefaults.itemShape(i, EffectDensity.entries.size),
+                                ) { Text(densityLabel(density)) }
+                            }
+                        }
+                        Text(densityHint(montage.density), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                        MontageToggle(tr("ui.montage.zoom"), montage.zoom) { v -> actions.updateMontage { it.copy(zoom = v) } }
+                        MontageToggle(tr("ui.montage.flash"), montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
+                        MontageToggle(tr("ui.montage.whip"), montage.whip) { v -> actions.updateMontage { it.copy(whip = v) } }
+                        if (montage.whip) {
+                            MontageToggle(tr("ui.montage.whoosh"), montage.whoosh) { v -> actions.updateMontage { it.copy(whoosh = v) } }
+                        }
+                        MontageToggle(tr("ui.montage.showcase"), montage.showcase) { v -> actions.updateMontage { it.copy(showcase = v) } }
+                        MontageToggle(tr("ui.montage.colors"), montage.boostColors) { v -> actions.updateMontage { it.copy(boostColors = v) } }
+                        MontageToggle(tr("ui.montage.motionBlur"), montage.motionBlur) { v -> actions.updateMontage { it.copy(motionBlur = v) } }
+                        MontageToggle(tr("ui.montage.matchCut"), montage.matchCut) { v -> actions.updateMontage { it.copy(matchCut = v) } }
+                        MontageToggle(tr("ui.montage.rounds"), montage.rounds) { v -> actions.updateMontage { it.copy(rounds = v) } }
+                        MontageToggle(tr("ui.montage.slowMotion"), montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
+                        MontageToggle(tr("ui.montage.text", "double" to tr("video.streak.2"), "triple" to tr("video.streak.3")), montage.text) { v -> actions.updateMontage { it.copy(text = v) } }
+                    }
+                }
             }
         },
         confirmButton = { Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text(tr("ui.montage.create")) } },
         dismissButton = { TextButton(onClick = actions::closeMontage) { Text(tr("ui.common.cancel")) } },
     )
+}
+
+/**
+ * Choix du style en haut de la fenêtre : une puce par style, plus « Aucun » (réglages du profil seuls), la phrase qui
+ * dit ce que fait le style choisi, et les cases modifiées à la main, qu'on peut rendre au style.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+internal fun MontageStylePicker(montage: MontageUiState, actions: UiActions) {
+    if (montage.styles.isEmpty()) return
+    DialogGroup(tr("ui.montage.style")) {
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            androidx.compose.material3.FilterChip(
+                selected = montage.style == null,
+                onClick = { actions.updateMontage { it.chooseStyle(null) } },
+                label = { Text(tr("ui.montage.styleNone"), maxLines = 1) },
+            )
+            montage.styles.forEach { style ->
+                androidx.compose.material3.FilterChip(
+                    selected = montage.style == style.id,
+                    onClick = { actions.updateMontage { it.chooseStyle(style.id) } },
+                    label = { Text(style.name, maxLines = 1) },
+                )
+            }
+        }
+        val description = montage.chosenStyle?.shownDescription ?: tr("ui.montage.styleNone.hint").takeIf { montage.style == null }
+        description?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted) }
+        if (montage.touched.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    tr("ui.montage.styleTouched", "count" to montage.touched.size),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Palette.accent,
+                )
+                TextButton(onClick = { actions.updateMontage { it.resetToStyle() } }) { Text(tr("ui.montage.styleReset")) }
+            }
+        }
+    }
 }
 
 internal fun densityLabel(density: EffectDensity) = tr("ui.montage.density.${density.name.lowercase()}")

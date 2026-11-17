@@ -209,6 +209,11 @@ class MontageCommand : PipelineCommand("montage") {
         .choice("full" to GameAudio.FULL, "kills" to GameAudio.KILLS)
     private val fast by option("--fast", help = "Rythme rapide : un kill sur chaque temps de la musique (chaque coup de basse), un plan très court chacun").flag()
     private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
+    private val style by option(
+        "--style",
+        help = "Style de montage (config/montage-styles.yaml, ex. tiktok, propre, onetaps, cinematique) : un jeu de réglages, " +
+            "les options ci-dessus passant devant ; « none » : réglages du profil seuls. Défaut : celui du fichier de styles",
+    )
     private val out by option("-o", "--out").path(canBeFile = false)
 
     override fun help(context: Context) =
@@ -219,10 +224,12 @@ class MontageCommand : PipelineCommand("montage") {
         val result = execute {
             val loaded = sessions.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).killMontage(
+                val pipeline = Pipelines.create(env.config)
+                pipeline.killMontage(
                     loaded,
                     music,
                     MontageOptions(
+                        style = style.let { if (it == "none") null else it ?: pipeline.montageStyles.default },
                         formats = formats,
                         platform = platform,
                         outputDir = out,
@@ -249,7 +256,7 @@ class MontageCommand : PipelineCommand("montage") {
                         audioBalance = balance,
                         gameAudio = gameAudio,
                         reactions = if (reactions) true else null,
-                        oneTaps = oneTaps,
+                        oneTaps = if (oneTaps) true else null,
                         fast = if (fast) true else null,
                     ),
                     ProgressTracker(listener = progress).root,

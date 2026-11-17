@@ -1,0 +1,66 @@
+# Styles du montage kills : un jeu de réglages choisi d'un coup (« Style » en haut de la fenêtre de montage,
+# --style <id> en ligne de commande) au lieu de cocher les cases une à une. Un style ne dit que ce qu'il change :
+# le reste vient du profil du jeu (profiles/<jeu>.yaml, section montage). Une case cochée à la main, ou une option de
+# la ligne de commande, passe devant le style.
+#
+# Champs possibles : fast, oneTaps, order (build-up, chronological), effectDensity (sober, balanced, heavy), hook,
+# zoom, flash, flashEveryCut, whip, whoosh, colors, motionBlur, matchCut, slowMotion, speedRamp, text, showcase,
+# gameAudio (full, kills), reactions. Nom et description affichés : traduits pour les styles livrés (clés style.<id>),
+# sinon displayName et description ci-dessous. On peut en ajouter, en retirer ou les modifier.
+
+# Style choisi quand on n'en demande aucun ; commenté : les réglages du profil seuls.
+# default: tiktok
+
+styles:
+  # Les edits TikTok de référence : un kill par temps, couleurs vives, flou de mouvement, zoom d'approche vers le
+  # réticule (posé par le rythme rapide). Le rythme rapide retire les whip pans : à 0,37 s le plan, ils rendaient
+  # l'image illisible.
+  - id: tiktok
+    displayName: Edit TikTok
+    description: One kill on every beat, vivid colors, motion blur, zoom toward the crosshair.
+    fast: true
+    colors: true
+    motionBlur: true
+    zoom: true
+    flash: true
+    showcase: false
+
+  # Sobre : peu d'effets, les raccords sur la pose de l'arme et les whip pans font les transitions.
+  - id: propre
+    displayName: Clean
+    description: Few effects, match cuts on the weapon pose, no flash or zoom.
+    fast: false
+    effectDensity: sober
+    zoom: false
+    flash: false
+    colors: false
+    matchCut: true
+    whip: true
+    whoosh: true
+    text: false
+    showcase: false
+
+  # Que les kills d'une balle à la tête, enchaînés au rythme de la musique.
+  - id: onetaps
+    displayName: One taps
+    description: Only one-bullet headshots, one short shot each, chained on the beat.
+    oneTaps: true
+    colors: true
+    zoom: true
+    flash: true
+    showcase: false
+
+  # Le meilleur kill attendu sur la drop : ouverture sans kill, ralentis et rampes, montée en puissance.
+  - id: cinematique
+    displayName: Cinematic
+    description: Calm showcase intro, slow-mo and speed ramps, building up to the best kill on the drop.
+    fast: false
+    order: build-up
+    effectDensity: balanced
+    slowMotion: true
+    speedRamp: true
+    showcase: true
+    colors: true
+    whip: true
+    whoosh: true
+    flash: true

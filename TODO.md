@@ -167,6 +167,10 @@ Pistes, de la plus simple à la plus lourde :
 # Améliorations
 
 ## Montage kills : pistes ouvertes
+- [x] Styles nommés (`config/montage-styles.yaml`, `--style`, puces en haut de la fenêtre, cases sous « Réglages
+  avancés ») : tiktok, propre, onetaps, cinematique. Une case modifiée à la main passe devant le style.
+  - [ ] Style par défaut et défauts des options « à activer si le rendu plaît » : rendus de comparaison dans
+    `output/revue/styles-montage/`, décision de l'utilisateur attendue.
 - [x] Whoosh sur les whip pans (souffles générés de `StoryRenderBuilder`, ou un dossier de sons : `whip.sounds`,
   `--whoosh-dir`), volume qui suit la musique dans `audio.balance`, case de la fenêtre de montage, rapport par plan.
   - [ ] Aucun dossier de souffles livré dans `config/` : à choisir à l'oreille.
