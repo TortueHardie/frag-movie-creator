@@ -27,6 +27,22 @@ class OutputNamerTest : FunSpec({
             "valorant_2026-09-17_highlights_2.mp4"
     }
 
+    test("suffixes successifs _2 puis _3, et une seule vidéo prise décale tous les formats ensemble") {
+        val dir = tempdir().toPath()
+        dir.resolve("wardogs_2026-09-17_killmontage_9x16.mp4").writeText("")
+        dir.resolve("wardogs_2026-09-17_killmontage_2.json").writeText("{}")
+        val paths = OutputNamer.reserve(dir, "Wardogs", date, listOf(OutputFormat.SOURCE, OutputFormat.VERTICAL), kind = "killmontage")
+        paths.videos.getValue(OutputFormat.SOURCE).name shouldBe "wardogs_2026-09-17_killmontage_3.mp4"
+        paths.videos.getValue(OutputFormat.VERTICAL).name shouldBe "wardogs_2026-09-17_killmontage_3_9x16.mp4"
+        paths.report.name shouldBe "wardogs_2026-09-17_killmontage_3.json"
+    }
+
+    test("le fichier temporaire d'un rendu est à côté de la vidéo, en .part.mp4") {
+        val target = tempdir().toPath().resolve("lol_2026-09-17_highlights_9x16.mp4")
+        OutputNamer.tempFor(target).name shouldBe "lol_2026-09-17_highlights_9x16.part.mp4"
+        OutputNamer.tempFor(target).parent shouldBe target.parent
+    }
+
     test("slug") {
         OutputNamer.slug("League of Légendes!") shouldBe "league-of-legendes"
         OutputNamer.slug("***") shouldBe "game"

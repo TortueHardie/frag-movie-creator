@@ -161,13 +161,16 @@ class ExportCommand : PipelineCommand("export") {
         val result = execute {
             val sessions = sessionFiles.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).export(sessions, ExportOptions(formats, out, style, music, platform), ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).export(sessions, exportOptions(), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
         }
         printExport(result)
     }
+
+    /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
+    internal fun exportOptions() = ExportOptions(formats, out, style, music, platform)
 }
 
 class MontageCommand : PipelineCommand("montage") {
@@ -242,16 +245,12 @@ class MontageCommand : PipelineCommand("montage") {
 
     override fun run() {
         val progress = ConsoleProgress()
-        val constraints = MontageConstraints(
-            excluded = exclude.toSet(),
-            forced = force.toSet(),
-            pins = pin.toMap() + listOfNotNull(drop?.let { it to MontagePin.Drop }),
-        )
+        val constraints = constraints()
         if (planOnly) {
             val planned = execute {
                 val loaded = sessions.map { SessionStore.load(it) }
                 try {
-                    Pipelines.create(env.config).planKillMontage(loaded, music, options(constraints), ProgressTracker(listener = progress).root)
+                    Pipelines.create(env.config).planKillMontage(loaded, music, montageOptions(constraints), ProgressTracker(listener = progress).root)
                 } finally {
                     progress.finish()
                 }
@@ -265,7 +264,7 @@ class MontageCommand : PipelineCommand("montage") {
                 Pipelines.create(env.config).killMontage(
                     loaded,
                     music,
-                    options(constraints),
+                    montageOptions(constraints),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -314,7 +313,15 @@ class MontageCommand : PipelineCommand("montage") {
         }
     }
 
-    private fun options(constraints: MontageConstraints) = MontageOptions(
+    /** Corrections du plan lues sur la ligne de commande (--exclude, --force, --pin, --drop). */
+    internal fun constraints() = MontageConstraints(
+        excluded = exclude.toSet(),
+        forced = force.toSet(),
+        pins = pin.toMap() + listOfNotNull(drop?.let { it to MontagePin.Drop }),
+    )
+
+    /** Options lues sur la ligne de commande (testées seules, sans rien lancer) ; [constraints] : corrections du plan. */
+    internal fun montageOptions(constraints: MontageConstraints = MontageConstraints()) = MontageOptions(
         formats = formats,
         platform = platform,
         outputDir = out,

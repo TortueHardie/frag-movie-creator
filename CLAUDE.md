@@ -284,6 +284,14 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;
   `music` : `--max --clips` ; `preview` : `--at`.
+  Options lues sans lancer le pipeline (tests `CommandOptionsTest`, `CommandLineParser.parseAndRun`) : `MontageCommand.montageOptions(constraints)`
+  (toute nouvelle option de montage s'y ajoute) et `constraints()` (--exclude/--force/--pin/--drop), `ExportCommand.exportOptions()`, `SearchCommand.query(since)/montageOptions(pick)`.
+  Codes de sortie (`PipelineCommand.execute`) : 1 erreur expliquée, 2 FFmpeg, 3 inattendue, 130 interruption ; erreur de saisie Clikt = 1.
+- Vérité terrain : `GroundTruth.kt` (`GroundTruth` YAML : `capture{name,sizeBytes,duration}`, `profile`, `tolerance`, `validated`, `kinds`,
+  `events{at,kind,note}`, `thresholds` détecteur→sorte→`Threshold(precision,recall)` ; `TruthScoring.score/match` : paires 1-1 les plus
+  proches d'abord, `DetectorScore` précision/rappel null si incalculables) ; `VeriteCommand.kt` (`app verite [VERITE…] --videos DIR | --sessions DIR -o`,
+  réanalyse avec `outputDir` = `-o` pour ne pas toucher la bibliothèque, code 1 sous un seuil, `verite-rapport.json`) ; tâche Gradle
+  `:app-cli:verite -Pverite="--videos D:\Vidéo"`. Fichiers de vérité : `verite/<jeu>/*.yaml` (vidéos hors dépôt), lus par `GroundTruthTest`.
 - Logs : `~/.highlights/logs/highlights.log` (logback.xml).
 
 ### app-ui (`dev.highlights.ui`)
@@ -342,6 +350,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   l'affichage). Clés : `ui.<écran>.*`, `error.*`, `notice.*` (avertissements de session), `progress.*`, `youtube.*`, `video.*` (textes
   incrustés), `format.*`, `event.*`. Placeholders nommés `{nom}` ; nombres → `count` pour le pluriel. `BundlesTest` + `HardcodedTextTest` vérifient.
 - **Changement de format de session** : `Session.CURRENT_VERSION`, `ignoreUnknownKeys` déjà actif ; défauts obligatoires pour les nouveaux champs.
+- **Changement d'un détecteur ou de la sélection** : `app verite` avant/après (README « Vérité terrain ») ; un seuil de
+  `verite/` qui baisse doit être justifié, pas juste abaissé.
 - **Sélection des moments** : `ThresholdMomentSelector` (+ `SegmentExtension`) ; appelé aussi à chaud par `reselect` (UI seuil/durée sans réanalyse).
 
 ## 7. Invariants / pièges

@@ -49,7 +49,7 @@ class SearchCommand : PipelineCommand("search") {
     override fun run() {
         val pipeline = Pipelines.create(env.config)
         val since = last?.let { n -> pipeline.statistics().mapNotNull { it.playedAt }.map { dev.highlights.pipeline.Statistics.eveningOf(it) }.distinct().sortedDescending().take(n).lastOrNull() }
-        val query = MomentQuery(game, from ?: since, to, minKills, ace, clutch, headshots, oneTaps)
+        val query = query(since)
         val found = execute { pipeline.search(query) }
         if (found.isEmpty()) {
             echo("Aucun moment ne répond à ces critères.")
@@ -76,7 +76,7 @@ class SearchCommand : PipelineCommand("search") {
             try {
                 pipeline.killMontage(
                     sessions, music,
-                    MontageOptions(maxDuration = max, platform = platform, outputDir = out, onlyKills = MomentPick.of(found), oneTaps = oneTaps, boostColors = colors, fast = if (fast) true else null),
+                    montageOptions(MomentPick.of(found)),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -85,6 +85,13 @@ class SearchCommand : PipelineCommand("search") {
         }
         printExport(result)
     }
+
+    /** Critères lus sur la ligne de commande ; [since] : début de la période --last, calculé sur les parties analysées. */
+    internal fun query(since: LocalDate? = null) = MomentQuery(game, from ?: since, to, minKills, ace, clutch, headshots, oneTaps)
+
+    /** Montage des moments trouvés ([pick]) avec les options de la ligne de commande. */
+    internal fun montageOptions(pick: MomentPick) =
+        MontageOptions(maxDuration = max, platform = platform, outputDir = out, onlyKills = pick, oneTaps = oneTaps, boostColors = colors, fast = if (fast) true else null)
 
     private fun parseDate(text: String): LocalDate = try {
         LocalDate.parse(text.trim())
