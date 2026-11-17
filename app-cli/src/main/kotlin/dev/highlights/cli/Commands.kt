@@ -2,6 +2,7 @@ package dev.highlights.cli
 
 import com.github.ajalt.clikt.core.BadParameterValue
 import com.github.ajalt.clikt.core.Context
+import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.multiple
 import com.github.ajalt.clikt.parameters.arguments.optional
@@ -21,6 +22,7 @@ import dev.highlights.core.model.AudioRole
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.KillCounterMode
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
@@ -35,6 +37,7 @@ import dev.highlights.core.session.SessionStore
 import dev.highlights.export.ExportResult
 import dev.highlights.ffmpeg.FfmpegEncoderSelector
 import dev.highlights.montage.CutGrid
+import dev.highlights.montage.MontageChoiceRecord
 import dev.highlights.montage.KillRef
 import dev.highlights.montage.MontageConstraints
 import dev.highlights.montage.MontagePin
@@ -49,6 +52,7 @@ import dev.highlights.pipeline.Diagnostics
 import dev.highlights.pipeline.ExportOptions
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
+import dev.highlights.pipeline.VariantPick
 import dev.highlights.pipeline.PlannedMontage
 import dev.highlights.pipeline.render
 import java.nio.file.Path
@@ -208,6 +212,8 @@ class MontageCommand : PipelineCommand("montage") {
     private val noSlowmo by option("--no-slowmo", help = "Sans ralenti").flag()
     private val noRamp by option("--no-ramp", help = "Sans rampe de vitesse entre les kills d'un multi-kill").flag()
     private val noText by option("--no-text", help = "Sans textes (DOUBLÉ, TRIPLÉ…)").flag()
+    private val killCounter by option("--kill-counter", help = "Compteur de kills à l'écran (« 1… 2… 3… », puis ACE) : clip (compté dans chaque plan), montage (cumulé), off")
+        .choice("off" to KillCounterMode.OFF, "clip" to KillCounterMode.CLIP, "montage" to KillCounterMode.MONTAGE)
     private val balance by option("--balance", help = "Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant) ; ±6 dB par cran")
         .convert { text ->
             text.replace(',', '.').toDoubleOrNull()?.takeIf { it in -1.0..1.0 } ?: throw BadParameterValue("équilibre invalide '$text' (entre -1 et 1)")
@@ -235,6 +241,15 @@ class MontageCommand : PipelineCommand("montage") {
         }.multiple()
     private val planOnly by option("--plan", help = "Affiche le plan sans rendre : la place de chaque kill et sa désignation pour --exclude, --force, --drop, --pin").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
+    private val variants by option(
+        "--variants",
+        help = "Aperçus de N variantes du montage (défaut 3), en 360p et vite, dans <sortie>/apercus avec un fichier *_variantes.json ; " +
+            "puis la même commande avec --pick <n> rend la variante choisie en pleine qualité",
+    ).int().restrictTo(min = 1, max = 6)
+    private val pick by option("--pick", help = "Rendre la variante n (1 = la mieux notée) proposée par --variants, en pleine qualité ; le choix est enregistré (*.choix.json)")
+        .int().restrictTo(min = 1)
+    private val variantsFile by option("--variants-file", help = "Fichier *_variantes.json des aperçus pour --pick (défaut : le plus récent pour ces sessions et cette musique)")
+        .path(mustExist = true, canBeDir = false)
 
     override fun help(context: Context) =
         "Montage de tous les kills calé sur une musique : coupes sur le beat, chaque kill sur un temps, zoom, flash, ralenti, textes (--reactions pour mettre en avant voix et rires, --onetaps pour ne garder que les one taps). " +
@@ -244,6 +259,8 @@ class MontageCommand : PipelineCommand("montage") {
         runCatching { KillRef.parse(text) }.getOrElse { throw BadParameterValue("kill invalide '$text' (attendu « capture@instant », ex. partie.mp4@3:12.4)") }
 
     override fun run() {
+        if (variants != null && pick != null) throw UsageError("--variants et --pick vont chacun dans leur commande : d'abord les aperçus, puis le choix")
+        if (variantsFile != null && pick == null) throw UsageError("--variants-file ne sert qu'avec --pick")
         val progress = ConsoleProgress()
         val constraints = constraints()
         if (planOnly) {
@@ -258,13 +275,21 @@ class MontageCommand : PipelineCommand("montage") {
             printPlan(planned, constraints)
             return
         }
+        variants?.let { return previews(it, progress, constraints) }
         val result = execute {
             val loaded = sessions.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).killMontage(
+                val pipeline = Pipelines.create(env.config)
+                val picked = pick?.let { n ->
+                    val file = variantsFile ?: pipeline.latestVariantsFile(loaded, music, out)
+                    if (file == null) echo("  aucun fichier de variantes trouvé : variante $n recalculée sans vérifier qu'elle est celle de l'aperçu", err = true)
+                    else echo("  variante $n de ${file.fileName}")
+                    VariantPick(n, file)
+                }
+                pipeline.killMontage(
                     loaded,
                     music,
-                    montageOptions(constraints, defaultStyle()),
+                    montageOptions(constraints, defaultStyle()).copy(pick = picked),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -287,6 +312,30 @@ class MontageCommand : PipelineCommand("montage") {
             val parts = criteria(s).joinToString(", ") { (n, v) -> if (v == null) "$n -" else "%s %.2f".format(n, v) }
             echo("  note %.3f  ($parts)".format(s.total))
         }
+        if (pick != null) echo("  choix enregistré : ${MontageChoiceRecord.fileFor(result.report)}")
+    }
+
+    /** Aperçus des variantes, leurs notes, et la commande pour rendre l'une d'elles. */
+    private fun previews(count: Int, progress: ConsoleProgress, constraints: MontageConstraints) {
+        val started = System.nanoTime()
+        val result = execute {
+            val loaded = sessions.map { SessionStore.load(it) }
+            try {
+                Pipelines.create(env.config).montagePreviews(loaded, music, montageOptions(constraints, defaultStyle()), count, ProgressTracker(listener = progress).root)
+            } finally {
+                progress.finish()
+            }
+        }
+        echo("${result.previews.size} aperçu(s) en %.0f s (%s) :".format((System.nanoTime() - started) / 1e9, result.variantsFile))
+        if (result.previews.size < count) echo("  seulement ${result.previews.size} variante(s) assez différentes sur les $count demandées")
+        result.previews.forEach { p ->
+            val e = p.entry
+            val distance = e.distance?.let { ", écart %.2f".format(it) } ?: ""
+            echo("  %d. note %.3f  %s, %d clips, %d kills, %.1f s, musique dès %s%s".format(e.index, e.score.total, e.label, e.clips, e.kills, e.durationSeconds, e.musicStart, distance))
+            echo("     ${p.video}")
+        }
+        result.notices.forEach { echo("  ! ${it.text()}") }
+        echo("Rendre la variante choisie : la même commande avec --pick <n> à la place de --variants")
     }
 
     /** Plan lisible : chaque plan dans l'ordre, puis les groupes écartés, chaque kill avec sa désignation. */
@@ -351,6 +400,7 @@ class MontageCommand : PipelineCommand("montage") {
         slowMotion = if (noSlowmo) false else null,
         speedRamp = if (noRamp) false else null,
         text = if (noText) false else null,
+        killCounter = killCounter,
         audioBalance = balance,
         gameAudio = gameAudio,
         reactions = if (reactions) true else null,

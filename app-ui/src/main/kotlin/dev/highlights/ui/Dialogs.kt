@@ -288,11 +288,12 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                         MontageToggle(tr("ui.montage.rounds"), montage.rounds) { v -> actions.updateMontage { it.copy(rounds = v) } }
                         MontageToggle(tr("ui.montage.slowMotion"), montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
                         MontageToggle(tr("ui.montage.text", "double" to tr("video.streak.2"), "triple" to tr("video.streak.3")), montage.text) { v -> actions.updateMontage { it.copy(text = v) } }
+                        KillCounterPicker(montage.killCounter) { mode -> actions.updateMontage { it.copy(killCounter = mode) } }
                     }
                 }
             }
         },
-        confirmButton = { Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text(tr("ui.montage.create")) } },
+        confirmButton = { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { PreviewVariantsButton(montage, actions); Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text(tr("ui.montage.create")) } } },
         dismissButton = { TextButton(onClick = actions::closeMontage) { Text(tr("ui.common.cancel")) } },
     )
 }

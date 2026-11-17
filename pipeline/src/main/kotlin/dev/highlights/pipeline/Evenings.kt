@@ -89,6 +89,19 @@ class EveningHistory(val file: Path) {
 
 /** Quelles soirées monter, et quand : sans état, pour être testé sans attendre une heure. */
 object EveningPlanner {
+    /** Choix « aucun style » : les réglages du profil seuls (comme `--style none` du montage). */
+    const val NO_STYLE = "none"
+
+    /**
+     * Style du montage de soirée : celui choisi ([choice]), sinon le style par défaut de `montage-styles.yaml`
+     * ([fileDefault], null : aucun) ; [NO_STYLE] : aucun, même si le fichier en a un.
+     */
+    fun style(choice: String?, fileDefault: String?): String? = when (choice) {
+        null -> fileDefault
+        NO_STYLE -> null
+        else -> choice
+    }
+
     /** Soirées des parties analysées (voir [Statistics.evenings]), la plus récente d'abord. */
     fun of(games: List<GameStats>, zone: ZoneId = ZoneId.systemDefault()): List<Evening> =
         Statistics.evenings(games, zone).map { ev ->

@@ -74,6 +74,9 @@ style) → `KillInspector.inspect` (`ShotLocator` recale sur l'attaque du tir ; 
 `MatchCutter.inspect` (pose de l'arme `aim`/`rest`, `WeaponTemplate` arme en main ; groupes `MontagePlanner.placeable` seulement) ; ces deux-là passent par `InspectionCache` → `MontagePlanner.best`
 (variantes échelle×dropShift notées par `MontageScorer`) → `ScopeCuts.apply` (raccords sur la pose, retiming) →
 `KillMontageExporter.export` (`MontageRenderBuilder.build`, `MontageReport` JSON avec `MontageScore`).
+Aperçus (`HighlightPipeline.montagePreviews`) : même préparation (`planMontage(…, count = n)`, privée, derrière `planKillMontage`), `MontageVariants.distinct` au lieu
+de `best`, chaque variante rendue en aperçu (`MontageExportRequest.preview`) dans `<sortie>/apercus` + `*_variantes.json` ;
+puis `killMontage` avec `MontageOptions.pick` (`VariantPick`) rend la variante n en pleine qualité (empreinte vérifiée) et écrit `*.choix.json`.
 
 ### 3d. UI
 `app-ui/Main.kt main()` → `Installation.setup()` (FFmpeg livré → prop `highlights.ffmpeg.dir` ; recopie config livrée vers
@@ -247,8 +250,17 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   Dans le planificateur : plancher et `placeable` gardent les `kept` ; `layout` n'accepte que les fenêtres qui contiennent la drop/les temps épinglés ;
   `assign` BUILD_UP met l'épinglé sur la drop, les épinglés sur leur cellule, puis les forcés restés dehors remplacent le moins bon groupe non imposé ;
   CHRONOLOGICAL : épinglé sur la drop = `best`, les moins bons d'avant lui cèdent leur place ; `pairUp` ne déplace pas les épinglés ; `clipFor` ancre sur le temps épinglé.
+- `KillCounter.kt` : compteur de kills à l'écran (`TextEffect.killCounter: KillCounterMode{OFF,CLIP,MONTAGE}`) : `marks(clips, i, outKills, length, mode)` (nombre tenu jusqu'au kill suivant ;
+  cumul : total d'avant affiché dès le début du plan ; ACE sur le dernier kill d'un groupe `outcome.ace`), `filters` (drawtext ; 9:16 en haut à droite dans `safeArea`, à gauche si `rightCornerTaken(vertical)`),
+  une ligne dans `MontageRenderBuilder.build` ; `MontageOptions.killCounter`, `--kill-counter`, `KillCounterPicker` (dialogue) ; texte `video.counter.ace`.
 - `MontageScorer.kt` : `MontageScore(total, sync, accent, restraint, variety, fill, pacing, coverage, opening, lull, action, details)` ; critère null = exclu de la moyenne.
-- `KillMontageExporter.kt` : `MontageExportRequest(musicChoice)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates)`, `export`, `recordingDate`.
+- `KillMontageExporter.kt` : `MontageExportRequest(musicChoice, preview)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates, signature, preview)`, `export` (aperçu → `MontagePreview`), `recordingDate`.
+- Aperçus de variantes (branche `montage-apercu-variantes`) : `MontageVariants.kt` (`distinct` : variantes de `best` classées comme lui, la 1 = celle
+  de `best`, suivantes à `distance` ≥ `MIN_DISTANCE` 0,25 de toutes les retenues, choix glouton donc liste pour n = début de celle pour n+1 ;
+  `ranked`, `distance` = max(clips (plus longue sous-suite commune), coupes à un temps près, passage de la musique), `signature` = empreinte du montage fini) ;
+  `MontagePreview.kt` (`edit` : petit côté 360 px, `plan` : sans flou par vecteurs ni minterpolate, `ENCODER` x264 ultrafast, `format` vertical d'abord,
+  `frames` : images de vignette animée) ; `MontageChoice.kt` (`MontageVariantsFile` `*_variantes.json` et `MontageChoiceRecord` `*.choix.json`, versionnés,
+  formats documentés en KDoc). `MontagePlanner.SCALES/DROP_SHIFTS/MIN_CLIP_SHARE/MIN_GAIN` sont `internal` pour `MontageVariants`.
 
 ### publish (`dev.highlights.publish`)
 - `YouTubeText.kt` : `VideoKind`, `VideoFacts` (jeu, date, durée, taille, kills, headshots, multiKills, aces, clutches, moments, musique), `YouTubeMetadata` (+ `problems()` = refus prévisibles de YouTube),
@@ -262,13 +274,14 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   méthodes `probe, analyze, analyzeAll, export, preview, reselect, reselectAll, thumbnail, clipPreview, killMontage (music = fichier ou dossier), loadMusicLibrary, process, processAll, reloadProfiles, resolveProfile` ;
   `ExportOptions.platform` / `planKillMontage` (tout `killMontage` jusqu'au plan, sans rendu → `PlannedMontage(plan, candidates)` ; `killMontage` l'appelle puis rend), `MontageOptions.constraints` (`MontageConstraints`),
   `MontageOptions.platform` (format, loudness, débit, zone sûre ; montage : maxDuration plafonnée ; highlights trop long → InputException avant rendu ; fichier `…_<kind>_<plateforme>`),
-  `platforms` ; `MontageOptions.fromStartMusics` (réglage « depuis le début » par musique en mode bibliothèque) ; `ExportResult.music` = musique utilisée ;
+  `platforms` ; `montagePreviews(sessions, music, options, count)` → `MontagePreviews(variantsFile, VariantPreview…)`, `MontageOptions.pick` (`VariantPick(index, variantsFile)`),
+  `latestVariantsFile`, `PREVIEW_DIR` (« apercus ») ; `MontageOptions.fromStartMusics` (réglage « depuis le début » par musique en mode bibliothèque) ; `ExportResult.music` = musique utilisée ;
   `library`, `previewDir`, `withJobDir` (workDir/job-UUID, gardé si échec).
 - `Pipelines.kt` : câblage manuel (pas de DI) `Pipelines.ffmpeg(config)`, `Pipelines.create(config)`.
 - `ConfigLocator.locate` : explicite > env `HIGHLIGHTS_CONFIG` > prop `highlights.config` > `./config/app.yaml` > `<install>/config/app.yaml`.
 - `AnalysisLibrary.kt` : index `outputDir/sessions/library.json` (`LibraryEntry`), `find/contains/record/entries/forget` (oublie : entrée + `*.session.json`, jamais une capture), `fingerprint`, `stamp`, `ANALYSIS_VERSION`.
 - `FolderWatcher.kt` : `poll(isKnown)` → fichiers stables depuis `settle` ; `writing()` (une capture s'écrit encore : soirée pas finie).
-- `Evenings.kt` (montage de soirée) : `Evening(date, game, profileId, sessionFiles, sources, kills, end)`, `EveningPlanner.of(GameStats)` (= `Statistics.evenings`),
+- `Evenings.kt` (montage de soirée) : `Evening(date, game, profileId, sessionFiles, sources, kills, end)`, `EveningPlanner.of(GameStats)` (= `Statistics.evenings`), `style(choix, défaut du fichier)` (`NO_STYLE` = « none »),
   `due(evenings, done, now, quiet, minKills, eligible, busy)`, `nextCheck` ; `EveningHistory` (`outputDir/sessions/evening-montages.json`, `done/record`, échecs retenus aussi).
   `HighlightPipeline.evenings()`, `eveningMontage(evening, music, options, progress)` (= `killMontage` des sessions, puis `eveningHistory.record`), `eveningHistory`.
 - `YouTubePublisher.kt` : `HighlightPipeline.youtube(browse)` → `apiEnabled` (`publish.youtube.api`, false par défaut : envoi manuel, `UPLOAD_PAGE`), `configured` (app.yaml `publish.youtube` ou `client_secret*.json` déposé dans le dossier de config), `connected`,
@@ -289,8 +302,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ### app-cli (`dev.highlights.cli`)
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
 - `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
-  `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --plan --exclude --force --drop --pin --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --style --out`.
-  `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `EveningCommand.kt` : `soiree [--date --game --music --list -f --platform -o]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
+  `--variants N --pick N --variants-file` (aperçus puis choix), `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --plan --exclude --force --drop --pin --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --kill-counter --balance --reactions --game-audio --style --out`.
+  `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `EveningCommand.kt` : `soiree [--date --game --music --list -f --platform --style -o]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;
   `music` : `--max --clips` ; `preview` : `--at`.
   Options lues sans lancer le pipeline (tests `CommandOptionsTest`, `CommandLineParser.parseAndRun`) : `MontageCommand.montageOptions(constraints)`
@@ -308,6 +321,9 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   (`UiState, ConfigStatus, SourceInfo, LibraryItem, WatchState, TargetMode, MomentMode{BEST,KILLS}, SettingsState, JobState, SessionEntry, Segment, SessionState, ErrorInfo, ImagePreview, MontageUiState`).
 - Publication : `PublishUiState` (UiState.kt, `withSuggestion/metadata/problems/canPublish`), `PublishDialog.kt`, actions `openPublish/updatePublish/resetPublishText/publishToYouTube/youtubeLogout/editConfig/browse`,
   `openYouTubeUpload/copyToClipboard` (mode manuel, par défaut : `PublishUiState.api` false), `UiState.lastUpload` ; `Platform.browse/copy` (défaut vide pour les faux).
+- Aperçus de variantes : `VariantsView.kt` (`VariantsUiState`, `VariantCard`, `VariantsWindow` : une carte par variante, vignette animée, Lire = lecteur du système,
+  « Rendre celle-ci » ; `PreviewVariantsButton` dans `MontageDialog`), actions `previewMontage/renderVariant/closeVariants` (défauts vides dans `UiActions`),
+  `UiState.variants` ; `AppController.montageOptions` (options communes au montage et aux aperçus), `pendingVariants`.
 - Recherche : `SearchView.kt` (`SearchState` : moments chargés une fois, filtres, `unpicked`, `results/picked` ; `SearchPeriod`), actions `showSearch/closeSearch/updateSearch/toggleMoment/montageFromSearch`
   (ouvre les parties via `openSessions(files, then)` puis `openMontage` avec `MontageUiState.pick`).
 - Statistiques : `StatsView.kt` (`StatsState` : games, jeu choisi, `evenings/gameNames/shown`), actions `showStats/closeStats/setStatsGame`, `UiState.stats` (remplace la liste des analyses).
@@ -322,7 +338,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - Montage des soirées : `WatchPrefs.evenings: EveningAuto(enabled=false, delay 60 min, minKills 5, arrived)` ; `WatchState.evenings/eveningDelayText/montaging/montageFraction/lastEvening/eveningProblem` ;
   `AppController.checkEvenings` (appelé par la boucle du dossier surveillé, relit la bibliothèque seulement à `eveningCheckAt`) → `montageEvening` (musique = `MusicPrefs.library`,
   formats/plateforme des réglages) → `Platform.notify` (DesktopPlatform : `TrayIcon.displayMessage`, clic = ouvre la vidéo) ; `EveningView.kt` (`EveningAutoSection`, une ligne dans `WatchCard`) ;
-  actions `setEveningMontage/setEveningDelay/setEveningMinKills/openLastEvening` ; `AppController(clock)`.
+  actions `setEveningMontage/setEveningDelay/setEveningMinKills/setEveningStyle/openLastEvening` (`EveningAuto.style`, `WatchState.eveningStyles`) ; `AppController(clock)`.
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).
 - Pont de pilotage (dev seulement) `bridge/` : `ControlBridge` (HttpServer 127.0.0.1, port+jeton dans `~/.highlights/control-bridge.json` ; `enabled` = `-Dhighlights.bridge=true`

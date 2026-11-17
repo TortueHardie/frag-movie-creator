@@ -270,7 +270,10 @@ fun MontagePlanContent(constraints: MontageConstraints, plan: MontagePlanState, 
         )
     }
 
-    Box(modifier.background(Palette.background)) {
+    // Surface : la fenêtre de la frise n'est pas sous celle de l'application ; sans couleur de contenu, les textes sans
+    // couleur propre (titre, instant d'un groupe écarté) sortaient en noir sur le fond sombre.
+    androidx.compose.material3.Surface(modifier, color = Palette.background, contentColor = Palette.text) {
+    Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             val view = plan.view
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -326,6 +329,7 @@ fun MontagePlanContent(constraints: MontageConstraints, plan: MontagePlanState, 
             )
         }
     }
+}
 }
 
 @Composable
@@ -505,7 +509,7 @@ private fun LeftCard(group: PlanGroup, mark: GroupMark, thumbnail: Path?, action
         }
         Text(group.capture, style = MaterialTheme.typography.labelSmall, color = Palette.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(KillRef.clock(group.kills.last()), style = MaterialTheme.typography.bodySmall)
+            Text(KillRef.clock(group.kills.last()), style = MaterialTheme.typography.bodySmall, color = Palette.text)
             if (group.kills.size > 1) Text(tr("ui.montagePlan.multi", "n" to group.kills.size), style = MaterialTheme.typography.labelSmall, color = Palette.cyan)
             Spacer(Modifier.weight(1f))
         }
@@ -513,7 +517,9 @@ private fun LeftCard(group: PlanGroup, mark: GroupMark, thumbnail: Path?, action
             markLabel(mark) ?: tr("ui.montagePlan.leftByPlan"),
             style = MaterialTheme.typography.labelSmall,
             color = markColor(mark) ?: Palette.textMuted,
-            maxLines = 1,
+            // Deux lignes : « Ausgelassen · Klick zum Erzwingen » ne tient pas sur une carte de 150 dp.
+            maxLines = 2,
+            minLines = 2,
         )
     }
 }
