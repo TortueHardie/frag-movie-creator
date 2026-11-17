@@ -557,6 +557,25 @@ plan au lieu de tout relancer à l'aveugle.
   cèdent leur place). Une correction impossible (kill introuvable, plus de place, pas de drop dans le passage retenu,
   temps hors du montage) arrête le plan avec un message qui nomme le kill : jamais un montage qui l'ignore en silence.
 
+## Clip « meilleur moment » (9:16)
+
+Un seul moment en vidéo verticale de 15 à 30 s, prête pour TikTok ou Shorts, sans musique imposée : l'action d'origine,
+le son du jeu et la voix. Bouton **Clip 9:16** sur le moment sélectionné, ou :
+
+```powershell
+& $app clip output\sessions\partie.session.json                       # le meilleur moment (le plus de kills, puis le score)
+& $app clip output\sessions\partie.session.json --moment h003 --platform tiktok
+```
+
+- Monté en style story sur ce seul moment : accroche (le kill en ouverture), attente coupée en jump cuts, punch-in et
+  secousse sur le kill, sous-titres de la voix si le modèle whisper est là, bruitages.
+- Un moment détecté ne dure que 5 à 7 s : le clip prend la partie autour (au plus 6 s après le kill, le reste avant) et
+  l'élargit jusqu'à ce que le montage, attente coupée, dure entre 15 et 30 s (22 s visées). Une partie où presque
+  tout est de l'attente peut aller chercher 3 minutes avant le kill. Réglages : `edit.clip` du profil (`minDuration`,
+  `maxDuration`, `target`, `lead`, `after`).
+- `--platform` (ou la plateforme choisie dans l'application) : zone sûre, volume, débit, et sa durée maximale plafonne
+  le clip. Fichier `<jeu>_<date>_clip_<moment>[_plateforme]_9x16.mp4`.
+
 ## Statistiques par soirée
 
 Bouton **Statistiques** au-dessus des analyses enregistrées (ou `app stats`) : les parties analysées, un jeu à la

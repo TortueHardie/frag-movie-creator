@@ -206,6 +206,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `ExportReport.kt` : rapport JSON des highlights.
 
 ### montage (montage kills)
+- Clip « meilleur moment » : `core/model/Clip.kt` (`ClipSettings`, `EditSettings.clip`) ; `pipeline/MomentClips.kt` (`ClipOptions`, `MomentClips.pick` : plus de kills puis score, cochés d'abord ; `window` : dichotomie sur la longueur de la fenêtre, `StoryPlanner` sans rendu, durée story dans [min, max] ; `settings` : story, vertical, accroche à 1 moment) ;
+  `HighlightPipeline.clip` → `Exporter.export` (`ExportRequest.kind` = `clip_<id>`, sans musique) ; CLI `ClipCommand` (`app clip`), app `clipMoment` (bouton dans `RetouchBar` de SessionViews). Test `MomentClipsTest`.
 - Peu de kills : `MontageSettings.minKills` (3) → `PlannedMontage.fewKills` / `fewKillsNotice` → `MontageExportRequest.notices` → `MontageReport.notices` et `ExportResult.notices` (CLI `printExport` « ! … », app : sous le résultat dans `SessionViews`).
 - Styles de montage : `core/model/MontageStyle.kt` (`MontageStyle` : réglages nullables, nom `style.<id>` traduit sinon `displayName` ; `MontageStyles(default, styles)`),
   fichier `config/montage-styles.yaml` lu par `LoadedConfig.loadMontageStyles()` (`AppConfig.montageStyles`), `HighlightPipeline.montageStyles/montageStyle(id)` ;
@@ -301,7 +303,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 
 ### app-cli (`dev.highlights.cli`)
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
-- `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
+- `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `ClipCommand.kt` : `clip SESSION [--moment --platform -o]` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
   `--variants N --pick N --variants-file` (aperçus puis choix), `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --plan --exclude --force --drop --pin --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --kill-counter --balance --reactions --game-audio --style --out`.
   `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `EveningCommand.kt` : `soiree [--date --game --music --list -f --platform --style -o]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;

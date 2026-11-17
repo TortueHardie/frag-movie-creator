@@ -64,6 +64,8 @@ data class ExportRequest(
     /** Plateforme visée (identifiant, dans le nom des fichiers) et sa durée maximale, vérifiée avant le rendu. */
     val platform: String? = null,
     val maxDuration: Duration? = null,
+    /** Genre de vidéo, dans le nom des fichiers : highlights, clip. */
+    val kind: String = "highlights",
 )
 
 data class ExportResult(
@@ -118,7 +120,7 @@ class Exporter(
 
         request.outputDir.createDirectories()
         request.workDir.createDirectories()
-        val kind = request.platform?.let { "highlights_${OutputNamer.slug(it)}" } ?: "highlights"
+        val kind = request.platform?.let { "${request.kind}_${OutputNamer.slug(it)}" } ?: request.kind
         val paths = OutputNamer.reserve(request.outputDir, request.gameName, recordingDate(sessions), settings.formats, kind)
         val sources = plan.clips.map { it.media.path }.toSet()
         paths.all.forEach { ensureNotSource(it, sources) }

@@ -77,6 +77,8 @@ data class EditSettings(
     val safeArea: SafeArea = SafeArea.NONE,
     /** Plafond du débit vidéo (ex. 16M) ; null : celui de l'encodeur. */
     val maxBitrate: String? = null,
+    /** Clip « meilleur moment » d'un seul moment en 9:16 (voir [ClipSettings]). */
+    val clip: ClipSettings = ClipSettings(),
 ) {
     init {
         require(sourceHeight > 0 && sourceHeight % 2 == 0) { "sourceHeight doit être pair et > 0" }

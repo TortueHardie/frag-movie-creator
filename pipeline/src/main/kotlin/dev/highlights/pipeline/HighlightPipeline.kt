@@ -548,6 +548,41 @@ class HighlightPipeline(
     suspend fun export(session: Session, options: ExportOptions, progress: ProgressReporter): ExportResult =
         export(listOf(session), options, progress)
 
+    /**
+     * Clip « meilleur moment » : un seul moment de [session] (le meilleur, ou [ClipOptions.moment]) en vidéo 9:16 de
+     * 15 à 30 s, montée en style story, sans musique imposée. Voir [MomentClips] et [dev.highlights.core.model.ClipSettings].
+     */
+    suspend fun clip(session: Session, options: ClipOptions, progress: ProgressReporter): ExportResult {
+        val profile = profiles.byId(session.profileId)
+        val platform = platform(options.platform)
+        val settings = MomentClips.settings(profile.gradedEdit()).let { platform?.applyTo(it) ?: it }
+            // Pas de musique de fond dans un clip : l'action d'origine, le son du jeu et la voix.
+            .let { it.copy(story = it.story.copy(music = it.story.music.copy(file = null))) }
+        val moment = MomentClips.pick(session, options.moment)
+        val max = platform?.maxDuration?.let { minOf(it, settings.clip.maxDuration) } ?: settings.clip.maxDuration
+        val clipped = MomentClips.window(session, moment, settings, max)
+        log.info { "Clip du moment ${moment.id} : ${clipped.highlights.single().range}" }
+        return withJobDir { workDir ->
+            exporter.export(
+                listOf(clipped),
+                ExportRequest(
+                    settings = settings,
+                    outputDir = options.outputDir ?: config.outputDir,
+                    workDir = workDir,
+                    gameName = profile.id,
+                    audioBitrate = config.app.encoder.audioBitrate,
+                    hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
+                    audioLayout = profile.audio,
+                    captionCache = config.workDir.resolve("cache").resolve("captions"),
+                    platform = options.platform,
+                    maxDuration = max,
+                    kind = "clip_${moment.id}",
+                ),
+                progress,
+            )
+        }
+    }
+
     /** Un seul montage des segments cochés de toutes les [sessions]. Réglages du profil de la première. */
     suspend fun export(sessions: List<Session>, options: ExportOptions, progress: ProgressReporter): ExportResult {
         if (sessions.isEmpty()) throw InputException(Message("error.export.noSession"))

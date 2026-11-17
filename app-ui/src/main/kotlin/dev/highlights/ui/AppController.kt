@@ -85,6 +85,8 @@ interface UiActions {
 
     fun analyze()
     fun export()
+    /** Clip « meilleur moment » du moment [key] : une vidéo 9:16 de 15 à 30 s (voir [dev.highlights.pipeline.MomentClips]). */
+    fun clipMoment(key: String)
     fun cancelJob()
 
     fun toggleSegment(id: String)
@@ -541,6 +543,21 @@ class AppController(
             runTask(tr("ui.job.export")) { progress ->
                 saveNow(current)
                 val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform), progress)
+                _state.update { it.copy(lastExport = result, lastUpload = null) }
+            }
+        }
+    }
+
+    override fun clipMoment(key: String) {
+        val s = state.value
+        val current = s.session ?: return
+        val segment = current.segments.firstOrNull { it.key == key } ?: return
+        val p = backend?.pipeline ?: return
+        withMemory(tr("ui.job.clip"), MEMORY_EXPORT) {
+            runTask(tr("ui.job.clip")) { progress ->
+                saveNow(current)
+                val options = dev.highlights.pipeline.ClipOptions(segment.highlight.id, s.settings.platform, s.settings.outputDir)
+                val result = p.clip(current.sessions[segment.entry], options, progress)
                 _state.update { it.copy(lastExport = result, lastUpload = null) }
             }
         }
