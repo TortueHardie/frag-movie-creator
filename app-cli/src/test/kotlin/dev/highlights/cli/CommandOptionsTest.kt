@@ -167,6 +167,8 @@ class CommandOptionsTest : FunSpec({
         parse(ExportCommand(), "export", session.toString(), "--thumbnail-style", "big") { it.exportOptions().thumbnail } shouldBe ThumbnailStyle.BIG_TEXT
         parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--thumbnail") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.SOBER
         parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--thumbnail-style", "vivid") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.VIVID
+        // Avec --pick (rendu final d'une variante) : la miniature suit ; les aperçus (--variants) n'en font jamais.
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--pick", "2", "--thumbnail") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.SOBER
         parse(ThumbnailCommand(), "thumbnail", session.toString()) { it.chosenStyle() } shouldBe ThumbnailStyle.SOBER
         parse(ThumbnailCommand(), "thumbnail", session.toString(), "--thumbnail-style", "big") { it.chosenStyle() } shouldBe ThumbnailStyle.BIG_TEXT
         usageError(ExportCommand(), "export", session.toString(), "--thumbnail-style", "fluo").statusCode shouldBe 1

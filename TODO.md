@@ -167,6 +167,11 @@ Pistes, de la plus simple à la plus lourde :
 # Améliorations
 
 ## Montage kills : pistes ouvertes
+- [x] Aperçus de variantes : 3 versions du montage en 360p, vite, au même calage que le rendu final, puis la choisie
+  rendue en pleine qualité (`--variants` / `--pick`, bouton « Aperçu de 3 versions »). Choix gardés dans `*.choix.json`.
+  - [ ] Lecteur vidéo dans l'application (aujourd'hui : vignettes animées et lecteur du système).
+  - [ ] Apprendre des choix : lire les `*.choix.json` (notes de chaque variante, celle préférée) pour régler `MontageScorer`.
+  - [ ] Variantes au-delà du planificateur (ordre chronologique / montée, accroche, densité d'effets) : à décider avec l'utilisateur.
 - [x] Styles nommés (`config/montage-styles.yaml`, `--style`, puces en haut de la fenêtre, cases sous « Réglages
   avancés ») : tiktok, propre, onetaps, cinematique. Une case modifiée à la main passe devant le style.
   - [ ] Style par défaut et défauts des options « à activer si le rendu plaît » : rendus de comparaison dans
@@ -299,4 +304,4 @@ Pistes, de la plus simple à la plus lourde :
 
 ## Plus ambitieux
 - [ ] Modèle ML personnalisé entraîné sur les moments gardés/décochés des sessions.
-- [ ] Lecteur intégré : aperçu vidéo, scrubbing sur la timeline, rendu d'aperçu basse résolution avant l'export.
+- [ ] Lecteur intégré : aperçu vidéo, scrubbing sur la timeline (le rendu d'aperçu basse résolution du montage kills existe : `MontagePreview`).

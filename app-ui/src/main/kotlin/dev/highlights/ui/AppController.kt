@@ -26,6 +26,8 @@ import dev.highlights.pipeline.FolderWatcher
 import dev.highlights.pipeline.HighlightPipeline
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
+import dev.highlights.pipeline.VariantPick
+import dev.highlights.montage.MontageVariants
 import dev.highlights.pipeline.ProblemReport
 import dev.highlights.pipeline.SystemInfo
 import dev.highlights.pipeline.YouTubePublisher
@@ -107,6 +109,11 @@ interface UiActions {
     fun chooseMusicLibrary()
     fun updateMontage(change: (MontageUiState) -> MontageUiState)
     fun createMontage()
+    /** Aperçus de quelques variantes du montage au lieu du rendu final (voir [VariantsUiState]). */
+    fun previewMontage() {}
+    /** Rend en pleine qualité la variante [index] des aperçus, et enregistre ce choix. */
+    fun renderVariant(index: Int) {}
+    fun closeVariants() {}
 
     /** Frise du plan de montage ([MontagePlanState]) : l'ouvrir (plan calculé aussitôt), la fermer. */
     fun openMontagePlan() {}
@@ -165,6 +172,8 @@ interface UiActions {
     /** Délai sans nouvelle partie après lequel la soirée est finie (« 1 h », « 45 min »). */
     fun setEveningDelay(text: String) {}
     fun setEveningMinKills(count: Int) {}
+    /** Style du montage de soirée : un identifiant, `none`, ou null (celui par défaut du fichier de styles). */
+    fun setEveningStyle(id: String?) {}
     /** Ouvre la vidéo du dernier montage de soirée. */
     fun openLastEvening() {}
 
@@ -709,6 +718,7 @@ class AppController(
                     formats = montage?.formats?.toSet() ?: setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
                     rounds = montage?.killStyle?.deathEvent?.isNotEmpty() ?: true,
                     balance = montage?.audio?.balance ?: 0.0,
+                    killCounter = montage?.text?.killCounter ?: dev.highlights.core.model.KillCounterMode.OFF,
                     platform = it.settings.platform,
                     styles = styles.styles,
                     profileKnobs = StyleKnobs.of(montage),
@@ -755,6 +765,48 @@ class AppController(
         }
     }
 
+    /** Parties, musique et réglages des derniers aperçus : la variante choisie se rend avec exactement les mêmes. */
+    private data class PendingVariants(val sessions: List<Session>, val music: Path, val options: MontageOptions, val file: Path)
+
+    @Volatile
+    private var pendingVariants: PendingVariants? = null
+
+    override fun previewMontage() {
+        val s = state.value
+        val montage = s.montage ?: return
+        val music = montage.musicSource ?: return
+        if (!montage.useLibrary) musicPrefs.remember(music, montage.musicFromStart)
+        musicPrefs.rememberLibrary(montage.musicLibrary, montage.useLibrary)
+        val session = s.session ?: return
+        val p = backend?.pipeline ?: return
+        _state.update { it.copy(montage = null, variants = null) }
+        val options = montageOptions(montage, s)
+        val title = tr("ui.job.previews", "track" to music.name)
+        withMemory(title, MEMORY_MONTAGE) {
+            runTask(title) { progress ->
+                saveNow(session)
+                val previews = p.montagePreviews(session.sessions, music, options, MontageVariants.DEFAULT_COUNT, progress)
+                pendingVariants = PendingVariants(session.sessions, music, options, previews.variantsFile)
+                _state.update { it.copy(variants = VariantsUiState.of(previews, MontageVariants.DEFAULT_COUNT)) }
+            }
+        }
+    }
+
+    override fun renderVariant(index: Int) {
+        val pending = pendingVariants ?: return
+        val p = backend?.pipeline ?: return
+        _state.update { it.copy(variants = null) }
+        val title = tr("ui.job.montage", "track" to pending.music.name)
+        withMemory(title, MEMORY_MONTAGE) {
+            runTask(title) { progress ->
+                val result = p.killMontage(pending.sessions, pending.music, pending.options.copy(pick = VariantPick(index, pending.file)), progress)
+                _state.update { it.copy(lastExport = result, lastUpload = null) }
+            }
+        }
+    }
+
+    override fun closeVariants() = _state.update { it.copy(variants = null) }
+
     /** Réglages du dialogue pour le pipeline : les mêmes pour la frise et pour le rendu, sinon le plan montré mentirait. */
     private fun montageOptions(montage: MontageUiState, s: UiState) = MontageOptions(
         // Miniature sobre de chaque vidéo : prête dans la fenêtre de publication.
@@ -776,6 +828,7 @@ class AppController(
         rounds = montage.rounds,
         slowMotion = montage.slowMotion,
         text = montage.text,
+        killCounter = montage.killCounter,
         audioBalance = montage.balance,
         gameAudio = montage.gameAudio,
         reactions = montage.reactions,
@@ -1098,6 +1151,8 @@ class AppController(
         eveningCheckAt = clock()
     }
 
+    override fun setEveningStyle(id: String?) = updateEvenings { it.copy(style = id) }
+
     override fun openLastEvening() {
         state.value.watch.lastEvening?.video?.let(platform::open)
     }
@@ -1151,6 +1206,7 @@ class AppController(
                     outputDir = s.settings.outputDir,
                     fromStartMusics = musicPrefs.fromStartMusics(),
                     thumbnail = ThumbnailStyle.SOBER,
+                    style = EveningPlanner.style(watchSettings?.evenings?.style, runCatching { p.montageStyles.default }.getOrNull()),
                 ),
                 tracker.root,
             )
@@ -1181,7 +1237,12 @@ class AppController(
         // Au lancement, une soirée finie pendant que l'application était fermée se monte aussitôt.
         eveningCheckAt = clock()
         _state.update {
-            it.copy(watch = WatchState(folder = prefs.folder, fresh = it.watch.fresh, evenings = prefs.evenings, eveningDelayText = I18n.duration(prefs.evenings.delay)))
+            it.copy(
+                watch = WatchState(
+                    folder = prefs.folder, fresh = it.watch.fresh, evenings = prefs.evenings, eveningDelayText = I18n.duration(prefs.evenings.delay),
+                    eveningStyles = backend?.pipeline?.let { p -> runCatching { p.montageStyles }.getOrNull() } ?: dev.highlights.core.model.MontageStyles.NONE,
+                ),
+            )
         }
         log.info { "Surveillance de ${prefs.folder} (captures depuis ${prefs.since})" }
         watchJob = scope.launch(Dispatchers.IO) {

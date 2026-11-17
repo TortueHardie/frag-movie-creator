@@ -44,6 +44,8 @@ detectors:
   # headshots (absents du killfeed pour le joueur). Mesuré sur quatre parties (3440x1440 et 1920x1080, deux joueurs,
   # deux agents) : 79 kills sur 79, 58 morts sur 58, aucun faux positif. Coût : les images clés sont lues d'abord, puis
   # seuls les instants où une nouvelle ligne du joueur apparaît sont décodés (keyframeScan, voir le README).
+  # Sous 720 px de haut (vidéos 480p de YouTube), le contour est délavé : l'aplat jaune du portrait est lu à la place
+  # (fillBelow, voir le README) ; mesuré sur deux parties 854x480 en 16:9.
   - id: killfeed
     type: killfeed
     fallbackFor: game-events

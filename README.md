@@ -30,7 +30,8 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
   par défaut) : quand la soirée est finie (aucune nouvelle partie depuis 1 h, réglable, et rien en cours
   d'enregistrement ni d'analyse), un montage kills de toutes ses parties se fait seul : soirée découpée comme les
   statistiques (de 6 h à 6 h, un jeu à la fois), musique choisie dans le dossier de musiques du dialogue du montage,
-  formats et plateforme des réglages. Une notification Windows le dit (« Soirée du 16/11 : 47 kills, montage prêt »),
+  formats et plateforme des réglages, style choisi dans la carte (par défaut celui de `montage-styles.yaml`, « aucun »
+  pour les réglages du profil seuls ; `app soiree --style`). Une notification Windows le dit (« Soirée du 16/11 : 47 kills, montage prêt »),
   un clic ouvre la vidéo. Rien n'est monté ni notifié sous 5 kills (réglable). Seules les soirées d'une capture arrivée
   dans le dossier surveillé pendant que l'option est active comptent (l'activer ne remonte pas l'historique), et une
   soirée n'est jamais remontée d'office (`output/sessions/evening-montages.json`). Seulement quand l'application est
@@ -489,6 +490,11 @@ détecte les kills). En ligne de commande :
 - **Une emphase par plan** (`effectDensity`, `--effects sober|balanced|heavy`) : au rythme normal, un plan reçoit un
   ralenti *ou* un zoom, jamais les deux. Le ralenti va aux plans forts — drop, multi-kill visible à l'écran, accroche —
   et les autres prennent le zoom. `sober` ne garde que le ralenti de la drop, `heavy` remet tout partout.
+- **Compteur de kills** (désactivé par défaut ; « Compteur de kills à l'écran » du dialogue, `--kill-counter clip|montage`,
+  `text.killCounter` d'un profil) : « 1… 2… 3… » à chaque kill, tenu jusqu'au suivant, puis ACE (doré, sous le nombre)
+  sur le dernier kill d'un groupe qui finit un ace. `clip` : compté dans chaque plan (un multi-kill fait 1, 2, 3) ;
+  `montage` : cumul sur tout le montage, le total restant affiché d'un plan à l'autre. En 9:16, en haut à droite à
+  côté du kill feed recollé (à gauche si le HUD recollé du profil occupe ce coin), dans la zone sûre de la plateforme.
 - **Effets** (désactivables : `--no-zoom`, `--no-flash`, `--no-slowmo`, `--no-text`) : zoom punch, ralenti ×0,5 sur le
   kill (seulement s'il tient dans le plan), textes « DOUBLÉ / TRIPLÉ », fondu au noir final. Le ralenti s'installe par
   paliers avant le kill et le plein régime revient exactement sur un temps, au lieu d'un changement de vitesse net ;
@@ -740,6 +746,16 @@ ligne est un événement.
   est absent.
 - La zone (`region`) est mesurée en 3440x1440 et suit le format de la capture (`referenceWidth`, `anchor: right`) ; les
   tailles du cadre (`minHeight`…`maxFill`) et la couleur (`color`, `threshold`) se règlent pour un autre jeu.
+- **Basse définition** (capture de moins de 720 px de haut, `fillBelow`) : le contour du cadre (3 px en 1440p) y fait
+  moins d'un pixel et la couleur sous-échantillonnée le délave jusqu'à la teinte des murs de sable ; mesuré en 854x480
+  (deux parties téléchargées de YouTube) : 25 à 50 de jaune pour un seuil de 60, 1 kill lu sur 44. Le détecteur y lit
+  alors l'aplat jaune pur derrière le portrait du joueur (`fillColor` : rouge et vert égaux à 30 près, ce qui écarte le
+  sable), une tache pleine de la hauteur d'une demi-ligne à une ligne (`fillMinHeight`…`fillMin`), pas collée au bord
+  droit de l'écran (bordure dorée de certaines capacités). Une ligne doit y rester visible 2 s (`fillMinSeen`, une
+  ligne en reste 5) et toute la vidéo est décodée (480p coûte peu). Sur la partie dont le tableau de fin dit 44 kills /
+  14 morts : 46 kills et 18 morts lus (1 et 0 avant) ; 4 des morts portent l'icône de l'ultime de Phoenix, qui ramène le
+  joueur sans compter de mort (hypothèse, non traitée). La géométrie 16:9 n'était pas en cause : la zone mesurée en
+  21:9 tombe juste sur le killfeed en 16:9.
 
 ## Journal des gains (Wardogs)
 
@@ -907,6 +923,35 @@ La drop garde son plan d'élan, le premier plan en fait deux. Fichiers `…_onet
   analysée avant eux est à réanalyser. Une capacité ou le couteau (compteur immobile) n'est jamais un one tap.
 - Sans tirs à la tête connus (ni Outplayed, ni gabarit du son), tout kill d'une balle compte, et le journal le dit ;
   `montage.oneTaps.allowWithoutHeadshots: false` refuse plutôt.
+
+## Aperçus : choisir parmi plusieurs versions du montage
+
+Un rendu pleine qualité du montage kills prend plusieurs minutes : le juger à l'aveugle coûte cher. Bouton « Aperçu de
+3 versions » du dialogue du montage, ou `montage … --variants 3` : trois versions du même montage sont rendues en petit
+(360 pixels sur le petit côté, vertical d'abord), vite (x264 `ultrafast`, sans flou par vecteurs), dans
+`<sortie>\apercus\`. Chaque plan y garde exactement son nombre d'images : coupes, kills sur les temps et son sont ceux
+du rendu final. Mesuré sur deux parties WARDOGS et « Rome Is Burning » : un aperçu se rend en 11,6 s contre 25,5 s pour le
+rendu final (35 s de montage), les trois aperçus en 47 s contre 35 s pour un seul rendu final. Le décodage des
+captures 3440x1440 domine : l'aperçu les décode en logiciel, sans filtre de boucle H.264 (plus rapide ici que le
+décodage matériel, dont chaque image pleine taille redescend de la carte graphique).
+
+- **Les versions** : celles que le planificateur note déjà (échelle de la grille de coupes × place de la drop) et le
+  plan de base, classées comme il les classe : la version 1 est celle qu'un montage sans aperçu aurait rendue. Les
+  suivantes doivent s'écarter d'au moins 0,25 de toutes les précédentes : un quart des plans changent de clip ou de
+  place, ou un quart des coupes tombent ailleurs (à un temps près), ou la musique part d'un quart de montage plus loin.
+  Moins de trois versions quand les autres se ressemblent trop.
+- **Choisir** : dans l'application, chaque version a sa vignette animée, « Lire » (lecteur du système) et « Rendre
+  celle-ci ». En ligne de commande, la même commande avec `--pick <n>` à la place de `--variants` (fichier des
+  versions : le plus récent pour ces parties et cette musique, ou `--variants-file`). Rien n'est réanalysé ; le montage
+  recalculé doit avoir la même empreinte que l'aperçu regardé, sinon il est refusé (réglages ou analyses changés).
+- **Fichiers** : `…_killmontage_variantes.json` (chaque version : réglage, empreinte, note critère par critère, écart
+  aux précédentes, aperçu) et, à côté du rapport du rendu final, `….choix.json` (version choisie, notes de toutes) :
+  de quoi apprendre plus tard ce qui fait préférer une version.
+
+```powershell
+& $app montage output\sessions\WARDOGS_*.session.json --music "D:\Musique\R2D2.mp3" --variants 3
+& $app montage output\sessions\WARDOGS_*.session.json --music "D:\Musique\R2D2.mp3" --pick 2
+```
 
 ## Ligne de commande
 

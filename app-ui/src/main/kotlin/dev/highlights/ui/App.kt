@@ -108,6 +108,7 @@ fun App(state: UiState, actions: UiActions) {
         }
         }
         state.montage?.let { MontageDialog(it, state, actions) }
+        state.variants?.let { VariantsWindow(it, state.job != null, actions) }
         state.montage?.let { m -> m.plan?.let { MontagePlanWindow(m, it, actions) } }
         state.publish?.let { PublishDialog(it, actions) }
         state.error?.let { ErrorDialog(it, actions) }

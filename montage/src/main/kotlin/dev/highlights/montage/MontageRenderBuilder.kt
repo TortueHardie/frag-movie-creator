@@ -48,6 +48,8 @@ data class MontageRenderRequest(
     val motion: List<MotionTrack?> = emptyList(),
     /** Souffles des whip pans pris dans `whip.sounds`, dans l'ordre où ils serviront ; vide : souffles générés. */
     val whooshFiles: List<String> = emptyList(),
+    /** Options de décodage ajoutées devant chaque extrait (aperçu : voir [MontagePreview.DECODE]). */
+    val decodeOptions: List<String> = emptyList(),
 )
 
 /**
@@ -93,6 +95,7 @@ object MontageRenderBuilder {
             request.hwaccel?.let { args += listOf("-hwaccel", it) }
             val range = sourceRange(clip, bleeds[i], leads[i])
             val input = request.cuts.input(clip.group.media, range)
+            args += request.decodeOptions
             args += listOf("-ss", Durations.ffmpegSecondsPrecise(input.start), "-t", sec(range.length), "-i", input.path.toString())
         }
         val musicInput = clips.size
@@ -105,7 +108,6 @@ object MontageRenderBuilder {
         }.ifEmpty { StoryRenderBuilder.WHOOSHES }
 
         val graph = mutableListOf<String>()
-        var killCounter = 0
         val musicDuck = mutableListOf<TimeRange>()
 
         // Taille commune à tout le montage, prise sur la première capture : les suivantes y sont ramenées, avec des
@@ -194,20 +196,17 @@ object MontageRenderBuilder {
             }
             if (settings.text.enabled) {
                 // Vertical : entre le kill feed replacé en haut et le réticule ; sinon sous la boussole.
-                val (labelY, counterY) = if (request.format == OutputFormat.VERTICAL) "h*0.25" to "h*0.35" else "h*0.20" to "h*0.11"
+                val labelY = if (request.format == OutputFormat.VERTICAL) "h*0.25" else "h*0.20"
                 val font = settings.text.font
                 val labels = settings.text.labels
                 outKills.forEachIndexed { j, k ->
-                    killCounter++
                     if (j >= 1 && labels.isNotEmpty()) {
                         val label = labels[minOf(j - 1, labels.lastIndex)]
                         effects += drawText(font, label, k, (h * 0.10).roundToInt(), labelY, border = (h * 0.006).roundToInt().coerceAtLeast(3), safe = request.edit.safeArea)
                     }
-                    if (settings.text.killCounter) {
-                        effects += drawText(font, "KILL $killCounter", k, (h * 0.045).roundToInt(), counterY, border = (h * 0.003).roundToInt().coerceAtLeast(2), safe = request.edit.safeArea)
-                    }
                 }
             }
+            effects += KillCounter.filters(KillCounter.marks(clips, i, outKills, length, settings.text.killCounter), settings.text.font, request.format, h, request.edit.safeArea, edit.vertical)
             effects += "tpad=stop_mode=clone:stop_duration=${sec(clip.padAfter + 500.milliseconds)}"
             // Longueur en images, pas en durée : les horodatages de la source ne tombent pas sur la grille de sortie,
             // et `trim=duration` gardait parfois une image de plus. Sur un montage de 31 plans, 11 images de trop
