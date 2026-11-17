@@ -22,6 +22,8 @@ import dev.highlights.pipeline.FolderWatcher
 import dev.highlights.pipeline.HighlightPipeline
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
+import dev.highlights.pipeline.ProblemReport
+import dev.highlights.pipeline.SystemInfo
 import dev.highlights.pipeline.YouTubePublisher
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CancellationException
@@ -144,6 +146,68 @@ interface UiActions {
 
     /** Langue de l'interface ([tag] d'un fichier de traduction, null = celle de Windows), retenue d'un lancement à l'autre. */
     fun setLanguage(tag: String?)
+
+    // Signaler un problème : ZIP de diagnostic enregistré par l'utilisateur, puis ticket GitHub prérempli.
+    fun openReport()
+    /** Depuis la boîte d'erreur : l'erreur affichée entre dans le rapport et le titre du ticket. */
+    fun reportError()
+    /** Depuis la proposition qui suit un plantage. */
+    fun reportCrash()
+    fun dismissCrash()
+    fun closeReport()
+    fun saveReport()
+    fun openIssuePage()
+    fun revealReport()
+    /** Dossier des journaux dans l'Explorateur (menu d'aide). */
+    fun openLogsFolder()
+
+    // Mémoire insuffisante pour le traitement demandé.
+    fun retryMemoryCheck()
+    fun startDespiteMemory()
+    fun dismissMemoryWarning()
+}
+
+/**
+ * Ce dont le rapport de problème a besoin, remplaçable en test : [crashLog] null = pas de proposition après plantage
+ * (tests : le vrai dossier des journaux n'est pas lu), [memory] = mémoire disponible (null : pas de contrôle).
+ */
+class ReportEnvironment(
+    val logsDir: Path = CrashLog.DEFAULT_DIR,
+    val crashDirs: () -> List<Path> = { emptyList() },
+    val redactor: dev.highlights.pipeline.Redactor = dev.highlights.pipeline.Redactor.forThisMachine(),
+    val version: String = System.getProperty("jpackage.app-version") ?: "dev",
+    val system: () -> List<String> = { emptyList() },
+    val windows: () -> String = { System.getProperty("os.name") },
+    val totalMemory: () -> Long = { 0 },
+    val memory: () -> Long? = { null },
+    val crashLog: CrashLog? = null,
+    /** Dossier proposé pour enregistrer le ZIP. */
+    val saveDir: () -> Path? = { null },
+) {
+    companion object {
+        /** L'application installée (ou lancée en développement) : vrais journaux, vraie machine. */
+        fun forThisApp(): ReportEnvironment {
+            // Dossier de l'exécutable installé : la JVM y écrit ses hs_err quand elle est lancée depuis le raccourci.
+            val appDir = System.getProperty("jpackage.app-path")?.let { Path.of(it).parent }
+            val crashDirs = { dev.highlights.pipeline.ProblemReport.defaultCrashDirs(appDir) + CrashLog.DEFAULT_DIR }
+            val version = System.getProperty("jpackage.app-version") ?: "dev"
+            return ReportEnvironment(
+                crashDirs = crashDirs,
+                version = version,
+                system = { dev.highlights.pipeline.SystemInfo.describe(version, I18n.locale.toLanguageTag()) },
+                windows = dev.highlights.pipeline.SystemInfo::windowsVersion,
+                totalMemory = dev.highlights.pipeline.SystemInfo::totalMemory,
+                // -Dhighlights.availableMemory=<Mo> simule une machine à court de mémoire (vérifier le message).
+                memory = {
+                    System.getProperty("highlights.availableMemory")?.toLongOrNull()?.let { it shl 20 }
+                        ?: dev.highlights.pipeline.SystemInfo.availableMemory()
+                },
+                crashLog = CrashLog(CrashLog.DEFAULT_DIR, crashDirs),
+                // Le Bureau (FileSystemView suit sa redirection vers OneDrive), sinon le dossier personnel.
+                saveDir = { runCatching { javax.swing.filechooser.FileSystemView.getFileSystemView().homeDirectory.toPath() }.getOrNull() },
+            )
+        }
+    }
 }
 
 /**
@@ -160,6 +224,7 @@ class AppController(
     private val watchInterval: Duration = 5.seconds,
     private val watchSettle: Duration = 15.seconds,
     private val updater: Updater = Updater.NONE,
+    private val reportEnv: ReportEnvironment = ReportEnvironment(),
     private val backendFactory: () -> Backend = {
         val file = ConfigLocator.locate()
         val config = ConfigYaml.load(file)
@@ -180,6 +245,12 @@ class AppController(
     init {
         reloadConfig()
         checkForUpdate()
+        reportEnv.crashLog?.let { log ->
+            scope.launch {
+                val crash = withContext(Dispatchers.IO) { log.pending() }
+                if (crash != null) _state.update { it.copy(crash = crash) }
+            }
+        }
     }
 
     // ---------------------------------------------------------------- configuration
@@ -382,36 +453,38 @@ class AppController(
         val p = backend?.pipeline ?: return
         val target = s.settings.target ?: return showError(tr("ui.error.invalidSettingTitle"), tr("ui.error.invalidSetting"))
         val title = if (sources.size == 1) tr("ui.job.analyze", "name" to sources.single().path.name) else tr("ui.job.analyzeMany", "count" to sources.size)
-        runTask(title) { progress ->
-            val outcomes = p.analyzeAll(
-                sources.map { it.path },
-                AnalyzeOptions(
-                    s.settings.profileId,
-                    s.settings.threshold,
-                    target,
-                    requiredEvent = s.settings.momentMode.requiredEvent,
-                    outputDir = s.settings.outputDir,
-                    // « Réanalyser » une analyse ouverte recalcule tout ; sinon une capture déjà analysée est reprise.
-                    reuse = s.session == null,
-                ),
-                progress,
-            )
-            refreshLibrary()
-            val analyzed = SessionState(outcomes.map { SessionEntry(it.session, it.sessionFile) })
-            _state.update { st ->
-                st.copy(
-                    session = analyzed.copy(selectedId = analyzed.segments.firstOrNull()?.key),
-                    lastExport = null,
+        withMemory(title, MEMORY_ANALYSIS) {
+            runTask(title) { progress ->
+                val outcomes = p.analyzeAll(
+                    sources.map { it.path },
+                    AnalyzeOptions(
+                        s.settings.profileId,
+                        s.settings.threshold,
+                        target,
+                        requiredEvent = s.settings.momentMode.requiredEvent,
+                        outputDir = s.settings.outputDir,
+                        // « Réanalyser » une analyse ouverte recalcule tout ; sinon une capture déjà analysée est reprise.
+                        reuse = s.session == null,
+                    ),
+                    progress,
                 )
-            }
-            if (analyzed.highlights.isEmpty()) {
-                val hint = tr(if (s.settings.momentMode == MomentMode.KILLS) "ui.error.noKillsHint" else "ui.error.lowerThresholdHint")
-                val warnings = outcomes.flatMap { o ->
-                    o.session.shownWarnings.map { w -> if (outcomes.size > 1) tr("ui.error.inFile", "file" to o.session.media.path.name, "detail" to w) else w.text() }
+                refreshLibrary()
+                val analyzed = SessionState(outcomes.map { SessionEntry(it.session, it.sessionFile) })
+                _state.update { st ->
+                    st.copy(
+                        session = analyzed.copy(selectedId = analyzed.segments.firstOrNull()?.key),
+                        lastExport = null,
+                    )
                 }
-                showError(tr("ui.error.noMomentTitle"), (warnings + hint).joinToString("\n"))
+                if (analyzed.highlights.isEmpty()) {
+                    val hint = tr(if (s.settings.momentMode == MomentMode.KILLS) "ui.error.noKillsHint" else "ui.error.lowerThresholdHint")
+                    val warnings = outcomes.flatMap { o ->
+                        o.session.shownWarnings.map { w -> if (outcomes.size > 1) tr("ui.error.inFile", "file" to o.session.media.path.name, "detail" to w) else w.text() }
+                    }
+                    showError(tr("ui.error.noMomentTitle"), (warnings + hint).joinToString("\n"))
+                }
+                loadThumbnails()
             }
-            loadThumbnails()
         }
     }
 
@@ -419,10 +492,12 @@ class AppController(
         val s = state.value
         val current = s.session ?: return
         val p = backend?.pipeline ?: return
-        runTask(tr("ui.job.export")) { progress ->
-            saveNow(current)
-            val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform), progress)
-            _state.update { it.copy(lastExport = result, lastUpload = null) }
+        withMemory(tr("ui.job.export"), MEMORY_EXPORT) {
+            runTask(tr("ui.job.export")) { progress ->
+                saveNow(current)
+                val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform), progress)
+                _state.update { it.copy(lastExport = result, lastUpload = null) }
+            }
         }
     }
 
@@ -617,42 +692,44 @@ class AppController(
         val p = backend?.pipeline ?: return
         _state.update { it.copy(montage = null) }
         val title = if (montage.useLibrary) tr("ui.job.montageFolder", "folder" to music.name) else tr("ui.job.montage", "track" to music.name)
-        runTask(title) { progress ->
-            saveNow(session)
-            val result = p.killMontage(
-                session.sessions,
-                music,
-                MontageOptions(
-                    formats = OutputFormat.entries.filter { it in montage.formats },
-                    outputDir = s.settings.outputDir,
-                    maxDuration = montage.maxDuration,
-                    fitKills = montage.fitKills,
-                    order = if (montage.buildUp) dev.highlights.core.model.MontageOrder.BUILD_UP else dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
-                    effectDensity = montage.density,
-                    zoom = montage.zoom,
-                    flash = montage.flash,
-                    whip = montage.whip,
-                    showcase = montage.showcase,
-                    boostColors = montage.boostColors,
-                    motionBlur = montage.motionBlur,
-                    matchCut = montage.matchCut,
-                    rounds = montage.rounds,
-                    slowMotion = montage.slowMotion,
-                    text = montage.text,
-                    audioBalance = montage.balance,
-                    gameAudio = montage.gameAudio,
-                    reactions = montage.reactions,
-                    // Bibliothèque : chaque musique garde son réglage « depuis le début ».
-                    musicFromStart = if (montage.useLibrary) null else montage.musicFromStart,
-                    fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
-                    platform = montage.platform,
-                    onlyKills = montage.pick,
-                    oneTaps = montage.oneTaps,
-                    fast = montage.fast,
-                ),
-                progress,
-            )
-            _state.update { it.copy(lastExport = result, lastUpload = null) }
+        withMemory(title, MEMORY_MONTAGE) {
+            runTask(title) { progress ->
+                saveNow(session)
+                val result = p.killMontage(
+                    session.sessions,
+                    music,
+                    MontageOptions(
+                        formats = OutputFormat.entries.filter { it in montage.formats },
+                        outputDir = s.settings.outputDir,
+                        maxDuration = montage.maxDuration,
+                        fitKills = montage.fitKills,
+                        order = if (montage.buildUp) dev.highlights.core.model.MontageOrder.BUILD_UP else dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
+                        effectDensity = montage.density,
+                        zoom = montage.zoom,
+                        flash = montage.flash,
+                        whip = montage.whip,
+                        showcase = montage.showcase,
+                        boostColors = montage.boostColors,
+                        motionBlur = montage.motionBlur,
+                        matchCut = montage.matchCut,
+                        rounds = montage.rounds,
+                        slowMotion = montage.slowMotion,
+                        text = montage.text,
+                        audioBalance = montage.balance,
+                        gameAudio = montage.gameAudio,
+                        reactions = montage.reactions,
+                        // Bibliothèque : chaque musique garde son réglage « depuis le début ».
+                        musicFromStart = if (montage.useLibrary) null else montage.musicFromStart,
+                        fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
+                        platform = montage.platform,
+                        onlyKills = montage.pick,
+                        oneTaps = montage.oneTaps,
+                        fast = montage.fast,
+                    ),
+                    progress,
+                )
+                _state.update { it.copy(lastExport = result, lastUpload = null) }
+            }
         }
     }
 
@@ -819,11 +896,13 @@ class AppController(
     override fun refreshOutdated() {
         val p = backend?.pipeline ?: return
         val game = state.value.stats?.game
-        runTask(tr("ui.job.refresh")) { progress ->
-            p.refreshOutdated(progress)
-            refreshLibrary()
-            showStats()
-            _state.update { s -> s.copy(stats = s.stats?.copy(game = game)) }
+        withMemory(tr("ui.job.refresh"), MEMORY_ANALYSIS) {
+            runTask(tr("ui.job.refresh")) { progress ->
+                p.refreshOutdated(progress)
+                refreshLibrary()
+                showStats()
+                _state.update { s -> s.copy(stats = s.stats?.copy(game = game)) }
+            }
         }
     }
 
@@ -905,6 +984,189 @@ class AppController(
             // Ce qui a été traduit d'avance (titre du traitement, erreur affichée) garde sa langue jusqu'au suivant.
             s.copy(language = locale.toLanguageTag(), publish = s.publish?.copy(language = YouTubeText.language(dev.highlights.core.config.YouTubeSettings())))
         }
+    }
+
+    // ---------------------------------------------------------------- signaler un problème
+
+    /** Fichiers du rapport en préparation, déjà expurgés ; écrits tels quels par [saveReport]. */
+    @Volatile
+    private var reportEntries: List<ProblemReport.Entry> = emptyList()
+    private var reportJob: Job? = null
+    @Volatile
+    private var reportWindows: String = ""
+
+    override fun openReport() = startReport(context = null, error = null)
+
+    override fun reportError() {
+        val error = state.value.error ?: return
+        _state.update { it.copy(error = null) }
+        startReport(context = error.title, error = error)
+    }
+
+    override fun reportCrash() {
+        val crash = state.value.crash ?: return
+        reportEnv.crashLog?.acknowledge()
+        _state.update { it.copy(crash = null) }
+        startReport(context = crash.summary.substringBefore('\n').take(120), error = null)
+    }
+
+    override fun dismissCrash() {
+        reportEnv.crashLog?.acknowledge()
+        _state.update { it.copy(crash = null) }
+    }
+
+    /**
+     * Exception non gérée ailleurs que dans un traitement (Main) : déjà notée par [CrashLog.record], elle est proposée
+     * au signalement tout de suite si l'interface tient encore.
+     */
+    fun onUncaughtException() {
+        val crash = runCatching { reportEnv.crashLog?.pending() }.getOrNull() ?: return
+        _state.update { if (it.report == null) it.copy(crash = crash) else it }
+    }
+
+    /** Rassemble le contenu en fond (diagnostic FFmpeg : quelques secondes), puis montre le résumé. */
+    private fun startReport(context: String?, error: ErrorInfo?) {
+        if (state.value.report != null) return
+        _state.update { it.copy(report = ReportUiState(context = context?.let(reportEnv.redactor::redact))) }
+        val s = state.value
+        reportJob = scope.launch {
+            try {
+                val entries = withContext(Dispatchers.IO) { collectReport(s, error) }
+                reportEntries = entries
+                val items = entries.groupBy { it.part }.map { (part, list) -> ReportItem(part, list.map { it.name.substringAfterLast('/') }, list.sumOf { it.size }) }
+                    .sortedBy { it.part.ordinal }
+                _state.update { st -> st.copy(report = st.report?.copy(loading = false, items = items)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.error(e) { "Préparation du rapport de problème impossible" }
+                _state.update { st -> st.copy(report = st.report?.copy(loading = false, failed = e.localizedMessage ?: e.toString())) }
+            }
+        }
+    }
+
+    private suspend fun collectReport(s: UiState, error: ErrorInfo?): List<ProblemReport.Entry> {
+        reportWindows = runCatching { reportEnv.windows() }.getOrDefault("")
+        val p = backend?.pipeline
+        val config = s.config
+        val system = runCatching { reportEnv.system() }.getOrElse { listOf(it.toString()) } + SystemInfo.appState(
+            configFile = (config as? ConfigStatus.Ready)?.configFile,
+            configProblem = (config as? ConfigStatus.Failed)?.message,
+            profiles = (config as? ConfigStatus.Ready)?.profiles.orEmpty().map { "${it.id} (${it.displayName})" },
+            currentProfile = currentProfileId(),
+            sources = s.sources.size,
+            sessions = s.session?.entries?.size ?: 0,
+            job = s.job?.let { "${it.title} (${I18n.percent(it.fraction)})" },
+        )
+        val diagnostics = SystemInfo.diagnostics(p)
+        val texts = buildList {
+            add(Triple("system.txt", ProblemReport.Part.SYSTEM, system.joinToString("\n")))
+            add(Triple("diagnostics.txt", ProblemReport.Part.DIAGNOSTICS, diagnostics))
+            error?.let { add(Triple("shown-error.txt", ProblemReport.Part.ERROR, (listOf(it.title, it.message) + it.details).joinToString("\n"))) }
+        }
+        return ProblemReport(reportEnv.redactor).collect(
+            ProblemReport.Sources(
+                texts = texts,
+                logsDir = reportEnv.logsDir,
+                crashDirs = reportEnv.crashDirs(),
+                sessions = s.session?.entries?.map { it.file }.orEmpty(),
+                reports = listOfNotNull(s.lastExport?.report),
+            ),
+        )
+    }
+
+    override fun closeReport() {
+        reportJob?.cancel()
+        reportEntries = emptyList()
+        _state.update { it.copy(report = null) }
+    }
+
+    /**
+     * Enregistre le ZIP où l'utilisateur le veut (Bureau proposé), puis ouvre le ticket prérempli dans le navigateur.
+     * L'archive est déjà prête en mémoire : l'écrire est immédiat, d'où l'écriture directe (le navigateur s'ouvre
+     * dans la même action, juste après).
+     */
+    override fun saveReport() {
+        val report = state.value.report?.takeIf { !it.loading && it.failed == null } ?: return
+        val name = "highlights-report-${REPORT_STAMP.format(java.time.LocalDateTime.now())}.zip"
+        val chosen = platform.chooseSaveFile(report.saved?.parent ?: reportEnv.saveDir(), name, tr("ui.report.saveTitle")) ?: return
+        val target = if (chosen.name.lowercase().endsWith(".zip")) chosen else chosen.resolveSibling("${chosen.name}.zip")
+        try {
+            ProblemReport(reportEnv.redactor).write(reportEntries, target)
+        } catch (e: Exception) {
+            log.error(e) { "Rapport de problème non enregistré" }
+            return _state.update { it.copy(report = it.report?.copy(failed = e.localizedMessage ?: e.toString())) }
+        }
+        val url = issueUrl(report.context, target.name)
+        _state.update { it.copy(report = it.report?.copy(saved = target, issueUrl = url)) }
+        platform.browse(java.net.URI(url))
+    }
+
+    private fun issueUrl(context: String?, zipName: String): String {
+        val total = reportEnv.totalMemory()
+        val facts = listOfNotNull(
+            "Highlights ${reportEnv.version}",
+            reportWindows.ifEmpty { null },
+            total.takeIf { it > 0 }?.let { tr("ui.report.issue.ram", "value" to I18n.decimal(it / (1L shl 30).toDouble(), 0)) },
+            I18n.locale.toLanguageTag(),
+        ).joinToString(" · ")
+        val title = context?.let { tr("ui.report.issue.title", "summary" to it) } ?: tr("ui.report.issue.titleDefault")
+        val body = listOf(
+            facts, "",
+            "### ${tr("ui.report.issue.happened")}", tr("ui.report.issue.happenedHint"), "", "",
+            "### ${tr("ui.report.issue.expected")}", "", "",
+            "### ${tr("ui.report.issue.steps")}", "1. ", "",
+            "---", tr("ui.report.issue.attach", "file" to zipName),
+        ).joinToString("\n")
+        return ProblemReport.issueUrl(reportEnv.redactor.redact(title), reportEnv.redactor.redact(body))
+    }
+
+    override fun openIssuePage() {
+        state.value.report?.issueUrl?.let { platform.browse(java.net.URI(it)) }
+    }
+
+    override fun revealReport() {
+        state.value.report?.saved?.let(platform::reveal)
+    }
+
+    override fun openLogsFolder() {
+        reportEnv.logsDir.takeIf { it.exists() }?.let(platform::reveal)
+    }
+
+    // ---------------------------------------------------------------- mémoire
+
+    /** Traitement retenu par [withMemory] en attendant la décision de l'utilisateur. */
+    private var memoryPending: (() -> Unit)? = null
+
+    /**
+     * Lance [start] si la machine a assez de mémoire disponible pour [task] ([needed] octets, mesuré sur de vraies
+     * captures, voir [MEMORY_ANALYSIS]) ; sinon le retient et explique pourquoi, plutôt que de laisser FFmpeg ou la JVM
+     * tomber au milieu du traitement.
+     */
+    private fun withMemory(task: String, needed: Long, start: () -> Unit) {
+        val available = runCatching { reportEnv.memory() }.getOrNull()
+        if (available == null || available >= needed) return start()
+        log.warn { "$task retenu : ${available shr 20} Mo disponibles pour ${needed shr 20} Mo" }
+        memoryPending = start
+        _state.update { it.copy(memoryWarning = MemoryWarning(task, available, needed)) }
+    }
+
+    override fun retryMemoryCheck() {
+        val warning = state.value.memoryWarning ?: return
+        val start = memoryPending ?: return dismissMemoryWarning()
+        dismissMemoryWarning()
+        withMemory(warning.task, warning.needed, start)
+    }
+
+    override fun startDespiteMemory() {
+        val start = memoryPending
+        dismissMemoryWarning()
+        start?.invoke()
+    }
+
+    override fun dismissMemoryWarning() {
+        memoryPending = null
+        _state.update { it.copy(memoryWarning = null) }
     }
 
     override fun open(path: Path) = platform.open(path)
@@ -991,6 +1253,13 @@ class AppController(
                 log.info { "$title annulé" }
             } catch (e: Exception) {
                 reportFailure(tr("ui.error.taskFailed", "task" to title), e)
+            } catch (e: OutOfMemoryError) {
+                // Le tas Java est plein : le traitement s'arrête, l'application reste debout et le dit.
+                log.error(e) { "$title : mémoire épuisée" }
+                showError(
+                    tr("ui.error.taskFailed", "task" to title), tr("ui.memory.outOfMemory"),
+                    listOf(tr("ui.error.log", "file" to LOG_FILE)),
+                )
             } finally {
                 _state.update { it.copy(job = null) }
             }
@@ -1020,6 +1289,17 @@ class AppController(
 
     companion object {
         val LOG_FILE: String = Path.of(System.getProperty("user.home"), ".highlights", "logs", "highlights.log").toString()
+
+        private val REPORT_STAMP = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmm")
+
+        /**
+         * Mémoire physique disponible demandée avant de lancer un traitement. FFmpeg tourne à côté de la JVM et compte
+         * autant qu'elle : décodage de la capture pour l'analyse, une entrée par extrait (ou la pré-découpe) et
+         * l'encodeur pour les rendus. Valeurs mesurées : voir README (configuration minimale).
+         */
+        const val MEMORY_ANALYSIS: Long = 1L shl 30
+        const val MEMORY_EXPORT: Long = 3L shl 29
+        const val MEMORY_MONTAGE: Long = 3L shl 29
     }
 }
 

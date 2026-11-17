@@ -36,6 +36,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,6 +61,7 @@ fun AppHeader(config: ConfigStatus, language: String, actions: UiActions) {
             Box(Modifier.size(10.dp).border(BorderStroke(5.dp, Palette.accent), RoundedCornerShape(50)))
             Spacer(Modifier.width(10.dp))
             Text("Highlights", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            HelpMenu(actions)
             LanguagePicker(language, actions)
         }
         when (config) {
@@ -82,6 +85,25 @@ fun AppHeader(config: ConfigStatus, language: String, actions: UiActions) {
                 Text(config.message, style = MaterialTheme.typography.bodySmall, color = Palette.danger)
                 TextButton(onClick = actions::reloadConfig) { Text(tr("ui.common.retry")) }
             }
+        }
+    }
+}
+
+/**
+ * Menu d'aide « ? » de l'en-tête : signaler un problème, ouvrir le dossier des journaux. Un menu plutôt que des boutons
+ * dans l'en-tête : en russe ou en allemand, deux boutons de plus y rognaient le chemin de la configuration.
+ */
+@Composable
+private fun HelpMenu(actions: UiActions) {
+    var expanded by remember { mutableStateOf(false) }
+    val help = tr("ui.header.help")
+    Box {
+        TextButton(onClick = { expanded = true }, modifier = Modifier.semantics { contentDescription = help }) {
+            Text("?", fontWeight = FontWeight.SemiBold)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text(tr("ui.header.report")) }, onClick = { expanded = false; actions.openReport() })
+            DropdownMenuItem(text = { Text(tr("ui.header.logs")) }, onClick = { expanded = false; actions.openLogsFolder() })
         }
     }
 }

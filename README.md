@@ -36,8 +36,40 @@ Rien à compiler ni à installer d'autre. Dans [les releases du dépôt](../../r
 - **`Highlights-<version>-portable.zip`** : la même application sans installation, à décompresser puis lancer
   `Highlights\Highlights.exe` (clé USB, poste verrouillé…).
 
-Windows 10 ou 11 64 bits. Tout est inclus : Java, FFmpeg, le modèle YAMNet et les profils de jeu ; ni Outplayed ni
-carte graphique particulière ne sont nécessaires.
+Tout est inclus : Java, FFmpeg, le modèle YAMNet et les profils de jeu ; ni Outplayed ni carte graphique particulière
+ne sont nécessaires.
+
+**Configuration requise**
+
+| | Minimum | Recommandé |
+|---|---|---|
+| Système | Windows 10 64 bits | Windows 11 64 bits |
+| Mémoire vive | 8 Go | 16 Go (pour analyser ou monter pendant qu'un jeu tourne) |
+| Carte graphique | facultative : sans elle, encodage par le processeur (libx264), plus lent | NVIDIA (NVENC), AMD (AMF) ou Intel (QSV) : export bien plus rapide |
+
+Ce que coûte un traitement, mesuré sur une vraie soirée (captures 3440×1440 à 60 img/s) : l'application seule occupe
+550 à 800 Mo (interface, Java, modèle YAMNet), dont 50 à 150 Mo de données Java pendant une analyse ; chaque FFmpeg
+lancé à côté prend 60 à 380 Mo (décodage pour l'analyse, rendu pour l'export), deux au plus à la fois. Avant de lancer
+une analyse, Highlights vérifie qu'au moins 1 Go de mémoire est disponible (1,5 Go pour un export ou un montage) ;
+sinon il explique quoi fermer, au lieu de laisser Windows ou FFmpeg arrêter le traitement en route (« Lancer quand
+même » reste possible). Si la mémoire Java s'épuise malgré tout, le traitement s'arrête avec un message et
+l'application reste ouverte.
+
+Réglages de Java dans le lanceur (`app-ui/build.gradle.kts`) : petit tas de départ (`-Xms64m`) pour démarrer même
+quand la mémoire de Windows est presque pleine (les plantages « G1 failed to reserve 512 MB » venaient de la réserve
+de départ par défaut, 1/64 de la RAM), plafond à 25 % de la RAM plutôt qu'une taille fixe (2 Go sur un PC de 8 Go,
+largement au-dessus des 150 Mo mesurés, le reste pour Windows, le jeu et FFmpeg), et mémoire rendue à Windows après
+30 s sans travail (`G1PeriodicGCInterval`), utile quand l'application surveille un dossier pendant qu'on joue.
+
+**Signaler un problème** : menu **?** en haut à gauche → « Signaler un problème » (aussi proposé dans chaque boîte
+d'erreur, et au lancement qui suit un plantage). Highlights prépare un fichier ZIP et montre ce qu'il contiendra avant
+de l'enregistrer (sur le Bureau par défaut) : journaux récents, rapports de plantage de Java (`hs_err_pid*.log`),
+diagnostic (version, Windows, mémoire, carte graphique, FFmpeg, encodeurs, détecteurs, profils), et l'analyse ou le
+rapport de montage ouverts. Jamais de vidéo, de musique, d'identifiant OAuth (`client_secret*.json`) ni de jeton YouTube ;
+le dossier personnel et le nom d'utilisateur Windows sont remplacés par `~` et `<user>` dans chaque fichier, jetons et
+adresses e-mail masqués. Rien n'est envoyé : la page « nouveau ticket » de GitHub s'ouvre préremplie (version,
+système, questions à compléter), il reste à y glisser le ZIP. Le menu ouvre aussi le dossier des journaux
+(`~/.highlights/logs`).
 
 L'installeur n'étant pas signé, Windows affiche « Windows a protégé votre ordinateur » : « Informations
 complémentaires », puis « Exécuter quand même ». (Signer demanderait un certificat payant.)

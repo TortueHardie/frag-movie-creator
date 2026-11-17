@@ -239,6 +239,15 @@ compose.desktop {
         jvmArgs += listOf(
             "-Dkotlin-logging.logStartupMessage=false",
             "-Dfile.encoding=UTF-8",
+            // Mémoire (mesures et choix dans le README, « Configuration requise ») :
+            // - tas de départ petit : par défaut la JVM engage 1/64 de la RAM dès le lancement, et c'est cet engagement
+            //   (512 Mo sur 32 Go) qui a échoué quand la mémoire de Windows était pleine (« G1 failed to reserve ») ;
+            // - plafond en part de la RAM plutôt qu'une taille fixe : 2 Go sur un PC de 8 Go, le reste pour Windows, le
+            //   jeu qui tourne à côté et FFmpeg. Une analyse réelle utilise 50 à 150 Mo de tas ;
+            // - G1 rend la mémoire inutilisée à Windows après 30 s sans travail (surveillance de dossier pendant qu'on joue).
+            "-Xms64m",
+            "-XX:MaxRAMPercentage=25",
+            "-XX:G1PeriodicGCInterval=30000",
         )
         check(jvmArgs.none { "highlights.bridge" in it }) { "Le pont de pilotage ne doit pas être activé dans l'application livrée" }
         nativeDistributions {

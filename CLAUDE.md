@@ -257,6 +257,11 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `LibrarySearch.kt` : `MomentQuery(game, from, to, minKills, ace, clutch, allHeadshots ; matches)`, `FoundMoment` (groupe de kills d'une partie), `MomentPick(kills par capture ; keeps(group) à 1 s près)`.
   `HighlightPipeline.search(query)` (mêmes parties que `statistics`, via `analyzedGames`) ; `MontageOptions.onlyKills` filtre les groupes de `killMontage`.
 - `Diagnostics.kt` : `run(file?)` → sections (environnement, FFmpeg, encodeurs, détecteurs, profils, capture) ; `render()`.
+- `ProblemReport.kt` : rapport de problème (ZIP, rien d'envoyé). `ISSUES_URL` (seule ligne à changer si le dépôt est renommé), `issueUrl(title, body)` (≤ `MAX_URL` 2000, corps raccourci par la fin),
+  `Part` (rubriques du résumé), `Sources(texts, logsDir, crashDirs, sessions, reports)` → `collect` → `Entry` déjà expurgées → `write` (.part puis move).
+  N'entrent que les fichiers `accepted` (log/txt/json, `*.log.N`, jamais `isSecret` : client_secret*, *token*, control-bridge.json) ; journaux = leur fin (`MAX_LOG_BYTES` 2 Mo) ; `hs_err_pid*` et `crash-*.txt` de moins de 30 j, 3 au plus.
+  `Redactor(homes, userNames)` : dossier personnel (toutes écritures : `\`, `/`, `\\` du JSON, casse ignorée) → `~`, tout autre `X:\Users\<nom>` → `~`, jetons/secrets/e-mails masqués, puis nom d'utilisateur → `<user>` ; `forThisMachine()`.
+- `SystemInfo.kt` : `windowsVersion` (build via `ver`), `graphics` (CIM, délai 15 s), `totalMemory/availableMemory`, `describe` (system.txt), `appState`, `diagnostics(pipeline)` ; `HighlightPipeline.diagnostics()`.
 
 ### app-cli (`dev.highlights.cli`)
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
@@ -286,8 +291,16 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   répondus par `paths`, open/reveal/browse notés pendant une action pilotée), `BridgeWindows` (capture `SkiaLayer.screenshot`, arbre d'accessibilité AWT de Compose,
   événements AWT `dispatchEvent`, jamais Robot). Branché dans `Main.kt` (`ControlBridge.platform` + `startIfEnabled`), sans toucher aux composables.
   Garde-fou de construction : `createDistributable` vérifie que `Highlights.cfg` ne pose pas `highlights.bridge`. Test : `ControlBridgeTest`.
+- Signaler un problème : `ReportDialog.kt` (`ReportDialog`, `CrashDialog`, `MemoryDialog`), menu « ? » `HelpMenu` dans `AppHeader` (signaler, dossier des journaux), bouton dans `ErrorDialog`.
+  `AppController` : `ReportEnvironment` (logsDir, crashDirs, redactor, version, system, mémoire ; `forThisApp()` passé par `Main`, le défaut des tests ne touche à rien de réel),
+  actions `openReport/reportError/reportCrash/dismissCrash/closeReport/saveReport/openIssuePage/revealReport/openLogsFolder` ; `UiState.report` (`ReportUiState`, `ReportItem`), `UiState.crash`.
+  `CrashLog.kt` : exception non gérée → `crash-<date>.txt` + `crash-pending` (Main : `record` puis `onUncaughtException`), `hs_err` plus récent que `crash-checked` ; proposé au lancement suivant.
+  `Platform.chooseSaveFile` (FileDialog SAVE ; pont : `paths`).
+- Mémoire : `withMemory(task, needed)` avant analyse/export/montage/réanalyse (`MEMORY_ANALYSIS` 1 Go, `MEMORY_EXPORT`/`MEMORY_MONTAGE` 1,5 Go disponibles), `UiState.memoryWarning`,
+  actions `retryMemoryCheck/startDespiteMemory/dismissMemoryWarning` ; `OutOfMemoryError` attrapée dans `runTask`. `-Dhighlights.availableMemory=<Mo>` simule une machine à court.
+  JVM du lanceur : `-Xms64m -XX:MaxRAMPercentage=25 -XX:G1PeriodicGCInterval=30000` (app-ui/build.gradle.kts ; mesures et raisons dans le README, « Configuration requise »).
 - Tests : `UiStateTest`, `InstallationTest`, `UiSnapshotTest` (rendu composables en fr, `en/`, `long/` = pseudo-langue, puis `<tag>/` pour chaque autre langue livrée), `HardcodedTextTest`
-  (texte d'interface en dur, exceptions métier en texte brut), `AppControllerIT` (parcours complet, FFmpeg requis).
+  (texte d'interface en dur, exceptions métier en texte brut), `ProblemReportUiTest` (plantages, rapport par le contrôleur), `AppControllerIT` (parcours complet, FFmpeg requis).
 
 ## 5. Configuration (`config/`)
 - `app.yaml` → `AppConfig`. Installée : `%APPDATA%\Highlights\config`, sortie `~/Videos/Highlights` (filtre au packaging).

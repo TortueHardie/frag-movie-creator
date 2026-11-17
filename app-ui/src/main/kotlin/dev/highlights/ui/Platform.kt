@@ -29,6 +29,8 @@ interface Platform {
     fun browse(uri: java.net.URI) = Unit
     /** Texte dans le presse-papiers. */
     fun copy(text: String) = Unit
+    /** Où enregistrer un fichier ([fileName] proposé dans [initialDir]) ; null si annulé. */
+    fun chooseSaveFile(initialDir: Path?, fileName: String, title: String): Path? = null
 }
 
 class DesktopPlatform(private val owner: () -> Frame?) : Platform {
@@ -77,6 +79,17 @@ class DesktopPlatform(private val owner: () -> Frame?) : Platform {
     override fun copy(text: String) {
         runCatching { java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(text), null) }
             .onFailure { log.warn { "Presse-papiers indisponible : ${it.message}" } }
+    }
+
+    /** Boîte « Enregistrer sous » de Windows (elle demande elle-même avant de remplacer un fichier existant). */
+    override fun chooseSaveFile(initialDir: Path?, fileName: String, title: String): Path? {
+        val dialog = FileDialog(owner(), title, FileDialog.SAVE).apply {
+            initialDir?.takeIf { it.isDirectory() }?.let { directory = it.toString() }
+            file = fileName
+            isVisible = true
+        }
+        val file = dialog.file ?: return null
+        return File(dialog.directory, file).toPath()
     }
 
     /** Fichiers texte (YAML) : éditeur associé, sinon Bloc-notes. */

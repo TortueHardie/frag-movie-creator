@@ -373,4 +373,16 @@ private object NoopActions : UiActions {
     override fun installUpdate() = Unit
     override fun dismissUpdate() = Unit
     override fun setLanguage(tag: String?) = Unit
+    override fun openReport() = Unit
+    override fun reportError() = Unit
+    override fun reportCrash() = Unit
+    override fun dismissCrash() = Unit
+    override fun closeReport() = Unit
+    override fun saveReport() = Unit
+    override fun openIssuePage() = Unit
+    override fun revealReport() = Unit
+    override fun openLogsFolder() = Unit
+    override fun retryMemoryCheck() = Unit
+    override fun startDespiteMemory() = Unit
+    override fun dismissMemoryWarning() = Unit
 }

@@ -53,7 +53,7 @@ Toutes exigent le jeton (`Authorization: Bearer <jeton>` ou `X-Bridge-Token`). `
 |---|---|
 | `GET /state[?path=a.b.0.c][&depth=N][&list=N]` | `UiState` en JSON (propriétés calculées comprises : `canAnalyze`, `canExport`, `montage.canCreate`…). Grands tableaux résumés, listes tronquées ; `path` descend dans le JSON, `depth` (10 par défaut) va plus loin. |
 | `GET /actions` | Actions de `UiActions` et leurs paramètres. |
-| `POST /action {"name", "args", "paths"}` | Appelle une action sur le thread de l'interface. `args` : liste dans l'ordre ou objet par nom. `paths` répond aux boîtes de dialogue (`chooseSource`, `addSources`, `chooseSession`, `chooseMusic`, `chooseMusicLibrary`, `chooseOutputDir`, `chooseWatchFolder`) : jamais de dialogue natif. Ouvrir/montrer/éditer un fichier, le navigateur, le presse-papiers sont seulement notés (`platform` dans la réponse). Les `update*` prennent les champs à changer : `{"name":"updateMontage","args":[{"fast":true}]}`. La réponse donne aussi `error` (boîte d'erreur ouverte) et `job`. |
+| `POST /action {"name", "args", "paths"}` | Appelle une action sur le thread de l'interface. `args` : liste dans l'ordre ou objet par nom. `paths` répond aux boîtes de dialogue (`chooseSource`, `addSources`, `chooseSession`, `chooseMusic`, `chooseMusicLibrary`, `chooseOutputDir`, `chooseWatchFolder`, `saveReport` pour « Enregistrer sous » : `.zip` ajouté si absent) : jamais de dialogue natif. Ouvrir/montrer/éditer un fichier, le navigateur, le presse-papiers sont seulement notés (`platform` dans la réponse). Les `update*` prennent les champs à changer : `{"name":"updateMontage","args":[{"fast":true}]}`. La réponse donne aussi `error` (boîte d'erreur ouverte) et `job`. |
 | `GET /wait[?timeout=600]` | Attend la fin du traitement en cours (`job` nul, config chargée, recherche/publication chargées) ; rend l'erreur affichée s'il y en a une. |
 | `GET /windows` | Fenêtres affichées : index (0 = principale), titre, position du contenu à l'écran, `scale`. |
 | `GET /screenshot[?window=N]` | PNG du contenu (sans barre de titre). Sans `window` : toutes les fenêtres superposées comme à l'écran (aperçu 9:16 à côté de la principale). Pixels physiques : diviser par `scale` pour retrouver les coordonnées de clic. |
@@ -105,6 +105,16 @@ dossier de sortie) : seulement si le parcours à vérifier l'exige.
 Lire une capture : outil Read sur le PNG.
 
 ## 4. Limites connues
+
+- Les menus déroulants (« ? », langue, profil) ne sont pas dans `/tree` : cliquer par coordonnées après une capture.
+  Un élément de menu qui ouvre l'Explorateur ou le navigateur passe alors par la vraie plateforme : préférer l'action.
+- Signaler un problème : `openReport` (collecte en fond, attendre `report.loading == false`), puis `saveReport` avec
+  `paths` ; l'URL du ticket prérempli est dans `report.issueUrl` et dans `platform` (le navigateur n'est pas ouvert).
+- Mémoire insuffisante : lancer l'application avec `-Dhighlights.availableMemory=<Mo>` (ex. 300) pour voir le message
+  au lancement d'une analyse ; `-Dhighlights.logFile=<fichier>` sépare les journaux (et les plantages notés) du vrai
+  `~/.highlights/logs`.
+- Le dossier surveillé de l'utilisateur (`~/.highlights/watch.json`) reprend au lancement : ses captures sont analysées
+  vers le dossier de sortie de la config utilisée. Ne pas appeler `stopWatching` (réécrirait ses préférences).
 
 - `focused` de `/windows` est l'avis d'AWT, pas forcément la fenêtre au premier plan de Windows.
 - Les menus déroulants de Compose s'ouvrent dans la fenêtre (même arbre, même capture) ; un dialogue Swing (sélecteur

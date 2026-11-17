@@ -71,11 +71,14 @@ fun ErrorDialog(error: ErrorInfo, actions: UiActions) {
         },
         confirmButton = { Button(onClick = actions::dismissError) { Text(tr("ui.common.ok")) } },
         dismissButton = {
-            if (error.details.isNotEmpty()) {
-                TextButton(onClick = {
-                    val text = (listOf(error.title, error.message) + error.details).joinToString("\n")
-                    Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
-                }) { Text(tr("ui.error.copyDetails")) }
+            Row {
+                TextButton(onClick = actions::reportError) { Text(tr("ui.error.report")) }
+                if (error.details.isNotEmpty()) {
+                    TextButton(onClick = {
+                        val text = (listOf(error.title, error.message) + error.details).joinToString("\n")
+                        Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
+                    }) { Text(tr("ui.error.copyDetails")) }
+                }
             }
         },
     )
