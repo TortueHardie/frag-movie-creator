@@ -383,6 +383,7 @@ private object NoopActions : UiActions {
     override fun browse(uri: java.net.URI) = Unit
     override fun openYouTubeUpload() = Unit
     override fun copyToClipboard(text: String) = Unit
+    override fun makeThumbnail() = Unit
     override fun updateMontage(change: (MontageUiState) -> MontageUiState) = Unit
     override fun createMontage() = Unit
     override fun open(path: Path) = Unit

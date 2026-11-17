@@ -203,8 +203,9 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 ### export
 - `Exporter.kt` : `ExportRequest`, `ExportResult(videos, report, duration, encoder)`, `export`, `preview` (PNG par format), `thumbnail`, `clipPreview`.
 - `CaptionTranscriber.kt` : filtre FFmpeg `whisper` (whisper.cpp), cache par clé (media, range, piste, réglages, modèle).
-- `OutputNamer.kt` : `reserve(dir, game, date, formats, kind="highlights"|"killmontage")` → `<game>_<date>_<kind><suffix>.mp4` + `.json`, `tempFor`, `slug`.
-- `ExportReport.kt` : rapport JSON des highlights.
+- `OutputNamer.kt` : `reserve(dir, game, date, formats, kind="highlights"|"killmontage")` → `<game>_<date>_<kind><suffix>.mp4` + `.json`, `tempFor`, `slug`,
+  `thumbnailFor(video)` (`<nom>_miniature[_N].png`, jamais d'écrasement), `thumbnailOf(video)` (la plus récente).
+- `ExportReport.kt` : rapport JSON des highlights (`ReportHighlight.peakSeconds/events` pour la miniature).
 
 ### montage (montage kills)
 - Peu de kills : `MontageSettings.minKills` (3) → `PlannedMontage.fewKills` / `fewKillsNotice` → `MontageExportRequest.notices` → `MontageReport.notices` et `ExportResult.notices` (CLI `printExport` « ! … », app : sous le résultat dans `SessionViews`).
@@ -261,6 +262,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `TasteLearner.learn` (préférence par paires Bradley-Terry, `SHARPNESS` 30, rappel `REGULARIZATION` vers l'origine, poids bornés ×`MIN_FACTOR`..×`MAX_FACTOR`, somme constante,
   actif à partir de `MIN_CHOICES` 10) → `LearnedTaste`. `MontageSettings.learnTaste` (false par défaut) → `HighlightPipeline.withTaste` pose `MontageSettings.scoreWeights` ;
   `killMontage` enregistre le choix (`--pick`) et les contraintes (`recordTaste`) ; `HighlightPipeline.taste()` → `TasteState` ; CLI `TasteCommand.kt` : `gouts [--reset --history]`.
+- `Thumbnail.kt` : miniature YouTube. `ThumbnailStyle{SOBER,VIVID,BIG_TEXT}` (zoom, `GradeSettings`, texte), `ThumbnailMoment`, `ThumbnailPicker` (`fromMontage/fromHighlights`, `strength` kills+3 ace+2 clutch+0,3 HS+0,5 drop, `contenders` à `TIE` près, `label` via `video.*`),
+  `ThumbnailFrames` (10 img/s de −0,4 à +1,2 s, `sharpness` variance du laplacien, `readability` ×1,2 après le kill × luminosité/80, `DARK` écarté), `ThumbnailRenderer.filter/render` (crop centré + punch-in, `RenderCommandBuilder.grade`, `drawtext` mesuré par `TextMeasure`, police `VideoFonts.forText`).
 - `KillMontageExporter.kt` : `MontageExportRequest(musicChoice, preview)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates, signature, preview)`, `export` (aperçu → `MontagePreview`), `recordingDate`.
 - Aperçus de variantes (branche `montage-apercu-variantes`) : `MontageVariants.kt` (`distinct` : variantes de `best` classées comme lui, la 1 = celle
   de `best`, suivantes à `distance` ≥ `MIN_DISTANCE` 0,25 de toutes les retenues, choix glouton donc liste pour n = début de celle pour n+1 ;
@@ -291,6 +294,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `Evenings.kt` (montage de soirée) : `Evening(date, game, profileId, sessionFiles, sources, kills, end)`, `EveningPlanner.of(GameStats)` (= `Statistics.evenings`), `style(choix, défaut du fichier)` (`NO_STYLE` = « none »),
   `due(evenings, done, now, quiet, minKills, eligible, busy)`, `nextCheck` ; `EveningHistory` (`outputDir/sessions/evening-montages.json`, `done/record`, échecs retenus aussi).
   `HighlightPipeline.evenings()`, `eveningMontage(evening, music, options, progress)` (= `killMontage` des sessions, puis `eveningHistory.record`), `eveningHistory`.
+- `Thumbnails.kt` : `Thumbnails(ffmpeg).make(video, style)` (rapport à côté de la vidéo via `reportOf`, aussi utilisé par `YouTubePublisher` ; moment le plus lisible parmi `contenders` ; 1280x720 ou 1080x1920), `makeAll` ;
+  `HighlightPipeline.miniature(video, style)`, `ExportOptions/MontageOptions.thumbnail` (null : aucune) → `ExportResult.thumbnails`. CLI `--thumbnail`/`--thumbnail-style`, `ThumbnailCommand` (`app thumbnail`). UI : exports avec miniature sobre, `PublishUiState.thumbnail/thumbnailBusy`, action `makeThumbnail`, `ThumbnailRow` (PublishDialog).
 - `YouTubePublisher.kt` : `HighlightPipeline.youtube(browse)` → `apiEnabled` (`publish.youtube.api`, false par défaut : envoi manuel, `UPLOAD_PAGE`), `configured` (app.yaml `publish.youtube` ou `client_secret*.json` déposé dans le dossier de config), `connected`,
   `facts(video)` (probe + rapport JSON du même dossier qui liste la vidéo dans `outputs`), `suggest`, `login/logout`, `upload` ; jeton `~/.highlights/youtube-token.json`.
 - `Statistics.kt` : `GameStats` (kills, deaths?, headshots?, multiKills, aces, clutches, bestRound?, rounds? ; kd, headshotRate), `EveningStats` (date, game, games ; taux sur les parties où c'est connu),
