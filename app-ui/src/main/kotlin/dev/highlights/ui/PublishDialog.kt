@@ -1,5 +1,7 @@
 package dev.highlights.ui
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.Image
 import dev.highlights.core.i18n.tr
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -37,6 +39,7 @@ fun PublishDialog(publish: PublishUiState, actions: UiActions) {
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(publish.video.name, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                ThumbnailRow(publish, actions)
                 when {
                     !publish.configured -> NotConfigured(actions)
                     publish.loading -> Text(tr("ui.publish.loading"), color = Palette.textMuted)
@@ -59,6 +62,32 @@ fun PublishDialog(publish: PublishUiState, actions: UiActions) {
             }
         },
     )
+}
+
+/**
+ * Miniature YouTube de la vidéo : son aperçu et son chemin à copier (YouTube Studio la demande à part), ou de quoi la
+ * créer pour une vidéo exportée avant que les miniatures existent.
+ */
+@Composable
+private fun ThumbnailRow(publish: PublishUiState, actions: UiActions) {
+    val thumbnail = publish.thumbnail
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        val image = rememberImage(thumbnail)
+        if (image != null) {
+            Image(image, contentDescription = tr("ui.publish.thumbnail"), modifier = Modifier.height(96.dp))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(tr("ui.publish.thumbnail"), style = MaterialTheme.typography.labelLarge)
+            when {
+                thumbnail != null -> {
+                    Text(thumbnail.name, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                    OutlinedButton(onClick = { actions.copyToClipboard(thumbnail.toString()) }) { Text(tr("ui.publish.copyPath")) }
+                }
+                publish.thumbnailBusy -> Text(tr("ui.publish.thumbnailBusy"), color = Palette.textMuted)
+                else -> OutlinedButton(onClick = actions::makeThumbnail) { Text(tr("ui.publish.thumbnailCreate")) }
+            }
+        }
+    }
 }
 
 /**

@@ -1,5 +1,7 @@
 package dev.highlights.ui
 
+import dev.highlights.montage.ThumbnailStyle
+import dev.highlights.export.OutputNamer
 import dev.highlights.publish.YouTubeText
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.i18n.tr
@@ -144,6 +146,8 @@ interface UiActions {
     /** Envoi manuel : page d'envoi de YouTube dans le navigateur, vidéo montrée dans l'Explorateur pour l'y glisser. */
     fun openYouTubeUpload()
     fun copyToClipboard(text: String)
+    /** Miniature YouTube de la vidéo à publier (habillage sobre), écrite à côté d'elle. */
+    fun makeThumbnail()
     /** Ouvre app.yaml dans l'éditeur (identifiant YouTube, réglages de publication). */
     fun editConfig()
     fun browse(uri: java.net.URI)
@@ -637,7 +641,7 @@ class AppController(
         withMemory(title, MEMORY_EXPORT) {
             enqueue(title) { progress ->
                 saveNow(current)
-                val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform), progress)
+                val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform, thumbnail = ThumbnailStyle.SOBER), progress)
                 _state.update { it.copy(lastExport = result, lastUpload = null) }
                 result.videos.values.firstOrNull()
             }
@@ -908,6 +912,8 @@ class AppController(
 
     /** Réglages du dialogue pour le pipeline : les mêmes pour la frise et pour le rendu, sinon le plan montré mentirait. */
     private fun montageOptions(montage: MontageUiState, s: UiState) = MontageOptions(
+        // Miniature sobre de chaque vidéo : prête dans la fenêtre de publication.
+        thumbnail = ThumbnailStyle.SOBER,
         formats = OutputFormat.entries.filter { it in montage.formats },
         outputDir = s.settings.outputDir,
         maxDuration = montage.maxDuration,
@@ -999,7 +1005,9 @@ class AppController(
 
     override fun openPublish(video: Path) {
         val yt = youtube() ?: return
-        _state.update { it.copy(publish = PublishUiState(video, api = yt.apiEnabled, configured = !yt.apiEnabled || yt.configured, connected = yt.connected)) }
+        _state.update {
+            it.copy(publish = PublishUiState(video, api = yt.apiEnabled, configured = !yt.apiEnabled || yt.configured, connected = yt.connected, thumbnail = OutputNamer.thumbnailOf(video)))
+        }
         scope.launch {
             try {
                 val suggested = withContext(Dispatchers.IO) { yt.suggest(video) }
@@ -1049,6 +1057,23 @@ class AppController(
     }
 
     override fun copyToClipboard(text: String) = platform.copy(text)
+
+    override fun makeThumbnail() {
+        val video = state.value.publish?.video ?: return
+        val p = backend?.pipeline ?: return
+        updatePublish { it.copy(thumbnailBusy = true) }
+        scope.launch {
+            try {
+                val made = withContext(Dispatchers.IO) { p.miniature(video, ThumbnailStyle.SOBER) }
+                _state.update { s -> s.copy(publish = s.publish?.takeIf { it.video == video }?.copy(thumbnail = made, thumbnailBusy = false)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updatePublish { it.copy(thumbnailBusy = false) }
+                reportFailure(tr("ui.error.thumbnail"), e)
+            }
+        }
+    }
 
     override fun editConfig() {
         backend?.configFile?.let(platform::edit)
@@ -1296,6 +1321,7 @@ class AppController(
                     platform = s.settings.platform,
                     outputDir = s.settings.outputDir,
                     fromStartMusics = musicPrefs.fromStartMusics(),
+                    thumbnail = ThumbnailStyle.SOBER,
                     style = EveningPlanner.style(watchSettings?.evenings?.style, runCatching { p.montageStyles.default }.getOrNull()),
                 ),
                 progress,

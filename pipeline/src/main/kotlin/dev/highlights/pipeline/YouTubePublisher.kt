@@ -137,20 +137,6 @@ class YouTubePublisher(
         }
     }
 
-    /** Rapport JSON qui liste [video] parmi ses sorties, dans le même dossier. */
-    private fun reportOf(video: Path): JsonObject? {
-        val target = video.toAbsolutePath().normalize().toString().lowercase()
-        val candidates = runCatching { video.toAbsolutePath().parent.listDirectoryEntries("*.json") }.getOrDefault(emptyList())
-        return candidates.firstNotNullOfOrNull { file ->
-            val root = runCatching { Json.parseToJsonElement(file.readText()).jsonObject }.getOrNull() ?: return@firstNotNullOfOrNull null
-            val outputs = runCatching { root["outputs"]!!.jsonArray }.getOrNull() ?: return@firstNotNullOfOrNull null
-            val paths = outputs.mapNotNull { o ->
-                runCatching { (if (o is JsonObject) o["path"]!! else o).jsonPrimitive.content }.getOrNull()
-            }
-            root.takeIf { paths.any { Path(it).toAbsolutePath().normalize().toString().lowercase() == target } }
-        }
-    }
-
     companion object {
         /** Page d'envoi de YouTube (redirige vers YouTube Studio), pour l'envoi manuel. */
         val UPLOAD_PAGE: URI = URI("https://www.youtube.com/upload")
