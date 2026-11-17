@@ -249,7 +249,13 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   Dans le planificateur : plancher et `placeable` gardent les `kept` ; `layout` n'accepte que les fenêtres qui contiennent la drop/les temps épinglés ;
   `assign` BUILD_UP met l'épinglé sur la drop, les épinglés sur leur cellule, puis les forcés restés dehors remplacent le moins bon groupe non imposé ;
   CHRONOLOGICAL : épinglé sur la drop = `best`, les moins bons d'avant lui cèdent leur place ; `pairUp` ne déplace pas les épinglés ; `clipFor` ancre sur le temps épinglé.
-- `MontageScorer.kt` : `MontageScore(total, sync, accent, restraint, variety, fill, pacing, coverage, opening, lull, action, details)` ; critère null = exclu de la moyenne.
+- `MontageScorer.kt` : `MontageScore(total, sync, accent, restraint, variety, fill, pacing, coverage, opening, lull, action, details)` (+ `criteria()` par nom) ; critère null = exclu de la moyenne ;
+  `WEIGHTS` (public, poids d'origine), `total(criteria, weights)` ; les poids viennent de `plan.settings.scoreWeights ?: WEIGHTS`.
+- Goûts appris (branche `apprendre-choix`) : `Taste.kt` : `TasteHistory` (`outputDir/sessions/taste-history.json`, `StoredTaste(choices, edits)`, `record`, `reset` = mis de côté en
+  `taste-history.reset-<instant>.json`), `TasteChoice` (critères de chaque variante proposée + index choisi), `TasteEdit` (corrections de l'éditeur, gardées, pas encore apprises),
+  `TasteLearner.learn` (préférence par paires Bradley-Terry, `SHARPNESS` 30, rappel `REGULARIZATION` vers l'origine, poids bornés ×`MIN_FACTOR`..×`MAX_FACTOR`, somme constante,
+  actif à partir de `MIN_CHOICES` 10) → `LearnedTaste`. `MontageSettings.learnTaste` (false par défaut) → `HighlightPipeline.withTaste` pose `MontageSettings.scoreWeights` ;
+  `killMontage` enregistre le choix (`--pick`) et les contraintes (`recordTaste`) ; `HighlightPipeline.taste()` → `TasteState` ; CLI `TasteCommand.kt` : `gouts [--reset --history]`.
 - `KillMontageExporter.kt` : `MontageExportRequest(musicChoice, preview)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates, signature, preview)`, `export` (aperçu → `MontagePreview`), `recordingDate`.
 - Aperçus de variantes (branche `montage-apercu-variantes`) : `MontageVariants.kt` (`distinct` : variantes de `best` classées comme lui, la 1 = celle
   de `best`, suivantes à `distance` ≥ `MIN_DISTANCE` 0,25 de toutes les retenues, choix glouton donc liste pour n = début de celle pour n+1 ;
@@ -299,7 +305,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
 - `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
   `--variants N --pick N --variants-file` (aperçus puis choix), `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --plan --exclude --force --drop --pin --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --style --out`.
-  `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `EveningCommand.kt` : `soiree [--date --game --music --list -f --platform -o]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
+  `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `TasteCommand.kt` : `gouts [--reset --history]`. `EveningCommand.kt` : `soiree [--date --game --music --list -f --platform -o]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;
   `music` : `--max --clips` ; `preview` : `--at`.
   Options lues sans lancer le pipeline (tests `CommandOptionsTest`, `CommandLineParser.parseAndRun`) : `MontageCommand.montageOptions(constraints)`
@@ -369,7 +375,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   `MontageOptions` + bloc `base.copy(...)` de `HighlightPipeline.killMontage` → `MontageUiState` + `AppController.createMontage` + `Dialogs.MontageDialog` (+ `MusicPrefs` si mémorisé par musique) →
   option dans `MontageCommand` (Commands.kt) → si un style peut le poser : champ de `MontageStyle`, `withStyle`, `StyleKnobs` → README (section montage) → tests (`MontagePlannerTest`, `MontageRenderBuilderTest`, `KillMontageIT`).
 - **Réglage highlights/story** : `Settings.kt`/`Story.kt` → `StoryPlanner`/`StoryRenderBuilder` ou `RenderCommandBuilder` ; chemins de fichiers à résoudre dans `gradedEdit`.
-- **Nouveau critère de note** : `MontageScore` (nullable pour compat des anciens rapports) + `MontageScorer.score` + `criteria()` de `ScoreCommand`.
+- **Nouveau critère de note** : `MontageScore` (nullable pour compat des anciens rapports) + `MontageScore.criteria()` + `MontageScorer.WEIGHTS` + `MontageScorer.score` + `criteria()` de `ScoreCommand`
+  (les goûts appris et l'historique `taste-history.json` le prennent alors en compte tout seuls ; un critère absent d'un vieux choix sort de sa moyenne).
 - **Texte affiché à l'utilisateur** : jamais en dur. Clé dans `messages.properties` (anglais naturel pour joueurs) ET `messages_fr.properties`,
   puis `tr("ui.zone.nom", "arg" to v)` dans l'interface, `Message("error.zone.nom", …)` dans une exception ou un avertissement (traduit à
   l'affichage). Clés : `ui.<écran>.*`, `error.*`, `notice.*` (avertissements de session), `progress.*`, `youtube.*`, `video.*` (textes

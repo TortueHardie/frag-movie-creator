@@ -920,6 +920,29 @@ décodage matériel, dont chaque image pleine taille redescend de la carte graph
 & $app montage output\sessions\WARDOGS_*.session.json --music "D:\Musique\R2D2.mp3" --pick 2
 ```
 
+## Goûts appris : la note du montage s'ajuste aux choix
+
+Chaque fois qu'une version est rendue après les aperçus (`--pick`, « Rendre celle-ci »), le choix est gardé dans
+`<sortie>\sessions\taste-history.json` : les critères de la note de chaque version proposée (sur le temps, accent,
+sobriété, variété, durée, rythme, images gelées, ouverture, trous, action) et celle qui a été rendue. Les corrections de
+l'éditeur de plan (kills écartés, forcés, épinglés) y sont gardées aussi, pour plus tard.
+
+Avec `montage.learnTaste: true` dans un profil, et au moins 10 choix, les poids de ces critères s'ajustent pour que la
+version rendue batte les autres (préférence par paires) : un critère que vous préférez plus que le moteur ne le pensait
+pèse plus, et décide de la version 1, des versions proposées et du montage rendu sans aperçu. Prudent : chaque poids
+reste entre le quart et le quadruple de l'origine, leur somme ne change pas, et un rappel vers l'origine empêche
+quelques choix de tout renverser. Désactivé par défaut.
+
+```powershell
+& $app gouts            # choix gardés, poids appris contre poids d'origine, et ce que ça changerait au dernier choix
+& $app gouts --reset    # oublier : l'historique est mis de côté (taste-history.reset-<date>.json), pas effacé
+```
+
+Démonstration sur données synthétiques (aucun vrai choix encore) : un goût caché qui tient 4 fois plus à l'action et
+3 fois plus à l'ouverture, 4 fois moins à la sobriété, 10 % de choix au hasard. Après 25 choix : action +37 %,
+ouverture +13 %, sobriété −30 % ; sur 2000 choix tenus à l'écart, la version préférée est la mieux notée 83,6 % des fois
+contre 79,5 % avec les poids d'origine. Après 100 choix : action +59 %, ouverture +23 %, sobriété −29 %.
+
 ## Ligne de commande
 
 ```powershell
@@ -932,6 +955,7 @@ $app = ".\app-cli\build\install\app\bin\app.bat"
 & $app music D:\Musique\TikTok                         # analyse d'avance chaque musique d'un dossier (bibliothèque)
 & $app publish output\partie_killmontage_9x16.mp4 --dry-run   # titre, description et tags proposés pour YouTube
 & $app stats --games                                  # statistiques par soirée, partie par partie
+& $app gouts                                         # goûts appris des choix de variantes (voir plus haut)
 & $app search --clutch --montage D:\Musique            # moments cherchés dans toutes les parties, et leur montage
 & $app process "D:\Videos\...\partie.mp4"         # analyse + montage
 & $app process partie.mp4 --profile valorant --duration 5m --format 16:9,9:16
