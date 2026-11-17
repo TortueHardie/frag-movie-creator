@@ -48,6 +48,7 @@ import dev.highlights.montage.MontageEdits
 import dev.highlights.montage.MontageExportRequest
 import dev.highlights.montage.MontagePlan
 import dev.highlights.montage.MontagePlanner
+import dev.highlights.montage.ThumbnailStyle
 import dev.highlights.montage.MontageReportMusic
 import dev.highlights.montage.MusicAnalysis
 import dev.highlights.montage.MusicAnalyzer
@@ -105,6 +106,8 @@ data class ExportOptions(
     val platform: String? = null,
     /** Ordre des moments ; null = ordre manuel si l'interface en a fixé un ([ClipOrder.MANUAL]), sinon celui du profil. */
     val order: ClipOrder? = null,
+    /** Miniature de chaque vidéo, dans cet habillage ([Thumbnails]) ; null : pas de miniature. */
+    val thumbnail: ThumbnailStyle? = null,
 )
 
 /** Surcharges ponctuelles des réglages de montage du profil (null = valeur du profil). */
@@ -166,6 +169,8 @@ data class MontageOptions(
     val style: String? = null,
     /** Corrections de l'utilisateur sur le plan : kills exclus, groupes forcés ou épinglés (voir [MontageConstraints]). */
     val constraints: MontageConstraints = MontageConstraints.NONE,
+    /** Miniature de chaque vidéo, dans cet habillage ([Thumbnails]) ; null : pas de miniature. */
+    val thumbnail: ThumbnailStyle? = null,
 )
 
 /**
@@ -227,6 +232,7 @@ class HighlightPipeline(
 
     /** Musiques des derniers montages : une bibliothèque ne ressort pas toujours la même. */
     val musicHistory = MusicHistory(config.outputDir.resolve("sessions").resolve("music-history.json"))
+    private val thumbnails = Thumbnails(ffmpeg)
 
     /** Soirées déjà montées par le montage de soirée (voir [EveningHistory]). */
     val eveningHistory = EveningHistory(config.outputDir.resolve("sessions").resolve("evening-montages.json"))
@@ -522,8 +528,11 @@ class HighlightPipeline(
                 ),
                 progress,
             )
-        }
+        }.let { result -> options.thumbnail?.let { result.copy(thumbnails = thumbnails.makeAll(result.videos.values, it)) } ?: result }
     }
+
+    /** Miniature YouTube de [video] (highlights ou montage kills), d'après le rapport écrit avec elle ([Thumbnails]). */
+    suspend fun miniature(video: Path, style: ThumbnailStyle = ThumbnailStyle.SOBER): Path = thumbnails.make(video, style)
 
     /** Aperçu PNG des formats de sortie à un instant donné, sans analyse. */
     suspend fun preview(file: Path, at: Duration, profileId: String?, formats: List<OutputFormat>?, outputDir: Path?): List<Path> {
@@ -618,6 +627,7 @@ class HighlightPipeline(
                 progress.child(tr("progress.render"), 0.86),
             )
         }.also { musicHistory.record(plan.music.file) } // Choisie ou imposée : elle a servi, elle se repose un peu.
+            .let { result -> options.thumbnail?.let { result.copy(thumbnails = thumbnails.makeAll(result.videos.values, it)) } ?: result }
     }
 
     /**

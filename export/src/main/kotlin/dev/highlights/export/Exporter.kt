@@ -73,6 +73,8 @@ data class ExportResult(
     val encoder: String,
     /** Musique du montage kills (choisie dans une bibliothèque, ou imposée) ; null pour les highlights. */
     val music: Path? = null,
+    /** Miniatures écrites à côté des vidéos (une par vidéo), si elles ont été demandées. */
+    val thumbnails: List<Path> = emptyList(),
 )
 
 class Exporter(
