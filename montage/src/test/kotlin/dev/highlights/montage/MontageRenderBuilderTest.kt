@@ -152,6 +152,58 @@ class MontageRenderBuilderTest : FunSpec({
         }
     }
 
+    /** Trois groupes de flicks : deux coupes en whip pan, à l'entrée des plans 1 et 2. */
+    fun twoWhips(s: MontageSettings = settings): MontagePlan {
+        val flick = KillTraits(flick = 1.0, direction = FlickDirection.RIGHT)
+        val groups = listOf(
+            KillGroup(media, listOf(100.seconds), 1.0, emptyList(), emptyList(), traits = listOf(flick)),
+            KillGroup(media, listOf(300.seconds), 0.8, emptyList(), emptyList(), traits = listOf(flick)),
+            KillGroup(media, listOf(500.seconds), 0.5, emptyList(), emptyList(), traits = listOf(flick)),
+        )
+        return MontagePlanner.plan(groups, music, s)
+    }
+
+    test("whip pan : souffles d'un dossier, une entrée par souffle servi, chacun à son tour") {
+        val p = twoWhips()
+        MontageRenderBuilder.whips(p).map { it != null } shouldBe listOf(false, true, true)
+        val files = listOf("sons/a.wav", "sons/b.wav", "sons/c.wav")
+        val render = MontageRenderBuilder.build(
+            MontageRenderRequest(p, OutputFormat.VERTICAL, edit, EncoderProfile("h264_amf", listOf("-c:v", "h264_amf"), true), Path("out.mp4"), Path("f.txt"), whooshFiles = files),
+        )
+        // Deux whips : les deux premiers fichiers, entrées juste après la musique ; le troisième n'est pas lu.
+        val musicInput = p.clips.size
+        render.command.args shouldContainInOrder listOf("-i", "musique.wav", "-i", "sons/a.wav", "-i", "sons/b.wav")
+        render.command.args shouldNotContain "sons/c.wav"
+        val lines = render.filterGraph.lines()
+        lines.single { it.startsWith("[${musicInput + 1}:a]") } shouldContain "[whs0]"
+        lines.single { it.startsWith("[${musicInput + 2}:a]") } shouldContain "[whs1]"
+        render.filterGraph shouldNotContain "anoisesrc"
+        MontageRenderBuilder.whooshes(p, files) shouldBe listOf(null, "a.wav", "b.wav")
+
+        // Sans dossier : les variantes générées, à tour de rôle aussi.
+        val generated = build(p).filterGraph
+        generated shouldContain "anoisesrc=d=0.45"
+        generated shouldContain "anoisesrc=d=0.40"
+        MontageRenderBuilder.whooshes(p, emptyList()) shouldBe listOf(null, "généré 1", "généré 2")
+        // Souffle coupé : rien au rapport, aucune entrée de son.
+        val muted = twoWhips(settings.copy(whip = WhipPanEffect(whoosh = 0.0)))
+        MontageRenderBuilder.whooshes(muted, files) shouldBe listOf(null, null, null)
+        MontageRenderBuilder.build(
+            MontageRenderRequest(muted, OutputFormat.VERTICAL, edit, EncoderProfile("h264_amf", listOf("-c:v", "h264_amf"), true), Path("out.mp4"), Path("f.txt"), whooshFiles = files),
+        ).command.args shouldNotContain "sons/a.wav"
+    }
+
+    test("whip pan : le souffle suit la musique dans l'équilibre jeu / musique") {
+        fun volume(balance: Double): String {
+            val s = settings.copy(audio = settings.audio.copy(balance = balance))
+            return build(flickPlan(FlickDirection.RIGHT, s)).filterGraph.lines().single { "asplit" in it && "[whs0]" in it }.substringAfter("volume=").substringBefore(",")
+        }
+        // 0,5 par défaut, ±6 dB par cran comme la musique : -1 (musique devant) le double, 1 (jeu devant) le divise par deux.
+        volume(0.0) shouldBe "0.500"
+        volume(-1.0) shouldBe "1.000"
+        volume(1.0) shouldBe "0.250"
+    }
+
     test("whip pan : la sortie accélère jusqu'à une demi-image, l'entrée finit sur une image entière") {
         val stages = MontageRenderBuilder.whipStages(WhipPanEffect(), FlickDirection.LEFT, FlickDirection.RIGHT, 2.seconds, 1080, 1920)
         stages.size shouldBe 2

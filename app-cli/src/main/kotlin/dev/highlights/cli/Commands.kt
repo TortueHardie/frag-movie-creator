@@ -190,6 +190,8 @@ class MontageCommand : PipelineCommand("montage") {
     private val noWhip by option("--no-whip", help = "Sans whip pan dans le sens du flick").flag()
     private val showcase by option("--showcase", help = "Ouverture vitrine : passages calmes des parties, sans kill, avant le premier kill").flag()
     private val noWhoosh by option("--no-whoosh", help = "Whip pans muets, sans souffle sur la coupe").flag()
+    private val whooshDir by option("--whoosh-dir", help = "Dossier de souffles (wav, mp3…) pour les whip pans, chacun à son tour, à la place des souffles générés")
+        .path(mustExist = true, canBeFile = false)
     private val noMotionBlur by option("--no-motion-blur", help = "Sans flou de mouvement (traînées sur les mouvements rapides, flou radial sur les coupes)").flag()
     private val colors by option("--colors", help = "Couleurs : boost (vives, noirs francs, comme les kill montages de TikTok) ou natural (celles du jeu) ; défaut : celui du profil")
         .choice("boost" to true, "natural" to false)
@@ -236,6 +238,7 @@ class MontageCommand : PipelineCommand("montage") {
                         whip = if (noWhip) false else null,
                         showcase = if (showcase) true else null,
                         whoosh = if (noWhoosh) false else null,
+                        whooshDir = whooshDir,
                         boostColors = colors,
                         motionBlur = if (noMotionBlur) false else null,
                         matchCut = if (noMatchCut) false else null,

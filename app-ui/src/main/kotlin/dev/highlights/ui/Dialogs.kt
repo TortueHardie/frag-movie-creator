@@ -233,6 +233,9 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     MontageToggle(tr("ui.montage.zoom"), montage.zoom) { v -> actions.updateMontage { it.copy(zoom = v) } }
                     MontageToggle(tr("ui.montage.flash"), montage.flash) { v -> actions.updateMontage { it.copy(flash = v) } }
                     MontageToggle(tr("ui.montage.whip"), montage.whip) { v -> actions.updateMontage { it.copy(whip = v) } }
+                    if (montage.whip) {
+                        MontageToggle(tr("ui.montage.whoosh"), montage.whoosh) { v -> actions.updateMontage { it.copy(whoosh = v) } }
+                    }
                     MontageToggle(tr("ui.montage.showcase"), montage.showcase) { v -> actions.updateMontage { it.copy(showcase = v) } }
                     MontageToggle(tr("ui.montage.colors"), montage.boostColors) { v -> actions.updateMontage { it.copy(boostColors = v) } }
                     MontageToggle(tr("ui.montage.motionBlur"), montage.motionBlur) { v -> actions.updateMontage { it.copy(motionBlur = v) } }

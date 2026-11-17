@@ -44,14 +44,15 @@ class WhooshIT : FunSpec({
         val encoder = EncoderProfile("libx264", listOf("-c:v", "libx264", "-preset", "ultrafast"), false)
 
         /** Volume moyen (dB) de la bande du souffle autour de la coupe du plan 1. */
-        suspend fun render(whip: WhipPanEffect): Double {
+        suspend fun render(whip: WhipPanEffect, files: List<String> = emptyList(), band: String = "highpass=f=800,lowpass=f=3000"): Double {
             val settings = MontageSettings(killOffset = Duration.ZERO, whip = whip)
             val plan = MontagePlanner.plan(groups, music, settings)
             MontageRenderBuilder.whips(plan)[1] shouldBe (if (whip.enabled) FlickDirection.RIGHT else null)
-            val out = root.resolve("montage_${whip.whoosh}.mp4")
-            val script: Path = root.resolve("filtres_${whip.whoosh}.txt")
+            val name = "${whip.whoosh}_${files.size}_${band.hashCode()}"
+            val out = root.resolve("montage_$name.mp4")
+            val script: Path = root.resolve("filtres_$name.txt")
             val render = MontageRenderBuilder.build(
-                MontageRenderRequest(plan, OutputFormat.SOURCE, edit, encoder, out, script, filterScriptOption = ffmpeg.filterScriptOption()),
+                MontageRenderRequest(plan, OutputFormat.SOURCE, edit, encoder, out, script, filterScriptOption = ffmpeg.filterScriptOption(), whooshFiles = files),
             )
             script.writeText(render.filterGraph)
             ffmpeg.run(render.command)
@@ -61,7 +62,7 @@ class WhooshIT : FunSpec({
                 FfmpegCommand(
                     listOf(
                         "-ss", "%.3f".format(java.util.Locale.ROOT, cut - 0.35), "-t", "0.4", "-i", out.toString(),
-                        "-af", "highpass=f=800,lowpass=f=3000,volumedetect", "-vn", "-f", "null", "-",
+                        "-af", "$band,volumedetect", "-vn", "-f", "null", "-",
                     ),
                     "mesure du souffle",
                 ),
@@ -74,5 +75,17 @@ class WhooshIT : FunSpec({
         val quiet = render(WhipPanEffect(whoosh = 0.0))
         // Mesuré : −35 dB avec le souffle, −48 dB sans (le peu qui reste de la musique).
         (loud - quiet) shouldBeGreaterThan 10.0
+
+        // Dossier de souffles : un son reconnaissable (sifflement à 5 kHz, hors du souffle généré et de la musique)
+        // remplace le souffle généré sur la coupe.
+        val dir = root.resolve("souffles").also { it.toFile().mkdirs() }
+        val whistle = dir.resolve("sifflement.wav")
+        ffmpeg.run(FfmpegCommand(listOf("-y", "-f", "lavfi", "-i", "sine=f=5000:d=0.5", whistle.toString()), "souffle de test"))
+        val files = dev.highlights.editing.story.SfxBank.list(dir)
+        files shouldBe listOf(whistle.toString())
+        val narrow = "bandpass=f=5000:t=q:w=8"
+        val fromFile = render(WhipPanEffect(), files, narrow)
+        val generated = render(WhipPanEffect(), band = narrow)
+        (fromFile - generated) shouldBeGreaterThan 10.0
     }
 })

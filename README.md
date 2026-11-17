@@ -346,8 +346,12 @@ détecte les kills). En ligne de commande :
   le plan sortant file dans le sens où la vue tournait, flouté par la vitesse, et le suivant arrive en continuant le
   même mouvement (200 ms en tout, `duration` ; flou `blur`). Le whip remplace le flash sur cette coupe ; sans flick de
   part et d'autre, la coupe reste franche. Désactivable par une case de la fenêtre de montage ou `--no-whip`.
-  Un souffle (whoosh, celui des highlights story) culmine sur la coupe (`whoosh`, volume 0,5 ; 0 ou `--no-whoosh` :
-  whip pan muet).
+  Un souffle (whoosh, celui des highlights story) culmine sur la coupe (`whoosh`, volume 0,5 ; 0, `--no-whoosh` ou la
+  case « Souffle sur les whip pans » : whip pan muet). Il suit la musique dans `audio.balance` (±6 dB par cran), pour
+  rester sous elle. Un dossier de sons (`whip.sounds`, ou `--whoosh-dir DOSSIER`) remplace les souffles générés,
+  chacun à son tour dans un ordre mélangé mais toujours le même, comme `story.sfx.whooshDir`. Le rapport JSON indique
+  pour chaque plan si sa coupe d'entrée est un whip pan (`whip`) et le souffle entendu (`whoosh` : fichier ou
+  « généré N »).
 - **Flou de mouvement** (`motionBlur`), mesuré sur les montages de référence (flou sur 48 à 93 % des coupes, une ou
   deux images à 30 img/s) :
   - Mélange d'images (`blend`, désactivé par défaut) : chaque image mélange celles des 17 ms précédentes. Dans un FPS
