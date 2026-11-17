@@ -2,6 +2,7 @@ package dev.highlights.ui
 
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.i18n.tr
+import dev.highlights.core.profile.GameProfile
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -75,9 +76,11 @@ fun LibraryView(state: UiState, actions: UiActions, modifier: Modifier = Modifie
             }
         } else {
             LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val profiles = (state.config as? ConfigStatus.Ready)?.profiles.orEmpty()
                 items(state.library, key = { it.sessionFile.toString() }) { item ->
                     LibraryRow(
                         item,
+                        profileName = profiles.firstOrNull { it.id == item.profileId }?.name ?: GameProfile.localizedName(item.profileId),
                         checked = item.sessionFile in state.librarySelection,
                         fresh = item.sessionFile in state.watch.fresh,
                         enabled = state.job == null,
@@ -161,7 +164,7 @@ private fun WatchCard(state: UiState, actions: UiActions) {
 }
 
 @Composable
-private fun LibraryRow(item: LibraryItem, checked: Boolean, fresh: Boolean, enabled: Boolean, actions: UiActions) {
+private fun LibraryRow(item: LibraryItem, profileName: String, checked: Boolean, fresh: Boolean, enabled: Boolean, actions: UiActions) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = if (checked) Palette.surfaceHigh else Palette.surface,
@@ -189,7 +192,7 @@ private fun LibraryRow(item: LibraryItem, checked: Boolean, fresh: Boolean, enab
                     listOfNotNull(
                         I18n.date(played, "format.dateTime.medium"),
                         item.duration.toTimecode().substringBefore('.'),
-                        item.profileId,
+                        profileName,
                         eventsLabel(item.events).ifEmpty { null },
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,

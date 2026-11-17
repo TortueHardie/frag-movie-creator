@@ -12,6 +12,7 @@ import dev.highlights.core.analysis.SignalTrack
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.StdoutHandler
 import dev.highlights.core.model.AudioRole
+import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.serialization.SerialDuration
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -66,7 +67,7 @@ class AudioEventDetector(override val id: String, private val params: AudioEvent
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
         val stream = if (params.stream != null) ctx.media.audio.getOrNull(params.stream) else ctx.audio[params.role]
         if (stream == null) {
-            val note = Message("notice.track.missing", "track" to (params.stream?.let { "a:$it" } ?: params.role.name.lowercase()))
+            val note = Message("notice.track.missing", "track" to (params.stream?.let { "a:$it" } ?: Message("audio.track.ofRole", "role" to AudioTracks.roleName(params.role))))
             if (params.optional) log.info { "$id ignoré : $note" } else log.warn { "$id : $note" }
             ctx.progress.complete()
             return SignalTrack.missing(id, ctx.grid.count, note)

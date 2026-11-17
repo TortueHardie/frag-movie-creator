@@ -116,6 +116,8 @@ class UiStateTest : FunSpec({
 
         val d = SettingsState().withProfileDefaults(profile.copy(selection = SelectionPolicy(target = SelectionTarget(totalDuration = 45.seconds))))
         d.targetMode shouldBe TargetMode.DURATION
-        d.durationText shouldBe "45s"
+        // Affichée dans le format de la langue (« 45 s », « 45秒 »), relue en durée.
+        d.durationText shouldBe dev.highlights.core.i18n.I18n.duration(45.seconds)
+        d.targetDuration shouldBe 45.seconds
     }
 })

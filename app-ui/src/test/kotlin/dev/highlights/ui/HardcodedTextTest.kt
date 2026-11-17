@@ -40,18 +40,47 @@ class HardcodedTextTest : FunSpec({
             .flatMap { file -> file.readText().lines().mapIndexedNotNull { i, l -> if (raw.containsMatchIn(l)) "${root.relativize(file)}:${i + 1}" else null } }
         found.shouldBeEmpty()
     }
+
+    test("aucun argument de message écrit en dur hors de app-ui") {
+        // Un argument de `Message(...)` est inséré tel quel dans le texte traduit : « piste audio du rôle mic absente »
+        // finissait en français dans le message d'erreur de toutes les langues. Un texte lisible y doit être un
+        // `Message` à son tour. Passent : les libellés sans espace (« a:1 », un nom de fichier) et, sans accent, les
+        // arguments techniques de [TECHNICAL_ARGS] (noms de paramètres YAML, commande à taper, texte venu de Google).
+        val arg = Regex(""""(\w+)"\s+to\s+"((?:[^"\\]|\\.)*)"""")
+        val raw = Regex("""Message\.raw\(\s*"((?:[^"\\]|\\.)*)"""")
+        val found = Files.list(root).use { s -> s.toList() }
+            .filter { it.name != "app-cli" && it.name != "app-ui" }
+            .map { it.resolve("src/main/kotlin") }.filter { it.isDirectory() }
+            .flatMap { src -> Files.walk(src).use { w -> w.filter { it.extension == "kt" }.toList() } }
+            .flatMap { file ->
+                file.readText().lines().flatMapIndexed { i, l ->
+                    if ("Message" !in l) return@flatMapIndexed emptyList()
+                    val named = arg.findAll(l).map { it.groupValues[1] to it.groupValues[2] } + raw.findAll(l).map { "" to it.groupValues[1] }
+                    named.filter { (name, text) -> ACCENT.containsMatchIn(text) || (name !in TECHNICAL_ARGS && looksLikeText(text)) }
+                        .map { (_, text) -> "${root.relativize(file)}:${i + 1}  \"$text\"" }.toList()
+                }
+            }
+        found.shouldBeEmpty()
+    }
 }) {
     companion object {
         /**
          * Chaînes qui ne s'affichent pas (repérées par leur ligne ou leur contenu) : raisons d'annulation (journaux),
-         * commentaire du manifeste d'installation, script PowerShell de mise à jour.
+         * commentaire du manifeste d'installation, script PowerShell de mise à jour, noms de polices.
          */
         val ALLOWED = listOf(
             "CancellationException(",
             "next.store(it,",
             "INSTALLDIR=",
             "Start-Process",
+            // Noms de polices de Windows (UiFonts).
+            "Microsoft YaHei UI",
+            "Yu Gothic UI",
+            "Malgun Gothic",
         )
+
+        /** Arguments de message qui portent un texte technique, jamais traduit. */
+        val TECHNICAL_ARGS = setOf("params", "command", "detail")
 
         private val SENTENCE = Regex("""\p{L}{2,}[,:;]? +\p{L}{2,}""")
         private val ACCENT = Regex("""[À-ÿŒœ]""")

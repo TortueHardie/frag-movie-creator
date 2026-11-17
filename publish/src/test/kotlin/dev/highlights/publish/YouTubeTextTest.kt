@@ -25,7 +25,8 @@ class YouTubeTextTest : FunSpec({
         val m = YouTubeText.suggest(montage, settings)
         m.title shouldBe "TRIPLÉ — 19 kills en 57 s | VALORANT"
         m.description shouldBe "19 kills, dont 13 headshots · 1 triplé, 4 doublés.\nPartie du 27/09/2026.\nMusique : R2D2\n\n#VALORANT #Shorts"
-        m.tags shouldContainExactly listOf("VALORANT", "gaming", "highlights")
+        // Tags anglais de la configuration (portée), puis ceux de la langue du texte.
+        m.tags shouldContainExactly listOf("VALORANT", "gaming", "highlights", "jeux vidéo", "meilleurs moments")
         m.privacy shouldBe YouTubePrivacy.PRIVATE
         m.categoryId shouldBe "20"
         m.problems() shouldBe emptyList()
@@ -65,7 +66,7 @@ class YouTubeTextTest : FunSpec({
         m.title shouldBe "VALORANT | 19 kills"
         m.description shouldBe "VALORANT | 19 kills\nMusique\n#VALORANT #Shorts"
         // Le jeu n'est pas répété, quelle que soit la casse.
-        m.tags shouldContainExactly listOf("VALORANT", "fps", "gaming")
+        m.tags shouldContainExactly listOf("VALORANT", "fps", "gaming", "jeux vidéo", "meilleurs moments")
     }
 
     test("titre coupé à 100 caractères sur une espace, < et > retirés") {

@@ -14,6 +14,7 @@ import java.util.Properties
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.name
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 private val log = KotlinLogging.logger {}
 
@@ -206,6 +207,43 @@ object I18n {
             m > 0 && s == 0L -> text("duration.m", mapOf("m" to m.toString()), locale)
             m > 0 -> text("duration.ms", mapOf("m" to m.toString(), "s" to s.toString()), locale)
             else -> text("duration.s", mapOf("s" to s.toString()), locale)
+        }
+    }
+
+    /**
+     * Relit une durée saisie dans un champ : ce qu'écrit [duration] dans n'importe quelle langue (« 1 min 30 s »,
+     * « 1分30秒 », « 2 dk ») comme les formes techniques de [dev.highlights.core.serialization.Durations] (« 90s »,
+     * « 1m30s », « 1:30 », « 90 »). Toutes les langues sont essayées : un champ rempli avant un changement de langue
+     * reste valide. Null si rien ne correspond.
+     */
+    fun parseDuration(text: String): Duration? {
+        val t = text.filterNot { it.isWhitespace() }
+        if (t.isEmpty()) return null
+        dev.highlights.core.serialization.Durations.parseOrNull(t)?.let { return it }
+        for (regex in durationPatterns) {
+            val m = regex.matchEntire(t) ?: continue
+            // Un motif n'a que les groupes de son modèle (« {s}s » n'a pas de h) : groups[nom] lève sinon.
+            fun g(name: String) = runCatching { m.groups[name] }.getOrNull()?.value?.replace(',', '.')?.toDoubleOrNull() ?: 0.0
+            return (g("h") * 3600 + g("m") * 60 + g("s")).seconds
+        }
+        return null
+    }
+
+    /** Motifs de [parseDuration], tirés des clés `duration.*` de chaque langue (pseudo-langue comprise). */
+    private val durationPatterns: List<Regex> by lazy {
+        val keys = listOf("duration.hm", "duration.ms", "duration.m", "duration.s")
+        val locales = available().map { Locale.forLanguageTag(it.tag.replace('_', '-')) } + Locale.forLanguageTag(PSEUDO_TAG)
+        locales.flatMap { l -> keys.mapNotNull { template(it, null, l) } }.distinct().map { tpl ->
+            val plain = tpl.filterNot { it.isWhitespace() }
+            val out = StringBuilder()
+            var last = 0
+            for (m in PLACEHOLDER.findAll(plain)) {
+                out.append(Regex.escape(plain.substring(last, m.range.first)).takeIf { m.range.first > last }.orEmpty())
+                out.append("(?<${m.groupValues[1]}>\\d+(?:[.,]\\d+)?)")
+                last = m.range.last + 1
+            }
+            if (last < plain.length) out.append(Regex.escape(plain.substring(last)))
+            Regex(out.toString(), RegexOption.IGNORE_CASE)
         }
     }
 

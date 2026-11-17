@@ -49,6 +49,8 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.io.path.name
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @Composable
 fun AppHeader(config: ConfigStatus, language: String, actions: UiActions) {
@@ -293,7 +295,7 @@ fun SettingsSection(state: UiState, actions: UiActions) {
                 singleLine = true,
                 enabled = settings.targetMode == TargetMode.DURATION,
                 isError = settings.targetMode == TargetMode.DURATION && settings.targetDuration == null,
-                placeholder = { Text(tr("ui.settings.durationExample")) },
+                placeholder = { Text(tr("ui.settings.durationExample", "a" to 60.seconds, "b" to 5.minutes)) },
                 modifier = Modifier.width(110.dp),
             )
         }

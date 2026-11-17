@@ -92,4 +92,12 @@ class AudioTracksTest : FunSpec({
         EditSettings(audioStreams = listOf(1, 7)).audioIndices(outplayed) shouldBe listOf(1)
         EditSettings(audioStreams = listOf(7)).audioIndices(outplayed) shouldBe listOf(0)
     }
+
+    test("le résumé des pistes est traduit : il finit dans le message « aucun moment retenu »") {
+        // Avant : « 1 piste : a:0 → mix/game (piste unique : tout le son) » dans toutes les langues.
+        AudioTracks.of(listOf(stream(0))).describe().english() shouldBe "1 track: a:0 → full mix/game (single track: all sound)"
+        AudioTracks.of(listOf(stream(0), stream(1)), AudioLayout(mic = 1)).describe().text(java.util.Locale.GERMAN) shouldBe
+            "2 Spuren: a:0 → Spiel/Gesamtmix; a:1 → Mikro (zwei Spuren: Spiel, dann Mikro, beim Export gemischt, Spurnummern aus dem Profil)"
+        AudioTracks.EMPTY.describe().english() shouldBe "no audio track"
+    }
 })

@@ -88,7 +88,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `i18n/I18n.kt` : `I18n.locale`, `setLanguage(tag?)` (null = Windows ; `-Dhighlights.lang` prioritaire, `fr` dans tous les tests via build-logic),
   `forceLanguage/withLanguage` (tests, captures), `resolve` (pt_BR → pt → en), `available()` (fichiers `messages_<tag>` scannés sur le classpath,
   nom = `language.name`), `text/textOrNull(key, args, locale)` (`{nom}` remplacés, inconnus laissés tels quels ; pluriel `clé.one/few/many/other`
-  choisi par `count`), `decimal/fixed/percent/duration/date(value, patternKey)`, `bundle(tag)`, pseudo-langue `en-XA` (`Pseudo.expand`) ;
+  choisi par `count`), `decimal/fixed/percent/duration/date(value, patternKey)`, `parseDuration` (champs de durée : format `duration.*` de toute langue ou forme technique), `bundle(tag)`, pseudo-langue `en-XA` (`Pseudo.expand`) ;
   `tr(key, "arg" to v)`. `i18n/PluralRule.kt` : familles CLDR (`plural.rule` du fichier). `i18n/Message.kt` : `Message(key, args)` traduit
   à l'affichage (`text()`, `english()`), `Message.raw(texte)`, sérialisé en JSON (`MessageSerializer`, texte nu relu en raw).
 - `analysis/SignalDetector.kt` : `SignalDetector{id; prepare(ctx); analyze(ctx): SignalTrack}`, `SignalDetectorFactory{type; create; availability()}`,
@@ -104,7 +104,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   interface `FfmpegService{probe, run, runProbe, filterScriptOption}`, `EncoderProfile`, `EncoderSelector{select()}`, `FfmpegProgressParser`.
 - `ffmpeg/Hwaccel.kt` : `Hwaccel.resolve("auto"|"none"|nom)`.
 - `model/AudioTracks.kt` : `AudioRole{MIX,GAME,MIC}`, `AudioLayout(mix,game,mic)` (imposé par profil), `AudioTracks.of(streams, layout)`
-  (ordre : layout > titres > nombre de pistes), `indexOf(role)`, `mixIndices()`, `describe()`.
+  (ordre : layout > titres > nombre de pistes), `indexOf(role)`, `mixIndices()`, `describe()` et `explanation` en `Message` (finissent dans « aucun moment retenu »), `roleName(role)`.
 - `model/Highlight.kt` : `Highlight(id, source, range, peak, score, contributions, enabled, events)`, `ScoredTimeline(grid, total, contributions, events, excluded, segments)`, `TimelineEvent`, `TimelineSegment`.
 - `model/MediaInfo.kt` : `MediaInfo(path, sizeBytes, duration, creationTime, container, video, audio ; recordedAt calculé)`, `RECORDING_ORDER`, `VideoStream`, `AudioStream(audioIndex, title…)`.
 - `model/Settings.kt` : `SelectionPolicy`, `SelectionTarget(topN|totalDuration|all, exactement un)`, `EditSettings` (style, story, order, transition,
@@ -119,7 +119,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   MontageOrder{BUILD_UP,CHRONOLOGICAL}, ZoomEffect, FlashEffect, WhipPanEffect, ColorBoost (couleurs boostées → `GradeSettings`), MotionBlur (`shutter` → tmix, `cuts` → flou radial), WeaponHud, PoseKind{AIM,REST}, MatchCut, SlowMotionEffect, SpeedRampEffect, TextEffect, GameAudio{FULL,KILLS}, MontageAudio`.
 - `model/ScreenGeometry.kt` : `RegionAnchor{LEFT,CENTER,RIGHT,AUTO}`, `ScreenGeometry.rescale/forVideo` (zones HUD mesurées en 21:9 → 16:9 etc.), `aspectLabel`.
 - `model/TimeRange.kt`, `model/WindowGrid.kt` (`count`, `rangeOf`, `centerOf`, `indicesCovering`).
-- `profile/GameProfile.kt` : `GameProfile(id, displayName, match, window, audio, detectors, selection, edit, montage)`, `DetectorConfig(id, type=id, enabled,
+- `profile/GameProfile.kt` : `GameProfile(id, displayName, match, window, audio, detectors, selection, edit, montage)` (`name` / `localizedName(id)` = `profile.<id>` traduit, sinon displayName : interface, titres YouTube), `DetectorConfig(id, type=id, enabled,
   role SCORE|GATE, weight, eventBoost, eventBoosts, normalization, fallbackFor, params: YamlNode)` (fallbackFor validé dans `GameProfile.init`), `NormalizationConfig(low/highPercentile, minSpread, maxValue)`.
 - `profile/ProfileRepository.kt` : `loadDirectory`, `resolve`, `byId`, `fileOf`, `DEFAULT_ID="default"`.
 - `progress/Progress.kt` : `ProgressReporter{update, child(label, weight), complete}`, `ProgressTracker`, `EtaEstimator`, `ProgressSnapshot`.
@@ -274,7 +274,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   (ouvre les parties via `openSessions(files, then)` puis `openMontage` avec `MontageUiState.pick`).
 - Statistiques : `StatsView.kt` (`StatsState` : games, jeu choisi, `evenings/gameNames/shown`), actions `showStats/closeStats/setStatsGame`, `UiState.stats` (remplace la liste des analyses).
 - Vues : `App.kt` (layout, drop de fichiers), `SidePanel.kt` (`AppHeader, SourceSection, SettingsSection`), `SessionViews.kt` (`JobCard, SessionHeader, TimelineCard, SegmentList, ExportBar`),
-  `LibraryView.kt` (analyses enregistrées + `WatchCard`), `Dialogs.kt` (`ErrorDialog, VerticalPreviewWindow, MontageDialog`), `Theme.kt` (`Palette`, `HighlightsTheme`).
+  `LibraryView.kt` (analyses enregistrées + `WatchCard`), `Dialogs.kt` (`ErrorDialog, VerticalPreviewWindow, MontageDialog`), `Theme.kt` (`Palette`, `HighlightsTheme`, `UiFonts` : famille système de Windows (SystemFont) pour zh/ja/ko).
 - `Platform.kt` (`DesktopPlatform` : FileDialog/JFileChooser, open/reveal/edit), `Installation.kt`, prefs : `WatchPrefs.kt` (`~/.highlights/watch.json`), `MusicPrefs.kt` (`~/.highlights/music.json` : fromStart par musique, dossier `library` + `useLibrary` ; ajouter un Path à un Set avec `plusElement`, un Path est itérable).
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).
@@ -324,7 +324,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ## 8. Conventions de travail
 - Commits en français, infinitif, une ligne (« Raccorder les coupes visée sur visée »). Une branche par fonctionnalité (noms FR en kebab, ex. `montage-arme-en-main`),
   mergée dans master par commit de merge (« Merge branch '…' »). Merge sur master seulement si branche complète + tests verts. Commit/merge seulement sur demande.
-- Textes utilisateur : bundles i18n (§6), jamais de littéral dans `app-ui` ni d'exception métier en texte brut.
+- Textes utilisateur : bundles i18n (§6), jamais de littéral dans `app-ui` ni d'exception métier en texte brut, ni d'argument de `Message` en texte lisible (`HardcodedTextTest`).
 - Commentaires/KDoc en français, qui expliquent le pourquoi (mesures réelles citées). Garder ce style et cette densité.
 - Tests kotest `FunSpec({ test("…") { … } })`, noms de tests en français ; `shouldBe` ; tests d'intégration conditionnés à FFmpeg.
 - Après une nouvelle fonctionnalité : mettre à jour README (et TODO.md si concerné) et **cette carte** si un fichier/symbole/flux change.

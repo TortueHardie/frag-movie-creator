@@ -3,6 +3,7 @@ package dev.highlights.ui
 import dev.highlights.core.i18n.Message
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.i18n.tr
+import dev.highlights.core.profile.GameProfile
 import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
@@ -11,7 +12,6 @@ import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.SelectionTarget
 import dev.highlights.core.model.aspectLabel
-import dev.highlights.core.serialization.Durations
 import dev.highlights.core.session.Session
 import dev.highlights.export.ExportResult
 import dev.highlights.core.config.YouTubePrivacy
@@ -25,6 +25,7 @@ import java.nio.file.Path
 import java.time.Instant
 import kotlin.math.roundToInt
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 data class UiState(
     val config: ConfigStatus = ConfigStatus.Loading,
@@ -81,7 +82,7 @@ sealed interface ConfigStatus {
 
 /** Profil proposé : [displayName] du YAML, remplacé par une traduction `profile.<id>` si les bundles en ont une. */
 data class ProfileInfo(val id: String, val displayName: String) {
-    val name: String get() = I18n.textOrNull("profile.$id") ?: displayName
+    val name: String get() = GameProfile.localizedName(id, displayName)
 }
 
 /** Plateforme visée à l'export : [id] (app.yaml), nom affiché et ce qu'elle impose. */
@@ -142,14 +143,14 @@ data class SettingsState(
     val style: EditStyle = EditStyle.STORY,
     val momentMode: MomentMode = MomentMode.BEST,
     val targetMode: TargetMode = TargetMode.DURATION,
-    val durationText: String = "60s",
+    val durationText: String = I18n.duration(60.seconds),
     val topNText: String = "8",
     val threshold: Double = 0.6,
     val outputDir: Path? = null,
     /** Plateforme visée (id) : impose le format et adapte volume, débit, textes ; null : les formats cochés. */
     val platform: String? = null,
 ) {
-    val targetDuration: Duration? get() = Durations.parseOrNull(durationText)?.takeIf { it.isPositive() }
+    val targetDuration: Duration? get() = I18n.parseDuration(durationText)?.takeIf { it.isPositive() }
     val topN: Int? get() = topNText.trim().toIntOrNull()?.takeIf { it > 0 }
 
     /** Cible de sélection, ou null si le champ actif est invalide. */
@@ -252,7 +253,7 @@ data class MontageUiState(
     val musicLibrary: Path? = null,
     /** Musique prise depuis son début ; retenu pour chaque musique (voir [MusicPrefs]). */
     val musicFromStart: Boolean = false,
-    val maxDurationText: String = "60s",
+    val maxDurationText: String = I18n.duration(60.seconds),
     /** Durée tirée du nombre de kills, la durée maximale restant un plafond. */
     val fitKills: Boolean = true,
     val buildUp: Boolean = true,
@@ -287,7 +288,7 @@ data class MontageUiState(
     /** Rythme rapide : un kill par temps de musique, sur chaque coup de basse. */
     val fast: Boolean = false,
 ) {
-    val maxDuration: Duration? get() = Durations.parseOrNull(maxDurationText)?.takeIf { it.isPositive() }
+    val maxDuration: Duration? get() = I18n.parseDuration(maxDurationText)?.takeIf { it.isPositive() }
     /** Musique ou dossier de musiques passé au montage, selon le mode. */
     val musicSource: Path? get() = if (useLibrary) musicLibrary else music
     val canCreate: Boolean get() = musicSource != null && maxDuration != null && (formats.isNotEmpty() || platform != null)

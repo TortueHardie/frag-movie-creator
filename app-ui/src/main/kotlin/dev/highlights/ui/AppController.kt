@@ -565,7 +565,7 @@ class AppController(
                     musicFromStart = it.lastMusic?.let(musicPrefs::fromStart) ?: false,
                     useLibrary = musicPrefs.useLibrary(),
                     musicLibrary = musicPrefs.library(),
-                    maxDurationText = montage?.maxDuration?.let(dev.highlights.core.serialization.Durations::format) ?: "60s",
+                    maxDurationText = I18n.duration(montage?.maxDuration ?: 60.seconds),
                     fitKills = montage?.length?.fitKills ?: true,
                     buildUp = montage?.order != dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
                     formats = montage?.formats?.toSet() ?: setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
@@ -1034,7 +1034,7 @@ internal fun SettingsState.withProfileDefaults(profile: GameProfile): SettingsSt
             target.topN != null -> TargetMode.TOP_N
             else -> TargetMode.DURATION
         },
-        durationText = target.totalDuration?.let { dev.highlights.core.serialization.Durations.format(it) } ?: durationText,
+        durationText = target.totalDuration?.let { I18n.duration(it) } ?: durationText,
         topNText = target.topN?.toString() ?: topNText,
     )
 }

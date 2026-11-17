@@ -107,7 +107,7 @@ class Diagnostics(
         lines += "durée : ${media.duration.toTimecode()}"
         media.video?.let { lines += "image : ${it.width}x${it.height} (${aspectLabel(it.width, it.height)}), ${"%.2f".format(it.fps)} img/s, ${it.codec}" }
             ?: run { lines += "image : aucune piste vidéo (fichier inutilisable)" }
-        lines += "son : ${tracks.describe()}"
+        lines += "son : ${tracks.describe().text()}"
         if (tracks[AudioRole.MIC] == null) lines += "  micro absent : voix et rires ne seront pas détectés, leur poids est redistribué"
         lines += "profil retenu : ${profile.id} (${profile.displayName})"
         lines += "montage : ${profile.edit.formats.joinToString { it.label }}, son ${profile.edit.audio.name.lowercase()} " +

@@ -378,7 +378,7 @@ class ProbeCommand : PipelineCommand("probe") {
             val label = roles.joinToString("/") { it.name.lowercase() }.ifEmpty { "non utilisée" }
             echo("  audio     : ${stream.label} ${stream.codec} ${stream.channels} canaux ${stream.sampleRate} Hz → $label")
         }
-        if (m.audio.isNotEmpty()) echo("  rôles     : ${tracks.explanation}")
+        if (m.audio.isNotEmpty()) echo("  rôles     : ${tracks.explanation.text()}")
     }
 }
 

@@ -10,6 +10,7 @@ import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.StdoutHandler
 import dev.highlights.core.model.AudioRole
 import dev.highlights.core.model.AudioStream
+import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.WindowGrid
 import dev.highlights.core.serialization.SerialDuration
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -95,10 +96,10 @@ class AudioLoudnessDetector(override val id: String, private val params: AudioLo
         return SignalTrack(id, LoudnessContrast.compute(windowMax, grid, params.localBaseline, params.localContrastWeight), note = note)
     }
 
-    /** Libellé de la piste demandée, pour les messages. */
-    private fun wanted(): String = params.titleContains?.let { "« $it »" }
-        ?: params.stream?.let { "a:$it" }
-        ?: "du rôle ${params.role.name.lowercase()}"
+    /** Piste demandée, pour les messages : traduite, elle finit dans le message « aucun moment retenu ». */
+    private fun wanted(): Message = params.titleContains?.let { Message("audio.track.titled", "title" to it) }
+        ?: params.stream?.let { Message.raw("a:$it") }
+        ?: Message("audio.track.ofRole", "role" to AudioTracks.roleName(params.role))
 
     private fun selectStream(ctx: AnalysisContext): AudioStream? {
         val streams = ctx.media.audio

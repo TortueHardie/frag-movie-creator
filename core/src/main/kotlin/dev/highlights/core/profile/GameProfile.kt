@@ -2,6 +2,7 @@ package dev.highlights.core.profile
 
 import com.charleskorn.kaml.YamlNode
 import dev.highlights.core.analysis.DetectorParams
+import dev.highlights.core.i18n.I18n
 import dev.highlights.core.model.AudioLayout
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.MontageSettings
@@ -27,6 +28,13 @@ data class GameProfile(
     val edit: EditSettings = EditSettings(),
     val montage: MontageSettings = MontageSettings(),
 ) {
+    /**
+     * Nom à montrer à l'utilisateur (interface, titres YouTube) : la traduction `profile.<id>` si les bundles en ont
+     * une, sinon [displayName]. Le profil `default` s'appelle « Générique » dans son YAML, d'où « | Générique » dans
+     * les titres YouTube de toutes les langues avant ce nom traduit.
+     */
+    val name: String get() = localizedName(id, displayName)
+
     init {
         require(detectors.map { it.id }.toSet().size == detectors.size) { "profil '$id' : identifiants de détecteurs en double" }
         detectors.forEach { d ->
@@ -43,6 +51,11 @@ data class GameProfile(
             }
             require(d.dependsOn.isEmpty() || d.fallbackFor == null) { "profil '$id' : '${d.id}' ne peut pas être à la fois secours et dépendant" }
         }
+    }
+
+    companion object {
+        /** Nom montré d'un profil dont on n'a que l'identifiant et le nom du YAML (voir [name]). */
+        fun localizedName(id: String, displayName: String = id): String = I18n.textOrNull("profile.$id") ?: displayName
     }
 }
 
