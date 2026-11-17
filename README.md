@@ -457,6 +457,31 @@ détecte les kills). En ligne de commande :
 - Réglages détaillés : section `montage:` d'un profil (voir `core/.../model/Montage.kt`), notamment `cuts:` (durées
   visées par intensité `low`/`mid`/`high`, `maxBeats`, `minLead`/`minTail`, `dropPosition`, `dropLead`).
 
+### Corriger le plan : écarter, forcer, épingler un kill
+
+Quand le planificateur se trompe sur un kill (un faux kill, le mauvais sur la drop, un beau kill écarté), on corrige le
+plan au lieu de tout relancer à l'aveugle.
+
+- **Dans l'application** : bouton **Voir le plan…** du dialogue du montage. Une fenêtre montre la musique (volume de
+  chaque temps, sections, drop) et les plans placés dessus, une vignette par groupe de kills, chaque kill en trait ; les
+  groupes que le plan écarte sont listés dessous. Clic sur un plan : l'écarter ; clic sur un trait : écarter ce kill
+  seul ; clic sur un groupe écarté : le forcer dans le montage ; glisser un groupe sur la drop : l'y épingler ; un
+  nouveau clic annule. **Replanifier** recalcule le plan sans réanalyser (inspection des kills en cache : quelques
+  secondes). « Créer le montage » rend le plan corrigé.
+- **En ligne de commande** : `--plan` affiche le plan sans rendre, avec la désignation de chaque kill
+  (`capture@instant`, à une seconde près) ; `--exclude`, `--force` (répétables), `--drop` et `--pin capture@instant=0:42`
+  (le kill tombe sur le temps du morceau le plus proche) le corrigent.
+
+  ```powershell
+  & $app montage partie.session.json --music son.mp3 --plan
+  & $app montage partie.session.json --music son.mp3 --exclude partie.mp4@40:00.6 --drop partie.mp4@38:36.3
+  ```
+
+- Un kill exclu sort de son groupe (un triplé devient un doublé) ; un groupe forcé prend la place du moins bon groupe
+  que rien n'impose ; épinglé sur la drop, il y tombe (en ordre chronologique, les moins bons groupes joués avant lui
+  cèdent leur place). Une correction impossible (kill introuvable, plus de place, pas de drop dans le passage retenu,
+  temps hors du montage) arrête le plan avec un message qui nomme le kill : jamais un montage qui l'ignore en silence.
+
 ## Statistiques par soirée
 
 Bouton **Statistiques** au-dessus des analyses enregistrées (ou `app stats`) : les parties analysées, un jeu à la

@@ -184,7 +184,8 @@ Pistes, de la plus simple à la plus lourde :
 - [ ] Ajuster début/fin d'un moment (poignées sur `TimelineCard` ou boutons ±1 s).
 - [ ] Ajouter un moment à la main en cliquant sur la timeline.
 - [ ] Réordonner les clips par glisser-déposer (`ClipOrder` existe côté moteur).
-- [ ] Exclure ou forcer un kill précis dans le montage kills.
+- [x] Exclure ou forcer un kill précis dans le montage kills (frise « Voir le plan… », `--exclude/--force/--drop/--pin`).
+- [ ] Frise du plan : épingler un groupe sur un temps quelconque à la souris (moteur et CLI le font déjà, `--pin`).
 - [ ] Supprimer / oublier une analyse dans `LibraryView`.
 
 ## Flux de travail
