@@ -1,0 +1,15 @@
+# Vérité terrain PROVISOIRE : ce sont les détections de game-events (profil wardogs avec le libellé des
+# notifications et « downed », analyse du 18/11/2026), pas encore validées par le joueur. Elle sert déjà de test
+# de non-régression : tout changement de détection la fait échouer. downed = à terre (« EN ATTENTE DE
+# RÉANIMATION »), pas une mort. À la validation (planches dans output/revue/verite-terrain/), corriger les
+# événements, ajouter les morts si le joueur en distingue, remplir validated.
+capture: { name: WARDOGS_09-22-2026_18-23-47-983.mp4, sizeBytes: 7256347517, duration: 2844.992s }
+profile: wardogs
+tolerance: 3s
+validated: null
+note: "Une partie passée presque entière au volant d'un camion (URAL) : capture témoin du HUD en véhicule."
+kinds: [kill, assist, revive, downed]
+events: []
+# Seuils = état mesuré au relevé (toutes les détections retrouvées, aucune en trop).
+thresholds:
+  game-events: { kill: { precision: 1.0, recall: 1.0 }, assist: { precision: 1.0, recall: 1.0 }, revive: { precision: 1.0, recall: 1.0 }, downed: { precision: 1.0, recall: 1.0 } }

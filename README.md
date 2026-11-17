@@ -26,6 +26,16 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
   depuis 15 s), puis apparaît dans la liste marquée « nouveau » ; l'export reste à lancer soi-même. Les captures déjà
   présentes quand le dossier est choisi ne sont pas analysées d'office, celles arrivées pendant que l'application était
   fermée le sont à la relance. Le dossier est retenu d'un lancement à l'autre (`~/.highlights/watch.json`).
+- **Montage de la soirée, sans clic** (case « Monter chaque soirée finie » de la carte du dossier surveillé, désactivée
+  par défaut) : quand la soirée est finie (aucune nouvelle partie depuis 1 h, réglable, et rien en cours
+  d'enregistrement ni d'analyse), un montage kills de toutes ses parties se fait seul : soirée découpée comme les
+  statistiques (de 6 h à 6 h, un jeu à la fois), musique choisie dans le dossier de musiques du dialogue du montage,
+  formats et plateforme des réglages. Une notification Windows le dit (« Soirée du 16/11 : 47 kills, montage prêt »),
+  un clic ouvre la vidéo. Rien n'est monté ni notifié sous 5 kills (réglable). Seules les soirées d'une capture arrivée
+  dans le dossier surveillé pendant que l'option est active comptent (l'activer ne remonte pas l'historique), et une
+  soirée n'est jamais remontée d'office (`output/sessions/evening-montages.json`). Seulement quand l'application est
+  ouverte : ni service ni tâche planifiée. `app soiree [--date AAAA-MM-JJ] [--game wardogs] --music <musique ou
+  dossier>` monte une soirée analysée à la demande, `app soiree --list` liste les soirées et celles déjà montées.
 
 ## Installer l'application (Windows)
 
@@ -103,6 +113,38 @@ MSI lui-même, qu'il s'installe sans droits administrateur et qu'il porte un cod
 ```powershell
 .\gradlew.bat test                    # unitaires + intégration (vidéos synthétiques générées par FFmpeg)
 .\gradlew.bat :app-cli:installDist    # → app-cli\build\install\app\bin\app.bat
+```
+
+### Vérité terrain : prouver qu'un changement de détecteur n'a rien cassé
+
+`verite/<jeu>/*.yaml` liste, pour quelques vraies captures, les vrais kills et morts du joueur avec leurs temps, relevés
+image par image et validés par le joueur. Les vidéos ne sont pas dans le dépôt : une capture y est reconnue par son nom,
+sa taille et sa durée. `app verite` réanalyse chaque capture avec le code du moment et mesure chaque détecteur :
+
+```powershell
+.\gradlew.bat :app-cli:verite "-Pverite=--videos D:\Vidéo"          # réanalyse (longue : une analyse par capture)
+& $app verite verite --sessions D:\dev\editor\output\sessions        # mesure les analyses déjà enregistrées (immédiat)
+```
+
+Pour chaque capture et chaque détecteur : vrais (retrouvés dans la tolérance), faux (détections sans vrai événement),
+manqués, précision, rappel, avec l'instant de chaque faux et de chaque manqué. Une détection ne valide qu'un seul vrai
+événement (deux kills à 1 s d'écart demandent deux détections). Les seuils (`thresholds` du fichier) sont l'état mesuré
+au moment du relevé : la commande échoue (code 1) si un détecteur passe en dessous, et écrit `verite-rapport.json`.
+Les analyses refaites vont dans `-o` (défaut : `%TEMP%\highlights\verite`), avec leur propre mémoire d'analyses : la
+bibliothèque de l'utilisateur n'est pas touchée.
+
+Format d'un fichier :
+
+```yaml
+capture: { name: WARDOGS_09-23-2026_20-4-19-983.mp4, sizeBytes: 6911741815, duration: 2708.992s }
+profile: wardogs
+tolerance: 3s               # écart toléré entre l'instant relevé et l'instant détecté
+validated: joueur, 2026-11-18
+kinds: [kill, death]        # sortes relevées sans oubli ; les autres (réanimations…) ne comptent pas
+events:
+  - { at: "07:56", kind: kill, note: "ÉLIMINATION dans le journal" }
+thresholds:
+  game-events: { kill: { precision: 1.0, recall: 1.0 } }
 ```
 
 ## Construire l'installeur
@@ -286,7 +328,18 @@ détecte les kills). En ligne de commande :
 ```powershell
 & $app montage output\sessions\partie.session.json --music D:\Musique\son.mp3 --max 60s --format 9:16,source
 & $app montage output\sessions\partie.session.json --music D:\Musique\TikTok --max 60s   # musique choisie dans le dossier
+& $app montage output\sessions\partie.session.json --music D:\Musique\son.mp3 --style tiktok
 ```
+
+- **Styles** (`config/montage-styles.yaml`) : un jeu de réglages choisi d'un coup, en haut de la fenêtre de montage
+  (puces « Aucun », « Edit TikTok », « Propre », « One taps », « Cinématique ») ou par `--style <id>` ; les cases
+  détaillées sont repliées sous « Réglages avancés ». Livrés : `tiktok` (rythme rapide, couleurs boostées, flou, zoom
+  d'approche), `propre` (effets sobres, raccords sur la pose et whip pans, ni flash, ni zoom, ni texte), `onetaps`,
+  `cinematique` (ouverture vitrine, ralentis et rampes, montée jusqu'à la drop). Un style ne dit que ce qu'il change,
+  le reste vient du profil ; une case modifiée à la main (ou une option de la ligne de commande) passe devant lui et
+  reste en place quand on change de style, jusqu'à « Revenir au style ». `default:` dans le fichier choisit le style
+  pris sans rien demander (`--style none` : profil seul). On peut modifier, retirer ou ajouter des styles ; un style
+  sans traduction s'affiche avec son `displayName` et sa `description`.
 
 - **Bibliothèque musicale** : `--music` accepte un dossier (sous-dossiers compris), et le dialogue du montage a un mode
   « Choisir dans un dossier » (dossier retenu d'un montage à l'autre). Le montage est alors planifié sur chaque musique,
@@ -660,6 +713,16 @@ ligne est un événement.
   est absent.
 - La zone (`region`) est mesurée en 3440x1440 et suit le format de la capture (`referenceWidth`, `anchor: right`) ; les
   tailles du cadre (`minHeight`…`maxFill`) et la couleur (`color`, `threshold`) se règlent pour un autre jeu.
+- **Basse définition** (capture de moins de 720 px de haut, `fillBelow`) : le contour du cadre (3 px en 1440p) y fait
+  moins d'un pixel et la couleur sous-échantillonnée le délave jusqu'à la teinte des murs de sable ; mesuré en 854x480
+  (deux parties téléchargées de YouTube) : 25 à 50 de jaune pour un seuil de 60, 1 kill lu sur 44. Le détecteur y lit
+  alors l'aplat jaune pur derrière le portrait du joueur (`fillColor` : rouge et vert égaux à 30 près, ce qui écarte le
+  sable), une tache pleine de la hauteur d'une demi-ligne à une ligne (`fillMinHeight`…`fillMin`), pas collée au bord
+  droit de l'écran (bordure dorée de certaines capacités). Une ligne doit y rester visible 2 s (`fillMinSeen`, une
+  ligne en reste 5) et toute la vidéo est décodée (480p coûte peu). Sur la partie dont le tableau de fin dit 44 kills /
+  14 morts : 46 kills et 18 morts lus (1 et 0 avant) ; 4 des morts portent l'icône de l'ultime de Phoenix, qui ramène le
+  joueur sans compter de mort (hypothèse, non traitée). La géométrie 16:9 n'était pas en cause : la zone mesurée en
+  21:9 tombe juste sur le killfeed en 16:9.
 
 ## Journal des gains (Wardogs)
 
@@ -673,6 +736,12 @@ Windows (rien à installer), par lots et en parallèle pendant le décodage de l
 - `icons` (paramètres d'un `hud-template`) fusionne le journal avec les icônes de notification : le journal donne le
   type (une « Aide : Élimination » affiche la même tête de mort qu'un kill) et sépare les kills enchaînés, l'icône date
   l'événement et couvre le texte illisible sur ciel clair.
+- `notice` lit aussi le libellé écrit sous l'icône (« ÉLIMINATION CONFIRMÉE », « AIDE : ÉLIMINATION », « UN PASSAGER
+  A SURVÉCU »…), avec ses propres `rules` : il corrige le type de l'icône quand le journal n'a rien lu, ou l'écarte.
+  Sans lui, une aide au kill sortait en kill (même tête de mort) et un passager déposé en aide (même poignée de main).
+  Illisible (texte gris sur fond clair), l'icône garde son type.
+- Joueur à terre : « EN ATTENTE DE RÉANIMATION » sort en événement `downed`, pas en mort (il est souvent relevé).
+  `montage.killStyle.downedAsDeath: true` le ferait compter comme une mort (rounds, kill aussitôt payé, K/D) ; désactivé.
 - Sur une partie de 1 h 25 : 14 kills sur 14, 3 aides sur 3, 8 réanimations sur 10, aucun faux positif (les icônes
   seules : 12 kills et un faux, aucune aide, 4 réanimations). Environ 1 min d'analyse pour 1 h 53 de vidéo.
 
@@ -828,7 +897,10 @@ Un rendu pleine qualité du montage kills prend plusieurs minutes : le juger à 
 3 versions » du dialogue du montage, ou `montage … --variants 3` : trois versions du même montage sont rendues en petit
 (360 pixels sur le petit côté, vertical d'abord), vite (x264 `ultrafast`, sans flou par vecteurs), dans
 `<sortie>\apercus\`. Chaque plan y garde exactement son nombre d'images : coupes, kills sur les temps et son sont ceux
-du rendu final. Mesuré sur quatre parties WARDOGS et « Rome Is Burning » : TEMPS_MESURES.
+du rendu final. Mesuré sur deux parties WARDOGS et « Rome Is Burning » : un aperçu se rend en 11,6 s contre 25,5 s pour le
+rendu final (35 s de montage), les trois aperçus en 47 s contre 35 s pour un seul rendu final. Le décodage des
+captures 3440x1440 domine : l'aperçu les décode en logiciel, sans filtre de boucle H.264 (plus rapide ici que le
+décodage matériel, dont chaque image pleine taille redescend de la carte graphique).
 
 - **Les versions** : celles que le planificateur note déjà (échelle de la grille de coupes × place de la drop) et le
   plan de base, classées comme il les classe : la version 1 est celle qu'un montage sans aperçu aurait rendue. Les
@@ -887,6 +959,7 @@ Un fichier existant n'est jamais écrasé (suffixe `_2`, `_3`…), et les source
 ## Configuration
 
 - `config/app.yaml` : FFmpeg, dossiers, préférence d'encodeur, parallélisme.
+- `config/montage-styles.yaml` : styles du montage kills (`--style`, puces de la fenêtre de montage) et style par défaut.
 - `config/profiles/*.yaml` : un fichier par jeu. Il définit les fenêtres d'analyse, les détecteurs (type, poids, normalisation, paramètres), la sélection (seuil, marges, durée cible) et le montage. Le profil est choisi d'après le chemin du fichier (`match.pathContains`), sinon c'est `default`. `--profile` force un profil.
 
 Pistes audio : un détecteur demande un rôle (`role: game`, `role: mic`…) et non un numéro de piste ; l'index reste

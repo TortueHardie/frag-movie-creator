@@ -172,6 +172,10 @@ Pistes, de la plus simple à la plus lourde :
   - [ ] Lecteur vidéo dans l'application (aujourd'hui : vignettes animées et lecteur du système).
   - [ ] Apprendre des choix : lire les `*.choix.json` (notes de chaque variante, celle préférée) pour régler `MontageScorer`.
   - [ ] Variantes au-delà du planificateur (ordre chronologique / montée, accroche, densité d'effets) : à décider avec l'utilisateur.
+- [x] Styles nommés (`config/montage-styles.yaml`, `--style`, puces en haut de la fenêtre, cases sous « Réglages
+  avancés ») : tiktok, propre, onetaps, cinematique. Une case modifiée à la main passe devant le style.
+  - [ ] Style par défaut et défauts des options « à activer si le rendu plaît » : rendus de comparaison dans
+    `output/revue/styles-montage/`, décision de l'utilisateur attendue.
 - [x] Whoosh sur les whip pans (souffles générés de `StoryRenderBuilder`, ou un dossier de sons : `whip.sounds`,
   `--whoosh-dir`), volume qui suit la musique dans `audio.balance`, case de la fenêtre de montage, rapport par plan.
   - [ ] Aucun dossier de souffles livré dans `config/` : à choisir à l'oreille.
@@ -196,11 +200,20 @@ Pistes, de la plus simple à la plus lourde :
 
 ## Flux de travail
 - [ ] File d'attente de jobs (aujourd'hui un seul job à la fois via `runTask`).
-- [ ] Dossier surveillé : enchaîner l'export automatiquement après l'analyse.
+- [x] Dossier surveillé : monter seul chaque soirée finie, notifier (case « Monter chaque soirée finie », `app soiree`).
 - [ ] Préréglages d'export (« TikTok », « YouTube court », « complet »).
 
 ## Qualité de détection
-- [ ] Jeu de vérité terrain versionné (timecodes annotés) + test de non-régression précision/rappel, lancé à la main.
+- [x] Jeu de vérité terrain versionné (`verite/`, timecodes validés par le joueur) + `app verite` (précision/rappel par
+  détecteur, échec sous les seuils), lancé à la main (`gradlew :app-cli:verite`).
+- [ ] Vérité terrain VALORANT (killfeed, compteur de munitions, `kill-confirm`) : aucune capture VALORANT sur le disque.
+- [ ] Valider avec le joueur la vérité provisoire de `verite/wardogs/` (planches dans `output/revue/verite-terrain/`) et y
+  ajouter les morts.
+- [x] Wardogs `ocr-log` : « AIDE : ÉLIMINATION » lue comme kill (22-55-31 à 38:37) et « UN PASSAGER A SURVÉCU » lu
+  comme aide (18-23-47 à 15:14), corrigés par le libellé de la notification (`notice`) ; « EN ATTENTE DE RÉANIMATION »
+  → événement `downed`.
+- [ ] Décider si « à terre » compte comme une mort (`montage.killStyle.downedAsDeath`, faux par défaut) : rounds,
+  kill aussitôt payé, statistiques K/D.
 - [ ] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
 
 ## Entretien

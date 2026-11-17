@@ -23,6 +23,8 @@ import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.OutputFormat
+import dev.highlights.core.model.MontageStyle
+import dev.highlights.core.model.MontageStyles
 import dev.highlights.core.model.PlatformProfile
 import dev.highlights.core.model.SelectionTarget
 import dev.highlights.core.model.WindowGrid
@@ -162,10 +164,15 @@ data class MontageOptions(
     val platform: String? = null,
     /** Seulement ces moments (résultat d'une recherche, voir [MomentPick]) ; null : tous les kills des sessions. */
     val onlyKills: MomentPick? = null,
-    /** Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun ([MontageSettings.forOneTaps]). */
-    val oneTaps: Boolean = false,
+    /**
+     * Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun ([MontageSettings.forOneTaps]) ;
+     * null : celui du style, sinon non.
+     */
+    val oneTaps: Boolean? = null,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
+    /** Style de montage ([dev.highlights.core.model.MontageStyle]) : remplit les réglages laissés à null ci-dessus. */
+    val style: String? = null,
     /** Corrections de l'utilisateur sur le plan : kills exclus, groupes forcés ou épinglés (voir [MontageConstraints]). */
     val constraints: MontageConstraints = MontageConstraints.NONE,
     /** Rendre une des variantes proposées en aperçu ([HighlightPipeline.montagePreviews]) ; null : la mieux notée, sans aperçu. */
@@ -252,6 +259,9 @@ class HighlightPipeline(
     /** Musiques des derniers montages : une bibliothèque ne ressort pas toujours la même. */
     val musicHistory = MusicHistory(config.outputDir.resolve("sessions").resolve("music-history.json"))
 
+    /** Soirées déjà montées par le montage de soirée (voir [EveningHistory]). */
+    val eveningHistory = EveningHistory(config.outputDir.resolve("sessions").resolve("evening-montages.json"))
+
     /** Analyses déjà faites : une capture inchangée n'est pas réanalysée. */
     val library = AnalysisLibrary(config.outputDir.resolve("sessions").resolve("library.json"))
 
@@ -265,6 +275,25 @@ class HighlightPipeline(
      * illisibles sont ignorées.
      */
     fun statistics(): List<GameStats> = analyzedGames().flatMap { g -> g.sessions.map { (file, session) -> g.stats(file, session) } }
+
+    /** Soirées des parties analysées (voir [EveningPlanner.of]), la plus récente d'abord. */
+    fun evenings(): List<Evening> = EveningPlanner.of(statistics())
+
+    /**
+     * Montage kills d'une soirée entière ([killMontage] de toutes ses parties), retenu dans [eveningHistory] : le
+     * montage automatique ne la refera pas. Un échec y est retenu aussi, puis relancé.
+     */
+    suspend fun eveningMontage(evening: Evening, music: Path, options: MontageOptions, progress: ProgressReporter): ExportResult {
+        val sessions = evening.sessionFiles.map(SessionStore::load)
+        return try {
+            killMontage(sessions, music, options, progress).also { eveningHistory.record(evening, it.videos.values.firstOrNull()) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            eveningHistory.record(evening, null, e.message ?: e.toString())
+            throw e
+        }
+    }
 
     /**
      * Moments (groupes de kills, comme le montage les forme) des parties analysées qui répondent à [query], du plus
@@ -295,7 +324,7 @@ class HighlightPipeline(
         val sessions: List<Pair<Path, Session>>,
         val outdated: Set<Path>,
     ) {
-        private val deaths = Statistics.sources(sessions.map { it.second }, settings.killStyle.deathEvent)
+        private val deaths = Statistics.sources(sessions.map { it.second }, settings.killStyle.deathKinds)
         private val headshots = Statistics.sources(sessions.map { it.second }, settings.killStyle.headshotEvent)
         private val clutches = Statistics.sources(sessions.map { it.second }, settings.killStyle.clutchEvent)
 
@@ -339,6 +368,17 @@ class HighlightPipeline(
 
     /** Plateformes connues (app.yaml compris), par identifiant. */
     val platforms: Map<String, PlatformProfile> get() = config.platforms
+
+    /** Styles de montage kills (`config/montage-styles.yaml`), relus à chaque appel : une modification du fichier compte aussitôt. */
+    val montageStyles: MontageStyles get() = config.loadMontageStyles()
+
+    /** Options complétées par leur style ([MontageOptions.style]), s'il y en a un. */
+    private fun styled(options: MontageOptions): MontageOptions = options.style?.let { options.withStyle(montageStyle(it)) } ?: options
+
+    /** Style [id], ou une erreur qui liste ceux qui existent. */
+    fun montageStyle(id: String): MontageStyle = montageStyles.let { all ->
+        all.byId(id) ?: throw InputException(Message("error.montageStyle.unknown", "id" to id, "known" to all.styles.joinToString { it.id }))
+    }
 
     private fun platform(id: String?): PlatformProfile? = id?.let {
         config.platforms[it] ?: throw InputException(Message("error.platform.unknown", "id" to it, "known" to config.platforms.keys.joinToString()))
@@ -583,7 +623,8 @@ class HighlightPipeline(
      * Les réglages viennent du profil de la première session, surchargés par [options].
      * [music] peut être un dossier : la musique y est choisie ([MusicChoice]), celle sur laquelle le montage est le mieux noté.
      */
-    suspend fun killMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter): ExportResult {
+    suspend fun killMontage(sessions: List<Session>, music: Path, requested: MontageOptions, progress: ProgressReporter): ExportResult {
+        val options = styled(requested)
         val planned = planMontage(sessions, music, options, progress, count = options.pick?.index)
         val plan = planned.plan
         val pick = options.pick
@@ -622,7 +663,7 @@ class HighlightPipeline(
         )
     }
 
-    private fun montageKind(options: MontageOptions) = if (options.oneTaps) "onetaps" else "killmontage"
+    private fun montageKind(options: MontageOptions) = if (options.oneTaps == true) "onetaps" else "killmontage"
 
     /**
      * Aperçus de [count] variantes du montage ([MontageVariants.distinct]) : basse résolution, rendu rapide, même calage
@@ -630,7 +671,8 @@ class HighlightPipeline(
      * Écrits dans `<sortie>/apercus`, avec le fichier des variantes ([MontageVariantsFile]). La variante choisie se rend
      * ensuite par [killMontage] avec [MontageOptions.pick].
      */
-    suspend fun montagePreviews(sessions: List<Session>, music: Path, options: MontageOptions, count: Int, progress: ProgressReporter): MontagePreviews {
+    suspend fun montagePreviews(sessions: List<Session>, music: Path, requested: MontageOptions, count: Int, progress: ProgressReporter): MontagePreviews {
+        val options = styled(requested)
         val planned = planMontage(sessions, music, options.copy(pick = null), progress, count = count)
         val plans = planned.variants
         val dir = (options.outputDir ?: config.outputDir).resolve(PREVIEW_DIR)
@@ -703,14 +745,16 @@ class HighlightPipeline(
      * Plan du montage kills de [killMontage], sans le rendre : la musique, les kills inspectés (repris du cache
      * d'inspection d'un plan à l'autre), le plan. Sert à la frise de l'application, qui le recalcule à chaque correction.
      */
-    suspend fun planKillMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter): PlannedMontage =
-        planMontage(sessions, music, options.copy(pick = null), progress, count = null)
+    suspend fun planKillMontage(sessions: List<Session>, music: Path, requested: MontageOptions, progress: ProgressReporter): PlannedMontage =
+        planMontage(sessions, music, requested.copy(pick = null), progress, count = null)
 
     /**
      * [planKillMontage] ; [count] : nombre de variantes à proposer ([MontageVariants.distinct]) au lieu du seul plan de
      * [MontagePlanner.best]. Avec [MontageOptions.pick], [PlannedMontage.plan] est la variante choisie.
      */
-    private suspend fun planMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter, count: Int?): PlannedMontage {
+    private suspend fun planMontage(sessions: List<Session>, music: Path, requested: MontageOptions, progress: ProgressReporter, count: Int?): PlannedMontage {
+        // Style déjà appliqué par [killMontage] : le rejouer ne change rien (il ne remplit que les réglages restés à null).
+        val options = styled(requested)
         if (sessions.isEmpty()) throw InputException(Message("error.montage.noSession"))
         val profile = profiles.byId(sessions.first().profileId)
         val base = profile.montage
@@ -757,7 +801,7 @@ class HighlightPipeline(
             ),
         ).let {
             when {
-                options.oneTaps -> it.forOneTaps()
+                options.oneTaps == true -> it.forOneTaps()
                 options.fast ?: base.fast.enabled -> it.forFast()
                 else -> it
             }
@@ -773,7 +817,7 @@ class HighlightPipeline(
         missing.forEach { log.warn { "Capture introuvable, ses kills sont écartés du montage : $it" } }
         val available = picked.filterNot { it.media.path in missing }
         if (available.isEmpty()) throw InputException(Message("error.montage.capturesMissing", "files" to missing.joinToString()))
-        val found = if (options.oneTaps) OneTaps.select(available, sessions, settings).groups else available
+        val found = if (options.oneTaps == true) OneTaps.select(available, sessions, settings).groups else available
         // Les multi-kills étalés deviennent plusieurs plans (classement, aces et clutchs déjà tirés du groupe entier).
         val inspected = MontagePlanner.split(KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child(tr("progress.kills"), 0.06)), settings)
         // Corrections de l'utilisateur : kills exclus retirés, groupes forcés ou épinglés marqués pour le planificateur.

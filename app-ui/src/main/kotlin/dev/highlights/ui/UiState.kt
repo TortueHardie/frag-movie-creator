@@ -138,7 +138,19 @@ data class WatchState(
     /** Analyses faites en fond et pas encore ouvertes (fichiers de session). */
     val fresh: Set<Path> = emptySet(),
     val lastError: String? = null,
+    /** Montage automatique des soirées finies (voir [EveningAuto]) et texte du champ de délai. */
+    val evenings: EveningAuto = EveningAuto(),
+    val eveningDelayText: String = I18n.duration(EveningAuto.DEFAULT_DELAY),
+    /** Soirée en cours de montage (« Soirée du 16/11 ») et avancement. */
+    val montaging: String? = null,
+    val montageFraction: Double = 0.0,
+    /** Dernier montage de soirée fait : ce que dit la notification, et la vidéo. */
+    val lastEvening: EveningReady? = null,
+    /** Montage de soirée impossible (pas de dossier de musiques, échec) : dit dans la carte du dossier surveillé. */
+    val eveningProblem: String? = null,
 )
+
+data class EveningReady(val text: String, val video: Path?)
 
 enum class TargetMode { DURATION, TOP_N, ALL }
 
@@ -276,7 +288,7 @@ fun formatBytes(bytes: Long): String = when {
 
 /** « 2 kills · 1 assist » : types connus traduits (`event.<type>`, au pluriel), les autres par leur nom brut. */
 fun eventsLabel(events: Map<String, Int>): String = events.entries
-    .sortedBy { listOf("kill", "assist", "revive", "death", "laughter", "shout").indexOf(it.key).let { i -> if (i < 0) 99 else i } }
+    .sortedBy { listOf("kill", "assist", "revive", "death", "downed", "laughter", "shout").indexOf(it.key).let { i -> if (i < 0) 99 else i } }
     .joinToString(" · ") { (kind, n) -> I18n.textOrNull("event.$kind", mapOf("count" to n)) ?: "${I18n.decimal(n.toDouble(), 0)} $kind" }
 
 data class MontageUiState(
@@ -323,6 +335,16 @@ data class MontageUiState(
     val oneTaps: Boolean = false,
     /** Rythme rapide : un kill par temps de musique, sur chaque coup de basse. */
     val fast: Boolean = false,
+    /** Style de montage choisi (voir [chooseStyle]) ; null : réglages du profil seuls. */
+    val style: String? = null,
+    /** Styles proposés (`config/montage-styles.yaml`). */
+    val styles: List<dev.highlights.core.model.MontageStyle> = emptyList(),
+    /** Cases telles que le profil les règle, sur lesquelles un style se pose. */
+    val profileKnobs: StyleKnobs = StyleKnobs(),
+    /** Cases modifiées à la main ([StyleKnobs]) : un changement de style ne les touche plus. */
+    val touched: Set<String> = emptySet(),
+    /** Réglages détaillés dépliés (« Avancé »). */
+    val advanced: Boolean = false,
     /** Corrections de l'utilisateur sur le plan (kills écartés, groupes forcés ou épinglés), posées dans la frise. */
     val constraints: dev.highlights.montage.MontageConstraints = dev.highlights.montage.MontageConstraints.NONE,
     /** Frise du plan ouverte (voir [MontagePlanState]) ; null : fermée. */

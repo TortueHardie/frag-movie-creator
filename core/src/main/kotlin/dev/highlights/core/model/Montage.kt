@@ -409,6 +409,16 @@ data class KillStyle(
     val quickBonus: Double = 0.3,
     /** Événement émis pour une mort du joueur (VALORANT via Outplayed). Vide : ni mort, ni round, ni ace, ni clutch. */
     val deathEvent: String = "death",
+    /**
+     * Événement émis quand le joueur est à terre, en attente de réanimation (Wardogs : « EN ATTENTE DE RÉANIMATION »
+     * dans le journal des gains). Il peut encore être relevé : ce n'est pas une mort, sauf avec [downedAsDeath].
+     */
+    val downedEvent: String = "downed",
+    /**
+     * À terre compte comme une mort (rounds, kill aussitôt payé, enchaînements écartés du rythme rapide, statistiques).
+     * Désactivé : le joueur relevé n'est pas mort, et dans Wardogs il l'est souvent.
+     */
+    val downedAsDeath: Boolean = false,
     /** Mort qui suit le dernier kill d'un groupe de moins que ça : le kill est aussitôt payé, le groupe recule. */
     val deathGap: SerialDuration = 3.seconds,
     val deathPenalty: Double = 0.5,
@@ -439,6 +449,10 @@ data class KillStyle(
         require(clutchKills >= 1) { "montage.killStyle.clutchKills doit valoir au moins 1" }
         require(oneTapWindow.isPositive()) { "montage.killStyle.oneTapWindow doit être positif" }
     }
+
+    /** Événements comptés comme une mort : [deathEvent], plus [downedEvent] avec [downedAsDeath]. Vide : morts ignorées. */
+    val deathKinds: Set<String>
+        get() = if (deathEvent.isEmpty()) emptySet() else setOfNotNull(deathEvent, downedEvent.takeIf { downedAsDeath && it.isNotEmpty() })
 }
 
 /** Ce que devient le son du jeu pendant un ralenti. */

@@ -164,13 +164,16 @@ class ExportCommand : PipelineCommand("export") {
         val result = execute {
             val sessions = sessionFiles.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).export(sessions, ExportOptions(formats, out, style, music, platform), ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).export(sessions, exportOptions(), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
         }
         printExport(result)
     }
+
+    /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
+    internal fun exportOptions() = ExportOptions(formats, out, style, music, platform)
 }
 
 class MontageCommand : PipelineCommand("montage") {
@@ -217,6 +220,11 @@ class MontageCommand : PipelineCommand("montage") {
         .choice("full" to GameAudio.FULL, "kills" to GameAudio.KILLS)
     private val fast by option("--fast", help = "Rythme rapide : un kill sur chaque temps de la musique (chaque coup de basse), un plan très court chacun").flag()
     private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
+    private val style by option(
+        "--style",
+        help = "Style de montage (config/montage-styles.yaml, ex. tiktok, propre, onetaps, cinematique) : un jeu de réglages, " +
+            "les options ci-dessus passant devant ; « none » : réglages du profil seuls. Défaut : celui du fichier de styles",
+    )
     private val exclude by option("--exclude", help = "Kill à écarter, « capture@instant » (ex. partie.mp4@3:12.4, voir --plan) ; répétable")
         .convert { killRef(it) }.multiple()
     private val force by option("--force", help = "Groupe à garder même si le plan l'écarte, désigné par un de ses kills (« capture@instant ») ; répétable")
@@ -251,16 +259,12 @@ class MontageCommand : PipelineCommand("montage") {
         if (variants != null && pick != null) throw UsageError("--variants et --pick vont chacun dans leur commande : d'abord les aperçus, puis le choix")
         if (variantsFile != null && pick == null) throw UsageError("--variants-file ne sert qu'avec --pick")
         val progress = ConsoleProgress()
-        val constraints = MontageConstraints(
-            excluded = exclude.toSet(),
-            forced = force.toSet(),
-            pins = pin.toMap() + listOfNotNull(drop?.let { it to MontagePin.Drop }),
-        )
+        val constraints = constraints()
         if (planOnly) {
             val planned = execute {
                 val loaded = sessions.map { SessionStore.load(it) }
                 try {
-                    Pipelines.create(env.config).planKillMontage(loaded, music, options(constraints), ProgressTracker(listener = progress).root)
+                    Pipelines.create(env.config).planKillMontage(loaded, music, montageOptions(constraints, defaultStyle()), ProgressTracker(listener = progress).root)
                 } finally {
                     progress.finish()
                 }
@@ -282,7 +286,7 @@ class MontageCommand : PipelineCommand("montage") {
                 pipeline.killMontage(
                     loaded,
                     music,
-                    options(constraints).copy(pick = picked),
+                    montageOptions(constraints, defaultStyle()).copy(pick = picked),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -314,7 +318,7 @@ class MontageCommand : PipelineCommand("montage") {
         val result = execute {
             val loaded = sessions.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).montagePreviews(loaded, music, options(constraints), count, ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).montagePreviews(loaded, music, montageOptions(constraints, defaultStyle()), count, ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
@@ -354,7 +358,21 @@ class MontageCommand : PipelineCommand("montage") {
         }
     }
 
-    private fun options(constraints: MontageConstraints) = MontageOptions(
+    /** Corrections du plan lues sur la ligne de commande (--exclude, --force, --pin, --drop). */
+    internal fun constraints() = MontageConstraints(
+        excluded = exclude.toSet(),
+        forced = force.toSet(),
+        pins = pin.toMap() + listOfNotNull(drop?.let { it to MontagePin.Drop }),
+    )
+
+    /** Style par défaut de `montage-styles.yaml` (lu dans la configuration : à part, pour que [montageOptions] reste pure). */
+    private fun defaultStyle(): String? = env.config.loadMontageStyles().default
+
+    /**
+     * Options lues sur la ligne de commande (testées seules, sans rien lancer ni lire la configuration) ; [constraints] :
+     * corrections du plan ; [defaultStyle] : style appliqué quand `--style` est absent (`--style none` n'en met aucun).
+     */
+    internal fun montageOptions(constraints: MontageConstraints = MontageConstraints(), defaultStyle: String? = null) = MontageOptions(
         formats = formats,
         platform = platform,
         outputDir = out,
@@ -381,8 +399,9 @@ class MontageCommand : PipelineCommand("montage") {
         audioBalance = balance,
         gameAudio = gameAudio,
         reactions = if (reactions) true else null,
-        oneTaps = oneTaps,
+        oneTaps = if (oneTaps) true else null,
         fast = if (fast) true else null,
+        style = style.let { if (it == "none") null else it ?: defaultStyle },
         constraints = constraints,
     )
 }

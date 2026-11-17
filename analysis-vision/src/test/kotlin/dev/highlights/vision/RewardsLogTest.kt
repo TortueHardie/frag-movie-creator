@@ -84,6 +84,55 @@ class RewardsLogTest : FunSpec({
         )
     }
 
+    test("joueur à terre : « EN ATTENTE DE RÉANIMATION » sort en downed, avant les lignes ignorées") {
+        val withDowned = listOf(LogRule("downed", listOf("ATTENTEDEREANIMATION"))) + rules
+        // Lectures réelles (22-55-31), montant compris.
+        RewardsLog.classify("EN ATTENTE DE RÉANIMATION *Sloo", withDowned) shouldBe "downed"
+        RewardsLog.classify("EN ATTENTE DEREANIMATION *Sloo", withDowned) shouldBe "downed"
+        RewardsLog.classify("EN ATTENTE OEREANIMATION", withDowned) shouldBe "downed"
+        RewardsLog.classify("COÉQUIPIER RÉANIMÉ 250XP +", withDowned) shouldBe "revive"
+    }
+
+    test("libellé de la notification : lectures réelles classées par les règles du profil wardogs") {
+        val notice = listOf(
+            LogRule(null, listOf("PASSAGER", "SAGERA", "SURVECU", "FOURNITURESLIVREES")),
+            LogRule("assist", listOf("AIDEELIMINATION", "ALELIMINATIONREPEREE")),
+            LogRule("kill", listOf("ELIMINATIONCONFIRMEE", "SHUTDOWNKILL", "TIRALATETE")),
+            LogRule("revive", listOf("REANIMATIONDEJOUEUR")),
+        )
+        RewardsLog.classify("AIDE : ÉLIMINATION", notice) shouldBe "assist"
+        RewardsLog.classify("+\$800 À L'ÉLIMINATION REPÉRÉE", notice) shouldBe "assist"
+        RewardsLog.classify("ÉLIMINATION CONFIRMÉE +\$1750", notice) shouldBe "kill"
+        RewardsLog.classify("ÉLIMINATION COYFIRMÉE +\$2500", notice) shouldBe "kill"
+        RewardsLog.classify("IANIMATION DE JOUEUR", notice) shouldBe "revive"
+        RewardsLog.classify("iljNbA SAGERRÉRVÉCU", notice) shouldBe ""
+        RewardsLog.classify("ASSAGÉRÉ", notice) shouldBe ""
+        RewardsLog.classify("FOURNITURES LIVRÉES +\$2500", notice) shouldBe ""
+        // « ÉLIMINATION » seul (fin d'« AIDE : ÉLIMINATION » mal lue) ne tranche pas : l'icône garde son type.
+        RewardsLog.classify("ÉLIMINATION", notice) shouldBe null
+        RewardsLog.classify("+\$1500", notice) shouldBe null
+    }
+
+    test("libellé : corrige le type de l'icône, l'écarte, ou la laisse quand il est illisible") {
+        val icons = listOf(
+            TimedKind(100.seconds, "kill"), // « AIDE : ÉLIMINATION » sous la tête de mort
+            TimedKind(200.seconds, "assist"), // « UN PASSAGER A SURVÉCU » sous la poignée de main
+            TimedKind(300.seconds, "kill"), // libellé illisible sur fond clair
+            TimedKind(400.seconds, "kill"), // vrai kill, libellé lu 2 s plus tard
+        )
+        val reads = listOf(
+            NoticeRead(101.seconds, "assist", "AIDE : ÉLIMINATION"),
+            NoticeRead(200.seconds, "", "UN PASSAGER A SURVÉCU"),
+            NoticeRead(306.seconds, "revive", "RÉANIMATION DE JOUEUR"), // trop tard : une autre notification
+            NoticeRead(402.seconds, "kill", "ÉLIMINATION CONFIRMÉE"),
+        )
+        NoticeLabels.relabel(icons, reads, before = 1.seconds, after = 3.seconds) shouldBe listOf(
+            TimedKind(100.seconds, "assist"),
+            TimedKind(300.seconds, "kill"),
+            TimedKind(400.seconds, "kill"),
+        )
+    }
+
     test("OCR Windows : texte du journal lu avec sa position").config(enabledIf = { WindowsOcr.supported }) {
         val dir = tempdir().toPath()
         val image = BufferedImage(800, 120, BufferedImage.TYPE_BYTE_GRAY)
