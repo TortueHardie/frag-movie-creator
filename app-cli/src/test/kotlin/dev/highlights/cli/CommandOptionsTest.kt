@@ -75,7 +75,9 @@ class CommandOptionsTest : FunSpec({
         options.slowMotion shouldBe null
         options.boostColors shouldBe null
         options.fast shouldBe null
-        options.oneTaps shouldBe false
+        // null, pas false : sans « --onetaps », le style (s'il y en a un) ou le profil décide.
+        options.oneTaps shouldBe null
+        options.style shouldBe null
     }
 
     test("montage : chaque « --no-… » coupe son effet et les choix sont traduits") {

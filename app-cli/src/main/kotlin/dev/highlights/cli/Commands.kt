@@ -250,7 +250,7 @@ class MontageCommand : PipelineCommand("montage") {
             val planned = execute {
                 val loaded = sessions.map { SessionStore.load(it) }
                 try {
-                    Pipelines.create(env.config).planKillMontage(loaded, music, montageOptions(constraints), ProgressTracker(listener = progress).root)
+                    Pipelines.create(env.config).planKillMontage(loaded, music, montageOptions(constraints, defaultStyle()), ProgressTracker(listener = progress).root)
                 } finally {
                     progress.finish()
                 }
@@ -264,7 +264,7 @@ class MontageCommand : PipelineCommand("montage") {
                 Pipelines.create(env.config).killMontage(
                     loaded,
                     music,
-                    montageOptions(constraints),
+                    montageOptions(constraints, defaultStyle()),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -320,8 +320,14 @@ class MontageCommand : PipelineCommand("montage") {
         pins = pin.toMap() + listOfNotNull(drop?.let { it to MontagePin.Drop }),
     )
 
-    /** Options lues sur la ligne de commande (testées seules, sans rien lancer) ; [constraints] : corrections du plan. */
-    internal fun montageOptions(constraints: MontageConstraints = MontageConstraints()) = MontageOptions(
+    /** Style par défaut de `montage-styles.yaml` (lu dans la configuration : à part, pour que [montageOptions] reste pure). */
+    private fun defaultStyle(): String? = env.config.loadMontageStyles().default
+
+    /**
+     * Options lues sur la ligne de commande (testées seules, sans rien lancer ni lire la configuration) ; [constraints] :
+     * corrections du plan ; [defaultStyle] : style appliqué quand `--style` est absent (`--style none` n'en met aucun).
+     */
+    internal fun montageOptions(constraints: MontageConstraints = MontageConstraints(), defaultStyle: String? = null) = MontageOptions(
         formats = formats,
         platform = platform,
         outputDir = out,
@@ -350,7 +356,7 @@ class MontageCommand : PipelineCommand("montage") {
         reactions = if (reactions) true else null,
         oneTaps = if (oneTaps) true else null,
         fast = if (fast) true else null,
-        style = style.let { if (it == "none") null else it ?: env.config.loadMontageStyles().default },
+        style = style.let { if (it == "none") null else it ?: defaultStyle },
         constraints = constraints,
     )
 }
