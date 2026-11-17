@@ -104,6 +104,16 @@ interface UiActions {
     fun updateMontage(change: (MontageUiState) -> MontageUiState)
     fun createMontage()
 
+    /** Frise du plan de montage ([MontagePlanState]) : l'ouvrir (plan calculé aussitôt), la fermer. */
+    fun openMontagePlan() {}
+    fun closeMontagePlan() {}
+    /** Recalcule le plan avec les corrections posées, sans réanalyser (inspection des kills en cache). */
+    fun replanMontage() {}
+    /** Corrige un groupe : [kills], ses désignations « capture@instant » ([dev.highlights.montage.KillRef]). */
+    fun editMontageKill(kills: List<String>, edit: KillEdit) {}
+    /** Retire toutes les corrections. */
+    fun resetMontagePlan() {}
+
     /** Fenêtre de publication d'une vidéo exportée sur YouTube, champs proposés d'après la vidéo. */
     fun openPublish(video: Path)
     fun closePublish()
@@ -251,6 +261,7 @@ class AppController(
     private var saveJob: Job? = null
     private var watchJob: Job? = null
     private var updateJob: Job? = null
+    private var planJob: Job? = null
 
     init {
         reloadConfig()
@@ -723,49 +734,101 @@ class AppController(
         musicPrefs.rememberLibrary(montage.musicLibrary, montage.useLibrary)
         val session = s.session ?: return
         val p = backend?.pipeline ?: return
+        planJob?.cancel()
         _state.update { it.copy(montage = null) }
         val title = if (montage.useLibrary) tr("ui.job.montageFolder", "folder" to music.name) else tr("ui.job.montage", "track" to music.name)
         withMemory(title, MEMORY_MONTAGE) {
             runTask(title) { progress ->
                 saveNow(session)
-                val result = p.killMontage(
-                    session.sessions,
-                    music,
-                    MontageOptions(
-                        formats = OutputFormat.entries.filter { it in montage.formats },
-                        outputDir = s.settings.outputDir,
-                        maxDuration = montage.maxDuration,
-                        fitKills = montage.fitKills,
-                        order = if (montage.buildUp) dev.highlights.core.model.MontageOrder.BUILD_UP else dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
-                        effectDensity = montage.density,
-                        zoom = montage.zoom,
-                        flash = montage.flash,
-                        whip = montage.whip,
-                        whoosh = montage.whoosh,
-                        showcase = montage.showcase,
-                        boostColors = montage.boostColors,
-                        motionBlur = montage.motionBlur,
-                        matchCut = montage.matchCut,
-                        rounds = montage.rounds,
-                        slowMotion = montage.slowMotion,
-                        text = montage.text,
-                        audioBalance = montage.balance,
-                        gameAudio = montage.gameAudio,
-                        reactions = montage.reactions,
-                        // Bibliothèque : chaque musique garde son réglage « depuis le début ».
-                        musicFromStart = if (montage.useLibrary) null else montage.musicFromStart,
-                        fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
-                        platform = montage.platform,
-                        onlyKills = montage.pick,
-                        oneTaps = montage.oneTaps,
-                        fast = montage.fast,
-                    ),
-                    progress,
-                )
+                val result = p.killMontage(session.sessions, music, montageOptions(montage, s), progress)
                 _state.update { it.copy(lastExport = result, lastUpload = null) }
             }
         }
     }
+
+    /** Réglages du dialogue pour le pipeline : les mêmes pour la frise et pour le rendu, sinon le plan montré mentirait. */
+    private fun montageOptions(montage: MontageUiState, s: UiState) = MontageOptions(
+        formats = OutputFormat.entries.filter { it in montage.formats },
+        outputDir = s.settings.outputDir,
+        maxDuration = montage.maxDuration,
+        fitKills = montage.fitKills,
+        order = if (montage.buildUp) dev.highlights.core.model.MontageOrder.BUILD_UP else dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
+        effectDensity = montage.density,
+        zoom = montage.zoom,
+        flash = montage.flash,
+        whip = montage.whip,
+        whoosh = montage.whoosh,
+        showcase = montage.showcase,
+        boostColors = montage.boostColors,
+        motionBlur = montage.motionBlur,
+        matchCut = montage.matchCut,
+        rounds = montage.rounds,
+        slowMotion = montage.slowMotion,
+        text = montage.text,
+        audioBalance = montage.balance,
+        gameAudio = montage.gameAudio,
+        reactions = montage.reactions,
+        // Bibliothèque : chaque musique garde son réglage « depuis le début ».
+        musicFromStart = if (montage.useLibrary) null else montage.musicFromStart,
+        fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
+        platform = montage.platform,
+        onlyKills = montage.pick,
+        oneTaps = montage.oneTaps,
+        fast = montage.fast,
+        constraints = montage.constraints,
+    )
+
+    // ---------------------------------------------------------------- frise du plan de montage
+
+    override fun openMontagePlan() {
+        _state.update { s -> s.copy(montage = s.montage?.let { it.copy(plan = it.plan ?: MontagePlanState()) }) }
+        replanMontage()
+    }
+
+    override fun closeMontagePlan() {
+        planJob?.cancel()
+        _state.update { s -> s.copy(montage = s.montage?.copy(plan = null)) }
+    }
+
+    override fun editMontageKill(kills: List<String>, edit: KillEdit) =
+        updateMontage { it.copy(constraints = it.constraints.edit(kills.map(dev.highlights.montage.KillRef::parse), edit)) }
+
+    override fun resetMontagePlan() = updateMontage { it.copy(constraints = dev.highlights.montage.MontageConstraints.NONE) }
+
+    override fun replanMontage() {
+        val s = state.value
+        val montage = s.montage ?: return
+        val music = montage.musicSource ?: return
+        val session = s.session ?: return
+        val p = backend?.pipeline ?: return
+        val constraints = montage.constraints
+        planJob?.cancel()
+        updatePlan { it.copy(loading = true, fraction = 0.0, error = null) }
+        planJob = scope.launch {
+            try {
+                val tracker = ProgressTracker { snap -> updatePlan { it.copy(fraction = snap.fraction) } }
+                // Pas de rendu : la musique, l'inspection des kills (en cache après le premier plan) et la planification.
+                val view = withContext(Dispatchers.Default) { PlanView.of(p.planKillMontage(session.sessions, music, montageOptions(montage, s), tracker.root)) }
+                updatePlan { it.copy(loading = false, view = view, planned = constraints, error = null) }
+                val known = state.value.montage?.plan?.thumbnails.orEmpty()
+                for (g in (view.clips.mapNotNull { it.group } + view.left.take(PLAN_THUMBNAILS)).filter { it.key !in known }) {
+                    val image = runCatching { withContext(Dispatchers.IO) { p.thumbnail(g.media, g.kills.last()) } }.getOrNull() ?: continue
+                    updatePlan { it.copy(thumbnails = it.thumbnails + (g.key to image)) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: HighlightsException) {
+                // Correction impossible (ou kill introuvable) : dite dans la frise, le dernier plan reste affiché.
+                updatePlan { it.copy(loading = false, planned = constraints, error = e.localizedMessage) }
+            } catch (e: Exception) {
+                updatePlan { it.copy(loading = false) }
+                reportFailure(tr("ui.montagePlan.failed"), e)
+            }
+        }
+    }
+
+    private fun updatePlan(change: (MontagePlanState) -> MontagePlanState) =
+        _state.update { s -> s.copy(montage = s.montage?.let { m -> m.plan?.let { m.copy(plan = change(it)) } ?: m }) }
 
     // ---------------------------------------------------------------- publication YouTube
 

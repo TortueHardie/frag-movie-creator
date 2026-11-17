@@ -230,6 +230,12 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `KillInspector.kt` : `inspect` (cache `InspectionCache`), `ShotLocator.locate/rises`, `FlickMeter.motions/speeds/direction/score/shift`.
 - `MatchCutter.kt` : `MatchCutter.inspect(only = MontagePlanner.placeable)/read/footage/pose` (une lecture `SourceFrames` visée + arme par groupe quand les fenêtres d'avant/après sont alignées à l'image près, sinon deux ; `Footage.slice` reproduit le compte d'images de FFmpeg), `Pose` (ressemblances mémorisées), `HeldPose`, `WeaponTemplate.score/matches` (sommes cumulées), `ScopeCut`, `ScopeCuts.apply/count/aimCurve/restCurve/runs/similarity/compatible/aimStart/aimEnd/speeds/cut/retimeTail/retimeHead/disarm/symmetry`.
 - `MontageRenderBuilder.kt` : graphe FFmpeg du montage : `build`, `sourceCuts`, `flashes`, `whips`/`whipStages` (+ souffle `whip.whoosh` × `audio.musicGain` via `StoryRenderBuilder.placeSfx`, fichiers `whip.sounds` → `MontageRenderRequest.whooshFiles` (`SfxBank.list`) sinon `WHOOSHES` ; `whooshes` = souffle par plan pour le rapport `whip`/`whoosh`), `zooms`, `cutBlurStages` (flou radial des coupes), `leads` (preBeatFrames), `bleeds`, `speedParts`, `slowAudio`, `envelope`, `volumeExpression`.
+- `MontageEdits.kt` : corrections de l'utilisateur. `KillRef(capture, at)` (« partie.mp4@3:12.4 », `parse/of/clock`, `matches` à `TOLERANCE` 1 s), `MontagePin{Drop, At(music)}`,
+  `MontageConstraints(excluded, forced, pins ; clear/exclude/force/pin)`, `MontageEdits.apply` (kills exclus retirés via `withTraits`, `KillGroup.forced/pin`, erreurs `error.montage.edit.*`),
+  `check(plan, groups)` (appelé par `MontagePlanner.plan` dès qu'un groupe est `kept` : erreur nommant le kill si une contrainte n'est pas tenue), `nearestBeat`.
+  Dans le planificateur : plancher et `placeable` gardent les `kept` ; `layout` n'accepte que les fenêtres qui contiennent la drop/les temps épinglés ;
+  `assign` BUILD_UP met l'épinglé sur la drop, les épinglés sur leur cellule, puis les forcés restés dehors remplacent le moins bon groupe non imposé ;
+  CHRONOLOGICAL : épinglé sur la drop = `best`, les moins bons d'avant lui cèdent leur place ; `pairUp` ne déplace pas les épinglés ; `clipFor` ancre sur le temps épinglé.
 - `MontageScorer.kt` : `MontageScore(total, sync, accent, restraint, variety, fill, pacing, coverage, opening, lull, action, details)` ; critère null = exclu de la moyenne.
 - `KillMontageExporter.kt` : `MontageExportRequest(musicChoice)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates)`, `export`, `recordingDate`.
 
@@ -243,7 +249,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ### pipeline
 - `HighlightPipeline.kt` (captures effacées depuis l'analyse : écartées de `search` et des groupes de `killMontage`) : `AnalyzeOptions, ExportOptions, MontageOptions, AnalysisOutcome(reused), ProcessOutcome, BatchOutcome` ;
   méthodes `probe, analyze, analyzeAll, export, preview, reselect, reselectAll, thumbnail, clipPreview, killMontage (music = fichier ou dossier), loadMusicLibrary, process, processAll, reloadProfiles, resolveProfile` ;
-  `ExportOptions.platform` / `MontageOptions.platform` (format, loudness, débit, zone sûre ; montage : maxDuration plafonnée ; highlights trop long → InputException avant rendu ; fichier `…_<kind>_<plateforme>`),
+  `ExportOptions.platform` / `planKillMontage` (tout `killMontage` jusqu'au plan, sans rendu → `PlannedMontage(plan, candidates)` ; `killMontage` l'appelle puis rend), `MontageOptions.constraints` (`MontageConstraints`),
+  `MontageOptions.platform` (format, loudness, débit, zone sûre ; montage : maxDuration plafonnée ; highlights trop long → InputException avant rendu ; fichier `…_<kind>_<plateforme>`),
   `platforms` ; `MontageOptions.fromStartMusics` (réglage « depuis le début » par musique en mode bibliothèque) ; `ExportResult.music` = musique utilisée ;
   `library`, `previewDir`, `withJobDir` (workDir/job-UUID, gardé si échec).
 - `Pipelines.kt` : câblage manuel (pas de DI) `Pipelines.ffmpeg(config)`, `Pipelines.create(config)`.
@@ -268,7 +275,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ### app-cli (`dev.highlights.cli`)
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
 - `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
-  `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --out`.
+  `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --plan --exclude --force --drop --pin --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --out`.
   `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;
   `music` : `--max --clips` ; `preview` : `--at`.
@@ -286,6 +293,10 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   `LibraryView.kt` (analyses enregistrées + `WatchCard` + `ForgetDialog`, actions `askForget/confirmForget/cancelForget`, `UiState.forget`),
   `MomentRetouch.kt` (retouches de la session ouverte : `montageOrder`, `nudge`, `add`, `move` ; actions `nudgeSegment/addSegmentAt/moveSegment`, barre `RetouchBar` de `SessionViews`), `Dialogs.kt` (`ErrorDialog, VerticalPreviewWindow, MontageDialog`), `Theme.kt` (`Palette`, `HighlightsTheme`, `UiFonts` : famille système de Windows (SystemFont) pour zh/ja/ko).
 - `Platform.kt` (`DesktopPlatform` : FileDialog/JFileChooser, open/reveal/edit), `Installation.kt`, prefs : `WatchPrefs.kt` (`~/.highlights/watch.json`), `MusicPrefs.kt` (`~/.highlights/music.json` : fromStart par musique, dossier `library` + `useLibrary` ; ajouter un Path à un Set avec `plusElement`, un Path est itérable).
+- Frise du plan de montage : `MontageTimeline.kt` (`MontagePlanState`, `PlanView.of(PlannedMontage)`, `PlanGroup.mark`, `KillEdit` + `MontageConstraints.edit`,
+  `MontagePlanEntry` (une ligne dans `MontageDialog`), `MontagePlanWindow` (fenêtre à part, ouverte depuis App.kt quand `montage.plan` != null), `MontagePlanContent`) ;
+  `MontageUiState.constraints/plan` ; actions `openMontagePlan/closeMontagePlan/replanMontage/editMontageKill(kills, KillEdit)/resetMontagePlan`
+  (`AppController.montageOptions` : mêmes options pour la frise et le rendu) ; test `MontageTimelineTest` (captures `build/ui-snapshots/montage_plan*.png`).
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).
 - Pont de pilotage (dev seulement) `bridge/` : `ControlBridge` (HttpServer 127.0.0.1, port+jeton dans `~/.highlights/control-bridge.json` ; `enabled` = `-Dhighlights.bridge=true`
