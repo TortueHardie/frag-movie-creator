@@ -155,6 +155,22 @@ Dans l'application :
 5. décocher les segments à retirer (le seuil et la durée se recalculent sans réanalyser) ;
 6. cliquer sur « Exporter le montage ».
 
+### Pont de pilotage (outils de développement)
+
+```powershell
+.\gradlew.bat :app-ui:run -Pbridge
+```
+
+Démarre aussi un petit serveur HTTP local (127.0.0.1, port au hasard, jeton au hasard, tous deux dans
+`~/.highlights/control-bridge.json`) qui permet à un outil, par exemple une session Claude, de piloter l'application
+sans prendre la souris ni le clavier : état de l'interface en JSON (`/state`), actions du contrôleur (`/action`, les
+boîtes de dialogue de fichiers recevant des chemins), captures des fenêtres rendues par Skia même quand elles sont
+cachées (`/screenshot`), arbre d'accessibilité (`/tree`), clics et frappes remis directement à la fenêtre (`/click`,
+`/type`, `/key`, `/scroll`), fin du journal (`/logs`). Mode d'emploi : `.claude/skills/drive-app/SKILL.md`.
+
+Jamais actif sans `-Pbridge`, ni dans l'application installée : le pont refuse de démarrer sous le lanceur de l'installeur
+(MSI ou portable), et `createDistributable` échoue si ce lanceur active la propriété `highlights.bridge`.
+
 ## Montage « story » (façon vidéo YouTube)
 
 Style par défaut des profils livrés (`edit.style: story`, ou `--style story|simple` sur `process` et `export`). Les
