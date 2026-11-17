@@ -40,6 +40,14 @@ import dev.highlights.export.OutputNamer
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
+import dev.highlights.montage.MontagePin
+import dev.highlights.montage.KillRef
+import dev.highlights.montage.MontageScorer
+import dev.highlights.montage.LearnedTaste
+import dev.highlights.montage.TasteLearner
+import dev.highlights.montage.TasteEdit
+import dev.highlights.montage.TasteChoice
+import dev.highlights.montage.TasteHistory
 import dev.highlights.montage.MontageVariantsFile
 import dev.highlights.montage.MontageVariants
 import dev.highlights.montage.MontageVariantEntry
@@ -194,6 +202,22 @@ data class VariantPick(val index: Int, val variantsFile: Path? = null) {
 /** Aperçu d'une variante : la vidéo basse résolution, son rapport, les images de sa vignette animée. */
 data class VariantPreview(val entry: MontageVariantEntry, val video: Path, val report: Path, val frames: List<Path>)
 
+/**
+ * État des goûts appris ([HighlightPipeline.taste]) : [file] l'historique, [choices] et [edits] ce qu'il contient,
+ * [learned] les poids, [enabledProfiles] les profils qui s'en servent (`montage.learnTaste`). [last] : le dernier choix,
+ * avec la note de chacune de ses variantes selon les poids d'origine ([lastBefore]) et appris ([lastAfter]).
+ */
+data class TasteState(
+    val file: Path,
+    val choices: Int,
+    val edits: Int,
+    val learned: LearnedTaste,
+    val enabledProfiles: List<String>,
+    val last: TasteChoice?,
+    val lastBefore: List<Double>?,
+    val lastAfter: List<Double>?,
+)
+
 /** Aperçus des variantes d'un montage et le fichier qui les décrit (à passer à [VariantPick]). */
 data class MontagePreviews(
     val variantsFile: Path,
@@ -279,6 +303,9 @@ class HighlightPipeline(
 
     /** Musiques des derniers montages : une bibliothèque ne ressort pas toujours la même. */
     val musicHistory = MusicHistory(config.outputDir.resolve("sessions").resolve("music-history.json"))
+
+    /** Choix de variantes et corrections de l'éditeur : de quoi apprendre les goûts de l'utilisateur ([TasteLearner]). */
+    val tasteHistory = TasteHistory(config.outputDir.resolve("sessions").resolve("taste-history.json"))
 
     /** Soirées déjà montées par le montage de soirée (voir [EveningHistory]). */
     val eveningHistory = EveningHistory(config.outputDir.resolve("sessions").resolve("evening-montages.json"))
@@ -668,7 +695,53 @@ class HighlightPipeline(
         }
         musicHistory.record(plan.music.file) // Choisie ou imposée : elle a servi, elle se repose un peu.
         if (pick != null) recordChoice(pick, plan, planned.variants, planned.variantsFile, planned.profile.id, result)
+        recordTaste(pick, planned, options.constraints, result)
         return result
+    }
+
+    /**
+     * Ce que l'utilisateur a montré de ses goûts sur ce rendu : la variante choisie face aux autres (critères de la note
+     * de chacune), et ses corrections dans l'éditeur de plan. Enregistré même quand l'apprentissage est désactivé : le
+     * jour où il l'active, ses choix passés comptent déjà.
+     */
+    private fun recordTaste(pick: VariantPick?, planned: PlannedMontage, constraints: MontageConstraints, result: ExportResult) {
+        val now = Instant.now().toString()
+        val music = planned.plan.music.file.toString()
+        if (pick != null) {
+            val variants = planned.variantsFile?.variants?.map { it.score.criteria() }
+                ?: planned.variants.map { MontageScorer.score(it).criteria() }
+            if (variants.size >= 2 && pick.index - 1 in variants.indices) {
+                tasteHistory.record(TasteChoice(now, planned.profile.id, music, pick.index - 1, variants, result.report.toString()))
+            }
+        }
+        if (!constraints.isEmpty) {
+            tasteHistory.record(
+                TasteEdit(
+                    now, planned.profile.id, music,
+                    excluded = constraints.excluded.map { it.toString() },
+                    forced = constraints.forced.map { it.toString() },
+                    pins = constraints.pins.entries.associate { (ref, pin) -> ref.toString() to (if (pin is MontagePin.At) KillRef.clock(pin.music) else "drop") },
+                    report = result.report.toString(),
+                ),
+            )
+        }
+    }
+
+    /**
+     * Goûts appris de l'historique ([TasteLearner]), et ce qu'ils changeraient au dernier choix : le classement des
+     * variantes proposées avec les poids d'origine puis appris. Pour `app gouts`.
+     */
+    fun taste(history: TasteHistory = tasteHistory): TasteState {
+        val stored = history.load()
+        val learned = TasteLearner.learn(stored.choices)
+        val last = stored.choices.lastOrNull()
+        return TasteState(
+            history.file, stored.choices.size, stored.edits.size, learned,
+            enabledProfiles = profiles.all().filter { it.montage.learnTaste }.map { it.id },
+            last = last,
+            lastBefore = last?.variants?.map { MontageScorer.total(it, learned.base) },
+            lastAfter = last?.variants?.map { MontageScorer.total(it, learned.weights) },
+        )
     }
 
     /** Demande de rendu du montage [planned] ; [preview] : aperçu basse résolution ([MontagePreview]). */
@@ -757,6 +830,18 @@ class HighlightPipeline(
         }
     }
 
+    /** Poids appris donnés au scoreur quand le profil apprend les goûts et que l'historique a assez de choix. */
+    private fun withTaste(settings: MontageSettings): MontageSettings {
+        if (!settings.learnTaste) return settings
+        val learned = TasteLearner.learn(tasteHistory.load().choices)
+        if (!learned.active) {
+            log.info { "Goûts : ${learned.choices} choix sur ${TasteLearner.MIN_CHOICES} nécessaires, poids d'origine" }
+            return settings
+        }
+        log.info { "Goûts appris sur ${learned.choices} choix : ${learned.weights}" }
+        return settings.copy(scoreWeights = learned.weights)
+    }
+
     private fun normalized(p: Path) = p.toAbsolutePath().normalize().toString().lowercase()
 
     /** Choix enregistré à côté du rapport du rendu final ([MontageChoiceRecord]). */
@@ -841,7 +926,7 @@ class HighlightPipeline(
                 options.fast ?: base.fast.enabled -> it.forFast()
                 else -> it
             }
-        }
+        }.let(::withTaste)
         val musicStep = progress.child(tr(if (music.isDirectory()) "progress.musics" else "progress.music"), 0.06)
         val musics = if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music))
         musicStep.complete()
