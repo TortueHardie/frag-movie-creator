@@ -11,7 +11,10 @@ import dev.highlights.core.model.TimelineEvent
 import dev.highlights.core.model.WindowGrid
 import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.session.Session
+import dev.highlights.core.serialization.toTimecode
+import dev.highlights.montage.KillRef
 import dev.highlights.montage.MontageChoiceRecord
+import dev.highlights.montage.MontageConstraints
 import dev.highlights.montage.MontageReport
 import dev.highlights.montage.MontageVariantsFile
 import dev.highlights.testing.TestMedia
@@ -115,5 +118,16 @@ class MontageVariantsIT : FunSpec({
             pipeline.killMontage(listOf(session), music, options.copy(pick = VariantPick(50, null)), ProgressReporter.NONE)
         }
         MontageChoiceRecord.fileFor(result.report).exists() shouldBe true
+
+        // Corrections de l'éditeur de plan : un kill exclu n'apparaît dans aucune variante.
+        val excluded = pipeline.planKillMontage(listOf(session), music, options, ProgressReporter.NONE).plan.clips.first { it.kills.isNotEmpty() }.kills.first()
+        val constrained = pipeline.montagePreviews(
+            listOf(session), music, options.copy(constraints = MontageConstraints(excluded = setOf(KillRef.of(media, excluded)))), 2, ProgressReporter.NONE,
+        )
+        constrained.previews.shouldNotBeEmpty()
+        constrained.previews.forEach { p ->
+            val report = json.decodeFromString(MontageReport.serializer(), p.report.readText())
+            report.clips.flatMap { it.kills }.none { it == excluded.toTimecode() } shouldBe true
+        }
     }
 })

@@ -21,6 +21,7 @@ import java.nio.file.Path
 import java.security.MessageDigest
 import java.time.Instant
 import kotlin.io.path.createDirectories
+import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
 import kotlin.io.path.fileSize
 import kotlin.io.path.getLastModifiedTime
@@ -86,6 +87,21 @@ class AnalysisLibrary(val file: Path) {
         runCatching { save(kept + normalized) }.onFailure { log.warn(it) { "Mémoire des analyses non enregistrée ($file)" } }
     }
 
+    /**
+     * Oublie l'analyse enregistrée dans [sessionFile] : retire ses entrées de l'index et efface la session. Ne touche
+     * jamais une capture : seul un fichier `*.session.json` qui n'est la source d'aucune entrée est effacé.
+     * Renvoie les entrées retirées.
+     */
+    fun forget(sessionFile: Path): List<LibraryEntry> = synchronized(lock) {
+        val target = key(sessionFile)
+        val all = load()
+        val (removed, kept) = all.partition { key(it.sessionFile) == target }
+        if (removed.isNotEmpty()) save(kept)
+        val isSession = target.fileName.toString().endsWith(SESSION_SUFFIX, ignoreCase = true)
+        if (isSession && all.none { it.source == target }) target.deleteIfExists()
+        removed
+    }
+
     private fun load(): List<LibraryEntry> {
         if (!file.exists()) return emptyList()
         return try {
@@ -106,6 +122,9 @@ class AnalysisLibrary(val file: Path) {
     companion object {
         /** À augmenter quand un détecteur change de calcul : les analyses précédentes sont alors refaites. */
         const val ANALYSIS_VERSION = 3
+
+        /** Extension des fichiers de session : la seule chose que [forget] efface. */
+        const val SESSION_SUFFIX = ".session.json"
 
         private val json = Json(SessionStore.json) { prettyPrint = true }
         // Sans les null : le sérialiseur YAML des paramètres (retirés ici) ne les accepte pas.

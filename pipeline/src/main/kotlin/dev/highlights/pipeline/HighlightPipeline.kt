@@ -12,7 +12,9 @@ import dev.highlights.core.analysis.SignalTrack
 import dev.highlights.core.config.LoadedConfig
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.Hwaccel
+import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.AudioTracks
+import dev.highlights.core.model.ClipOrder
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.EffectDensity
@@ -32,21 +34,25 @@ import dev.highlights.core.session.Session
 import dev.highlights.core.session.SessionStore
 import dev.highlights.core.serialization.toTimecode
 import dev.highlights.core.video.FrameSampler
+import dev.highlights.export.OutputNamer
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
-import dev.highlights.export.OutputNamer
+import dev.highlights.montage.MontageVariantsFile
+import dev.highlights.montage.MontageVariants
+import dev.highlights.montage.MontageVariantEntry
+import dev.highlights.montage.MontagePreview
+import dev.highlights.montage.MontageChoiceRecord
 import dev.highlights.montage.InspectionCache
 import dev.highlights.montage.KillInspector
 import dev.highlights.montage.KillMontageExporter
+import dev.highlights.montage.KillGroup
 import dev.highlights.montage.MatchCutter
+import dev.highlights.montage.MontageConstraints
+import dev.highlights.montage.MontageEdits
 import dev.highlights.montage.MontageExportRequest
-import dev.highlights.montage.MontageChoiceRecord
+import dev.highlights.montage.MontagePlan
 import dev.highlights.montage.MontagePlanner
-import dev.highlights.montage.MontagePreview
-import dev.highlights.montage.MontageVariantEntry
-import dev.highlights.montage.MontageVariants
-import dev.highlights.montage.MontageVariantsFile
 import dev.highlights.montage.MontageReportMusic
 import dev.highlights.montage.MusicAnalysis
 import dev.highlights.montage.MusicAnalyzer
@@ -55,7 +61,7 @@ import dev.highlights.montage.MusicHistory
 import dev.highlights.montage.MusicLibrary
 import dev.highlights.montage.OneTaps
 import dev.highlights.montage.ScopeCuts
-import dev.highlights.scoring.HighlightMerge
+import dev.highlights.scoring.MomentEdits
 import dev.highlights.scoring.ScoringEngine
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CancellationException
@@ -69,12 +75,12 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.Collections
 import java.util.UUID
+import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteRecursively
 import kotlin.io.path.extension
-import kotlin.io.path.getLastModifiedTime
-import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isReadable
 import kotlin.io.path.isRegularFile
@@ -104,6 +110,8 @@ data class ExportOptions(
     val music: Path? = null,
     /** Plateforme visée (tiktok, shorts, reels, youtube…) : format, volume, débit, zone sûre et durée maximale. */
     val platform: String? = null,
+    /** Ordre des moments ; null = ordre manuel si l'interface en a fixé un ([ClipOrder.MANUAL]), sinon celui du profil. */
+    val order: ClipOrder? = null,
 )
 
 /** Surcharges ponctuelles des réglages de montage du profil (null = valeur du profil). */
@@ -158,6 +166,8 @@ data class MontageOptions(
     val oneTaps: Boolean = false,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
+    /** Corrections de l'utilisateur sur le plan : kills exclus, groupes forcés ou épinglés (voir [MontageConstraints]). */
+    val constraints: MontageConstraints = MontageConstraints.NONE,
     /** Rendre une des variantes proposées en aperçu ([HighlightPipeline.montagePreviews]) ; null : la mieux notée, sans aperçu. */
     val pick: VariantPick? = null,
 )
@@ -177,6 +187,22 @@ data class VariantPreview(val entry: MontageVariantEntry, val video: Path, val r
 
 /** Aperçus des variantes d'un montage et le fichier qui les décrit (à passer à [VariantPick]). */
 data class MontagePreviews(val variantsFile: Path, val previews: List<VariantPreview>)
+
+/**
+ * Montage kills planifié, pas encore rendu ([HighlightPipeline.planKillMontage]) : [plan] ce qui sera rendu ; [candidates]
+ * tous les groupes de kills avant les corrections de l'utilisateur (ceux que le plan écarte compris), pour les montrer.
+ */
+class PlannedMontage internal constructor(
+    val plan: MontagePlan,
+    val candidates: List<KillGroup>,
+    internal val choice: List<MontageReportMusic>,
+    internal val profile: GameProfile,
+    internal val platform: PlatformProfile?,
+    /** Variantes proposées en aperçu ([MontageVariants.distinct]), finies comme [plan] ; [plan] seul sans aperçu. */
+    internal val variants: List<MontagePlan> = listOf(plan),
+    /** Fichier des variantes relu pour [MontageOptions.pick] ; null sans choix ou sans fichier. */
+    internal val variantsFile: MontageVariantsFile? = null,
+)
 
 /** [reused] : analyse reprise de la mémoire, sans recalcul. */
 data class AnalysisOutcome(val session: Session, val sessionFile: Path, val profile: GameProfile, val reused: Boolean = false)
@@ -467,6 +493,7 @@ class HighlightPipeline(
         val settings: EditSettings = edit.copy(
             formats = options.formats ?: edit.formats,
             style = options.style ?: edit.style,
+            order = options.order ?: if (sessions.any { s -> s.highlights.any { it.enabled && it.order != null } }) ClipOrder.MANUAL else edit.order,
             story = options.music?.let { edit.story.copy(music = edit.story.music.copy(file = it.toAbsolutePath().toString())) } ?: edit.story,
         ).let { platform?.applyTo(it) ?: it }
         return withJobDir { workDir ->
@@ -507,14 +534,15 @@ class HighlightPipeline(
 
     /**
      * Recalcule la sélection depuis la timeline de la session, sans réanalyser (instantané).
-     * Les segments recouvrant un segment décoché restent décochés.
+     * Les segments recouvrant un segment décoché restent décochés ; les moments retouchés ou ajoutés à la main restent
+     * tels quels ([MomentEdits.preserveManual]).
      */
     fun reselect(session: Session, threshold: Double?, target: SelectionTarget?, requiredEvent: String? = null): Session {
         val policy = profiles.byId(session.profileId).selection.let { s ->
             s.copy(threshold = threshold ?: s.threshold, target = target ?: s.target, requiredEvent = requiredEvent)
         }
         val fresh = scoring.select(session.timeline, policy, session.media.path)
-        return session.copy(highlights = HighlightMerge.preserveDisabled(session.highlights, fresh))
+        return session.copy(highlights = MomentEdits.preserveManual(session.highlights, fresh))
     }
 
     /**
@@ -528,7 +556,7 @@ class HighlightPipeline(
         }
         val fresh = scoring.selectAcross(sessions.map { it.timeline to it.media.path }, policy)
         return sessions.zip(fresh) { session, highlights ->
-            session.copy(highlights = HighlightMerge.preserveDisabled(session.highlights, highlights))
+            session.copy(highlights = MomentEdits.preserveManual(session.highlights, highlights))
         }
     }
 
@@ -555,19 +583,84 @@ class HighlightPipeline(
      * Les réglages viennent du profil de la première session, surchargés par [options].
      * [music] peut être un dossier : la musique y est choisie ([MusicChoice]), celle sur laquelle le montage est le mieux noté.
      */
-    suspend fun killMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter): ExportResult =
-        montage(sessions, music, options, progress, previews = null).results.single()
+    suspend fun killMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter): ExportResult {
+        val planned = planMontage(sessions, music, options, progress, count = options.pick?.index)
+        val plan = planned.plan
+        val pick = options.pick
+        val signature = MontageVariants.signature(plan)
+        val entry = planned.variantsFile?.variants?.firstOrNull { it.index == pick?.index }
+        if (planned.variantsFile != null && entry?.signature != signature) {
+            // Réglages, captures ou analyses changés depuis l'aperçu : ce ne serait pas le montage regardé.
+            log.warn { "Variante ${pick?.index} : empreinte $signature, aperçu ${entry?.signature}" }
+            throw InputException(Message("error.montage.variantChanged", "index" to (pick?.index ?: 0)))
+        }
+        val result = withJobDir { workDir ->
+            montageExporter.export(plan, montageRequest(planned, sessions, options, workDir, options.outputDir ?: config.outputDir), progress.child(tr("progress.render"), 0.86))
+        }
+        musicHistory.record(plan.music.file) // Choisie ou imposée : elle a servi, elle se repose un peu.
+        if (pick != null) recordChoice(pick, plan, planned.variants, planned.variantsFile, planned.profile.id, result)
+        return result
+    }
+
+    /** Demande de rendu du montage [planned] ; [preview] : aperçu basse résolution ([MontagePreview]). */
+    private fun montageRequest(planned: PlannedMontage, sessions: List<Session>, options: MontageOptions, workDir: Path, outputDir: Path, kind: String? = null, preview: Boolean = false): MontageExportRequest {
+        val profile = planned.profile
+        return MontageExportRequest(
+            formats = planned.plan.settings.formats,
+            edit = profile.gradedEdit().let { planned.platform?.applyTo(it) ?: it },
+            outputDir = outputDir,
+            workDir = workDir,
+            gameName = profile.id,
+            date = KillMontageExporter.recordingDate(sessions.first().media.creationTime),
+            audioBitrate = config.app.encoder.audioBitrate,
+            hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
+            audioLayout = profile.audio,
+            musicChoice = planned.choice,
+            platform = options.platform,
+            kind = kind ?: montageKind(options),
+            preview = preview,
+        )
+    }
+
+    private fun montageKind(options: MontageOptions) = if (options.oneTaps) "onetaps" else "killmontage"
 
     /**
      * Aperçus de [count] variantes du montage ([MontageVariants.distinct]) : basse résolution, rendu rapide, même calage
-     * que le rendu final ([MontagePreview]). Écrits dans `<sortie>/apercus`, avec le fichier des variantes
-     * ([MontageVariantsFile]). La variante choisie se rend ensuite par [killMontage] avec [MontageOptions.pick].
+     * que le rendu final ([MontagePreview]), corrections de l'utilisateur ([MontageOptions.constraints]) comprises.
+     * Écrits dans `<sortie>/apercus`, avec le fichier des variantes ([MontageVariantsFile]). La variante choisie se rend
+     * ensuite par [killMontage] avec [MontageOptions.pick].
      */
     suspend fun montagePreviews(sessions: List<Session>, music: Path, options: MontageOptions, count: Int, progress: ProgressReporter): MontagePreviews {
-        val run = montage(sessions, music, options.copy(pick = null), progress, previews = count)
-        val file = run.variantsFile ?: error("fichier des variantes manquant")
-        val described = MontageVariantsFile.load(file).variants
-        return MontagePreviews(file, run.results.mapIndexed { i, r -> VariantPreview(described[i], r.videos.values.first(), r.report, run.frames[i]) })
+        val planned = planMontage(sessions, music, options.copy(pick = null), progress, count = count)
+        val plans = planned.variants
+        val dir = (options.outputDir ?: config.outputDir).resolve(PREVIEW_DIR)
+        val kind = montageKind(options)
+        val results = withJobDir { workDir ->
+            plans.mapIndexed { i, plan ->
+                val step = progress.child(tr("progress.preview", "index" to i + 1, "total" to plans.size), 0.86 / plans.size)
+                montageExporter.export(plan, montageRequest(planned, sessions, options, workDir.resolve("variante${i + 1}"), dir, "${kind}_variante${i + 1}", preview = true), step)
+            }
+        }
+        val frames = results.mapIndexed { i, r ->
+            val video = r.videos.values.first()
+            runCatching { MontagePreview.frames(ffmpeg, video, plans[i].duration, previewDir.resolve("variantes").resolve("${video.nameWithoutExtension}_${MontageVariants.signature(plans[i])}")) }
+                .onFailure { log.warn { "Vignette animée impossible pour $video : ${it.message}" } }
+                .getOrDefault(emptyList())
+        }
+        val file = OutputNamer.reserve(dir, planned.profile.id, KillMontageExporter.recordingDate(sessions.first().media.creationTime), emptyList(), kind = "${kind}_variantes").report
+        val entries = plans.mapIndexed { i, plan -> MontageVariantEntry.of(i + 1, plan, plans.take(i), results[i].videos.values.first(), results[i].report) }
+        MontageVariantsFile.save(
+            file,
+            MontageVariantsFile(
+                createdAt = Instant.now().toString(),
+                profile = planned.profile.id,
+                music = plans.first().music.file.toString(),
+                sessions = sessions.map { it.media.path.toString() },
+                variants = entries,
+            ),
+        )
+        log.info { "Aperçus : ${plans.size} variante(s) dans $dir, décrites dans ${file.fileName}" }
+        return MontagePreviews(file, results.mapIndexed { i, r -> VariantPreview(entries[i], r.videos.values.first(), r.report, frames[i]) })
     }
 
     /**
@@ -588,14 +681,36 @@ class HighlightPipeline(
 
     private fun normalized(p: Path) = p.toAbsolutePath().normalize().toString().lowercase()
 
-    /** Ce que rend un montage : une vidéo (et son rapport) par plan rendu ; en aperçu, le fichier des variantes et les vignettes. */
-    private class MontageRun(val results: List<ExportResult>, val variantsFile: Path? = null, val frames: List<List<Path>> = emptyList())
+    /** Choix enregistré à côté du rapport du rendu final ([MontageChoiceRecord]). */
+    private fun recordChoice(pick: VariantPick, plan: MontagePlan, plans: List<MontagePlan>, variants: MontageVariantsFile?, profileId: String, result: ExportResult) {
+        val entries = variants?.variants ?: plans.mapIndexed { i, p -> MontageVariantEntry.of(i + 1, p, plans.take(i)) }
+        val record = MontageChoiceRecord(
+            chosenAt = MontageChoiceRecord.now(),
+            chosen = pick.index,
+            signature = MontageVariants.signature(plan),
+            variantsFile = pick.variantsFile?.toString(),
+            profile = profileId,
+            music = plan.music.file.toString(),
+            variants = entries,
+            outputs = result.videos.values.map { it.toString() },
+            report = result.report.toString(),
+        )
+        MontageChoiceRecord.save(MontageChoiceRecord.fileFor(result.report), record)
+        log.info { "Choix enregistré : variante ${pick.index} sur ${entries.size} → ${MontageChoiceRecord.fileFor(result.report).fileName}" }
+    }
 
     /**
-     * Montage complet ; [previews] : nombre de variantes à rendre en aperçu au lieu du rendu final. Avec
-     * [MontageOptions.pick], la variante choisie en pleine qualité, puis le choix enregistré ([MontageChoiceRecord]).
+     * Plan du montage kills de [killMontage], sans le rendre : la musique, les kills inspectés (repris du cache
+     * d'inspection d'un plan à l'autre), le plan. Sert à la frise de l'application, qui le recalcule à chaque correction.
      */
-    private suspend fun montage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter, previews: Int?): MontageRun {
+    suspend fun planKillMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter): PlannedMontage =
+        planMontage(sessions, music, options.copy(pick = null), progress, count = null)
+
+    /**
+     * [planKillMontage] ; [count] : nombre de variantes à proposer ([MontageVariants.distinct]) au lieu du seul plan de
+     * [MontagePlanner.best]. Avec [MontageOptions.pick], [PlannedMontage.plan] est la variante choisie.
+     */
+    private suspend fun planMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter, count: Int?): PlannedMontage {
         if (sessions.isEmpty()) throw InputException(Message("error.montage.noSession"))
         val profile = profiles.byId(sessions.first().profileId)
         val base = profile.montage
@@ -661,141 +776,47 @@ class HighlightPipeline(
         val found = if (options.oneTaps) OneTaps.select(available, sessions, settings).groups else available
         // Les multi-kills étalés deviennent plusieurs plans (classement, aces et clutchs déjà tirés du groupe entier).
         val inspected = MontagePlanner.split(KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child(tr("progress.kills"), 0.06)), settings)
+        // Corrections de l'utilisateur : kills exclus retirés, groupes forcés ou épinglés marqués pour le planificateur.
+        val edited = MontageEdits.apply(inspected, options.constraints, settings.killStyle)
+        if (edited.isEmpty()) throw InputException(Message("error.montage.edit.allExcluded"))
         // La pose de l'arme ne sert qu'aux groupes qui peuvent entrer dans le montage : la lire coûte un décodage par groupe.
         // Ouverture vitrine : sa place est réservée dans la durée maximale, les kills se planifient dans le reste.
         val planning = if (!settings.showcase.enabled) settings
         else settings.copy(maxDuration = (settings.maxDuration - settings.showcase.length).coerceAtLeast(settings.maxDuration / 2))
-        val groups = MatchCutter(ffmpeg, inspections).inspect(inspected, settings, progress.child(tr("progress.aim"), 0.02), MontagePlanner.placeable(inspected, musics, planning))
+        val groups = MatchCutter(ffmpeg, inspections).inspect(edited, settings, progress.child(tr("progress.aim"), 0.02), MontagePlanner.placeable(edited, musics, planning))
         val fromStart = options.fromStartMusics.map { it.toAbsolutePath().normalize() }.toSet()
         // Le réglage « depuis le début » de chaque musique, sauf si l'appel l'impose à toutes.
         val fromStartOf = { f: Path -> options.musicFromStart ?: (f.toAbsolutePath().normalize() in fromStart || base.cuts.fromStart) }
-        val pick = options.pick
-        val variants = pick?.variantsFile?.let(MontageVariantsFile::load)
-        // Variantes : autant que demandé en aperçu ; la variante choisie se retrouve parmi les [index] premières (le choix
-        // des variantes est glouton dans l'ordre des notes, la liste pour n commence par celle pour n − 1).
-        val count = previews ?: pick?.index
-        fun plans(groups: List<dev.highlights.montage.KillGroup>, prepared: MusicAnalysis, own: dev.highlights.core.model.MontageSettings) =
+        val variants = options.pick?.variantsFile?.let(MontageVariantsFile::load)
+        // Variantes : le choix est glouton dans l'ordre des notes, la liste pour n commence par celle pour n − 1 : la
+        // variante choisie se retrouve parmi les [index] premières sans savoir combien d'aperçus ont été faits.
+        fun plans(prepared: MusicAnalysis, own: MontageSettings) =
             if (count == null) listOf(MontagePlanner.best(groups, prepared, own)) else MontageVariants.distinct(groups, prepared, own, count).map { it.plan }
         val (chosen, choice) = if (music.isDirectory()) {
-            // Variante choisie après les aperçus : la musique des aperçus, même si le classement des musiques a bougé depuis
-            // (une autre a servi entre-temps et se repose).
+            // Variante choisie après les aperçus : la musique des aperçus, même si le classement des musiques a bougé
+            // depuis (une autre a servi entre-temps et se repose).
             val tried = variants?.let { v -> musics.filter { normalized(it.file) == normalized(Path.of(v.music)) }.ifEmpty { null } } ?: musics
             val ranked = MusicChoice.rank(groups, tried, planning, musicHistory.recent(), fromStartOf)
             val best = ranked.first()
-            if (best.plan == null) throw HighlightsException(Message("error.montage.noMusicFits", "dir" to music, "reason" to best.error))
+            val plan = best.plan ?: throw HighlightsException(Message("error.montage.noMusicFits", "dir" to music, "reason" to best.error))
             log.info { "Musique choisie : ${best.music.file.fileName} (note ${"%.3f".format(best.score)}, ${best.groups} groupe(s), parmi ${ranked.size})" }
-            val planned = if (count == null) listOf(best.plan!!) else plans(groups, best.music, MusicChoice.settingsFor(planning, fromStartOf(best.music.file)))
-            planned to ranked.map(MontageReportMusic::of)
+            (if (count == null) listOf(plan) else plans(best.music, MusicChoice.settingsFor(planning, fromStartOf(best.music.file)))) to ranked.map(MontageReportMusic::of)
         } else {
-            plans(groups, MusicChoice.prepare(musics.single(), planning), planning) to emptyList()
+            plans(MusicChoice.prepare(musics.single(), planning), planning) to emptyList()
         }
         // Raccords d'abord : un plan raccordé garde son début dans la pose, il n'est pas coupé dans l'attente.
         val finished = chosen.map { c ->
             MontagePlanner.showcase(MontagePlanner.jumpCuts(ScopeCuts.apply(c)).let { it.copy(settings = it.settings.copy(maxDuration = settings.maxDuration)) })
         }
-        val outputDir = options.outputDir ?: config.outputDir
-        val kind = if (options.oneTaps) "onetaps" else "killmontage"
-        fun request(workDir: Path, dir: Path, kind: String, preview: Boolean) = MontageExportRequest(
-            formats = settings.formats,
-            edit = profile.gradedEdit().let { platform?.applyTo(it) ?: it },
-            outputDir = dir,
-            workDir = workDir,
-            gameName = profile.id,
-            date = KillMontageExporter.recordingDate(sessions.first().media.creationTime),
-            audioBitrate = config.app.encoder.audioBitrate,
-            hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
-            audioLayout = profile.audio,
-            musicChoice = choice,
-            platform = options.platform,
-            kind = kind,
-            preview = preview,
-        )
-
-        if (previews != null) return withJobDir { workDir -> renderPreviews(finished, workDir, outputDir, kind, sessions, profile.id, ::request, progress) }
-
+        val pick = options.pick
         val plan = if (pick == null) {
-            finished.single()
+            finished.first()
         } else {
             finished.getOrNull(pick.index - 1)
                 ?: throw InputException(Message("error.montage.variantMissing", "index" to pick.index, "total" to finished.size))
         }
-        val signature = MontageVariants.signature(plan)
-        val entry = variants?.variants?.firstOrNull { it.index == pick?.index }
-        if (variants != null && entry?.signature != signature) {
-            // Réglages, captures ou analyses changés depuis l'aperçu : ce ne serait pas le montage regardé.
-            log.warn { "Variante ${pick?.index} : empreinte $signature, aperçu ${entry?.signature}" }
-            throw InputException(Message("error.montage.variantChanged", "index" to (pick?.index ?: 0)))
-        }
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(plan.music.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
-        val result = withJobDir { workDir ->
-            montageExporter.export(plan, request(workDir, outputDir, kind, preview = false), progress.child(tr("progress.render"), 0.86))
-        }
-        musicHistory.record(plan.music.file) // Choisie ou imposée : elle a servi, elle se repose un peu.
-        if (pick != null) recordChoice(pick, plan, finished, variants, profile.id, result)
-        return MontageRun(listOf(result))
-    }
-
-    /** Rend chaque variante en aperçu dans `<sortie>/apercus`, extrait ses vignettes, écrit le fichier des variantes. */
-    private suspend fun renderPreviews(
-        plans: List<dev.highlights.montage.MontagePlan>,
-        workDir: Path,
-        outputDir: Path,
-        kind: String,
-        sessions: List<Session>,
-        profileId: String,
-        request: (Path, Path, String, Boolean) -> MontageExportRequest,
-        progress: ProgressReporter,
-    ): MontageRun {
-        val dir = outputDir.resolve(PREVIEW_DIR)
-        val results = plans.mapIndexed { i, plan ->
-            val step = progress.child(tr("progress.preview", "index" to i + 1, "total" to plans.size), 0.86 / plans.size)
-            montageExporter.export(plan, request(workDir.resolve("variante${i + 1}"), dir, "${kind}_variante${i + 1}", true), step)
-        }
-        val frames = results.mapIndexed { i, r ->
-            val video = r.videos.values.first()
-            runCatching { MontagePreview.frames(ffmpeg, video, plans[i].duration, previewDir.resolve("variantes").resolve("${video.nameWithoutExtension}_${MontageVariants.signature(plans[i])}")) }
-                .onFailure { log.warn { "Vignette animée impossible pour $video : ${it.message}" } }
-                .getOrDefault(emptyList())
-        }
-        val first = results.first()
-        val file = OutputNamer.reserve(dir, profileId, KillMontageExporter.recordingDate(sessions.first().media.creationTime), emptyList(), kind = "${kind}_variantes").report
-        MontageVariantsFile.save(
-            file,
-            MontageVariantsFile(
-                createdAt = Instant.now().toString(),
-                profile = profileId,
-                music = plans.first().music.file.toString(),
-                sessions = sessions.map { it.media.path.toString() },
-                variants = plans.mapIndexed { i, plan -> MontageVariantEntry.of(i + 1, plan, plans.take(i), results[i].videos.values.first(), results[i].report) },
-            ),
-        )
-        log.info { "Aperçus : ${plans.size} variante(s) dans $dir (${first.videos.values.first().fileName}…), décrites dans ${file.fileName}" }
-        return MontageRun(results, file, frames)
-    }
-
-    /** Choix enregistré à côté du rapport du rendu final ([MontageChoiceRecord]). */
-    private fun recordChoice(
-        pick: VariantPick,
-        plan: dev.highlights.montage.MontagePlan,
-        plans: List<dev.highlights.montage.MontagePlan>,
-        variants: MontageVariantsFile?,
-        profileId: String,
-        result: ExportResult,
-    ) {
-        val entries = variants?.variants ?: plans.mapIndexed { i, p -> MontageVariantEntry.of(i + 1, p, plans.take(i)) }
-        val record = MontageChoiceRecord(
-            chosenAt = MontageChoiceRecord.now(),
-            chosen = pick.index,
-            signature = MontageVariants.signature(plan),
-            variantsFile = pick.variantsFile?.toString(),
-            profile = profileId,
-            music = plan.music.file.toString(),
-            variants = entries,
-            outputs = result.videos.values.map { it.toString() },
-            report = result.report.toString(),
-        )
-        MontageChoiceRecord.save(MontageChoiceRecord.fileFor(result.report), record)
-        log.info { "Choix enregistré : variante ${pick.index} sur ${entries.size} → ${MontageChoiceRecord.fileFor(result.report).fileName}" }
+        return PlannedMontage(plan, inspected, choice, profile, platform, finished, variants)
     }
 
     /** [analyzeAll] puis un seul montage de toutes les captures. */

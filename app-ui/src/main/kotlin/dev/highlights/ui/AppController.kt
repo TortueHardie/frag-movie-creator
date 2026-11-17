@@ -88,6 +88,12 @@ interface UiActions {
     fun toggleSegment(id: String)
     fun setAllSegments(enabled: Boolean)
     fun selectSegment(id: String?)
+    /** Retouche : déplace le début (ou la fin si [end]) du moment [id] de [delta], dans les bornes du profil. */
+    fun nudgeSegment(id: String, end: Boolean, delta: Duration)
+    /** Ajoute à la main un moment centré sur [at] dans la capture [entry] (index dans la session ouverte). */
+    fun addSegmentAt(entry: Int, at: Duration)
+    /** Fait monter ([delta] < 0) ou descendre le moment [id] dans l'ordre du montage. */
+    fun moveSegment(id: String, delta: Int)
     fun previewClip(id: String)
     fun previewVertical(id: String)
     fun regenerateVerticalPreview()
@@ -104,6 +110,16 @@ interface UiActions {
     /** Rend en pleine qualité la variante [index] des aperçus, et enregistre ce choix. */
     fun renderVariant(index: Int) {}
     fun closeVariants() {}
+
+    /** Frise du plan de montage ([MontagePlanState]) : l'ouvrir (plan calculé aussitôt), la fermer. */
+    fun openMontagePlan() {}
+    fun closeMontagePlan() {}
+    /** Recalcule le plan avec les corrections posées, sans réanalyser (inspection des kills en cache). */
+    fun replanMontage() {}
+    /** Corrige un groupe : [kills], ses désignations « capture@instant » ([dev.highlights.montage.KillRef]). */
+    fun editMontageKill(kills: List<String>, edit: KillEdit) {}
+    /** Retire toutes les corrections. */
+    fun resetMontagePlan() {}
 
     /** Fenêtre de publication d'une vidéo exportée sur YouTube, champs proposés d'après la vidéo. */
     fun openPublish(video: Path)
@@ -139,6 +155,10 @@ interface UiActions {
     fun openLibraryItem(sessionFile: Path)
     fun toggleLibraryItem(sessionFile: Path)
     fun openLibrarySelection()
+    /** Oublier une analyse : demande d'abord confirmation (la vidéo n'est jamais touchée). */
+    fun askForget(sessionFile: Path)
+    fun confirmForget()
+    fun cancelForget()
     fun chooseWatchFolder()
     fun stopWatching()
 
@@ -248,6 +268,7 @@ class AppController(
     private var saveJob: Job? = null
     private var watchJob: Job? = null
     private var updateJob: Job? = null
+    private var planJob: Job? = null
 
     init {
         reloadConfig()
@@ -578,6 +599,28 @@ class AppController(
 
     override fun selectSegment(id: String?) = _state.update { s -> s.copy(session = s.session?.copy(selectedId = id)) }
 
+    override fun nudgeSegment(id: String, end: Boolean, delta: Duration) = retouch { current, policy ->
+        MomentRetouch.nudge(current, id, end, delta, policy).let { (updated, key) -> updated.copy(selectedId = key) }
+    }
+
+    override fun addSegmentAt(entry: Int, at: Duration) = retouch { current, policy ->
+        MomentRetouch.add(current, entry, at, policy)?.let { (updated, key) -> updated.copy(selectedId = key) } ?: current
+    }
+
+    override fun moveSegment(id: String, delta: Int) = retouch { current, _ -> MomentRetouch.move(current, id, delta) }
+
+    /** Retouche à la main de la session ouverte, avec la sélection du profil (bornes de longueur), puis sauvegarde différée. */
+    private fun retouch(change: (SessionState, dev.highlights.core.model.SelectionPolicy) -> SessionState) {
+        val current = state.value.session ?: return
+        val policy = runCatching { backend?.pipeline?.profiles?.byId(current.sessions.first().profileId)?.selection }.getOrNull()
+            ?: dev.highlights.core.model.SelectionPolicy()
+        val updated = change(current, policy)
+        if (updated == current) return
+        _state.update { it.copy(session = updated) }
+        scheduleSave()
+        loadThumbnails()
+    }
+
     override fun previewClip(id: String) {
         val s = state.value
         val current = s.session ?: return
@@ -698,6 +741,7 @@ class AppController(
         musicPrefs.rememberLibrary(montage.musicLibrary, montage.useLibrary)
         val session = s.session ?: return
         val p = backend?.pipeline ?: return
+        planJob?.cancel()
         _state.update { it.copy(montage = null) }
         val title = if (montage.useLibrary) tr("ui.job.montageFolder", "folder" to music.name) else tr("ui.job.montage", "track" to music.name)
         withMemory(title, MEMORY_MONTAGE) {
@@ -751,7 +795,7 @@ class AppController(
 
     override fun closeVariants() = _state.update { it.copy(variants = null) }
 
-    /** Réglages du dialogue de montage traduits en options du pipeline. */
+    /** Réglages du dialogue pour le pipeline : les mêmes pour la frise et pour le rendu, sinon le plan montré mentirait. */
     private fun montageOptions(montage: MontageUiState, s: UiState) = MontageOptions(
         formats = OutputFormat.entries.filter { it in montage.formats },
         outputDir = s.settings.outputDir,
@@ -780,7 +824,60 @@ class AppController(
         onlyKills = montage.pick,
         oneTaps = montage.oneTaps,
         fast = montage.fast,
+        constraints = montage.constraints,
     )
+
+    // ---------------------------------------------------------------- frise du plan de montage
+
+    override fun openMontagePlan() {
+        _state.update { s -> s.copy(montage = s.montage?.let { it.copy(plan = it.plan ?: MontagePlanState()) }) }
+        replanMontage()
+    }
+
+    override fun closeMontagePlan() {
+        planJob?.cancel()
+        _state.update { s -> s.copy(montage = s.montage?.copy(plan = null)) }
+    }
+
+    override fun editMontageKill(kills: List<String>, edit: KillEdit) =
+        updateMontage { it.copy(constraints = it.constraints.edit(kills.map(dev.highlights.montage.KillRef::parse), edit)) }
+
+    override fun resetMontagePlan() = updateMontage { it.copy(constraints = dev.highlights.montage.MontageConstraints.NONE) }
+
+    override fun replanMontage() {
+        val s = state.value
+        val montage = s.montage ?: return
+        val music = montage.musicSource ?: return
+        val session = s.session ?: return
+        val p = backend?.pipeline ?: return
+        val constraints = montage.constraints
+        planJob?.cancel()
+        updatePlan { it.copy(loading = true, fraction = 0.0, error = null) }
+        planJob = scope.launch {
+            try {
+                val tracker = ProgressTracker { snap -> updatePlan { it.copy(fraction = snap.fraction) } }
+                // Pas de rendu : la musique, l'inspection des kills (en cache après le premier plan) et la planification.
+                val view = withContext(Dispatchers.Default) { PlanView.of(p.planKillMontage(session.sessions, music, montageOptions(montage, s), tracker.root)) }
+                updatePlan { it.copy(loading = false, view = view, planned = constraints, error = null) }
+                val known = state.value.montage?.plan?.thumbnails.orEmpty()
+                for (g in (view.clips.mapNotNull { it.group } + view.left.take(PLAN_THUMBNAILS)).filter { it.key !in known }) {
+                    val image = runCatching { withContext(Dispatchers.IO) { p.thumbnail(g.media, g.kills.last()) } }.getOrNull() ?: continue
+                    updatePlan { it.copy(thumbnails = it.thumbnails + (g.key to image)) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: HighlightsException) {
+                // Correction impossible (ou kill introuvable) : dite dans la frise, le dernier plan reste affiché.
+                updatePlan { it.copy(loading = false, planned = constraints, error = e.localizedMessage) }
+            } catch (e: Exception) {
+                updatePlan { it.copy(loading = false) }
+                reportFailure(tr("ui.montagePlan.failed"), e)
+            }
+        }
+    }
+
+    private fun updatePlan(change: (MontagePlanState) -> MontagePlanState) =
+        _state.update { s -> s.copy(montage = s.montage?.let { m -> m.plan?.let { m.copy(plan = change(it)) } ?: m }) }
 
     // ---------------------------------------------------------------- publication YouTube
 
@@ -867,6 +964,21 @@ class AppController(
     override fun openLibrarySelection() {
         val s = state.value
         openSessions(s.library.map { it.sessionFile }.filter { it in s.librarySelection })
+    }
+
+    override fun askForget(sessionFile: Path) = _state.update { s -> s.copy(forget = s.library.firstOrNull { it.sessionFile == sessionFile }) }
+
+    override fun cancelForget() = _state.update { it.copy(forget = null) }
+
+    override fun confirmForget() {
+        val item = state.value.forget ?: return
+        val p = backend?.pipeline ?: return
+        _state.update { it.copy(forget = null) }
+        scope.launch(Dispatchers.IO) {
+            runCatching { p.library.forget(item.sessionFile) }
+                .onFailure { log.warn(it) { "Analyse ${item.sessionFile} non oubliée" } }
+            refreshLibrary()
+        }
     }
 
     private fun refreshLibrary() {
