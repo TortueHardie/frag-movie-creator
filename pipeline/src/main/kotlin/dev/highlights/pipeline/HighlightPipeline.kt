@@ -182,6 +182,13 @@ class HighlightPipeline(
 
     val profilesDir: Path get() = config.profilesDir
 
+    /**
+     * Diagnostic de la machine et de la configuration (rapport de problème, commande `doctor`) ; null si FFmpeg n'est
+     * pas un vrai processus (tests).
+     */
+    suspend fun diagnostics(): List<DiagnosticSection>? =
+        (ffmpeg as? dev.highlights.ffmpeg.ProcessFfmpegService)?.let { Diagnostics(config, it, profiles, detectors).run() }
+
     /** Musiques déjà analysées : une bibliothèque se réessaie à chaque montage sans tout redécoder. */
     private val musicLibrary = MusicLibrary(config.workDir.resolve("cache").resolve("music"))
 

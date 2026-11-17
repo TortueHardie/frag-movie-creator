@@ -63,6 +63,12 @@ data class UiState(
     val exitRequested: Boolean = false,
     /** Langue de l'interface (tag BCP 47) : la changer recompose tout l'écran dans la nouvelle langue. */
     val language: String = I18n.locale.toLanguageTag(),
+    /** Fenêtre « Signaler un problème » (null = fermée). */
+    val report: ReportUiState? = null,
+    /** Plantage à proposer de signaler (exception non gérée, ou JVM tombée au lancement précédent). */
+    val crash: CrashNotice? = null,
+    /** Traitement retenu faute de mémoire disponible, en attente de la décision de l'utilisateur. */
+    val memoryWarning: MemoryWarning? = null,
 ) {
     /** Première capture : celle qui décide du profil détecté et du ratio d'origine. */
     val source: SourceInfo? get() = sources.firstOrNull()
@@ -224,6 +230,30 @@ data class SessionState(
 
 /** Boîte d'erreur : textes déjà traduits au moment de l'erreur. */
 data class ErrorInfo(val title: String, val message: String, val details: List<String> = emptyList())
+
+/** Une rubrique du rapport de problème, telle que le résumé l'affiche avant l'enregistrement. */
+data class ReportItem(val part: dev.highlights.pipeline.ProblemReport.Part, val files: List<String>, val size: Long) {
+    val label: String get() = tr("ui.report.part.${part.name.lowercase()}")
+}
+
+/**
+ * Rapport de problème : [loading] pendant la collecte (diagnostic FFmpeg compris, quelques secondes), puis le résumé
+ * [items] ; [saved] une fois le ZIP enregistré, [issueUrl] = ticket GitHub prérempli. [context] : erreur ou plantage
+ * d'où vient le signalement (titre du ticket).
+ */
+data class ReportUiState(
+    val loading: Boolean = true,
+    val items: List<ReportItem> = emptyList(),
+    val context: String? = null,
+    val saved: Path? = null,
+    val issueUrl: String? = null,
+    val failed: String? = null,
+) {
+    val totalSize: Long get() = items.sumOf { it.size }
+}
+
+/** [task] n'a pas été lancé : [available] octets de mémoire libres pour environ [needed] nécessaires. */
+data class MemoryWarning(val task: String, val available: Long, val needed: Long)
 
 data class ImagePreview(val path: Path, val title: String, val highlightId: String, val version: Long = System.nanoTime())
 

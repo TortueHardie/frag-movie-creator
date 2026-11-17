@@ -45,6 +45,10 @@ class BridgePlatform(private val real: Platform) : Platform {
         script?.let { it.record("chooseDirectory($title) → ${it.paths.firstOrNull()}"); it.paths.firstOrNull() }
             ?: real.chooseDirectory(initialDir, title)
 
+    override fun chooseSaveFile(initialDir: Path?, fileName: String, title: String): Path? =
+        script?.let { it.record("chooseSaveFile($fileName) → ${it.paths.firstOrNull()}"); it.paths.firstOrNull() }
+            ?: real.chooseSaveFile(initialDir, fileName, title)
+
     override fun open(path: Path) = script?.record("open $path") ?: real.open(path)
     override fun reveal(path: Path) = script?.record("reveal $path") ?: real.reveal(path)
     override fun edit(path: Path) = script?.record("edit $path") ?: real.edit(path)
