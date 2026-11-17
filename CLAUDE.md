@@ -291,6 +291,10 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `ConfigLocator.locate` : explicite > env `HIGHLIGHTS_CONFIG` > prop `highlights.config` > `./config/app.yaml` > `<install>/config/app.yaml`.
 - `AnalysisLibrary.kt` : index `outputDir/sessions/library.json` (`LibraryEntry`), `find/contains/record/entries/forget` (oublie : entrée + `*.session.json`, jamais une capture), `fingerprint`, `stamp`, `ANALYSIS_VERSION`.
 - `FolderWatcher.kt` : `poll(isKnown)` → fichiers stables depuis `settle` ; `writing()` (une capture s'écrit encore : soirée pas finie).
+- `Recap.kt` (récap de soirée) : `RecapOptions`, `RecapText` (`video.recap.*` : intercalaire, fin), `RecapReport` ; `HighlightPipeline.eveningRecap(evening, options, progress)`
+  (`reselectAll` → `export` de chaque partie → `RecapRenderer` du module export : `EveningRecap.kt`, `RecapCard/RecapPart/RecapTimeline`, `cardFilter`,
+  deux-points gardés hors de `Captions.sanitize`), `eveningOf(sessionFiles)` (parties telles quelles, sans dédoublonnage) ; `RecapCommand.kt` (`recap [SESSION…] --date --game --style -f --platform -o`) ;
+  action `recapEvening(date, profileId)` (bouton de `StatsView`, dans la file) ; `Evening.games` ; tests `RecapIT`, `RecapCardTest`.
 - `Evenings.kt` (montage de soirée) : `Evening(date, game, profileId, sessionFiles, sources, kills, end)`, `EveningPlanner.of(GameStats)` (= `Statistics.evenings`), `style(choix, défaut du fichier)` (`NO_STYLE` = « none »),
   `due(evenings, done, now, quiet, minKills, eligible, busy)`, `nextCheck` ; `EveningHistory` (`outputDir/sessions/evening-montages.json`, `done/record`, échecs retenus aussi).
   `HighlightPipeline.evenings()`, `eveningMontage(evening, music, options, progress)` (= `killMontage` des sessions, puis `eveningHistory.record`), `eveningHistory`.

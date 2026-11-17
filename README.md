@@ -563,6 +563,24 @@ plan au lieu de tout relancer à l'aveugle.
   cèdent leur place). Une correction impossible (kill introuvable, plus de place, pas de drop dans le passage retenu,
   temps hors du montage) arrête le plan avec un message qui nomme le kill : jamais un montage qui l'ignore en silence.
 
+## Récap de soirée
+
+Une vidéo highlights de toute une soirée, partie par partie : avant chaque partie, un intercalaire de 1,5 s
+(« PARTIE 3 – 14 KILLS », le jeu et l'heure, sur une image floutée de la partie), puis ses meilleurs moments ; à la fin,
+le bilan (« SOIRÉE DU 16/11 », « 47 KILLS · MEILLEURE PARTIE : N°3 (14) »). La soirée est celle des statistiques (de 6 h
+à 6 h, un jeu à la fois) ; les moments de chaque partie sont recalculés avec une cible de durée partagée sur la soirée
+(moments retouchés à la main gardés), et rendus par l'export habituel (style simple ou story, formats, plateforme). Une
+partie sans moment n'a pas d'intercalaire mais garde son numéro. Dans l'application : « Récap de la soirée » sur chaque
+soirée des statistiques (passe par la file des traitements). En ligne de commande :
+
+```powershell
+& $app recap --date 2026-09-22 --game wardogs --style story --platform tiktok
+& $app recap output\sessions\a.session.json output\sessions\b.session.json   # ces parties-là, telles quelles
+```
+
+Sortie : `<jeu>_<date>_recap[_9x16].mp4` et un rapport JSON (parties montrées, kills, début de chaque carton). La carte
+ou le mode d'une partie ne sont pas connus des analyses : l'intercalaire dit le jeu et l'heure.
+
 ## Statistiques par soirée
 
 Bouton **Statistiques** au-dessus des analyses enregistrées (ou `app stats`) : les parties analysées, un jeu à la

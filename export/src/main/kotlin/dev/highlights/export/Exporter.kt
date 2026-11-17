@@ -81,7 +81,7 @@ data class ExportResult(
 
 class Exporter(
     private val ffmpeg: FfmpegService,
-    private val encoders: EncoderSelector,
+    val encoders: EncoderSelector,
     private val planner: EditPlanner,
 ) {
     private val transcriber = CaptionTranscriber(ffmpeg)
