@@ -635,6 +635,16 @@ ligne est un événement.
   est absent.
 - La zone (`region`) est mesurée en 3440x1440 et suit le format de la capture (`referenceWidth`, `anchor: right`) ; les
   tailles du cadre (`minHeight`…`maxFill`) et la couleur (`color`, `threshold`) se règlent pour un autre jeu.
+- **Basse définition** (capture de moins de 720 px de haut, `fillBelow`) : le contour du cadre (3 px en 1440p) y fait
+  moins d'un pixel et la couleur sous-échantillonnée le délave jusqu'à la teinte des murs de sable ; mesuré en 854x480
+  (deux parties téléchargées de YouTube) : 25 à 50 de jaune pour un seuil de 60, 1 kill lu sur 44. Le détecteur y lit
+  alors l'aplat jaune pur derrière le portrait du joueur (`fillColor` : rouge et vert égaux à 30 près, ce qui écarte le
+  sable), une tache pleine de la hauteur d'une demi-ligne à une ligne (`fillMinHeight`…`fillMin`), pas collée au bord
+  droit de l'écran (bordure dorée de certaines capacités). Une ligne doit y rester visible 2 s (`fillMinSeen`, une
+  ligne en reste 5) et toute la vidéo est décodée (480p coûte peu). Sur la partie dont le tableau de fin dit 44 kills /
+  14 morts : 46 kills et 18 morts lus (1 et 0 avant) ; 4 des morts portent l'icône de l'ultime de Phoenix, qui ramène le
+  joueur sans compter de mort (hypothèse, non traitée). La géométrie 16:9 n'était pas en cause : la zone mesurée en
+  21:9 tombe juste sur le killfeed en 16:9.
 
 ## Journal des gains (Wardogs)
 
