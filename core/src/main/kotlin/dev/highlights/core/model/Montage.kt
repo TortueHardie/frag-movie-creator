@@ -778,6 +778,10 @@ data class SpeedRampEffect(
 @Serializable
 data class TextEffect(
     val enabled: Boolean = true,
+    /**
+     * Police des libellés, gardée tant qu'elle a tous leurs caractères ; sinon (ダブルキル, 더블 킬, 双杀 en Impact)
+     * un repli de Windows qui les a (`VideoFonts`, module editing).
+     */
     val font: String = "C:/Windows/Fonts/impact.ttf",
     /**
      * Texte affiché au 2e, 3e… kill d'un même clip ; null = libellés de la langue de l'interface (DOUBLE KILL, TRIPLE

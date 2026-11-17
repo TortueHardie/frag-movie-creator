@@ -180,7 +180,12 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `story/StoryPlanner.kt` : `StoryShot`, `ShotRole{COLD_OPEN,OPENING,JUMP}`, `StoryPlan`, `plan()` (accroche → scènes → `liveRanges` jump cuts → `decorate` punch/shake/slow/labels), `streakLabels`, `withCaptions`.
 - `story/StoryRenderBuilder.kt` : graphe story (framing zoom/shake, slowVideo, SFX générés `WHOOSH_SOURCE_*`/`IMPACT_SOURCE_*` ou `SfxBank` dossiers, musique `musicVolume`, `envelope`).
 - `story/Captions.kt` : parse sortie whisper, `clean` (garder ce qui recouvre de la voix), `readable`, `drawText` (drawtext, emphasis jaune, cri rouge), `transcriptionFilter`.
-- `story/TextMeasure.kt` : largeur de texte AWT pour ajuster la taille.
+- `story/TextMeasure.kt` : largeur de texte AWT pour ajuster la taille, `canDisplay` (glyphes présents dans la police).
+- `story/VideoFonts.kt` : **choix de la police de tout texte incrusté** (`forText(configurée, texte)`) : la police du profil
+  si elle a tous les caractères (Impact : latin + cyrillique), sinon repli Windows selon l'écriture (`JAPANESE` Yu Gothic Bold,
+  `KOREAN` Malgun Gothic Bold, `CHINESE` Microsoft YaHei Bold, `HEAVY_LATIN`/`HEAVY_UI`) ; idéogrammes seuls → langue de
+  l'interface. Appelé par `Captions.drawText/drawLabel` et `MontageRenderBuilder.drawText` ; `drawtextPath`. Test : `TextFontsIT`
+  (montage, rend chaque langue, images dans `montage/build/text-fonts`).
 
 ### export
 - `Exporter.kt` : `ExportRequest`, `ExportResult(videos, report, duration, encoder)`, `export`, `preview` (PNG par format), `thumbnail`, `clipPreview`.
@@ -272,7 +277,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `Platform.kt` (`DesktopPlatform` : FileDialog/JFileChooser, open/reveal/edit), `Installation.kt`, prefs : `WatchPrefs.kt` (`~/.highlights/watch.json`), `MusicPrefs.kt` (`~/.highlights/music.json` : fromStart par musique, dossier `library` + `useLibrary` ; ajouter un Path à un Set avec `plusElement`, un Path est itérable).
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).
-- Tests : `UiStateTest`, `InstallationTest`, `UiSnapshotTest` (rendu composables en fr, `en/`, `long/` = pseudo-langue), `HardcodedTextTest`
+- Tests : `UiStateTest`, `InstallationTest`, `UiSnapshotTest` (rendu composables en fr, `en/`, `long/` = pseudo-langue, puis `<tag>/` pour chaque autre langue livrée), `HardcodedTextTest`
   (texte d'interface en dur, exceptions métier en texte brut), `AppControllerIT` (parcours complet, FFmpeg requis).
 
 ## 5. Configuration (`config/`)

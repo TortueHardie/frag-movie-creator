@@ -157,7 +157,8 @@ Dans l'application :
 
 ## Langues de l'interface
 
-L'application parle anglais et français ; d'autres langues s'ajoutent par simple fichier. Par défaut, la langue
+L'application parle anglais, français, russe, japonais, coréen et chinois simplifié ; d'autres langues s'ajoutent par
+simple fichier. Par défaut, la langue
 d'affichage de Windows (sinon l'anglais) ; le sélecteur en haut à gauche (à côté de « Highlights ») en choisit une
 autre, appliquée tout de suite et retenue dans `~/.highlights/language.json` (« Langue du système » revient au
 réglage de Windows). Sont traduits : toute l'interface, les messages d'erreur, les textes YouTube proposés et les
@@ -171,14 +172,19 @@ français.
   d'après `{count}`. Les `{placeholders}` se gardent tels quels.
 - **Vérifier** : `.\gradlew.bat :core:test` (`BundlesTest` : clés manquantes ou en trop, placeholders différents de
   l'anglais, formes plurielles absentes, clé citée dans le code mais absente) ; `.\gradlew.bat :app-ui:test` rend
-  chaque écran en français, en anglais et en pseudo-langue allongée de 40 % (`app-ui/build/ui-snapshots/`, `en/`,
-  `long/`) et signale tout texte écrit en dur (`HardcodedTextTest`).
+  chaque écran en français, en anglais, en pseudo-langue allongée de 40 % et dans chaque langue livrée
+  (`app-ui/build/ui-snapshots/`, `en/`, `long/`, `ru/`, `ja/`…) et signale tout texte écrit en dur (`HardcodedTextTest`).
+  Garder les `\u0020` de `format.listSeparator` / `format.listComma` : un éditeur (ou un outil) qui les remplace par
+  une espace la fait disparaître au chargement.
 - **Essayer une langue sans la choisir** : `-Dhighlights.lang=de` (ou `en-XA`, la pseudo-langue : textes accentués et
   allongés, pour voir ceux qui débordent ou ne passent pas par les traductions).
 - **Textes incrustés** : les libellés DOUBLE KILL… viennent de la langue de l'interface au moment du rendu, sauf si le
-  profil en donne (`story.labels.multiKill`, `montage.text.multiKillLabels`). Polices : `drawtext` utilise
-  `montage.text.font` (Impact par défaut), qui n'a pas de glyphes chinois, japonais ni coréens ; à régler avant de
-  livrer ces langues.
+  profil en donne (`story.labels.multiKill`, `montage.text.multiKillLabels`). Polices : la police du profil
+  (`montage.text.font`, `story.captions.font`, Impact par défaut) sert tant qu'elle a tous les caractères du texte
+  (latin, cyrillique : DOUBLE KILL, ДАБЛ КИЛЛ) ; sinon le texte passe dans une police livrée avec Windows 10/11 qui
+  les a : Yu Gothic Bold (japonais), Malgun Gothic Bold (coréen), Microsoft YaHei Bold (chinois), Arial Black ou
+  Segoe UI Black (autres écritures). Les sous-titres whisper suivent la même règle, mot à mot selon la phrase.
+  `drawtext` n'a aucun repli : sans ce choix, un caractère absent de la police s'affiche en carré vide.
 
 ## Montage « story » (façon vidéo YouTube)
 
