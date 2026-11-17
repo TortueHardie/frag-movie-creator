@@ -150,7 +150,9 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `HudTemplateDetector.kt` — type **`hud-template`** : correspondance de modèles d'images du HUD. `HudMode{EVENTS,PRESENCE}`, `Sampling{AUTO,KEYFRAMES,FPS}`,
   `MatchMethod{ncc, bright}`, `TemplateSpec(name, kind, file, region, anchor, threshold, scales, minConsecutive, brightness, minContrast…)`.
   Mode presence + `role: gate` = détection « en jeu ».
-- `OcrLogDetector.kt` — type **`ocr-log`** : OCR Windows d'un journal à l'écran (Wardogs), `rules` → kinds, fusion avec icônes (`icons: HudTemplateParams`) via `EventFusion`.
+- `OcrLogDetector.kt` — type **`ocr-log`** : OCR Windows d'un journal à l'écran (Wardogs), `rules` → kinds, fusion avec icônes (`icons: HudTemplateParams`) via `EventFusion` ;
+  `notice: NoticeParams` (libellé sous l'icône, 2e zone OCR agrandie ×2, ses `rules`) corrige ou écarte le type de chaque icône avant la fusion (`NoticeLabels.relabel`).
+  Wardogs : `downed` = « EN ATTENTE DE RÉANIMATION » (à terre, pas une mort).
 - `KillfeedDetector.kt` — type **`killfeed`** : kills/morts du joueur lus dans le killfeed par la couleur de ses lignes (jaune VALORANT, zone `FrameZone.color`).
   `KillfeedParams` (region, `scale` en px lus par px de référence, forme du cadre en px de référence, `maxGap`, `deathSpacing`, `kinds`, `offset`), `KillfeedRole{KILL,DEATH}`,
   `FeedReader.rows` (composantes 8-connexes après comblement `bridge` ; forme `FrameShape` : hauteur d'une ligne, trait du haut, cadres étroits pleins ;
@@ -158,7 +160,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   `FeedTracker` (suivi : colonnes communes + bord gauche le plus proche, ne fait que monter ; nouvelle ligne = événement).
   Réglé sur 4 parties (scripts d'évaluation hors dépôt) : changer un seuil demande de revalider sur de vraies captures.
   Utilisé par valorant.yaml en `fallbackFor: game-events`.
-- `RewardsLog.kt` : `RewardsLog.classify/fuzzyDistance/rows`, `LogTracker` (suivi de lignes, minSightings), `EventFusion.fuse`.
+- `RewardsLog.kt` : `RewardsLog.classify/fuzzyDistance/rows`, `LogTracker` (suivi de lignes, minSightings), `EventFusion.fuse`, `NoticeRead`, `NoticeLabels.relabel` (libellé le plus proche dans [before, after] : son type, "" = icône écartée, rien = icône inchangée).
 - `TemplateMatcher.kt` : `GrayImage`, `PreparedTemplate`, `TemplateMatcher.match` (NCC), `BrightTemplate/BrightMatcher`.
 - `WindowsOcr.kt` : lance `resources/.../windows-ocr.ps1` (Windows.Media.Ocr) par lots ; `WindowsOcr.supported`.
 - `AmmoCounterDetector.kt` — type **`ammo-counter`** : compteur de munitions du HUD relu à 60 img/s autour de chaque kill (`ctx.events`, `dependsOn`) via `frames.extractRange` → events `hud-shot` ; `changes` (chiffres blancs qui changent), `refills` (recharge animée du Combat à mort, zone `TEAL`, ignorée), `windows`.
@@ -223,6 +225,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `MontagePlanner.split` (appelé par `killMontage` après `KillInspector`) : multi-kill étalé (> `splitGap`) → plusieurs parties, même rang, issue au dernier. `need` ne réserve la place du ralenti que sur la drop (`onDrop`) ou en effets HEAVY.
 - Rythme rapide : `MontageSettings.forFast` / `FastMontage` (cadence `calm`/`mid`/`cut` ; zoom d'approche vers le réticule avant le kill, `zoomApproach` → `ZoomEffect.approach`) (un kill par plan, plans d'un temps via `cuts.singleBeat`, contexte 0,2 s + 0,15 s, ni ralenti ni rampe, échanges écartés par `skipDeathWithin` dans `MontagePlanner.groups`) ; `MontageOptions.fast`, `--fast` (montage, search), case « Rythme rapide ».
 - `OneTaps.kt` (branche `montage-onetaps`) : `OneTaps.select` (kills d'une balle à la tête, `strict` si headshots connus) ; réglages `MontageSettings.forOneTaps` / `OneTapMontage`.
+- Morts : `KillStyle.deathKinds` = `deathEvent` (+ `downedEvent` « downed » si `downedAsDeath`, faux par défaut), lu par `MontagePlanner.groups` (rounds, `skipDeathWithin`), `Statistics.game` et `Statistics.sources(sessions, kinds)`.
 - Kill confirmé à l'image : détecteur `kill-confirm` (type `killfeed`, toujours actif, 30 img/s, événements `feed-kill`) → `KillStyle.confirmEvent` ; `MontagePlanner.groups` associe chaque kill à la confirmation la plus proche (`CONFIRM_WINDOW` 0,8 s), `hudShots(…, confirmed)` cherche la balle qui tue jusqu'à `CONFIRM_AFTER` (0,12 s) après elle, sinon `fatal` = confirmation − `CONFIRM_LAG`.
 - Balles d'un kill : `MontagePlanner.hudShotCounts` (événements `hud-shot` du compteur de munitions, préférés) ou `shotCounts` (tirs entendus) → `KillTraits.shots`.
 - Ouverture vitrine : `ShowcaseOpening` (`montage.showcase`) → `MontagePlanner.showcase` (dernière étape de `killMontage` ; plans `MontageClip.showcase` sans kill ajoutés devant, place réservée par `planning` = maxDuration − length) ; `MontageScorer.score` ne les voit que dans `opening` ; rapport `showcase` ; `MontageOptions.showcase`, `--showcase`, case de `MontageDialog`.

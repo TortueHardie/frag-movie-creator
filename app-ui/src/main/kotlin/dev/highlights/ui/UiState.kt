@@ -286,7 +286,7 @@ fun formatBytes(bytes: Long): String = when {
 
 /** « 2 kills · 1 assist » : types connus traduits (`event.<type>`, au pluriel), les autres par leur nom brut. */
 fun eventsLabel(events: Map<String, Int>): String = events.entries
-    .sortedBy { listOf("kill", "assist", "revive", "death", "laughter", "shout").indexOf(it.key).let { i -> if (i < 0) 99 else i } }
+    .sortedBy { listOf("kill", "assist", "revive", "death", "downed", "laughter", "shout").indexOf(it.key).let { i -> if (i < 0) 99 else i } }
     .joinToString(" · ") { (kind, n) -> I18n.textOrNull("event.$kind", mapOf("count" to n)) ?: "${I18n.decimal(n.toDouble(), 0)} $kind" }
 
 data class MontageUiState(

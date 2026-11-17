@@ -1,14 +1,15 @@
-# Vérité terrain PROVISOIRE : ce sont les détections de game-events (profil wardogs, gate corrigé en véhicule,
-# analyse du 17/11/2026), pas encore validées par le joueur. Elle sert déjà de test de non-régression : tout
-# changement de détection la fait échouer. À la validation (planche dans output/revue/verite-terrain/), corriger
-# les événements, ajouter les morts (« death ») à kinds et à events, remplir validated.
+# Vérité terrain PROVISOIRE : ce sont les détections de game-events (profil wardogs avec le libellé des
+# notifications et « downed », analyse du 18/11/2026), pas encore validées par le joueur. Elle sert déjà de test
+# de non-régression : tout changement de détection la fait échouer. downed = à terre (« EN ATTENTE DE
+# RÉANIMATION »), pas une mort. À la validation (planches dans output/revue/verite-terrain/), corriger les
+# événements, ajouter les morts si le joueur en distingue, remplir validated.
 capture: { name: WARDOGS_09-23-2026_18-53-18-983.mp4, sizeBytes: 1121475920, duration: 439.983s }
 profile: wardogs
 tolerance: 3s
 validated: null
 note: "Écran titre puis menu de déploiement pendant 7 min (planche 1 img/10 s) : aucun événement possible. Capture témoin du filtre hors jeu."
-kinds: [kill, assist, revive]
+kinds: [kill, assist, revive, downed]
 events: []
 # Seuils = état mesuré au relevé (toutes les détections retrouvées, aucune en trop).
 thresholds:
-  game-events: { kill: { precision: 1.0, recall: 1.0 }, assist: { precision: 1.0, recall: 1.0 }, revive: { precision: 1.0, recall: 1.0 } }
+  game-events: { kill: { precision: 1.0, recall: 1.0 }, assist: { precision: 1.0, recall: 1.0 }, revive: { precision: 1.0, recall: 1.0 }, downed: { precision: 1.0, recall: 1.0 } }

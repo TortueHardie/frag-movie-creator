@@ -1,13 +1,14 @@
-# Vérité terrain PROVISOIRE : ce sont les détections de game-events (profil wardogs, gate corrigé en véhicule,
-# analyse du 17/11/2026), pas encore validées par le joueur. Elle sert déjà de test de non-régression : tout
-# changement de détection la fait échouer. À la validation (planche dans output/revue/verite-terrain/), corriger
-# les événements, ajouter les morts (« death ») à kinds et à events, remplir validated.
+# Vérité terrain PROVISOIRE : ce sont les détections de game-events (profil wardogs avec le libellé des
+# notifications et « downed », analyse du 18/11/2026), pas encore validées par le joueur. Elle sert déjà de test
+# de non-régression : tout changement de détection la fait échouer. downed = à terre (« EN ATTENTE DE
+# RÉANIMATION »), pas une mort. À la validation (planches dans output/revue/verite-terrain/), corriger les
+# événements, ajouter les morts si le joueur en distingue, remplir validated.
 capture: { name: WARDOGS_09-23-2026_20-4-19-983.mp4, sizeBytes: 6911741815, duration: 2708.992s }
 profile: wardogs
 tolerance: 3s
 validated: null
 note: "Une partie de 42 min (victoire), joueur en soins et reconnaissance. Planche de validation : output/revue/verite-terrain/20-4-19/."
-kinds: [kill, assist, revive]
+kinds: [kill, assist, revive, downed]
 events:
   - { at: "07:56", kind: kill }
   - { at: "08:50", kind: assist }
@@ -17,8 +18,10 @@ events:
   - { at: "38:55", kind: revive }
   - { at: "40:10", kind: kill }
   - { at: "40:43", kind: revive }
+  - { at: "41:28", kind: downed }
+  - { at: "42:13", kind: downed }
   - { at: "42:49", kind: revive }
   - { at: "43:20", kind: revive }
 # Seuils = état mesuré au relevé (toutes les détections retrouvées, aucune en trop).
 thresholds:
-  game-events: { kill: { precision: 1.0, recall: 1.0 }, assist: { precision: 1.0, recall: 1.0 }, revive: { precision: 1.0, recall: 1.0 } }
+  game-events: { kill: { precision: 1.0, recall: 1.0 }, assist: { precision: 1.0, recall: 1.0 }, revive: { precision: 1.0, recall: 1.0 }, downed: { precision: 1.0, recall: 1.0 } }

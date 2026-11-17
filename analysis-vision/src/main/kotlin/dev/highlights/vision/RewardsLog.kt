@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import java.text.Normalizer
 import kotlin.math.abs
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.ZERO
 
 /** Ligne de texte reconnue sur une image, position en pixels de la zone. */
 data class OcrLine(val text: String, val x: Int, val y: Int, val width: Int, val height: Int)
@@ -134,6 +135,30 @@ class LogTracker(private val hold: Duration, private val rowPitch: Int, private 
 
 /** Événement d'une source, avant fusion. */
 data class TimedKind(val at: Duration, val kind: String)
+
+/** Libellé de la notification centrale lu à [at] : [kind] selon les règles, "" = notification à écarter. */
+data class NoticeRead(val at: Duration, val kind: String, val text: String)
+
+/**
+ * Type des icônes de notification d'après le libellé écrit sous elles (« ÉLIMINATION CONFIRMÉE », « AIDE :
+ * ÉLIMINATION », « UN PASSAGER A SURVÉCU »…). L'icône seule se trompe quand le journal n'a rien lu : la tête de mort
+ * sert aussi aux aides au kill (22-55-31 à 38:37, « AIDE : ÉLIMINATION +$387 » compté en kill), la poignée de main
+ * aussi aux passagers déposés (18-23-47 à 15:14, « UN PASSAGER A SURVÉCU » compté en aide).
+ *
+ * Pour chaque icône, le libellé lu le plus près dans [before, after] l'emporte : son type remplace celui de l'icône,
+ * "" l'écarte. Sans libellé lisible, l'icône garde son type.
+ */
+object NoticeLabels {
+    fun relabel(icons: List<TimedKind>, reads: List<NoticeRead>, before: Duration, after: Duration): List<TimedKind> =
+        icons.mapNotNull { icon ->
+            val read = reads.filter { it.at >= icon.at - before && it.at <= icon.at + after }.minByOrNull { (it.at - icon.at).absoluteValue }
+            when {
+                read == null -> icon
+                read.kind.isEmpty() -> null
+                else -> icon.copy(kind = read.kind)
+            }
+        }
+}
 
 /**
  * Fusion du journal avec les icônes de notification (centre de l'écran), qui ont des défauts opposés : l'icône est

@@ -48,7 +48,11 @@ detectors:
       rules:
         # Lignes à ignorer d'abord : elles contiennent des mots des règles suivantes. « AIDE : VÉHICULE DE SECTION
         # DÉTRUIT » est une pénalité (montant négatif), pas une aide ; « CIBLE REPÉRÉE DÉTRUITE » un bonus d'XP.
-        - match: [REPEREE, SOIGNE, JOUEURREANIME, ATTENTEDEREANIMATION, VEHICULEDESECTION, PRESENCE, POTDEVIN]
+        # Joueur à terre, en attente d'un coéquipier : une ligne affichée 5 à 10 s, comptée une fois. Ce n'est pas une
+        # mort (il est souvent relevé) : montage et statistiques l'ignorent, sauf montage.killStyle.downedAsDeath.
+        - kind: downed
+          match: [ATTENTEDEREANIMATION]
+        - match: [REPEREE, SOIGNE, JOUEURREANIME, VEHICULEDESECTION, PRESENCE, POTDEVIN]
         - kind: assist
           match: [AIDEELIMINATION, AIDEVEHICULEDETRUIT]
         - kind: kill
@@ -58,6 +62,24 @@ detectors:
       # Icônes au centre de l'écran (~4 s) : kill (tête de mort, aussi affichée pour une aide à l'élimination), aide
       # (poignée de main : « aide à l'élimination repérée », absente du journal), réanimation (battement de cœur).
       # Seuls les pixels clairs de l'icône sont comparés ; taille normale ou agrandie (×1,35).
+      # Libellé sous l'icône (« ÉLIMINATION CONFIRMÉE », « AIDE : ÉLIMINATION »…) : il corrige le type de l'icône quand le
+      # journal n'a rien lu. Sans lui, une aide au kill sortait en kill (tête de mort, 22-55-31 à 38:37) et un passager
+      # déposé en aide (poignée de main, 18-23-47 à 15:14). « ÉLIMINATION » seul ne tranche pas (fin d'« AIDE :
+      # ÉLIMINATION » mal lue) : l'icône garde alors son type.
+      notice:
+        region: { x: 0.412791, y: 0.690972, width: 0.174419, height: 0.048611 }
+        referenceHeight: 1440
+        referenceWidth: 3440
+        anchor: center
+        rules:
+          # « UN PASSAGER A SURVÉCU » se lit mal sur le plateau du camion (« ILJNBA SAGERR RVÉCU ») : fragments courts.
+          - match: [PASSAGER, SAGERA, SURVECU, FOURNITURESLIVREES]
+          - kind: assist
+            match: [AIDEELIMINATION, ALELIMINATIONREPEREE]
+          - kind: kill
+            match: [ELIMINATIONCONFIRMEE, SHUTDOWNKILL, TIRALATETE]
+          - kind: revive
+            match: [REANIMATIONDEJOUEUR]
       icons:
         mode: events
         referenceHeight: 1440
