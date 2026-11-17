@@ -115,6 +115,8 @@ Lire une capture : outil Read sur le PNG.
   `~/.highlights/logs`.
 - Le dossier surveillé de l'utilisateur (`~/.highlights/watch.json`) reprend au lancement : ses captures sont analysées
   vers le dossier de sortie de la config utilisée. Ne pas appeler `stopWatching` (réécrirait ses préférences).
+  Pour l'éviter (analyses lourdes en fond, hors verrou de rendu) : `:app-ui:run -Pbridge -PuserHome=<dossier du scratchpad>`
+  → préférences vierges, et le fichier du pont est alors `<dossier>/.highlights/control-bridge.json`.
 
 - `focused` de `/windows` est l'avis d'AWT, pas forcément la fenêtre au premier plan de Windows.
 - Les menus déroulants de Compose s'ouvrent dans la fenêtre (même arbre, même capture) ; un dialogue Swing (sélecteur
