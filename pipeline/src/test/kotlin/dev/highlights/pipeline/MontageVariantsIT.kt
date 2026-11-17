@@ -107,6 +107,12 @@ class MontageVariantsIT : FunSpec({
         choice.chosen shouldBe 1
         choice.signature shouldBe first.entry.signature
         choice.variants shouldBe described.variants
+        // Goûts : le choix est gardé pour l'apprentissage, critères de chaque variante proposée compris.
+        val taste = pipeline.tasteHistory.load()
+        if (previews.previews.size >= 2) {
+            taste.choices.single().chosen shouldBe 0
+            taste.choices.single().variants shouldBe described.variants.map { it.score.criteria() }
+        }
 
         // Aperçu qui ne correspond plus (empreinte changée) : le rendu est refusé plutôt que de rendre autre chose.
         val tampered = root.resolve("tampered_variantes.json")
@@ -139,5 +145,12 @@ class MontageVariantsIT : FunSpec({
             val report = json.decodeFromString(MontageReport.serializer(), p.report.readText())
             report.clips.flatMap { it.kills }.none { it == excluded.toTimecode() } shouldBe true
         }
+        // Rendu avec des corrections de l'éditeur : elles sont gardées aussi.
+        pipeline.killMontage(
+            listOf(session), music,
+            options.copy(constraints = MontageConstraints(excluded = setOf(KillRef.of(media, excluded))), pick = VariantPick(1, constrained.variantsFile)),
+            ProgressReporter.NONE,
+        )
+        pipeline.tasteHistory.load().edits.single().excluded shouldBe listOf(KillRef.of(media, excluded).toString())
     }
 })

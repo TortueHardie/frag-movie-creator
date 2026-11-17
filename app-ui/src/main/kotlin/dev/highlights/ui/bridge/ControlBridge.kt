@@ -274,7 +274,7 @@ class ControlBridge private constructor(
         Thread.sleep(q["settle"]?.toLong() ?: 300)
         while (true) {
             val s = state.value
-            val idle = s.job == null && s.config !is dev.highlights.ui.ConfigStatus.Loading &&
+            val idle = s.job == null && s.jobs.none { it.active } && s.config !is dev.highlights.ui.ConfigStatus.Loading &&
                 (s.search?.loading != true) && (s.publish?.loading != true)
             if (idle) return buildJsonObject {
                 put("ok", true)
