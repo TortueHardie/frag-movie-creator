@@ -200,6 +200,8 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     }
                 }
 
+                MontagePlanEntry(montage, actions)
+
                 DialogGroup(tr("ui.montage.formats")) {
                     PlatformPicker(state.platforms, montage.platform) { id -> actions.updateMontage { it.copy(platform = id) } }
                     // Une plateforme impose son format (et sa durée maximale devient un plafond de plus).

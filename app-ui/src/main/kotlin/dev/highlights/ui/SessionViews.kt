@@ -59,6 +59,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.highlights.core.model.MomentOrigin
 import dev.highlights.core.model.aspectLabel
 import dev.highlights.core.serialization.toShortText
 import dev.highlights.core.serialization.toTimecode
@@ -68,6 +69,7 @@ import org.jetbrains.skia.Image as SkiaImage
 import java.nio.file.Files
 import kotlin.io.path.name
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -212,8 +214,12 @@ fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
             )
         }
         Canvas(
-            Modifier.fillMaxWidth().height(150.dp).padding(horizontal = 14.dp, vertical = 10.dp).pointerInput(highlights, total) {
-                detectTapGestures { offset ->
+            Modifier.fillMaxWidth().height(150.dp).padding(horizontal = 14.dp, vertical = 10.dp).pointerInput(highlights, total, entry) {
+                detectTapGestures(
+                    onDoubleTap = { offset ->
+                        if (total.isPositive() && size.width > 0) actions.addSegmentAt(entry, total * (offset.x / size.width).toDouble().coerceIn(0.0, 1.0))
+                    },
+                ) { offset ->
                     if (!total.isPositive() || size.width == 0) return@detectTapGestures
                     val t = total * (offset.x / size.width).toDouble()
                     val hit = segments.minByOrNull { s ->
@@ -311,6 +317,12 @@ fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
                 tick += step
             }
         }
+        Text(
+            tr("ui.session.addHint"),
+            style = MaterialTheme.typography.bodySmall,
+            color = Palette.textMuted,
+            modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+        )
       }
     }
 }
@@ -332,6 +344,7 @@ fun SegmentList(session: SessionState, state: UiState, actions: UiActions, modif
         }
         return
     }
+    val montage = MomentRetouch.montageOrder(session)
     LazyColumn(modifier.fillMaxWidth(), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         session.entries.forEachIndexed { i, entry ->
             val own = segments.filter { it.entry == i }
@@ -346,6 +359,8 @@ fun SegmentList(session: SessionState, state: UiState, actions: UiActions, modif
                     clipBusy = s.key in state.busyClips,
                     verticalBusy = state.busyVerticalPreview == s.key,
                     verticalAvailable = state.busyVerticalPreview == null,
+                    position = montage.indexOfFirst { it.key == s.key },
+                    montageSize = montage.size,
                     actions = actions,
                 )
             }
@@ -384,6 +399,9 @@ private fun SegmentRow(
     clipBusy: Boolean,
     verticalBusy: Boolean,
     verticalAvailable: Boolean,
+    /** Rang dans le montage (0 = premier), -1 si décoché. */
+    position: Int,
+    montageSize: Int,
     actions: UiActions,
 ) {
     val highlight = segment.highlight
@@ -393,6 +411,7 @@ private fun SegmentRow(
         border = BorderStroke(1.dp, if (selected) Palette.accent else Palette.outline),
         modifier = Modifier.fillMaxWidth().clickable { actions.selectSegment(segment.key) },
     ) {
+      Column {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = highlight.enabled, onCheckedChange = { actions.toggleSegment(segment.key) })
             Spacer(Modifier.width(6.dp))
@@ -409,6 +428,14 @@ private fun SegmentRow(
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(I18n.duration(highlight.range.length), style = MaterialTheme.typography.bodyMedium, color = Palette.textMuted)
+                    originLabel(highlight.origin)?.let {
+                        Spacer(Modifier.width(10.dp))
+                        Text(it, style = MaterialTheme.typography.labelMedium, color = Palette.cyan)
+                    }
+                    if (position >= 0 && montageSize > 1) {
+                        Spacer(Modifier.width(10.dp))
+                        Text(tr("ui.session.position", "position" to position + 1), style = MaterialTheme.typography.labelMedium, color = Palette.textMuted)
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ScoreBar(highlight.score, Modifier.width(140.dp))
@@ -437,7 +464,37 @@ private fun SegmentRow(
                 Text(if (verticalBusy) "…" else "9:16")
             }
         }
+        if (selected) RetouchBar(segment.key, position, montageSize, actions)
+      }
     }
+}
+
+/** Retouche du moment sélectionné : début et fin par pas d'une demi-seconde ou d'une seconde, place dans le montage. */
+@Composable
+private fun RetouchBar(key: String, position: Int, montageSize: Int, actions: UiActions) {
+    val steps = listOf("ui.session.minusOne" to (-1).seconds, "ui.session.minusHalf" to (-500).milliseconds, "ui.session.plusHalf" to 500.milliseconds, "ui.session.plusOne" to 1.seconds)
+    Row(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        listOf(false to "ui.session.start", true to "ui.session.end").forEach { (end, label) ->
+            Text(tr(label), style = MaterialTheme.typography.labelLarge, color = Palette.textMuted)
+            Spacer(Modifier.width(4.dp))
+            steps.forEach { (text, delta) ->
+                TextButton(onClick = { actions.nudgeSegment(key, end, delta) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 8.dp)) { Text(tr(text)) }
+            }
+            Spacer(Modifier.width(16.dp))
+        }
+        Spacer(Modifier.weight(1f))
+        if (position >= 0 && montageSize > 1) {
+            OutlinedButton(onClick = { actions.moveSegment(key, -1) }, enabled = position > 0, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.session.earlier")) }
+            Spacer(Modifier.width(6.dp))
+            OutlinedButton(onClick = { actions.moveSegment(key, 1) }, enabled = position < montageSize - 1, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.session.later")) }
+        }
+    }
+}
+
+private fun originLabel(origin: MomentOrigin): String? = when (origin) {
+    MomentOrigin.DETECTED -> null
+    MomentOrigin.ADJUSTED -> tr("ui.session.adjusted")
+    MomentOrigin.ADDED -> tr("ui.session.added")
 }
 
 @Composable

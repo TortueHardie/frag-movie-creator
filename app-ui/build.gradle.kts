@@ -214,6 +214,9 @@ tasks.withType<JavaExec>().configureEach {
         systemProperty("highlights.config", rootProject.file("config/app.yaml").absolutePath)
         // Pont de pilotage pour le développement (gradlew :app-ui:run -Pbridge) : jamais ailleurs que dans `run`.
         if (project.hasProperty("bridge")) systemProperty("highlights.bridge", "true")
+        // Préférences isolées (-PuserHome=<dossier>) : ni le dossier surveillé ni les musiques de l'utilisateur ne sont
+        // repris, une session pilotée ne lance pas d'analyse en fond. Le fichier du pont est alors dans <dossier>/.highlights.
+        findProperty("userHome")?.let { systemProperty("user.home", it.toString()) }
     }
 }
 

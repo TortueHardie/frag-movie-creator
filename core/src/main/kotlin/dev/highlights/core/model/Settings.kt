@@ -148,6 +148,8 @@ data class GradeSettings(
 enum class ClipOrder {
     @SerialName("chronological") CHRONOLOGICAL,
     @SerialName("score") SCORE,
+    /** Rang choisi dans l'interface ([Highlight.order]) ; les moments sans rang suivent, dans l'ordre chronologique. */
+    @SerialName("manual") MANUAL,
 }
 
 @Serializable
