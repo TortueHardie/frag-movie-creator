@@ -20,6 +20,7 @@ import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.SourceCut
 import dev.highlights.editing.SourceCuts
 import dev.highlights.editing.story.StoryRenderBuilder
+import dev.highlights.editing.story.VideoFonts
 import java.nio.file.Path
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -186,7 +187,7 @@ object MontageRenderBuilder {
             if (settings.text.enabled) {
                 // Vertical : entre le kill feed replacé en haut et le réticule ; sinon sous la boussole.
                 val (labelY, counterY) = if (request.format == OutputFormat.VERTICAL) "h*0.25" to "h*0.35" else "h*0.20" to "h*0.11"
-                val font = settings.text.font.replace("\\", "/").replace(":", "\\:")
+                val font = settings.text.font
                 val labels = settings.text.labels
                 outKills.forEachIndexed { j, k ->
                     killCounter++
@@ -619,13 +620,15 @@ object MontageRenderBuilder {
      * Texte centré dans la largeur utile de [safe], [y] ramené entre ses marges du haut et du bas : l'interface de la
      * plateforme (boutons à droite, légende en bas) ne le cache pas.
      */
-    private fun drawText(font: String, text: String, at: Duration, size: Int, y: String, border: Int, safe: SafeArea = SafeArea.NONE): String {
+    internal fun drawText(font: String, text: String, at: Duration, size: Int, y: String, border: Int, safe: SafeArea = SafeArea.NONE): String {
         val t0 = sec(at)
         val t1 = sec(at + TEXT_DURATION)
         val fadeIn = sec(at + 80.milliseconds)
         val fadeOutStart = sec(at + TEXT_DURATION - 250.milliseconds)
         val alpha = "if(lt(t\\,$fadeIn)\\,(t-$t0)/0.08\\,if(gt(t\\,$fadeOutStart)\\,($t1-t)/0.25\\,1))"
-        return "drawtext=fontfile='$font':text='$text':fontsize=$size:fontcolor=white:borderw=$border:bordercolor=black" +
+        // Police qui a tous les caractères du libellé : Impact pour DOUBLE KILL ou ДАБЛ КИЛЛ, Yu Gothic pour ダブルキル.
+        val file = VideoFonts.drawtextPath(VideoFonts.forText(font, text))
+        return "drawtext=fontfile='$file':text='$text':fontsize=$size:fontcolor=white:borderw=$border:bordercolor=black" +
             (if (safe == SafeArea.NONE) ":x=(w-text_w)/2:y=$y" else ":x=w*${num(safe.left)}+(w*${num(safe.width)}-text_w)/2:y='min(max($y\\,h*${num(safe.top)})\\,h*${num(1 - safe.bottom)}-text_h)'") +
             ":enable='between(t\\,$t0\\,$t1)':alpha='$alpha'"
     }

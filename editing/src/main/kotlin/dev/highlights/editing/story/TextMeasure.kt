@@ -17,13 +17,18 @@ object TextMeasure {
     private val context = FontRenderContext(null, true, true)
     private val fonts = ConcurrentHashMap<String, Result<Font>>()
 
-    /** Largeur en pixels de [text] à la taille [size], ou null si la police est illisible. */
-    fun width(fontFile: String, size: Double, text: String): Double? {
+    /** Police lue depuis son fichier (`.ttf`, ou la première d'un `.ttc`), ou null si illisible. */
+    private fun font(fontFile: String): Font? =
         // L'échec est mémorisé aussi : une police absente n'est signalée qu'une fois.
-        val font = fonts.computeIfAbsent(fontFile) { path ->
+        fonts.computeIfAbsent(fontFile) { path ->
             runCatching { Font.createFont(Font.TRUETYPE_FONT, File(path)) }
-                .onFailure { log.warn { "Police illisible pour la mise en page des sous-titres ($path) : ${it.message}" } }
-        }.getOrNull() ?: return null
-        return font.deriveFont(size.toFloat()).getStringBounds(text, context).width
-    }
+                .onFailure { log.warn { "Police illisible pour la mise en page des textes incrustés ($path) : ${it.message}" } }
+        }.getOrNull()
+
+    /** Largeur en pixels de [text] à la taille [size], ou null si la police est illisible. */
+    fun width(fontFile: String, size: Double, text: String): Double? =
+        font(fontFile)?.deriveFont(size.toFloat())?.getStringBounds(text, context)?.width
+
+    /** Vrai si la police a un glyphe pour chaque caractère de [text], null si elle est illisible. */
+    fun canDisplay(fontFile: String, text: String): Boolean? = font(fontFile)?.let { it.canDisplayUpTo(text) == -1 }
 }

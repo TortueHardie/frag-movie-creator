@@ -43,11 +43,16 @@ class UiSnapshotTest : FunSpec({
 
     /**
      * Chaque écran est rendu en français (nom simple), en anglais (`en/`) et dans la pseudo-langue `en-XA` (`long/` :
-     * textes allongés de 40 %, comme l'allemand) pour repérer les textes coupés ou qui débordent.
+     * textes allongés de 40 %, comme l'allemand) pour repérer les textes coupés ou qui débordent. Toute autre langue
+     * livrée l'est aussi, dans le dossier de son fichier (`ru/`, `ja/`, `zh_CN/`…) : on y voit les caractères que la
+     * police de l'interface n'aurait pas (carrés vides).
      */
+    val languages = listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/") +
+        I18n.available().map { it.tag }.filter { it != "fr" && it != "en" }.sorted().map { it to "$it/" }
+
     fun render(name: String, state: UiState, width: Int = 1440, height: Int = 920): Path {
         var french: Path? = null
-        for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/")) {
+        for ((tag, folder) in languages) {
             I18n.withLanguage(tag) {
                 val scene = ImageComposeScene(width, height, Density(1f)) { App(state.copy(language = tag), NoopActions) }
                 try {

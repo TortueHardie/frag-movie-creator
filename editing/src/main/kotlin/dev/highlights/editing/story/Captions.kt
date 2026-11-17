@@ -151,17 +151,19 @@ object Captions {
         val words = sanitize(caption.text, settings.uppercase).split(' ').filter { it.isNotEmpty() }
         if (words.isEmpty()) return emptyList()
         val nominal = settings.size * height * (if (caption.loud) settings.shoutScale else 1.0)
-        val base = fit(settings.font, nominal, words.joinToString(" "), (width * safe.width).roundToInt())
+        // Police qui a tous les caractères de la phrase (sous-titre japonais avec Impact configuré : Yu Gothic).
+        val font = VideoFonts.forText(settings.font, words.joinToString(" "))
+        val base = fit(font, nominal, words.joinToString(" "), (width * safe.width).roundToInt())
         val t0 = caption.range.start
         val t1 = caption.range.end
-        val style = TextStyle(settings.font, base, height, safe.centerY(y, LINE_HEIGHT * base / height), t0, t1, settings.pop, safe = safe)
+        val style = TextStyle(font, base, height, safe.centerY(y, LINE_HEIGHT * base / height), t0, t1, settings.pop, safe = safe)
         if (caption.loud) return listOf(style.draw(words.joinToString(" "), settings.shoutColor))
         val marked = emphasized(words, settings.emphasis)
         if (marked.none { it }) return listOf(style.draw(words.joinToString(" "), "white"))
 
         // Mots placés un à un : largeur de chaque mot et de l'espace, mesurées dans la police, à la taille finale.
-        val widths = words.map { TextMeasure.width(settings.font, base, it) }
-        val space = TextMeasure.width(settings.font, base, " ")
+        val widths = words.map { TextMeasure.width(font, base, it) }
+        val space = TextMeasure.width(font, base, " ")
         if (widths.any { it == null } || space == null) {
             // Police illisible par Java : la phrase entière prend la couleur, faute de pouvoir placer les mots.
             return listOf(style.draw(words.joinToString(" "), settings.emphasisColor))
@@ -181,8 +183,9 @@ object Captions {
         safe: SafeArea = SafeArea.NONE,
     ): String {
         val label = sanitize(text, uppercase = true)
-        val px = fit(font, size * height, label, (width * safe.width).roundToInt())
-        return TextStyle(font, px, height, safe.centerY(y, LINE_HEIGHT * px / height), at.start, at.end, pop, fadeOut = 250.milliseconds, safe = safe)
+        val shown = VideoFonts.forText(font, label)
+        val px = fit(shown, size * height, label, (width * safe.width).roundToInt())
+        return TextStyle(shown, px, height, safe.centerY(y, LINE_HEIGHT * px / height), at.start, at.end, pop, fadeOut = 250.milliseconds, safe = safe)
             .draw(label, color)
     }
 
@@ -244,7 +247,7 @@ object Captions {
         fun draw(text: String, color: String, x: String = centered("text_w")): String {
             val px = size.roundToInt().coerceAtLeast(8)
             val border = (height * 0.006).roundToInt().coerceAtLeast(3)
-            val fontFile = font.replace("\\", "/").replace(":", "\\:")
+            val fontFile = VideoFonts.drawtextPath(font)
             val alpha = if (fadeOut.isPositive() && t1 - t0 > fadeOut) {
                 val from = sec(t1 - fadeOut)
                 ":alpha='if(gt(t\\,$from)\\,(${sec(t1)}-t)/${String.format(Locale.ROOT, "%.3f", fadeOut.inWholeMicroseconds / 1e6)}\\,1)'"

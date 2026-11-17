@@ -194,6 +194,7 @@ data class CaptionSettings(
     val maxChars: Int = 18,
     /** Piste transcrite : la voix du joueur (mic), à défaut le son complet. */
     val role: AudioRole = AudioRole.MIC,
+    /** Police des sous-titres et libellés, remplacée par un repli de Windows pour les caractères qu'elle n'a pas (`VideoFonts`). */
     val font: String = "C:/Windows/Fonts/impact.ttf",
     /** Taille du texte, en part de la hauteur de l'image. */
     val size: Double = 0.075,

@@ -59,7 +59,8 @@ class LanguagePrefsStore(private val file: Path) {
 internal fun LanguagePicker(current: String, actions: UiActions) {
     var expanded by remember { mutableStateOf(false) }
     val languages = I18n.available()
-    val currentTag = I18n.fileTag(Locale.forLanguageTag(current))
+    // Étiquette BCP 47 (« zh-CN ») ou tag de fichier (« zh_CN ») : les deux désignent la même langue.
+    val currentTag = I18n.fileTag(Locale.forLanguageTag(current.replace('_', '-')))
     Box {
         TextButton(onClick = { expanded = true }) {
             Text((languages.firstOrNull { it.tag == currentTag }?.name ?: current) + " ▾")
