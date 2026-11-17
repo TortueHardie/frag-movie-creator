@@ -504,7 +504,10 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         val reader = FeedReader(params.threshold, px(params.victimWidth), if (solid) 0 else params.bridge, shape)
         val sightings = if (solid) maxOf(params.minSightings, ceil(params.fillMinSeen.toDouble(DurationUnit.SECONDS) * params.fps).toInt()) else params.minSightings
         val rows = mutableListOf<List<FeedRow>>()
-        val keyframes = params.keyframeScan?.let { max -> ctx.frames.keyframeInterval(id)?.takeIf { it <= max } }
+        // Basse définition : toute la vidéo est lue. Les passages relus autour des images clés (2,4 s après celle qui
+        // montre la ligne) sont trop courts pour [KillfeedParams.fillMinSeen] : sur la partie du 22/09 en 480p, 37 kills
+        // sur 46, dont la moitié datés 2 à 3 s trop tard. Décoder 480p entier coûte peu (1 min 30 pour 31 min).
+        val keyframes = if (solid) null else params.keyframeScan?.let { max -> ctx.frames.keyframeInterval(id)?.takeIf { it <= max } }
         log.info {
             "$id : killfeed ${cw}x$ch à ($cx, $cy), lu en ${zone.width}x${zone.height}, ${params.fps} img/s" +
                 (if (solid) ", basse définition : aplat du portrait, vu $sightings fois" else "") +
