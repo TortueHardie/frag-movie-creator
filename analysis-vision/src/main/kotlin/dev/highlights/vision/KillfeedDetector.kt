@@ -163,6 +163,8 @@ data class KillfeedParams(
      * morts sur une partie avec 3 images, 21 vraies avec 2 s.
      */
     val fillMinSeen: SerialDuration = 2.seconds,
+    /** Basse définition : une ligne pas encore confirmée qu'on ne revoit pas pendant ce temps est oubliée (voir [FeedTracker]). */
+    val fillPendingGap: SerialDuration = 500.milliseconds,
 ) {
     init {
         require(fps > 0) { "fps doit être > 0" }
@@ -372,6 +374,13 @@ internal class FeedTracker(
     private val minSightings: Int,
     private val maxGap: Duration,
     private val deathSpacing: Duration,
+    /**
+     * Écart maximal pour une ligne pas encore vue [minSightings] fois : une vraie ligne qui arrive est vue en continu.
+     * Sans cela, une tache de décor vue un instant restait un suivi ouvert [maxGap] et absorbait la vraie ligne apparue
+     * plus haut (une ligne ne fait que monter) : en 480p à 30 img/s, le deuxième kill d'un doublé daté de la tache, ou
+     * perdu. Par défaut [maxGap] (pleine définition inchangée).
+     */
+    private val pendingGap: Duration = maxGap,
 ) {
     private class Track(
         val role: KillfeedRole,
@@ -399,7 +408,7 @@ internal class FeedTracker(
             // Même ligne : colonnes communes, et le bord gauche le plus proche. Le bord droit varie d'une image à l'autre
             // (le contour suit plus ou moins la ligne), le gauche à 2 px près ; deux lignes voisines peuvent se recouvrir.
             val match = tracks.asSequence()
-                .filter { it !in used && it.role == row.role && at - it.last <= maxGap }
+                .filter { it !in used && it.role == row.role && at - it.last <= (if (it.sightings >= minSightings) maxGap else pendingGap) }
                 .filter { minOf(it.right, row.right) >= maxOf(it.left, row.left) && row.center <= it.center + tolerance }
                 .minByOrNull { abs(it.left - row.left) }
             if (match == null) {
@@ -449,6 +458,8 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         val review: ProgressReporter,
         /** Images où une ligne doit être vue ([KillfeedParams.minSightings], ou [KillfeedParams.fillMinSeen] en basse définition). */
         val sightings: Int,
+        /** Basse définition : lecture de l'aplat du portrait. */
+        val solid: Boolean,
     )
 
     @Volatile
@@ -509,7 +520,7 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
             onFrame = { _, zones -> rows += reader.rows(zones[0]) },
         )
         val review = if (keyframes == null) ProgressReporter.NONE else ctx.progress.child("killfeed", 1 - SCAN_SHARE)
-        prepared = Prepared(subscription, rows, px(params.matchTolerance), zone, reader, keyframes, review, sightings)
+        prepared = Prepared(subscription, rows, px(params.matchTolerance), zone, reader, keyframes, review, sightings, solid)
     }
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
@@ -521,7 +532,7 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         val count = minOf(times.size, state.rows.size)
         if (count == 0) return SignalTrack.missing(id, ctx.grid.count, Message("notice.noFrames"))
 
-        val tracker = FeedTracker(state.tolerance, state.sightings, params.maxGap, params.deathSpacing)
+        val tracker = FeedTracker(state.tolerance, state.sightings, params.maxGap, params.deathSpacing, if (state.solid) params.fillPendingGap else params.maxGap)
         val end = ctx.media.duration
         if (state.keyframes == null) {
             for (i in 0 until count) tracker.add(times[i], state.rows[i])

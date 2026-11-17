@@ -124,6 +124,23 @@ class KillfeedTest : FunSpec({
         t.appearances() shouldBe listOf(KillfeedRole.KILL to at(0))
     }
 
+    test("basse définition : une tache vue un instant n'absorbe pas la vraie ligne apparue plus haut") {
+        // Partie du 22/09 en 480p à 30 img/s, 4,57 s : tache en bas de la zone ; 5,37 s, premier kill ; 7,53 s, second
+        // kill sous lui, encore au-dessus de la tache disparue.
+        fun pending(gap: Duration) = FeedTracker(tolerance = 4, minSightings = 3, maxGap = 3.seconds, deathSpacing = 10.seconds, pendingGap = gap)
+        val noise = FeedRow(KillfeedRole.KILL, 110, 117, 133, 139)
+        val first = FeedRow(KillfeedRole.KILL, 42, 52, 144, 152)
+        val second = FeedRow(KillfeedRole.KILL, 77, 87, 137, 144)
+        fun feed(t: FeedTracker) {
+            t.add(at(0), listOf(noise))
+            repeat(10) { t.add(at(4 + it), listOf(first)) }
+            repeat(10) { t.add(at(14 + it), listOf(first, second)) }
+        }
+        pending(500.milliseconds).also(::feed).appearances() shouldBe listOf(KillfeedRole.KILL to at(4), KillfeedRole.KILL to at(14))
+        // Sans délai propre aux lignes en attente (pleine définition) : le second kill prend la date de la tache.
+        pending(3.seconds).also(::feed).appearances() shouldBe listOf(KillfeedRole.KILL to at(0), KillfeedRole.KILL to at(4))
+    }
+
     test("une seule mort par round : la ligne réapparue après l'écran de mort est ignorée") {
         val t = tracker()
         val death = FeedRow(KillfeedRole.DEATH, 10, 32, 250, 290)
