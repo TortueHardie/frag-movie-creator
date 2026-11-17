@@ -716,6 +716,12 @@ Windows (rien à installer), par lots et en parallèle pendant le décodage de l
 - `icons` (paramètres d'un `hud-template`) fusionne le journal avec les icônes de notification : le journal donne le
   type (une « Aide : Élimination » affiche la même tête de mort qu'un kill) et sépare les kills enchaînés, l'icône date
   l'événement et couvre le texte illisible sur ciel clair.
+- `notice` lit aussi le libellé écrit sous l'icône (« ÉLIMINATION CONFIRMÉE », « AIDE : ÉLIMINATION », « UN PASSAGER
+  A SURVÉCU »…), avec ses propres `rules` : il corrige le type de l'icône quand le journal n'a rien lu, ou l'écarte.
+  Sans lui, une aide au kill sortait en kill (même tête de mort) et un passager déposé en aide (même poignée de main).
+  Illisible (texte gris sur fond clair), l'icône garde son type.
+- Joueur à terre : « EN ATTENTE DE RÉANIMATION » sort en événement `downed`, pas en mort (il est souvent relevé).
+  `montage.killStyle.downedAsDeath: true` le ferait compter comme une mort (rounds, kill aussitôt payé, K/D) ; désactivé.
 - Sur une partie de 1 h 25 : 14 kills sur 14, 3 aides sur 3, 8 réanimations sur 10, aucun faux positif (les icônes
   seules : 12 kills et un faux, aucune aide, 4 réanimations). Environ 1 min d'analyse pour 1 h 53 de vidéo.
 

@@ -1,28 +1,32 @@
-# Vérité terrain PROVISOIRE : ce sont les détections de game-events (profil wardogs, gate corrigé en véhicule,
-# analyse du 17/11/2026), pas encore validées par le joueur. Elle sert déjà de test de non-régression : tout
-# changement de détection la fait échouer. À la validation (planche dans output/revue/verite-terrain/), corriger
-# les événements, ajouter les morts (« death ») à kinds et à events, remplir validated.
+# Vérité terrain PROVISOIRE : ce sont les détections de game-events (profil wardogs avec le libellé des
+# notifications et « downed », analyse du 18/11/2026), pas encore validées par le joueur. Elle sert déjà de test
+# de non-régression : tout changement de détection la fait échouer. downed = à terre (« EN ATTENTE DE
+# RÉANIMATION »), pas une mort. À la validation (planches dans output/revue/verite-terrain/), corriger les
+# événements, ajouter les morts si le joueur en distingue, remplir validated.
 capture: { name: WARDOGS_09-22-2026_22-55-31-983.mp4, sizeBytes: 16244722666, duration: 6362.986s }
 profile: wardogs
 tolerance: 3s
 validated: null
 note: "Soirée de 1 h 46, plusieurs parties : la plus riche en kills. Planche de validation : output/revue/verite-terrain/22-55-31/."
-kinds: [kill, assist, revive]
+kinds: [kill, assist, revive, downed]
 events:
   - { at: "12:47", kind: revive }
   - { at: "16:50", kind: assist }
   - { at: "17:23", kind: assist }
   - { at: "20:21", kind: kill }
   - { at: "20:28", kind: revive }
+  - { at: "23:22", kind: downed }
   - { at: "24:06", kind: assist }
+  - { at: "24:15", kind: downed }
   - { at: "29:51", kind: assist }
   - { at: "31:31", kind: assist }
   - { at: "31:42", kind: kill }
   - { at: "37:12", kind: kill }
   - { at: "37:23", kind: revive }
   - { at: "37:35", kind: revive }
-  - { at: "38:37", kind: kill }
+  - { at: "38:37", kind: assist }
   - { at: "40:01", kind: kill }
+  - { at: "41:41", kind: downed }
   - { at: "45:34", kind: assist }
   - { at: "50:00", kind: kill }
   - { at: "52:39", kind: kill }
@@ -32,14 +36,19 @@ events:
   - { at: "1:07:52", kind: revive }
   - { at: "1:09:07", kind: kill }
   - { at: "1:10:08", kind: assist }
+  - { at: "1:13:03", kind: downed }
   - { at: "1:13:31", kind: revive }
   - { at: "1:14:17", kind: kill }
   - { at: "1:14:40", kind: revive }
-  - { at: "1:16:53", kind: assist }
+  - { at: "1:16:52", kind: assist }
+  - { at: "1:19:48", kind: downed }
   - { at: "1:22:24", kind: revive }
   - { at: "1:23:04", kind: assist }
   - { at: "1:23:50", kind: kill }
+  - { at: "1:26:41", kind: downed }
+  - { at: "1:29:48", kind: downed }
+  - { at: "1:31:48", kind: downed }
   - { at: "1:33:12", kind: kill }
 # Seuils = état mesuré au relevé (toutes les détections retrouvées, aucune en trop).
 thresholds:
-  game-events: { kill: { precision: 1.0, recall: 1.0 }, assist: { precision: 1.0, recall: 1.0 }, revive: { precision: 1.0, recall: 1.0 } }
+  game-events: { kill: { precision: 1.0, recall: 1.0 }, assist: { precision: 1.0, recall: 1.0 }, revive: { precision: 1.0, recall: 1.0 }, downed: { precision: 1.0, recall: 1.0 } }
