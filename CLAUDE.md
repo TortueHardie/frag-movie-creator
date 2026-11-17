@@ -159,6 +159,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   colonne `victimWidth` au bord droit = mort si collée au bord ; kill avec du jaune côté victime = « soi → soi », écarté),
   `FeedTracker` (suivi : colonnes communes + bord gauche le plus proche, ne fait que monter ; nouvelle ligne = événement).
   Réglé sur 4 parties (scripts d'évaluation hors dépôt) : changer un seuil demande de revalider sur de vraies captures.
+  Basse définition (hauteur < `fillBelow` 720) : `FrameShape.solid`, aplat jaune pur du portrait (`fillColor`, `fill*`), vu `fillMinSeen` 2 s,
+  suivi en attente oublié après `fillPendingGap` (`FeedTracker.pendingGap`), toute la vidéo décodée (pas de `keyframeScan`). Mesuré sur 2 parties 854x480.
   Utilisé par valorant.yaml en `fallbackFor: game-events`.
 - `RewardsLog.kt` : `RewardsLog.classify/fuzzyDistance/rows`, `LogTracker` (suivi de lignes, minSightings), `EventFusion.fuse`, `NoticeRead`, `NoticeLabels.relabel` (libellé le plus proche dans [before, after] : son type, "" = icône écartée, rien = icône inchangée).
 - `TemplateMatcher.kt` : `GrayImage`, `PreparedTemplate`, `TemplateMatcher.match` (NCC), `BrightTemplate/BrightMatcher`.
