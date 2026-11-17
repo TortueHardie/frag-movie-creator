@@ -94,9 +94,71 @@ val downloadFfmpeg by tasks.registering {
     }
 }
 
-val prepareBundledResources by tasks.registering(Sync::class) {
+/**
+ * `ffmpeg -version` du FFmpeg livré, écrit dans VERSION.txt à côté de lui : la GPL demande de pouvoir fournir les
+ * sources exactes du binaire distribué, et c'est ce fichier qui dit lequel (révision Git et options de compilation).
+ */
+val ffmpegVersion by tasks.registering {
+    description = "Note la version exacte du FFmpeg livré (VERSION.txt)."
     dependsOn(downloadFfmpeg)
+    val target = layout.buildDirectory.file("ffmpeg-version/VERSION.txt")
+    outputs.file(target)
+    outputs.upToDateWhen { false }
+    doLast {
+        val exe = File(ffmpegHome() ?: error("FFmpeg introuvable pour noter sa version"), "bin/ffmpeg.exe")
+        val process = ProcessBuilder(exe.path, "-hide_banner", "-version").redirectErrorStream(true).start()
+        val text = process.inputStream.bufferedReader().readText()
+        check(process.waitFor() == 0) { "ffmpeg -version a échoué : $text" }
+        target.get().asFile.apply { parentFile.mkdirs() }.writeText(text)
+    }
+}
+
+/**
+ * Chaque bibliothèque livrée doit figurer dans THIRD_PARTY_NOTICES.md : une dépendance ajoutée sans sa licence fait
+ * échouer la construction de l'installeur. On cherche le groupe Maven ou un nom connu du projet dans le fichier.
+ */
+val checkThirdPartyNotices by tasks.registering {
+    description = "Vérifie que THIRD_PARTY_NOTICES.md cite toutes les bibliothèques livrées."
+    val notices = rootProject.file("THIRD_PARTY_NOTICES.md")
+    val runtime = configurations.named("runtimeClasspath")
+    inputs.file(notices)
+    doLast {
+        val text = notices.readText().lowercase()
+        // Groupe Maven → mot attendu dans les notices (nom du projet tel qu'il y est écrit).
+        val names = mapOf(
+            "org.jetbrains.kotlin" to "kotlin standard library", "org.jetbrains.kotlinx" to "kotlinx",
+            "org.jetbrains.compose" to "compose multiplatform", "org.jetbrains.androidx" to "androidx",
+            "org.jetbrains.skiko" to "skiko", "org.jetbrains.runtime" to "jetbrains runtime api",
+            "org.jetbrains" to "org.jetbrains:annotations", "org.jspecify" to "jspecify", "androidx" to "androidx",
+            "com.charleskorn.kaml" to "kaml", "it.krzeminski" to "snakeyaml-engine-kmp", "com.squareup.okio" to "okio",
+            "net.thauvin.erik.urlencoder" to "urlencoder", "io.github.oshai" to "kotlin-logging",
+            "com.microsoft.onnxruntime" to "onnx runtime", "org.slf4j" to "slf4j", "ch.qos.logback" to "logback",
+            "com.github.ajalt.clikt" to "clikt",
+        )
+        val groups = runtime.get().incoming.resolutionResult.allComponents
+            .mapNotNull { (it.id as? org.gradle.api.artifacts.component.ModuleComponentIdentifier)?.group }.toSortedSet()
+        val missing = groups.filter { group ->
+            val name = names.entries.filter { group == it.key || group.startsWith(it.key + ".") }.maxByOrNull { it.key.length }?.value
+            name == null || name !in text
+        }
+        check(missing.isEmpty()) { "Bibliothèques livrées absentes de THIRD_PARTY_NOTICES.md : $missing" }
+    }
+}
+
+val prepareBundledResources by tasks.registering(Sync::class) {
+    dependsOn(downloadFfmpeg, ffmpegVersion, checkThirdPartyNotices)
     into(appResources)
+    // Licence de l'application et des composants livrés : obligatoires pour redistribuer (GPL, Apache, MIT).
+    from(rootProject.projectDir) {
+        include("LICENSE", "THIRD_PARTY_NOTICES.md")
+        into("common")
+    }
+    from(rootProject.file("licenses")) {
+        into("common/licenses")
+    }
+    from(ffmpegVersion) {
+        into("windows/ffmpeg")
+    }
     from(rootProject.file("config")) {
         into("common/config")
         // Modèles de transcription whisper (plusieurs centaines de Mo) : téléchargés à part, pas livrés dans l'installeur.
