@@ -35,6 +35,8 @@ data class EveningAuto(
     val delay: SerialDuration = DEFAULT_DELAY,
     val minKills: Int = DEFAULT_MIN_KILLS,
     val arrived: Set<SerialPath> = emptySet(),
+    /** Style de montage ; null : celui par défaut de `montage-styles.yaml` ; `none` : aucun (voir [dev.highlights.pipeline.EveningPlanner.style]). */
+    val style: String? = null,
 ) {
     companion object {
         /** Une heure sans nouvelle partie : une pause repas ne coupe pas la soirée en deux. */

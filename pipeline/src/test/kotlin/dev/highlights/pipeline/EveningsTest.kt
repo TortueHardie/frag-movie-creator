@@ -81,4 +81,11 @@ class EveningsTest : FunSpec({
         val now = Instant.parse("2026-11-20T00:00:00Z")
         EveningPlanner.due(evenings, reopened::done, now, 1.hours, 0, { true }, busy = false).map { it.date.toString() } shouldBe listOf("2026-11-17")
     }
+
+    test("style du montage de soirée : le choix, sinon celui par défaut du fichier de styles, « none » : aucun") {
+        EveningPlanner.style(null, null) shouldBe null
+        EveningPlanner.style(null, "tiktok") shouldBe "tiktok"
+        EveningPlanner.style("propre", "tiktok") shouldBe "propre"
+        EveningPlanner.style(EveningPlanner.NO_STYLE, "tiktok") shouldBe null
+    }
 })

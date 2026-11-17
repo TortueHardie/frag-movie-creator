@@ -21,6 +21,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.i18n.tr
+import dev.highlights.pipeline.EveningPlanner
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 
 /**
  * Montage automatique des soirées, dans la carte du dossier surveillé : la case (désactivée par défaut), le délai qui
@@ -58,6 +67,7 @@ fun EveningAutoSection(watch: WatchState, actions: UiActions) {
                     modifier = Modifier.width(64.dp),
                 )
             }
+            EveningStylePicker(watch, actions)
         }
         watch.montaging?.let { label ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -74,5 +84,33 @@ fun EveningAutoSection(watch: WatchState, actions: UiActions) {
             }
         }
         watch.eveningProblem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.danger, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+    }
+}
+
+/**
+ * Style du montage de soirée : celui par défaut du fichier de styles (nommé s'il y en a un), aucun, ou l'un des styles.
+ * Un menu plutôt que des boutons : le fichier de styles peut en contenir beaucoup.
+ */
+@Composable
+private fun EveningStylePicker(watch: WatchState, actions: UiActions) {
+    val styles = watch.eveningStyles
+    val choice = watch.evenings.style
+    fun label(id: String?): String = when (id) {
+        null -> styles.defaultStyle?.let { tr("ui.evening.styleDefaultNamed", "style" to it.name) } ?: tr("ui.evening.styleDefaultNone")
+        EveningPlanner.NO_STYLE -> tr("ui.evening.styleNone")
+        else -> styles.byId(id)?.name ?: id
+    }
+    var open by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(Modifier.width(40.dp))
+        Text(tr("ui.evening.style"), style = MaterialTheme.typography.bodySmall)
+        Box {
+            OutlinedButton(onClick = { open = true }) { Text(label(choice), style = MaterialTheme.typography.bodySmall) }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                (listOf(null, EveningPlanner.NO_STYLE) + styles.styles.map { it.id }).forEach { id ->
+                    DropdownMenuItem(text = { Text(label(id)) }, onClick = { open = false; actions.setEveningStyle(id) })
+                }
+            }
+        }
     }
 }
