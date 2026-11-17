@@ -274,7 +274,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   (ouvre les parties via `openSessions(files, then)` puis `openMontage` avec `MontageUiState.pick`).
 - Statistiques : `StatsView.kt` (`StatsState` : games, jeu choisi, `evenings/gameNames/shown`), actions `showStats/closeStats/setStatsGame`, `UiState.stats` (remplace la liste des analyses).
 - Vues : `App.kt` (layout, drop de fichiers), `SidePanel.kt` (`AppHeader, SourceSection, SettingsSection`), `SessionViews.kt` (`JobCard, SessionHeader, TimelineCard, SegmentList, ExportBar`),
-  `LibraryView.kt` (analyses enregistrées + `WatchCard`), `Dialogs.kt` (`ErrorDialog, VerticalPreviewWindow, MontageDialog`), `Theme.kt` (`Palette`, `HighlightsTheme`, `UiFonts` : police Windows par graisse pour zh/ja/ko).
+  `LibraryView.kt` (analyses enregistrées + `WatchCard`), `Dialogs.kt` (`ErrorDialog, VerticalPreviewWindow, MontageDialog`), `Theme.kt` (`Palette`, `HighlightsTheme`, `UiFonts` : famille système de Windows (SystemFont) pour zh/ja/ko).
 - `Platform.kt` (`DesktopPlatform` : FileDialog/JFileChooser, open/reveal/edit), `Installation.kt`, prefs : `WatchPrefs.kt` (`~/.highlights/watch.json`), `MusicPrefs.kt` (`~/.highlights/music.json` : fromStart par musique, dossier `library` + `useLibrary` ; ajouter un Path à un Set avec `plusElement`, un Path est itérable).
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).

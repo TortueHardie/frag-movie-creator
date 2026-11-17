@@ -66,13 +66,17 @@ class HardcodedTextTest : FunSpec({
     companion object {
         /**
          * Chaînes qui ne s'affichent pas (repérées par leur ligne ou leur contenu) : raisons d'annulation (journaux),
-         * commentaire du manifeste d'installation, script PowerShell de mise à jour.
+         * commentaire du manifeste d'installation, script PowerShell de mise à jour, noms de polices.
          */
         val ALLOWED = listOf(
             "CancellationException(",
             "next.store(it,",
             "INSTALLDIR=",
             "Start-Process",
+            // Noms de polices de Windows (UiFonts).
+            "Microsoft YaHei UI",
+            "Yu Gothic UI",
+            "Malgun Gothic",
         )
 
         /** Arguments de message qui portent un texte technique, jamais traduit. */

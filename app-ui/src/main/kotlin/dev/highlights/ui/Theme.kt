@@ -6,14 +6,15 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.platform.Font
+import androidx.compose.ui.text.platform.SystemFont
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import dev.highlights.core.i18n.I18n
-import java.nio.file.Path
-import kotlin.io.path.isRegularFile
+import java.awt.GraphicsEnvironment
+import java.util.Locale
 
 object Palette {
     val background = Color(0xFF0E1014)
@@ -76,27 +77,33 @@ fun HighlightsTheme(content: @Composable () -> Unit) {
  * la police par défaut n'a pas ces caractères et Skia les cherche glyphe par glyphe dans les polices du système : les
  * idéogrammes communs au japonais venaient de Yu Gothic (avec un gras), les caractères simplifiés seuls (统, 计) d'une
  * autre police sans gras, d'où « 搜索 » en gras à côté de « 统计 » maigre sur deux boutons identiques. Une famille
- * explicite par langue, prise dans les polices livrées avec Windows 10/11, donne une seule source et de vrais gras.
- * Graisses demandées par le thème : 400, 500 (libellés), 600 (titres) ; une police sans 500 retombe sur 400 et une
- * sans 600 sur 700 (règle de choix de Compose, celle de CSS). Fichier absent (autre système) : police par défaut.
+ * explicite par langue, celle de l'interface de Windows 10/11, donne une seule source et de vrais gras.
+ *
+ * Par nom de famille ([SystemFont]) et non par fichier : `YuGothR.ttc` s'ouvre sur sa première police, Yu Gothic, aux
+ * kana espacés pleine chasse et plus maigre que « Yu Gothic UI », la police des menus de Windows rangée plus loin dans
+ * le même fichier. Skia prend dans la famille la graisse la plus proche de chacune de celles du thème (400, 500, 600,
+ * 700). Famille absente (autre système) : police par défaut, comme avant.
  */
 object UiFonts {
-    private val dir: Path = Path.of(System.getenv("WINDIR") ?: "C:/Windows", "Fonts")
+    private val WEIGHTS = listOf(FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold, FontWeight.Bold)
 
-    /** Fichiers par graisse, du plus courant au plus gras. */
-    internal fun files(language: String): Map<FontWeight, String> = when (language) {
-        "zh" -> mapOf(FontWeight.Normal to "msyh.ttc", FontWeight.Bold to "msyhbd.ttc")
-        "ja" -> mapOf(FontWeight.Normal to "YuGothR.ttc", FontWeight.Medium to "YuGothM.ttc", FontWeight.Bold to "YuGothB.ttc")
-        "ko" -> mapOf(FontWeight.Normal to "malgun.ttf", FontWeight.Bold to "malgunbd.ttf")
-        else -> emptyMap()
+    /** Famille de l'interface de Windows pour [language], null hors chinois, japonais, coréen. */
+    internal fun family(language: String): String? = when (language) {
+        "zh" -> "Microsoft YaHei UI"
+        "ja" -> "Yu Gothic UI"
+        "ko" -> "Malgun Gothic"
+        else -> null
     }
 
+    private val installed: Set<String> by lazy {
+        runCatching { GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames(Locale.ROOT).toSet() }
+            .getOrDefault(emptySet())
+    }
+
+    // SystemFont est marquée expérimentale depuis Compose 1.0 desktop ; seule façon de viser une police du système par nom.
+    @OptIn(ExperimentalTextApi::class)
     fun forLanguage(language: String): FontFamily {
-        val fonts = files(language).mapNotNull { (weight, name) ->
-            dir.resolve(name).takeIf { it.isRegularFile() }?.let { Font(it.toFile(), weight) }
-        }
-        // Sans la graisse normale, un gras seul servirait à tout le texte : mieux vaut le repli d'avant.
-        if (fonts.none { it.weight == FontWeight.Normal }) return FontFamily.Default
-        return FontFamily(fonts)
+        val name = family(language)?.takeIf { it in installed } ?: return FontFamily.Default
+        return FontFamily(WEIGHTS.map { SystemFont(name, it) })
     }
 }
