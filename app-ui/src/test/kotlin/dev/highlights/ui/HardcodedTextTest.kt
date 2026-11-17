@@ -21,7 +21,9 @@ class HardcodedTextTest : FunSpec({
 
     test("aucun texte d'interface écrit en dur dans app-ui") {
         val dir = root.resolve("app-ui/src/main/kotlin")
-        val found = Files.walk(dir).use { w -> w.filter { it.extension == "kt" }.toList() }.flatMap { file ->
+        // Le pont de pilotage (`ui/bridge/`) ne parle qu'aux outils de développement, jamais à l'utilisateur.
+        val files = Files.walk(dir).use { w -> w.filter { it.extension == "kt" && "bridge" !in dir.relativize(it).map { p -> p.name } }.toList() }
+        val found = files.flatMap { file ->
             KotlinStrings.literals(file.readText())
                 .filter { (_, text, lineText) -> looksLikeText(text) && "log." !in lineText && ALLOWED.none { it in lineText || it in text } }
                 .map { (line, text, _) -> "${file.name}:$line  \"$text\"" }
