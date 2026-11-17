@@ -17,6 +17,20 @@ class FolderWatcherTest : FunSpec({
 
     fun Path.modifiedAt(at: Instant): Path = also { Files.setLastModifiedTime(it, FileTime.from(at)) }
 
+    test("une capture qui s'écrit encore : une partie en cours, la soirée n'est pas finie") {
+        val root = tempdir().toPath()
+        var now = start
+        val watcher = FolderWatcher(root, since = start, settle = 15.seconds, clock = { now })
+        watcher.writing() shouldBe false
+        root.resolve("partie.mp4").also { it.writeText("début") }.modifiedAt(start.plusSeconds(5))
+        now = start.plusSeconds(10)
+        watcher.poll { false }
+        watcher.writing() shouldBe true
+        now = start.plusSeconds(30)
+        watcher.poll { false }
+        watcher.writing() shouldBe false
+    }
+
     test("une capture n'est proposée qu'une fois terminée, et une seule fois") {
         val root = tempdir().toPath()
         var now = start

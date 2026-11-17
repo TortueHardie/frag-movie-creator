@@ -228,6 +228,9 @@ class HighlightPipeline(
     /** Musiques des derniers montages : une bibliothèque ne ressort pas toujours la même. */
     val musicHistory = MusicHistory(config.outputDir.resolve("sessions").resolve("music-history.json"))
 
+    /** Soirées déjà montées par le montage de soirée (voir [EveningHistory]). */
+    val eveningHistory = EveningHistory(config.outputDir.resolve("sessions").resolve("evening-montages.json"))
+
     /** Analyses déjà faites : une capture inchangée n'est pas réanalysée. */
     val library = AnalysisLibrary(config.outputDir.resolve("sessions").resolve("library.json"))
 
@@ -241,6 +244,25 @@ class HighlightPipeline(
      * illisibles sont ignorées.
      */
     fun statistics(): List<GameStats> = analyzedGames().flatMap { g -> g.sessions.map { (file, session) -> g.stats(file, session) } }
+
+    /** Soirées des parties analysées (voir [EveningPlanner.of]), la plus récente d'abord. */
+    fun evenings(): List<Evening> = EveningPlanner.of(statistics())
+
+    /**
+     * Montage kills d'une soirée entière ([killMontage] de toutes ses parties), retenu dans [eveningHistory] : le
+     * montage automatique ne la refera pas. Un échec y est retenu aussi, puis relancé.
+     */
+    suspend fun eveningMontage(evening: Evening, music: Path, options: MontageOptions, progress: ProgressReporter): ExportResult {
+        val sessions = evening.sessionFiles.map(SessionStore::load)
+        return try {
+            killMontage(sessions, music, options, progress).also { eveningHistory.record(evening, it.videos.values.firstOrNull()) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            eveningHistory.record(evening, null, e.message ?: e.toString())
+            throw e
+        }
+    }
 
     /**
      * Moments (groupes de kills, comme le montage les forme) des parties analysées qui répondent à [query], du plus

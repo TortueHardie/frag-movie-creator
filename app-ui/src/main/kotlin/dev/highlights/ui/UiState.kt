@@ -136,7 +136,19 @@ data class WatchState(
     /** Analyses faites en fond et pas encore ouvertes (fichiers de session). */
     val fresh: Set<Path> = emptySet(),
     val lastError: String? = null,
+    /** Montage automatique des soirées finies (voir [EveningAuto]) et texte du champ de délai. */
+    val evenings: EveningAuto = EveningAuto(),
+    val eveningDelayText: String = I18n.duration(EveningAuto.DEFAULT_DELAY),
+    /** Soirée en cours de montage (« Soirée du 16/11 ») et avancement. */
+    val montaging: String? = null,
+    val montageFraction: Double = 0.0,
+    /** Dernier montage de soirée fait : ce que dit la notification, et la vidéo. */
+    val lastEvening: EveningReady? = null,
+    /** Montage de soirée impossible (pas de dossier de musiques, échec) : dit dans la carte du dossier surveillé. */
+    val eveningProblem: String? = null,
 )
+
+data class EveningReady(val text: String, val video: Path?)
 
 enum class TargetMode { DURATION, TOP_N, ALL }
 
