@@ -53,7 +53,8 @@ class BundlesTest : FunSpec({
                         problems += "placeholders de $key : ${placeholders(translated)} au lieu de ${placeholders(text)}"
                     // Un espace final écrit en clair est retiré au chargement : il faut ` `. Les outils d'écriture
                     // des sessions de traduction ont transformé l'échappement en espace, d'où « 10 kills,6 clutchs ».
-                    text.last().isWhitespace() && !translated.last().isWhitespace() ->
+                    // La ponctuation pleine chasse (« 、 », « ； ») se passe d'espace : seule la ponctuation latine est visée.
+                    text.last().isWhitespace() && translated.last() in ",;:/-" ->
                         problems += "espace final perdu dans $key (écrire \\u0020 en fin de valeur)"
                 }
             }
