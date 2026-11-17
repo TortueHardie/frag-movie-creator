@@ -56,6 +56,8 @@ data class UiState(
     val library: List<LibraryItem> = emptyList(),
     /** Analyses cochées dans la liste, à ouvrir ensemble pour un seul montage (fichiers de session). */
     val librarySelection: Set<Path> = emptySet(),
+    /** Analyse à oublier, en attente de confirmation (null = pas de question). */
+    val forget: LibraryItem? = null,
     val watch: WatchState = WatchState(),
     /** Nouvelle version proposée (null : à jour, ou pas encore vérifié). */
     val update: UpdateState? = null,

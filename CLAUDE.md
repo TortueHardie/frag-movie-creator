@@ -19,7 +19,7 @@ incrustés) passe par les bundles `core/src/main/resources/i18n/messages*.proper
   (FFmpeg requis, vidéos synthétiques générées par `ffmpeg/src/testFixtures/.../TestMedia.kt`). Un module : `:montage:test`.
 - CLI : `.\gradlew.bat :app-cli:installDist` → `app-cli\build\install\app\bin\app.bat` ; ou `:app-cli:run --args="..."`.
 - UI dev : `.\gradlew.bat :app-ui:run` (lit `config/` du projet via `-Dhighlights.config`).
-  Piloter l'app sans souris ni computer-use : `:app-ui:run -Pbridge` + skill `.claude/skills/drive-app` (curl sur le pont, voir §4 app-ui `bridge/`).
+  Piloter l'app sans souris ni computer-use : `:app-ui:run -Pbridge` (+ `-PuserHome=<dossier>` : préférences isolées, pas d'analyse du dossier surveillé de l'utilisateur) + skill `.claude/skills/drive-app` (curl sur le pont, voir §4 app-ui `bridge/`).
 - Installeur : `:app-ui:packageMsi`, `:app-ui:portableZip` (WiX 3 ; FFmpeg téléchargé si absent).
   Licence GPL-3.0-or-later (`LICENSE`) ; livrés aussi `THIRD_PARTY_NOTICES.md`, `licenses/`, `ffmpeg/VERSION.txt` (tâche `ffmpegVersion`).
   Nouvelle dépendance d'exécution → l'ajouter à `THIRD_PARTY_NOTICES.md` et à la table de `checkThirdPartyNotices` (app-ui/build.gradle.kts), sinon l'installeur ne se construit pas.
@@ -107,11 +107,11 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `ffmpeg/Hwaccel.kt` : `Hwaccel.resolve("auto"|"none"|nom)`.
 - `model/AudioTracks.kt` : `AudioRole{MIX,GAME,MIC}`, `AudioLayout(mix,game,mic)` (imposé par profil), `AudioTracks.of(streams, layout)`
   (ordre : layout > titres > nombre de pistes), `indexOf(role)`, `mixIndices()`, `describe()` et `explanation` en `Message` (finissent dans « aucun moment retenu »), `roleName(role)`.
-- `model/Highlight.kt` : `Highlight(id, source, range, peak, score, contributions, enabled, events)`, `ScoredTimeline(grid, total, contributions, events, excluded, segments)`, `TimelineEvent`, `TimelineSegment`.
+- `model/Highlight.kt` : `Highlight(id, source, range, peak, score, contributions, enabled, events, origin: MomentOrigin{DETECTED,ADJUSTED,ADDED}, order: Int?)` (`manual` = retouché/ajouté, ids « m001 »), `ScoredTimeline(grid, total, contributions, events, excluded, segments)`, `TimelineEvent`, `TimelineSegment`.
 - `model/MediaInfo.kt` : `MediaInfo(path, sizeBytes, duration, creationTime, container, video, audio ; recordedAt calculé)`, `RECORDING_ORDER`, `VideoStream`, `AudioStream(audioIndex, title…)`.
 - `model/Settings.kt` : `SelectionPolicy`, `SelectionTarget(topN|totalDuration|all, exactement un)`, `EditSettings` (style, story, order, transition,
   loudnessLufs, audio, audioStreams, formats, sourceHeight, landscape, vertical, grade, fps; `audioIndices(tracks)`), `AudioSelection`,
-  `GradeSettings(lut, saturation, contrast, vignette, vibrance, brightness)`, `ClipOrder`, `TransitionSettings`, `OutputFormat{SOURCE,LANDSCAPE "16:9",VERTICAL "9:16"}`,
+  `GradeSettings(lut, saturation, contrast, vignette, vibrance, brightness)`, `ClipOrder`, `TransitionSettings`, `OutputFormat{SOURCE,LANDSCAPE "16:9",VERTICAL "9:16"}`, `ClipOrder{CHRONOLOGICAL,SCORE,MANUAL}` (`DefaultEditPlanner.order` ; MANUAL par défaut à l'export si un moment coché a un `order`),
   `FrameSize`, `VerticalSettings(size, cropRegion, hud, reference)`, `HudOverlay`, `OverlayTarget`, `CropRegion` (coords normalisées 0..1).
 - `model/Platform.kt` : `SafeArea(top, bottom, left, right ; width, centerY)`, `PlatformProfile(name, format, maxDuration, loudnessLufs, maxBitrate, fps, safeArea ; applyTo(EditSettings))`,
   `DEFAULTS` (tiktok, shorts, reels, youtube), `parseBitrate` ; `LoadedConfig.platforms` = DEFAULTS + `AppConfig.platforms` ; `EncoderProfile.withMaxBitrate`.
@@ -174,6 +174,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `MomentSelector.kt` : `ThresholdMomentSelector.select/selectAcross` (seuil ou `requiredEvent`, merge, pre/postRoll, min/maxClip, réactions → bonus, cible top/durée/all).
 - `SegmentExtension.kt` : étend un moment pour ne pas couper `keepWhole` (≤ maxExtension).
 - `HighlightMerge.preserveDisabled` : garde décochés les moments recouvrant un moment décoché.
+- `MomentEdits.kt` : retouches à la main, pures : `adjust` (bornes ± delta, capture et minClip/maxClip), `add` (moment centré, score/événements lus dans la timeline),
+  `preserveManual` (appelé par `reselect/reselectAll` : retouches gardées, détectés qui les recouvrent écartés, rang manuel repris), `move`, `nextManualId`.
 - `ScoringEngine` : façade `score / select / selectAcross`.
 
 ### editing
@@ -246,7 +248,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   `library`, `previewDir`, `withJobDir` (workDir/job-UUID, gardé si échec).
 - `Pipelines.kt` : câblage manuel (pas de DI) `Pipelines.ffmpeg(config)`, `Pipelines.create(config)`.
 - `ConfigLocator.locate` : explicite > env `HIGHLIGHTS_CONFIG` > prop `highlights.config` > `./config/app.yaml` > `<install>/config/app.yaml`.
-- `AnalysisLibrary.kt` : index `outputDir/sessions/library.json` (`LibraryEntry`), `find/contains/record/entries`, `fingerprint`, `stamp`, `ANALYSIS_VERSION`.
+- `AnalysisLibrary.kt` : index `outputDir/sessions/library.json` (`LibraryEntry`), `find/contains/record/entries/forget` (oublie : entrée + `*.session.json`, jamais une capture), `fingerprint`, `stamp`, `ANALYSIS_VERSION`.
 - `FolderWatcher.kt` : `poll(isKnown)` → fichiers stables depuis `settle`.
 - `YouTubePublisher.kt` : `HighlightPipeline.youtube(browse)` → `apiEnabled` (`publish.youtube.api`, false par défaut : envoi manuel, `UPLOAD_PAGE`), `configured` (app.yaml `publish.youtube` ou `client_secret*.json` déposé dans le dossier de config), `connected`,
   `facts(video)` (probe + rapport JSON du même dossier qui liste la vidéo dans `outputs`), `suggest`, `login/logout`, `upload` ; jeton `~/.highlights/youtube-token.json`.
@@ -281,7 +283,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   (ouvre les parties via `openSessions(files, then)` puis `openMontage` avec `MontageUiState.pick`).
 - Statistiques : `StatsView.kt` (`StatsState` : games, jeu choisi, `evenings/gameNames/shown`), actions `showStats/closeStats/setStatsGame`, `UiState.stats` (remplace la liste des analyses).
 - Vues : `App.kt` (layout, drop de fichiers), `SidePanel.kt` (`AppHeader, SourceSection, SettingsSection`), `SessionViews.kt` (`JobCard, SessionHeader, TimelineCard, SegmentList, ExportBar`),
-  `LibraryView.kt` (analyses enregistrées + `WatchCard`), `Dialogs.kt` (`ErrorDialog, VerticalPreviewWindow, MontageDialog`), `Theme.kt` (`Palette`, `HighlightsTheme`, `UiFonts` : famille système de Windows (SystemFont) pour zh/ja/ko).
+  `LibraryView.kt` (analyses enregistrées + `WatchCard` + `ForgetDialog`, actions `askForget/confirmForget/cancelForget`, `UiState.forget`),
+  `MomentRetouch.kt` (retouches de la session ouverte : `montageOrder`, `nudge`, `add`, `move` ; actions `nudgeSegment/addSegmentAt/moveSegment`, barre `RetouchBar` de `SessionViews`), `Dialogs.kt` (`ErrorDialog, VerticalPreviewWindow, MontageDialog`), `Theme.kt` (`Palette`, `HighlightsTheme`, `UiFonts` : famille système de Windows (SystemFont) pour zh/ja/ko).
 - `Platform.kt` (`DesktopPlatform` : FileDialog/JFileChooser, open/reveal/edit), `Installation.kt`, prefs : `WatchPrefs.kt` (`~/.highlights/watch.json`), `MusicPrefs.kt` (`~/.highlights/music.json` : fromStart par musique, dossier `library` + `useLibrary` ; ajouter un Path à un Set avec `plusElement`, un Path est itérable).
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).

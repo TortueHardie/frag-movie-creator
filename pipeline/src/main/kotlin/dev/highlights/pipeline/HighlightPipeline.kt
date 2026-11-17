@@ -13,6 +13,7 @@ import dev.highlights.core.config.LoadedConfig
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.Hwaccel
 import dev.highlights.core.model.AudioTracks
+import dev.highlights.core.model.ClipOrder
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.EffectDensity
@@ -49,7 +50,7 @@ import dev.highlights.montage.MusicHistory
 import dev.highlights.montage.MusicLibrary
 import dev.highlights.montage.OneTaps
 import dev.highlights.montage.ScopeCuts
-import dev.highlights.scoring.HighlightMerge
+import dev.highlights.scoring.MomentEdits
 import dev.highlights.scoring.ScoringEngine
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CancellationException
@@ -96,6 +97,8 @@ data class ExportOptions(
     val music: Path? = null,
     /** Plateforme visée (tiktok, shorts, reels, youtube…) : format, volume, débit, zone sûre et durée maximale. */
     val platform: String? = null,
+    /** Ordre des moments ; null = ordre manuel si l'interface en a fixé un ([ClipOrder.MANUAL]), sinon celui du profil. */
+    val order: ClipOrder? = null,
 )
 
 /** Surcharges ponctuelles des réglages de montage du profil (null = valeur du profil). */
@@ -441,6 +444,7 @@ class HighlightPipeline(
         val settings: EditSettings = edit.copy(
             formats = options.formats ?: edit.formats,
             style = options.style ?: edit.style,
+            order = options.order ?: if (sessions.any { s -> s.highlights.any { it.enabled && it.order != null } }) ClipOrder.MANUAL else edit.order,
             story = options.music?.let { edit.story.copy(music = edit.story.music.copy(file = it.toAbsolutePath().toString())) } ?: edit.story,
         ).let { platform?.applyTo(it) ?: it }
         return withJobDir { workDir ->
@@ -481,14 +485,15 @@ class HighlightPipeline(
 
     /**
      * Recalcule la sélection depuis la timeline de la session, sans réanalyser (instantané).
-     * Les segments recouvrant un segment décoché restent décochés.
+     * Les segments recouvrant un segment décoché restent décochés ; les moments retouchés ou ajoutés à la main restent
+     * tels quels ([MomentEdits.preserveManual]).
      */
     fun reselect(session: Session, threshold: Double?, target: SelectionTarget?, requiredEvent: String? = null): Session {
         val policy = profiles.byId(session.profileId).selection.let { s ->
             s.copy(threshold = threshold ?: s.threshold, target = target ?: s.target, requiredEvent = requiredEvent)
         }
         val fresh = scoring.select(session.timeline, policy, session.media.path)
-        return session.copy(highlights = HighlightMerge.preserveDisabled(session.highlights, fresh))
+        return session.copy(highlights = MomentEdits.preserveManual(session.highlights, fresh))
     }
 
     /**
@@ -502,7 +507,7 @@ class HighlightPipeline(
         }
         val fresh = scoring.selectAcross(sessions.map { it.timeline to it.media.path }, policy)
         return sessions.zip(fresh) { session, highlights ->
-            session.copy(highlights = HighlightMerge.preserveDisabled(session.highlights, highlights))
+            session.copy(highlights = MomentEdits.preserveManual(session.highlights, highlights))
         }
     }
 

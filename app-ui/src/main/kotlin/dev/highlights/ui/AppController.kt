@@ -86,6 +86,12 @@ interface UiActions {
     fun toggleSegment(id: String)
     fun setAllSegments(enabled: Boolean)
     fun selectSegment(id: String?)
+    /** Retouche : déplace le début (ou la fin si [end]) du moment [id] de [delta], dans les bornes du profil. */
+    fun nudgeSegment(id: String, end: Boolean, delta: Duration)
+    /** Ajoute à la main un moment centré sur [at] dans la capture [entry] (index dans la session ouverte). */
+    fun addSegmentAt(entry: Int, at: Duration)
+    /** Fait monter ([delta] < 0) ou descendre le moment [id] dans l'ordre du montage. */
+    fun moveSegment(id: String, delta: Int)
     fun previewClip(id: String)
     fun previewVertical(id: String)
     fun regenerateVerticalPreview()
@@ -132,6 +138,10 @@ interface UiActions {
     fun openLibraryItem(sessionFile: Path)
     fun toggleLibraryItem(sessionFile: Path)
     fun openLibrarySelection()
+    /** Oublier une analyse : demande d'abord confirmation (la vidéo n'est jamais touchée). */
+    fun askForget(sessionFile: Path)
+    fun confirmForget()
+    fun cancelForget()
     fun chooseWatchFolder()
     fun stopWatching()
 
@@ -571,6 +581,28 @@ class AppController(
 
     override fun selectSegment(id: String?) = _state.update { s -> s.copy(session = s.session?.copy(selectedId = id)) }
 
+    override fun nudgeSegment(id: String, end: Boolean, delta: Duration) = retouch { current, policy ->
+        MomentRetouch.nudge(current, id, end, delta, policy).let { (updated, key) -> updated.copy(selectedId = key) }
+    }
+
+    override fun addSegmentAt(entry: Int, at: Duration) = retouch { current, policy ->
+        MomentRetouch.add(current, entry, at, policy)?.let { (updated, key) -> updated.copy(selectedId = key) } ?: current
+    }
+
+    override fun moveSegment(id: String, delta: Int) = retouch { current, _ -> MomentRetouch.move(current, id, delta) }
+
+    /** Retouche à la main de la session ouverte, avec la sélection du profil (bornes de longueur), puis sauvegarde différée. */
+    private fun retouch(change: (SessionState, dev.highlights.core.model.SelectionPolicy) -> SessionState) {
+        val current = state.value.session ?: return
+        val policy = runCatching { backend?.pipeline?.profiles?.byId(current.sessions.first().profileId)?.selection }.getOrNull()
+            ?: dev.highlights.core.model.SelectionPolicy()
+        val updated = change(current, policy)
+        if (updated == current) return
+        _state.update { it.copy(session = updated) }
+        scheduleSave()
+        loadThumbnails()
+    }
+
     override fun previewClip(id: String) {
         val s = state.value
         val current = s.session ?: return
@@ -820,6 +852,21 @@ class AppController(
     override fun openLibrarySelection() {
         val s = state.value
         openSessions(s.library.map { it.sessionFile }.filter { it in s.librarySelection })
+    }
+
+    override fun askForget(sessionFile: Path) = _state.update { s -> s.copy(forget = s.library.firstOrNull { it.sessionFile == sessionFile }) }
+
+    override fun cancelForget() = _state.update { it.copy(forget = null) }
+
+    override fun confirmForget() {
+        val item = state.value.forget ?: return
+        val p = backend?.pipeline ?: return
+        _state.update { it.copy(forget = null) }
+        scope.launch(Dispatchers.IO) {
+            runCatching { p.library.forget(item.sessionFile) }
+                .onFailure { log.warn(it) { "Analyse ${item.sessionFile} non oubliée" } }
+            refreshLibrary()
+        }
     }
 
     private fun refreshLibrary() {

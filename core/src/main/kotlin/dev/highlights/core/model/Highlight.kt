@@ -2,6 +2,7 @@ package dev.highlights.core.model
 
 import dev.highlights.core.serialization.SerialDuration
 import dev.highlights.core.serialization.SerialPath
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -17,7 +18,23 @@ data class Highlight(
     val enabled: Boolean = true,
     /** Nombre d'événements par type dans le segment, ex. {"kill": 2}. */
     val events: Map<String, Int> = emptyMap(),
-)
+    /** D'où vient le moment : détecté, retouché ou ajouté à la main. Un moment non détecté survit à un recalcul. */
+    val origin: MomentOrigin = MomentOrigin.DETECTED,
+    /** Rang dans le montage choisi à la main (null = ordre du profil) ; voir [ClipOrder.MANUAL]. */
+    val order: Int? = null,
+) {
+    /** Retouché ou ajouté par l'utilisateur : le recalcul de la sélection le garde tel quel. */
+    val manual: Boolean get() = origin != MomentOrigin.DETECTED
+}
+
+@Serializable
+enum class MomentOrigin {
+    @SerialName("detected") DETECTED,
+    /** Début ou fin déplacés à la main. */
+    @SerialName("adjusted") ADJUSTED,
+    /** Ajouté à la main sur la timeline. */
+    @SerialName("added") ADDED,
+}
 
 /** Score fusionné par fenêtre et contribution de chaque signal (NaN remplacé par 0 pour rester sérialisable). */
 @Serializable
