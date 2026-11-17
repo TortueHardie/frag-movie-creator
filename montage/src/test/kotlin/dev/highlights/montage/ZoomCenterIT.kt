@@ -14,15 +14,18 @@ import kotlin.time.Duration.Companion.seconds
  * au centre (le réticule ne glisse pas). Avec l'ancien recadrage `(iw-w)/2`, son centre passait de 100 à 150 dès ×1,5.
  */
 class ZoomCenterIT : FunSpec({
-    test("le zoom animé reste centré").config(enabledIf = { TestMedia.available }, timeout = 60.seconds) {
+    // Point visé au centre, puis plus haut (réticule d'un 9:16 décalé sous le bandeau) : il ne bouge pas.
+    listOf(0.5, 0.3).forEach { focus ->
+    test("le zoom animé garde fixe le point visé (y = $focus)").config(enabledIf = { TestMedia.available }, timeout = 60.seconds) {
         val ffmpeg = TestMedia.requireFfmpeg()
         val size = 200
-        val vf = ZoomCrop.filters(size, size, "(1+0.45*t)", "bilinear").joinToString(",")
+        val target = (focus * size).toInt()
+        val vf = ZoomCrop.filters(size, size, "(1+0.45*t)", "bilinear", focusY = focus).joinToString(",")
         val bytes = java.io.ByteArrayOutputStream()
         ffmpeg.run(
             FfmpegCommand(
                 listOf(
-                    "-f", "lavfi", "-i", "color=c=black:s=${size}x$size:r=10:d=2,drawbox=x=95:y=95:w=10:h=10:color=red:t=fill",
+                    "-f", "lavfi", "-i", "color=c=black:s=${size}x$size:r=10:d=2,drawbox=x=95:y=${target - 5}:w=10:h=10:color=red:t=fill",
                     "-vf", vf, "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
                 ),
                 "zoom centré de test",
@@ -42,7 +45,8 @@ class ZoomCenterIT : FunSpec({
                 if (r > 128) { sx += x; sy += y; n++ }
             }
             (sx / n) shouldBe (99.5 plusOrMinus 1.5)
-            (sy / n) shouldBe (99.5 plusOrMinus 1.5)
+            (sy / n) shouldBe ((target - 0.5) plusOrMinus 1.5)
         }
+    }
     }
 })

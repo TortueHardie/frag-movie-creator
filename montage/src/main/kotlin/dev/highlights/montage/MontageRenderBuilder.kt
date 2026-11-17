@@ -179,7 +179,9 @@ object MontageRenderBuilder {
                 } ?: ""
                 val z = "(1+$punch$approach)"
                 // Recadrage recentré à chaque image (voir ZoomCrop : `iw` resterait celui de la première image).
-                effects += ZoomCrop.filters(w, h, z, settings.zoom.scaleFlags)
+                // Vers le réticule réel : le centre de la capture, qui n'est plus au centre du cadre si le 9:16 est décalé.
+                val (fx, fy) = RenderCommandBuilder.crosshair(request.format, media, edit)
+                effects += ZoomCrop.filters(w, h, z, settings.zoom.scaleFlags, focusX = fx, focusY = fy)
             }
             // Flou de mouvement après le zoom : le punch-in traîne lui aussi ; avant textes et flash, qui restent nets.
             if (blend > 1) effects += "tmix=frames=$blend"
