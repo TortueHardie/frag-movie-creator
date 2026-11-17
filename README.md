@@ -797,7 +797,12 @@ ou le killfeed d'une capture OBS). La balle qui tue est la dernière vue entre 1
   qui repasse au blanc en 0,3 s), qui comptait pour trois balles de plus : aucun one tap n'y était jamais trouvé. La
   zone est aussi relue en turquoise, et les changements pendant une recharge ne comptent pas (2 balles sur 2 au lieu
   de 5, vérifié à l'image). Aucun turquoise autour des kills des parties classées.
-- Zone mesurée en 3440x1440 seulement. Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
+- Lecture en paliers : un changement ne compte que s'il fait passer le compteur d'un affichage stable (0,05 s au moins)
+  à un autre, et un compteur absent ou effacé (presque sans blanc : caché, flash) n'est pas lu. Avant, chaque image
+  était comparée à la précédente : le décor qui change derrière les chiffres (flash rouge des dégâts, mur clair,
+  compteur caché) comptait des balles. Sur une partie en 854x480 (16:9), autour de 5 kills vérifiés à l'image :
+  33 vraies balles sur 33 dans les deux cas, 29 fausses avant, 3 après (`minPlateau`, `minDigits`).
+- Zone mesurée en 3440x1440 et vérifiée en 854x480 (16:9). Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
   est à mettre à jour (**Mettre à jour les analyses**, ou `--reanalyze`).
 - Le gabarit du son headshot livré reconnaît la moitié des headshots (0,72 à 0,78) sans aucun faux (kills au corps à
   0,64 au plus), au seuil 0,7. Un premier réglage, pris dans l'une de ces deux parties : à revoir sur d'autres.

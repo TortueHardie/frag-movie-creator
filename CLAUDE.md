@@ -168,7 +168,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `RewardsLog.kt` : `RewardsLog.classify/fuzzyDistance/rows`, `LogTracker` (suivi de lignes, minSightings), `EventFusion.fuse`, `NoticeRead`, `NoticeLabels.relabel` (libellé le plus proche dans [before, after] : son type, "" = icône écartée, rien = icône inchangée).
 - `TemplateMatcher.kt` : `GrayImage`, `PreparedTemplate`, `TemplateMatcher.match` (NCC), `BrightTemplate/BrightMatcher`.
 - `WindowsOcr.kt` : lance `resources/.../windows-ocr.ps1` (Windows.Media.Ocr) par lots ; `WindowsOcr.supported`.
-- `AmmoCounterDetector.kt` — type **`ammo-counter`** : compteur de munitions du HUD relu à 60 img/s autour de chaque kill (`ctx.events`, `dependsOn`) via `frames.extractRange` → events `hud-shot` ; `changes` (chiffres blancs qui changent), `refills` (recharge animée du Combat à mort, zone `TEAL`, ignorée), `windows`.
+- `AmmoCounterDetector.kt` — type **`ammo-counter`** : compteur de munitions du HUD relu à 60 img/s autour de chaque kill (`ctx.events`, `dependsOn`) via `frames.extractRange` → events `hud-shot` ; `changes` (paliers : affichage stable `minPlateau` qui change, palier sans blanc `minDigits` = compteur absent, ignoré), `refills` (recharge animée du Combat à mort, zone `TEAL`, ignorée), `windows`.
 - `FrameSampling.kt` : `chooseSampling` (images clés vs fps selon intervalle mesuré).
 
 ### analysis-ml
@@ -187,7 +187,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 
 ### editing
 - `EditPlan.kt` : `PlannedClip`, `EditPlan(clips, settings, fade)`, `DefaultEditPlanner`.
-- `RenderCommandBuilder.kt` : rendu simple (une entrée par clip, xfade, loudnorm, recadrage 9:16 + HUD crop-and-replace, grade). `geometry`, `outputSize`, `pixelScale` (pixels de sortie par pixel de capture), `cropBox`, `grade`, `buildPreview`.
+- `RenderCommandBuilder.kt` : rendu simple (une entrée par clip, xfade, loudnorm, recadrage 9:16 + HUD crop-and-replace, grade). `geometry`, `outputSize`, `pixelScale` (pixels de sortie par pixel de capture), `cropBox`, `crosshair` (réticule = centre de la capture, en fractions du cadre de sortie, décalé en 9:16 selon `cropRegion`), `grade`, `buildPreview`.
+- `ZoomCrop.kt` : zoom animé (`scale` eval=frame + `crop`) qui garde fixe un point (réticule) ; jamais `(iw-w)/2` dans ce crop (iw figé à la première image : le zoom s'ancrait en haut à gauche). Utilisé par `MontageRenderBuilder` (zoom, flou radial) et `StoryRenderBuilder` (punch, secousse).
 - `SourceCuts.kt` : `SourceCut`, `CutInput`, `SourceCuts.input`, `SourceCutter.prepare` (MIN_CUTS=12 ; découpe si ≥ ; vérif espace disque).
 - `story/StoryPlanner.kt` : `StoryShot`, `ShotRole{COLD_OPEN,OPENING,JUMP}`, `StoryPlan`, `plan()` (accroche → scènes → `liveRanges` jump cuts → `decorate` punch/shake/slow/labels), `streakLabels`, `withCaptions`.
 - `story/StoryRenderBuilder.kt` : graphe story (framing zoom/shake, slowVideo, SFX générés `WHOOSH_SOURCE_*`/`IMPACT_SOURCE_*` ou `SfxBank` dossiers, musique `musicVolume`, `envelope`).
