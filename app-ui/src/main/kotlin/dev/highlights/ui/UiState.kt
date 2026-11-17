@@ -148,6 +148,8 @@ data class WatchState(
     val lastEvening: EveningReady? = null,
     /** Montage de soirée impossible (pas de dossier de musiques, échec) : dit dans la carte du dossier surveillé. */
     val eveningProblem: String? = null,
+    /** Styles proposés pour le montage de soirée ([dev.highlights.core.model.MontageStyles]), et celui par défaut du fichier. */
+    val eveningStyles: dev.highlights.core.model.MontageStyles = dev.highlights.core.model.MontageStyles.NONE,
 )
 
 data class EveningReady(val text: String, val video: Path?)
@@ -326,6 +328,8 @@ data class MontageUiState(
     val rounds: Boolean = true,
     val slowMotion: Boolean = true,
     val text: Boolean = true,
+    /** Compteur de kills à l'écran : aucun, par plan ou cumulé (voir [dev.highlights.core.model.KillCounterMode]). */
+    val killCounter: dev.highlights.core.model.KillCounterMode = dev.highlights.core.model.KillCounterMode.OFF,
     /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */
     val balance: Double = 0.0,
     val gameAudio: GameAudio = GameAudio.FULL,

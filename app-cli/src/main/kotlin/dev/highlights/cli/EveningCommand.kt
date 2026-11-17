@@ -9,6 +9,7 @@ import com.github.ajalt.clikt.parameters.options.split
 import com.github.ajalt.clikt.parameters.types.path
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.progress.ProgressTracker
+import dev.highlights.pipeline.EveningPlanner
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
 import java.time.LocalDate
@@ -28,6 +29,7 @@ class EveningCommand : PipelineCommand("soiree") {
     private val formats by option("-f", "--format", help = "Formats de sortie séparés par des virgules : source, 16:9, 9:16")
         .convert { OutputFormat.parse(it) ?: throw BadParameterValue("format inconnu '$it' (source, 16:9 ou 9:16)") }.split(",")
     private val platform by option("--platform", help = "Plateforme visée : tiktok, shorts, reels, youtube")
+    private val style by option("--style", help = "Style de montage (config/montage-styles.yaml : tiktok, propre…) ; « none » : réglages du profil seuls. Défaut : celui du fichier de styles")
     private val out by option("-o", "--out").path(canBeFile = false)
 
     override fun help(context: Context) =
@@ -58,7 +60,7 @@ class EveningCommand : PipelineCommand("soiree") {
         val progress = ConsoleProgress()
         val result = execute {
             try {
-                pipeline.eveningMontage(evening, track, MontageOptions(formats = formats, platform = platform, outputDir = out), ProgressTracker(listener = progress).root)
+                pipeline.eveningMontage(evening, track, MontageOptions(formats = formats, platform = platform, outputDir = out, style = EveningPlanner.style(style, pipeline.montageStyles.default)), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }

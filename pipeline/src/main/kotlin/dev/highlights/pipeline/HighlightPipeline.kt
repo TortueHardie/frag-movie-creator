@@ -148,6 +148,8 @@ data class MontageOptions(
     val slowMotion: Boolean? = null,
     val speedRamp: Boolean? = null,
     val text: Boolean? = null,
+    /** Compteur de kills à l'écran ([KillCounterMode]) ; null : réglage du profil (désactivé par défaut). */
+    val killCounter: dev.highlights.core.model.KillCounterMode? = null,
     /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */
     val audioBalance: Double? = null,
     val gameAudio: GameAudio? = null,
@@ -791,7 +793,7 @@ class HighlightPipeline(
             killStyle = if (options.rounds == false) base.killStyle.copy(deathEvent = "") else base.killStyle,
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),
             speedRamp = base.speedRamp.copy(enabled = options.speedRamp ?: base.speedRamp.enabled),
-            text = base.text.copy(enabled = options.text ?: base.text.enabled),
+            text = base.text.copy(enabled = options.text ?: base.text.enabled, killCounter = options.killCounter ?: base.text.killCounter),
             showcase = base.showcase.copy(enabled = options.showcase ?: base.showcase.enabled),
             reactions = options.reactions ?: base.reactions,
             audio = base.audio.copy(
