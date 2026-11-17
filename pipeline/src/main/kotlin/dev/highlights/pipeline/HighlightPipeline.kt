@@ -22,6 +22,8 @@ import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.OutputFormat
+import dev.highlights.core.model.MontageStyle
+import dev.highlights.core.model.MontageStyles
 import dev.highlights.core.model.PlatformProfile
 import dev.highlights.core.model.SelectionTarget
 import dev.highlights.core.model.WindowGrid
@@ -153,10 +155,15 @@ data class MontageOptions(
     val platform: String? = null,
     /** Seulement ces moments (résultat d'une recherche, voir [MomentPick]) ; null : tous les kills des sessions. */
     val onlyKills: MomentPick? = null,
-    /** Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun ([MontageSettings.forOneTaps]). */
-    val oneTaps: Boolean = false,
+    /**
+     * Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun ([MontageSettings.forOneTaps]) ;
+     * null : celui du style, sinon non.
+     */
+    val oneTaps: Boolean? = null,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
+    /** Style de montage ([dev.highlights.core.model.MontageStyle]) : remplit les réglages laissés à null ci-dessus. */
+    val style: String? = null,
     /** Corrections de l'utilisateur sur le plan : kills exclus, groupes forcés ou épinglés (voir [MontageConstraints]). */
     val constraints: MontageConstraints = MontageConstraints.NONE,
 )
@@ -308,6 +315,17 @@ class HighlightPipeline(
 
     /** Plateformes connues (app.yaml compris), par identifiant. */
     val platforms: Map<String, PlatformProfile> get() = config.platforms
+
+    /** Styles de montage kills (`config/montage-styles.yaml`), relus à chaque appel : une modification du fichier compte aussitôt. */
+    val montageStyles: MontageStyles get() = config.loadMontageStyles()
+
+    /** Options complétées par leur style ([MontageOptions.style]), s'il y en a un. */
+    private fun styled(options: MontageOptions): MontageOptions = options.style?.let { options.withStyle(montageStyle(it)) } ?: options
+
+    /** Style [id], ou une erreur qui liste ceux qui existent. */
+    fun montageStyle(id: String): MontageStyle = montageStyles.let { all ->
+        all.byId(id) ?: throw InputException(Message("error.montageStyle.unknown", "id" to id, "known" to all.styles.joinToString { it.id }))
+    }
 
     private fun platform(id: String?): PlatformProfile? = id?.let {
         config.platforms[it] ?: throw InputException(Message("error.platform.unknown", "id" to it, "known" to config.platforms.keys.joinToString()))
@@ -552,7 +570,8 @@ class HighlightPipeline(
      * Les réglages viennent du profil de la première session, surchargés par [options].
      * [music] peut être un dossier : la musique y est choisie ([MusicChoice]), celle sur laquelle le montage est le mieux noté.
      */
-    suspend fun killMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter): ExportResult {
+    suspend fun killMontage(sessions: List<Session>, music: Path, requested: MontageOptions, progress: ProgressReporter): ExportResult {
+        val options = styled(requested)
         val planned = planKillMontage(sessions, music, options, progress)
         val (plan, settings) = planned.plan to planned.plan.settings
         val profile = planned.profile
@@ -572,7 +591,7 @@ class HighlightPipeline(
                     audioLayout = profile.audio,
                     musicChoice = planned.choice,
                     platform = options.platform,
-                    kind = if (options.oneTaps) "onetaps" else "killmontage",
+                    kind = if (options.oneTaps == true) "onetaps" else "killmontage",
                 ),
                 progress.child(tr("progress.render"), 0.86),
             )
@@ -583,7 +602,9 @@ class HighlightPipeline(
      * Plan du montage kills de [killMontage], sans le rendre : la musique, les kills inspectés (repris du cache
      * d'inspection d'un plan à l'autre), le plan. Sert à la frise de l'application, qui le recalcule à chaque correction.
      */
-    suspend fun planKillMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter): PlannedMontage {
+    suspend fun planKillMontage(sessions: List<Session>, music: Path, requested: MontageOptions, progress: ProgressReporter): PlannedMontage {
+        // Style déjà appliqué par [killMontage] : le rejouer ne change rien (il ne remplit que les réglages restés à null).
+        val options = styled(requested)
         if (sessions.isEmpty()) throw InputException(Message("error.montage.noSession"))
         val profile = profiles.byId(sessions.first().profileId)
         val base = profile.montage
@@ -630,7 +651,7 @@ class HighlightPipeline(
             ),
         ).let {
             when {
-                options.oneTaps -> it.forOneTaps()
+                options.oneTaps == true -> it.forOneTaps()
                 options.fast ?: base.fast.enabled -> it.forFast()
                 else -> it
             }
@@ -646,7 +667,7 @@ class HighlightPipeline(
         missing.forEach { log.warn { "Capture introuvable, ses kills sont écartés du montage : $it" } }
         val available = picked.filterNot { it.media.path in missing }
         if (available.isEmpty()) throw InputException(Message("error.montage.capturesMissing", "files" to missing.joinToString()))
-        val found = if (options.oneTaps) OneTaps.select(available, sessions, settings).groups else available
+        val found = if (options.oneTaps == true) OneTaps.select(available, sessions, settings).groups else available
         // Les multi-kills étalés deviennent plusieurs plans (classement, aces et clutchs déjà tirés du groupe entier).
         val inspected = MontagePlanner.split(KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child(tr("progress.kills"), 0.06)), settings)
         // Corrections de l'utilisateur : kills exclus retirés, groupes forcés ou épinglés marqués pour le planificateur.

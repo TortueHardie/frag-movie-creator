@@ -321,6 +321,16 @@ data class MontageUiState(
     val oneTaps: Boolean = false,
     /** Rythme rapide : un kill par temps de musique, sur chaque coup de basse. */
     val fast: Boolean = false,
+    /** Style de montage choisi (voir [chooseStyle]) ; null : réglages du profil seuls. */
+    val style: String? = null,
+    /** Styles proposés (`config/montage-styles.yaml`). */
+    val styles: List<dev.highlights.core.model.MontageStyle> = emptyList(),
+    /** Cases telles que le profil les règle, sur lesquelles un style se pose. */
+    val profileKnobs: StyleKnobs = StyleKnobs(),
+    /** Cases modifiées à la main ([StyleKnobs]) : un changement de style ne les touche plus. */
+    val touched: Set<String> = emptySet(),
+    /** Réglages détaillés dépliés (« Avancé »). */
+    val advanced: Boolean = false,
     /** Corrections de l'utilisateur sur le plan (kills écartés, groupes forcés ou épinglés), posées dans la frise. */
     val constraints: dev.highlights.montage.MontageConstraints = dev.highlights.montage.MontageConstraints.NONE,
     /** Frise du plan ouverte (voir [MontagePlanState]) ; null : fermée. */

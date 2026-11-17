@@ -6,6 +6,7 @@ import com.charleskorn.kaml.YamlConfiguration
 import com.charleskorn.kaml.YamlException
 import dev.highlights.core.ConfigException
 import dev.highlights.core.ffmpeg.Hwaccel
+import dev.highlights.core.model.MontageStyles
 import dev.highlights.core.model.PlatformProfile
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationException
@@ -28,6 +29,8 @@ data class AppConfig(
     val publish: PublishSettings = PublishSettings(),
     /** Plateformes : ajoutées à celles connues ([PlatformProfile.DEFAULTS]) ou les remplaçant, par identifiant. */
     val platforms: Map<String, PlatformProfile> = emptyMap(),
+    /** Styles de montage kills (`--style`, choix en haut de la fenêtre de montage) ; fichier absent : aucun style. */
+    val montageStyles: String = "montage-styles.yaml",
 )
 
 @Serializable
@@ -83,6 +86,10 @@ data class LoadedConfig(val app: AppConfig, val baseDir: Path, val source: Path?
 
     /** Plateformes connues, surchargées par celles d'app.yaml. */
     val platforms: Map<String, PlatformProfile> get() = PlatformProfile.DEFAULTS + app.platforms
+
+    /** Styles de montage du fichier [AppConfig.montageStyles], relus à chaque appel ; fichier absent : aucun. */
+    fun loadMontageStyles(): MontageStyles =
+        resolve(app.montageStyles).takeIf { it.isRegularFile() }?.let { ConfigYaml.decodeFile(it, MontageStyles.serializer()) } ?: MontageStyles.NONE
 }
 
 object ConfigYaml {

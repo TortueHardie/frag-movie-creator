@@ -286,7 +286,18 @@ détecte les kills). En ligne de commande :
 ```powershell
 & $app montage output\sessions\partie.session.json --music D:\Musique\son.mp3 --max 60s --format 9:16,source
 & $app montage output\sessions\partie.session.json --music D:\Musique\TikTok --max 60s   # musique choisie dans le dossier
+& $app montage output\sessions\partie.session.json --music D:\Musique\son.mp3 --style tiktok
 ```
+
+- **Styles** (`config/montage-styles.yaml`) : un jeu de réglages choisi d'un coup, en haut de la fenêtre de montage
+  (puces « Aucun », « Edit TikTok », « Propre », « One taps », « Cinématique ») ou par `--style <id>` ; les cases
+  détaillées sont repliées sous « Réglages avancés ». Livrés : `tiktok` (rythme rapide, couleurs boostées, flou, zoom
+  d'approche), `propre` (effets sobres, raccords sur la pose et whip pans, ni flash, ni zoom, ni texte), `onetaps`,
+  `cinematique` (ouverture vitrine, ralentis et rampes, montée jusqu'à la drop). Un style ne dit que ce qu'il change,
+  le reste vient du profil ; une case modifiée à la main (ou une option de la ligne de commande) passe devant lui et
+  reste en place quand on change de style, jusqu'à « Revenir au style ». `default:` dans le fichier choisit le style
+  pris sans rien demander (`--style none` : profil seul). On peut modifier, retirer ou ajouter des styles ; un style
+  sans traduction s'affiche avec son `displayName` et sa `description`.
 
 - **Bibliothèque musicale** : `--music` accepte un dossier (sous-dossiers compris), et le dialogue du montage a un mode
   « Choisir dans un dossier » (dossier retenu d'un montage à l'autre). Le montage est alors planifié sur chaque musique,
@@ -861,6 +872,7 @@ Un fichier existant n'est jamais écrasé (suffixe `_2`, `_3`…), et les source
 ## Configuration
 
 - `config/app.yaml` : FFmpeg, dossiers, préférence d'encodeur, parallélisme.
+- `config/montage-styles.yaml` : styles du montage kills (`--style`, puces de la fenêtre de montage) et style par défaut.
 - `config/profiles/*.yaml` : un fichier par jeu. Il définit les fenêtres d'analyse, les détecteurs (type, poids, normalisation, paramètres), la sélection (seuil, marges, durée cible) et le montage. Le profil est choisi d'après le chemin du fichier (`match.pathContains`), sinon c'est `default`. `--profile` force un profil.
 
 Pistes audio : un détecteur demande un rôle (`role: game`, `role: mic`…) et non un numéro de piste ; l'index reste
