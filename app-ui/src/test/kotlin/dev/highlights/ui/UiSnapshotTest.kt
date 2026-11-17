@@ -312,6 +312,12 @@ private object NoopActions : UiActions {
     override fun openLibraryItem(sessionFile: Path) = Unit
     override fun toggleLibraryItem(sessionFile: Path) = Unit
     override fun openLibrarySelection() = Unit
+    override fun askForget(sessionFile: Path) = Unit
+    override fun confirmForget() = Unit
+    override fun cancelForget() = Unit
+    override fun nudgeSegment(id: String, end: Boolean, delta: kotlin.time.Duration) = Unit
+    override fun addSegmentAt(entry: Int, at: kotlin.time.Duration) = Unit
+    override fun moveSegment(id: String, delta: Int) = Unit
     override fun chooseWatchFolder() = Unit
     override fun stopWatching() = Unit
     override fun addSources() = Unit

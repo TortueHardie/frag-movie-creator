@@ -860,4 +860,97 @@ class MontagePlannerTest : FunSpec({
         }
     }
 
+    // ------------------------------------------------------------ corrections de l'utilisateur (MontageConstraints)
+
+    fun edited(kills: List<Int>, constraints: MontageConstraints, s: MontageSettings = settings, m: MusicAnalysis = music()) =
+        MontagePlanner.plan(MontageEdits.apply(MontagePlanner.groups(listOf(session(kills)), s), constraints, s.killStyle), m, s)
+    fun ref(second: Int) = KillRef("partie.mp4", second.seconds)
+    fun MontagePlan.shows(second: Int) = clips.any { c -> c.kills.any { (it - second.seconds).absoluteValue < 1.seconds } }
+
+    test("désignation d'un kill : « capture@instant » lu et écrit, à une seconde près, sans tenir compte de la casse") {
+        KillRef.parse("partie.mp4@3:12.4") shouldBe KillRef("partie.mp4", 192.4.seconds)
+        KillRef.parse("D:/x@y/partie.mp4@192.4") shouldBe KillRef("D:/x@y/partie.mp4", 192.4.seconds)
+        KillRef("partie.mp4", 192.44.seconds).toString() shouldBe "partie.mp4@3:12.4"
+        KillRef("PARTIE.MP4", 192.seconds).matches(media, 192.8.seconds) shouldBe true
+        KillRef("partie.mp4", 192.seconds).matches(media, 193.5.seconds) shouldBe false
+        shouldThrow<dev.highlights.core.InputException> { KillRef.parse("partie.mp4") }
+        MontagePin.parse("drop") shouldBe MontagePin.Drop
+        MontagePin.parse("0:40") shouldBe MontagePin.At(40.seconds)
+    }
+
+    test("kill exclu : retiré de son multi-kill, absent du montage, les autres kills toujours placés") {
+        val auto = plan(manyKills)
+        auto.shows(183) shouldBe true
+        val p = edited(manyKills, MontageConstraints(excluded = setOf(ref(183), ref(540))))
+        check(p)
+        p.shows(183) shouldBe false
+        p.shows(540) shouldBe false
+        // Le triple kill devient un doublé, toujours monté.
+        p.clips.single { c -> c.group.kills.any { it == 180.seconds } }.group.kills shouldBe listOf(180.seconds, 186.seconds)
+        p.shows(60) shouldBe true
+    }
+
+    test("groupe forcé : monté alors que le plan l'écartait faute de place, la drop garde le meilleur") {
+        val short = settings.copy(maxDuration = 12.seconds)
+        val auto = plan(manyKills, s = short)
+        val dropped = manyKills.filter { k -> k !in 180..186 && !auto.shows(k) }
+        dropped.isNotEmpty() shouldBe true
+        val forced = dropped.first()
+        val p = edited(manyKills, MontageConstraints(forced = setOf(ref(forced))), short)
+        check(p)
+        withClue("forcé $forced, écartés $dropped, auto ${auto.clips.map { it.group.kills }}, édité ${p.clips.map { it.group.kills to it.kills }}") { p.shows(forced) shouldBe true }
+        p.clips.single { it.slot.dropBeat != null }.group.kills shouldHaveSize 3
+    }
+
+    test("épinglé sur la drop : un kill seul y tombe à la place du triple kill, qui reste monté") {
+        for (order in MontageOrder.entries) {
+            withClue(order) {
+                val s = settings.copy(order = order)
+                val p = edited(manyKills, MontageConstraints(pins = mapOf(ref(900) to MontagePin.Drop)), s)
+                check(p)
+                val drop = p.clips.single { it.slot.dropBeat != null }
+                drop.group.kills shouldBe listOf(900.seconds)
+                drop.anchorBeat shouldBe p.music.dropBeat
+                p.shows(183) shouldBe true
+            }
+        }
+    }
+
+    test("épinglé sur un temps : le kill tombe sur le temps le plus proche de l'instant du morceau") {
+        val m = music()
+        // 120 BPM : le temps 70 tombe à 35 s, dans la montée, avant la drop (temps 64 = 32 s : après).
+        val p = edited(manyKills, MontageConstraints(pins = mapOf(ref(420) to MontagePin.At(35.1.seconds))), m = m)
+        check(p)
+        val clip = p.clips.single { c -> c.group.kills == listOf(420.seconds) }
+        clip.anchorBeat shouldBe 70
+        clip.anchorHalf shouldBe false
+    }
+
+    test("contrainte impossible : une erreur qui nomme le kill, jamais un montage qui l'ignore") {
+        // Kill inconnu.
+        shouldThrow<dev.highlights.core.InputException> { edited(manyKills, MontageConstraints(excluded = setOf(ref(5)))) }
+            .text.key shouldBe "error.montage.edit.notFound"
+        // Le même kill exclu et épinglé.
+        shouldThrow<dev.highlights.core.InputException> {
+            edited(manyKills, MontageConstraints(excluded = setOf(ref(60)), pins = mapOf(ref(60) to MontagePin.Drop)))
+        }.text.key shouldBe "error.montage.edit.conflict"
+        // Tous forcés dans 4 s : ils ne tiennent pas.
+        val e = shouldThrow<dev.highlights.core.HighlightsException> {
+            edited(manyKills, MontageConstraints(forced = manyKills.map(::ref).toSet()), settings.copy(maxDuration = 4.seconds))
+        }
+        e.text.key shouldBe "error.montage.edit.notPlaced"
+        // Une musique sans drop dans le passage retenu : pas de drop où épingler.
+        val calm = music().let { it.copy(sections = listOf(MusicSection(0, it.beats.size, -20.0, 0.1)), dropBeat = it.beats.size + 10) }
+        shouldThrow<dev.highlights.core.HighlightsException> {
+            edited(manyKills, MontageConstraints(pins = mapOf(ref(900) to MontagePin.Drop)), m = calm)
+        }.text.key shouldBe "error.montage.edit.noDrop"
+    }
+
+    test("corrections à poser une par une : une seule drop, une contrainte par kill") {
+        val c = MontageConstraints.NONE.pin(ref(60), MontagePin.Drop).pin(ref(300), MontagePin.Drop).exclude(ref(420)).force(ref(420))
+        c.pins shouldBe mapOf(ref(300) to MontagePin.Drop)
+        c.excluded shouldBe emptySet()
+        c.forced shouldBe setOf(ref(420))
+        c.clear(ref(420)).forced shouldBe emptySet()
+    }
 })

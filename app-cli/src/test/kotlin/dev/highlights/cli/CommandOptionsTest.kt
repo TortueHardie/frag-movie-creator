@@ -14,6 +14,8 @@ import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.OutputFormat
+import dev.highlights.montage.KillRef
+import dev.highlights.montage.MontagePin
 import dev.highlights.pipeline.MomentPick
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
@@ -114,6 +116,22 @@ class CommandOptionsTest : FunSpec({
 
     test("montage : --colors boost allume les couleurs vives") {
         parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--colors", "boost") { it.montageOptions().boostColors } shouldBe true
+    }
+
+    test("montage : corrections du plan (--exclude, --force, --pin, --drop) passées au pipeline avec les options") {
+        val options = parse(
+            MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--no-zoom",
+            "--exclude", "partie.mp4@3:12.4", "--exclude", "partie.mp4@5:00", "--force", "autre.mp4@1:02",
+            "--pin", "partie.mp4@7:30=0:42", "--drop", "autre.mp4@9:15",
+        ) { it.montageOptions(it.constraints()) }
+        options.zoom shouldBe false
+        val c = options.constraints
+        c.excluded shouldBe setOf(KillRef("partie.mp4", 192.4.seconds), KillRef("partie.mp4", 300.seconds))
+        c.forced shouldBe setOf(KillRef("autre.mp4", 62.seconds))
+        c.pins shouldBe mapOf(KillRef("partie.mp4", 450.seconds) to MontagePin.At(42.seconds), KillRef("autre.mp4", 555.seconds) to MontagePin.Drop)
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString()) { it.montageOptions().constraints.isEmpty } shouldBe true
+        usageError(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--exclude", "partie.mp4").message shouldContain "kill invalide"
+        usageError(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--pin", "partie.mp4@1:00=bientot").message shouldContain "instant du morceau invalide"
     }
 
     test("montage : musique obligatoire, équilibre et durée vérifiés avant tout rendu") {

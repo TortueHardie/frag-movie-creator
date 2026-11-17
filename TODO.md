@@ -181,11 +181,13 @@ Pistes, de la plus simple à la plus lourde :
   de la ligne du killfeed (`KillfeedDetector`) et une liste blanche des capacités gardées dans le profil.
 
 ## Interface : retoucher les moments
-- [ ] Ajuster début/fin d'un moment (poignées sur `TimelineCard` ou boutons ±1 s).
-- [ ] Ajouter un moment à la main en cliquant sur la timeline.
-- [ ] Réordonner les clips par glisser-déposer (`ClipOrder` existe côté moteur).
-- [ ] Exclure ou forcer un kill précis dans le montage kills.
-- [ ] Supprimer / oublier une analyse dans `LibraryView`.
+- [x] Ajuster début/fin d'un moment (boutons ±0,5 s / ±1 s du moment sélectionné ; poignées à la souris : à faire,
+  une capture d'1 h 46 tient en ~1000 px, soit ~6 s par pixel, trop grossier sans zoom de la timeline).
+- [x] Ajouter un moment à la main (double-clic sur la courbe).
+- [x] Réordonner les clips (boutons « Plus tôt » / « Plus tard », `ClipOrder.MANUAL`) ; glisser-déposer : à faire.
+- [x] Exclure ou forcer un kill précis dans le montage kills (frise « Voir le plan… », `--exclude/--force/--drop/--pin`).
+- [ ] Frise du plan : épingler un groupe sur un temps quelconque à la souris (moteur et CLI le font déjà, `--pin`).
+- [x] Supprimer / oublier une analyse dans `LibraryView`.
 
 ## Flux de travail
 - [ ] File d'attente de jobs (aujourd'hui un seul job à la fois via `runTask`).

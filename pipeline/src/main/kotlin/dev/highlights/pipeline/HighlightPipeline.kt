@@ -13,6 +13,7 @@ import dev.highlights.core.config.LoadedConfig
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.Hwaccel
 import dev.highlights.core.model.AudioTracks
+import dev.highlights.core.model.ClipOrder
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.EffectDensity
@@ -38,8 +39,12 @@ import dev.highlights.export.Exporter
 import dev.highlights.montage.InspectionCache
 import dev.highlights.montage.KillInspector
 import dev.highlights.montage.KillMontageExporter
+import dev.highlights.montage.KillGroup
 import dev.highlights.montage.MatchCutter
+import dev.highlights.montage.MontageConstraints
+import dev.highlights.montage.MontageEdits
 import dev.highlights.montage.MontageExportRequest
+import dev.highlights.montage.MontagePlan
 import dev.highlights.montage.MontagePlanner
 import dev.highlights.montage.MontageReportMusic
 import dev.highlights.montage.MusicAnalysis
@@ -49,7 +54,7 @@ import dev.highlights.montage.MusicHistory
 import dev.highlights.montage.MusicLibrary
 import dev.highlights.montage.OneTaps
 import dev.highlights.montage.ScopeCuts
-import dev.highlights.scoring.HighlightMerge
+import dev.highlights.scoring.MomentEdits
 import dev.highlights.scoring.ScoringEngine
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CancellationException
@@ -96,6 +101,8 @@ data class ExportOptions(
     val music: Path? = null,
     /** Plateforme visée (tiktok, shorts, reels, youtube…) : format, volume, débit, zone sûre et durée maximale. */
     val platform: String? = null,
+    /** Ordre des moments ; null = ordre manuel si l'interface en a fixé un ([ClipOrder.MANUAL]), sinon celui du profil. */
+    val order: ClipOrder? = null,
 )
 
 /** Surcharges ponctuelles des réglages de montage du profil (null = valeur du profil). */
@@ -150,6 +157,20 @@ data class MontageOptions(
     val oneTaps: Boolean = false,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
+    /** Corrections de l'utilisateur sur le plan : kills exclus, groupes forcés ou épinglés (voir [MontageConstraints]). */
+    val constraints: MontageConstraints = MontageConstraints.NONE,
+)
+
+/**
+ * Montage kills planifié, pas encore rendu ([HighlightPipeline.planKillMontage]) : [plan] ce qui sera rendu ; [candidates]
+ * tous les groupes de kills avant les corrections de l'utilisateur (ceux que le plan écarte compris), pour les montrer.
+ */
+class PlannedMontage internal constructor(
+    val plan: MontagePlan,
+    val candidates: List<KillGroup>,
+    internal val choice: List<MontageReportMusic>,
+    internal val profile: GameProfile,
+    internal val platform: PlatformProfile?,
 )
 
 /** [reused] : analyse reprise de la mémoire, sans recalcul. */
@@ -441,6 +462,7 @@ class HighlightPipeline(
         val settings: EditSettings = edit.copy(
             formats = options.formats ?: edit.formats,
             style = options.style ?: edit.style,
+            order = options.order ?: if (sessions.any { s -> s.highlights.any { it.enabled && it.order != null } }) ClipOrder.MANUAL else edit.order,
             story = options.music?.let { edit.story.copy(music = edit.story.music.copy(file = it.toAbsolutePath().toString())) } ?: edit.story,
         ).let { platform?.applyTo(it) ?: it }
         return withJobDir { workDir ->
@@ -481,14 +503,15 @@ class HighlightPipeline(
 
     /**
      * Recalcule la sélection depuis la timeline de la session, sans réanalyser (instantané).
-     * Les segments recouvrant un segment décoché restent décochés.
+     * Les segments recouvrant un segment décoché restent décochés ; les moments retouchés ou ajoutés à la main restent
+     * tels quels ([MomentEdits.preserveManual]).
      */
     fun reselect(session: Session, threshold: Double?, target: SelectionTarget?, requiredEvent: String? = null): Session {
         val policy = profiles.byId(session.profileId).selection.let { s ->
             s.copy(threshold = threshold ?: s.threshold, target = target ?: s.target, requiredEvent = requiredEvent)
         }
         val fresh = scoring.select(session.timeline, policy, session.media.path)
-        return session.copy(highlights = HighlightMerge.preserveDisabled(session.highlights, fresh))
+        return session.copy(highlights = MomentEdits.preserveManual(session.highlights, fresh))
     }
 
     /**
@@ -502,7 +525,7 @@ class HighlightPipeline(
         }
         val fresh = scoring.selectAcross(sessions.map { it.timeline to it.media.path }, policy)
         return sessions.zip(fresh) { session, highlights ->
-            session.copy(highlights = HighlightMerge.preserveDisabled(session.highlights, highlights))
+            session.copy(highlights = MomentEdits.preserveManual(session.highlights, highlights))
         }
     }
 
@@ -530,6 +553,37 @@ class HighlightPipeline(
      * [music] peut être un dossier : la musique y est choisie ([MusicChoice]), celle sur laquelle le montage est le mieux noté.
      */
     suspend fun killMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter): ExportResult {
+        val planned = planKillMontage(sessions, music, options, progress)
+        val (plan, settings) = planned.plan to planned.plan.settings
+        val profile = planned.profile
+        val platform = planned.platform
+        return withJobDir { workDir ->
+            montageExporter.export(
+                plan,
+                MontageExportRequest(
+                    formats = settings.formats,
+                    edit = profile.gradedEdit().let { platform?.applyTo(it) ?: it },
+                    outputDir = options.outputDir ?: config.outputDir,
+                    workDir = workDir,
+                    gameName = profile.id,
+                    date = KillMontageExporter.recordingDate(sessions.first().media.creationTime),
+                    audioBitrate = config.app.encoder.audioBitrate,
+                    hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
+                    audioLayout = profile.audio,
+                    musicChoice = planned.choice,
+                    platform = options.platform,
+                    kind = if (options.oneTaps) "onetaps" else "killmontage",
+                ),
+                progress.child(tr("progress.render"), 0.86),
+            )
+        }.also { musicHistory.record(plan.music.file) } // Choisie ou imposée : elle a servi, elle se repose un peu.
+    }
+
+    /**
+     * Plan du montage kills de [killMontage], sans le rendre : la musique, les kills inspectés (repris du cache
+     * d'inspection d'un plan à l'autre), le plan. Sert à la frise de l'application, qui le recalcule à chaque correction.
+     */
+    suspend fun planKillMontage(sessions: List<Session>, music: Path, options: MontageOptions, progress: ProgressReporter): PlannedMontage {
         if (sessions.isEmpty()) throw InputException(Message("error.montage.noSession"))
         val profile = profiles.byId(sessions.first().profileId)
         val base = profile.montage
@@ -595,11 +649,14 @@ class HighlightPipeline(
         val found = if (options.oneTaps) OneTaps.select(available, sessions, settings).groups else available
         // Les multi-kills étalés deviennent plusieurs plans (classement, aces et clutchs déjà tirés du groupe entier).
         val inspected = MontagePlanner.split(KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child(tr("progress.kills"), 0.06)), settings)
+        // Corrections de l'utilisateur : kills exclus retirés, groupes forcés ou épinglés marqués pour le planificateur.
+        val edited = MontageEdits.apply(inspected, options.constraints, settings.killStyle)
+        if (edited.isEmpty()) throw InputException(Message("error.montage.edit.allExcluded"))
         // La pose de l'arme ne sert qu'aux groupes qui peuvent entrer dans le montage : la lire coûte un décodage par groupe.
         // Ouverture vitrine : sa place est réservée dans la durée maximale, les kills se planifient dans le reste.
         val planning = if (!settings.showcase.enabled) settings
         else settings.copy(maxDuration = (settings.maxDuration - settings.showcase.length).coerceAtLeast(settings.maxDuration / 2))
-        val groups = MatchCutter(ffmpeg, inspections).inspect(inspected, settings, progress.child(tr("progress.aim"), 0.02), MontagePlanner.placeable(inspected, musics, planning))
+        val groups = MatchCutter(ffmpeg, inspections).inspect(edited, settings, progress.child(tr("progress.aim"), 0.02), MontagePlanner.placeable(edited, musics, planning))
         val fromStart = options.fromStartMusics.map { it.toAbsolutePath().normalize() }.toSet()
         val (chosen, choice) = if (music.isDirectory()) {
             // Le réglage « depuis le début » de chaque musique, sauf si l'appel l'impose à toutes.
@@ -616,26 +673,7 @@ class HighlightPipeline(
         // Raccords d'abord : un plan raccordé garde son début dans la pose, il n'est pas coupé dans l'attente.
         val plan = MontagePlanner.showcase(MontagePlanner.jumpCuts(ScopeCuts.apply(chosen)).let { it.copy(settings = it.settings.copy(maxDuration = settings.maxDuration)) })
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(plan.music.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
-        return withJobDir { workDir ->
-            montageExporter.export(
-                plan,
-                MontageExportRequest(
-                    formats = settings.formats,
-                    edit = profile.gradedEdit().let { platform?.applyTo(it) ?: it },
-                    outputDir = options.outputDir ?: config.outputDir,
-                    workDir = workDir,
-                    gameName = profile.id,
-                    date = KillMontageExporter.recordingDate(sessions.first().media.creationTime),
-                    audioBitrate = config.app.encoder.audioBitrate,
-                    hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
-                    audioLayout = profile.audio,
-                    musicChoice = choice,
-                    platform = options.platform,
-                    kind = if (options.oneTaps) "onetaps" else "killmontage",
-                ),
-                progress.child(tr("progress.render"), 0.86),
-            )
-        }.also { musicHistory.record(plan.music.file) } // Choisie ou imposée : elle a servi, elle se repose un peu.
+        return PlannedMontage(plan, inspected, choice, profile, platform)
     }
 
     /** [analyzeAll] puis un seul montage de toutes les captures. */

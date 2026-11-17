@@ -56,6 +56,8 @@ data class UiState(
     val library: List<LibraryItem> = emptyList(),
     /** Analyses cochées dans la liste, à ouvrir ensemble pour un seul montage (fichiers de session). */
     val librarySelection: Set<Path> = emptySet(),
+    /** Analyse à oublier, en attente de confirmation (null = pas de question). */
+    val forget: LibraryItem? = null,
     val watch: WatchState = WatchState(),
     /** Nouvelle version proposée (null : à jour, ou pas encore vérifié). */
     val update: UpdateState? = null,
@@ -319,6 +321,10 @@ data class MontageUiState(
     val oneTaps: Boolean = false,
     /** Rythme rapide : un kill par temps de musique, sur chaque coup de basse. */
     val fast: Boolean = false,
+    /** Corrections de l'utilisateur sur le plan (kills écartés, groupes forcés ou épinglés), posées dans la frise. */
+    val constraints: dev.highlights.montage.MontageConstraints = dev.highlights.montage.MontageConstraints.NONE,
+    /** Frise du plan ouverte (voir [MontagePlanState]) ; null : fermée. */
+    val plan: MontagePlanState? = null,
 ) {
     val maxDuration: Duration? get() = I18n.parseDuration(maxDurationText)?.takeIf { it.isPositive() }
     /** Musique ou dossier de musiques passé au montage, selon le mode. */

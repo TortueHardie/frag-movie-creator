@@ -8,6 +8,7 @@ import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.groups.mutuallyExclusiveOptions
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.split
@@ -34,6 +35,9 @@ import dev.highlights.core.session.SessionStore
 import dev.highlights.export.ExportResult
 import dev.highlights.ffmpeg.FfmpegEncoderSelector
 import dev.highlights.montage.CutGrid
+import dev.highlights.montage.KillRef
+import dev.highlights.montage.MontageConstraints
+import dev.highlights.montage.MontagePin
 import dev.highlights.montage.MontageReport
 import dev.highlights.montage.MontageScore
 import dev.highlights.montage.MusicAnalyzer
@@ -45,6 +49,7 @@ import dev.highlights.pipeline.Diagnostics
 import dev.highlights.pipeline.ExportOptions
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
+import dev.highlights.pipeline.PlannedMontage
 import dev.highlights.pipeline.render
 import java.nio.file.Path
 import kotlin.io.path.isDirectory
@@ -212,20 +217,49 @@ class MontageCommand : PipelineCommand("montage") {
         .choice("full" to GameAudio.FULL, "kills" to GameAudio.KILLS)
     private val fast by option("--fast", help = "Rythme rapide : un kill sur chaque temps de la musique (chaque coup de basse), un plan très court chacun").flag()
     private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
+    private val exclude by option("--exclude", help = "Kill à écarter, « capture@instant » (ex. partie.mp4@3:12.4, voir --plan) ; répétable")
+        .convert { killRef(it) }.multiple()
+    private val force by option("--force", help = "Groupe à garder même si le plan l'écarte, désigné par un de ses kills (« capture@instant ») ; répétable")
+        .convert { killRef(it) }.multiple()
+    private val drop by option("--drop", help = "Groupe à poser sur la drop, désigné par un de ses kills (« capture@instant »)").convert { killRef(it) }
+    private val pin by option("--pin", help = "Groupe dont le dernier kill tombe sur un instant du morceau : « capture@instant=0:42 » ; répétable")
+        .convert { text ->
+            val (kill, at) = text.substringBeforeLast('=') to text.substringAfterLast('=', "")
+            val pin = MontagePin.parse(at) ?: throw BadParameterValue("instant du morceau invalide dans '$text' (attendu « capture@instant=0:42 »)")
+            killRef(kill) to pin
+        }.multiple()
+    private val planOnly by option("--plan", help = "Affiche le plan sans rendre : la place de chaque kill et sa désignation pour --exclude, --force, --drop, --pin").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
 
     override fun help(context: Context) =
-        "Montage de tous les kills calé sur une musique : coupes sur le beat, chaque kill sur un temps, zoom, flash, ralenti, textes (--reactions pour mettre en avant voix et rires, --onetaps pour ne garder que les one taps)."
+        "Montage de tous les kills calé sur une musique : coupes sur le beat, chaque kill sur un temps, zoom, flash, ralenti, textes (--reactions pour mettre en avant voix et rires, --onetaps pour ne garder que les one taps). " +
+            "--plan montre le plan, --exclude, --force, --drop et --pin le corrigent."
+
+    private fun killRef(text: String): KillRef =
+        runCatching { KillRef.parse(text) }.getOrElse { throw BadParameterValue("kill invalide '$text' (attendu « capture@instant », ex. partie.mp4@3:12.4)") }
 
     override fun run() {
         val progress = ConsoleProgress()
+        val constraints = constraints()
+        if (planOnly) {
+            val planned = execute {
+                val loaded = sessions.map { SessionStore.load(it) }
+                try {
+                    Pipelines.create(env.config).planKillMontage(loaded, music, montageOptions(constraints), ProgressTracker(listener = progress).root)
+                } finally {
+                    progress.finish()
+                }
+            }
+            printPlan(planned, constraints)
+            return
+        }
         val result = execute {
             val loaded = sessions.map { SessionStore.load(it) }
             try {
                 Pipelines.create(env.config).killMontage(
                     loaded,
                     music,
-                    montageOptions(),
+                    montageOptions(constraints),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -250,8 +284,39 @@ class MontageCommand : PipelineCommand("montage") {
         }
     }
 
-    /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
-    internal fun montageOptions() = MontageOptions(
+    /** Plan lisible : chaque plan dans l'ordre, puis les groupes écartés, chaque kill avec sa désignation. */
+    private fun printPlan(planned: PlannedMontage, constraints: MontageConstraints) {
+        val plan = planned.plan
+        val music = plan.music
+        echo("Plan sur ${music.file.fileName} : ${plan.clips.size} plans, ${KillRef.clock(plan.duration)} depuis ${KillRef.clock(plan.musicStart)} du morceau")
+        val placed = plan.clips.mapNotNull { c -> c.group.takeIf { !c.showcase } }
+        plan.clips.zip(plan.clipOffsets()).forEachIndexed { i, (c, offset) ->
+            if (c.showcase) return@forEachIndexed
+            val marks = listOfNotNull("DROP".takeIf { c.slot.dropBeat != null }, "forcé".takeIf { c.group.forced }, "épinglé".takeIf { c.group.pin != null })
+            echo("  %2d. %s  %d temps  %s%s".format(
+                i + 1, KillRef.clock(offset), c.beats, c.group.kills.joinToString(" ") { KillRef.of(c.group.media, it).toString() },
+                if (marks.isEmpty()) "" else "  [${marks.joinToString()}]",
+            ))
+        }
+        val left = planned.candidates.filter { g -> placed.none { p -> p.media.path == g.media.path && p.kills.any { it in g.kills } } }
+        if (left.isNotEmpty()) {
+            echo("  écartés :")
+            left.forEach { g ->
+                val excluded = g.kills.all { k -> constraints.excluded.any { it.matches(g.media, k) } }
+                echo("      %s%s".format(g.kills.joinToString(" ") { KillRef.of(g.media, it).toString() }, if (excluded) "  [exclu]" else ""))
+            }
+        }
+    }
+
+    /** Corrections du plan lues sur la ligne de commande (--exclude, --force, --pin, --drop). */
+    internal fun constraints() = MontageConstraints(
+        excluded = exclude.toSet(),
+        forced = force.toSet(),
+        pins = pin.toMap() + listOfNotNull(drop?.let { it to MontagePin.Drop }),
+    )
+
+    /** Options lues sur la ligne de commande (testées seules, sans rien lancer) ; [constraints] : corrections du plan. */
+    internal fun montageOptions(constraints: MontageConstraints = MontageConstraints()) = MontageOptions(
         formats = formats,
         platform = platform,
         outputDir = out,
@@ -280,6 +345,7 @@ class MontageCommand : PipelineCommand("montage") {
         reactions = if (reactions) true else null,
         oneTaps = oneTaps,
         fast = if (fast) true else null,
+        constraints = constraints,
     )
 }
 
