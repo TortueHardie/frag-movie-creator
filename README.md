@@ -669,6 +669,10 @@ commande pour `export`, `process` et `montage`) adapte l'export à là où la vi
   boutons à droite). Les textes du montage (DOUBLÉ, TRIPLÉ…, sous-titres et libellés du montage story) sont centrés dans
   la largeur utile et gardés entre les marges du haut et du bas. Les éléments du HUD replacés en 9:16 (`vertical.hud`
   du profil) gardent la place que le profil leur donne.
+- **HUD fixe pendant les zooms** : en 9:16, le HUD recollé (`vertical.hud` : bandeau VALORANT, killfeed WARDOGS) reste
+  fixe par-dessus le punch-in, le zoom d'approche, la secousse et le flou de mouvement ; seule l'image du jeu zoome.
+  Les couleurs du montage, le flash, les textes et le compteur de kills restent par-dessus. Montage kills, montage
+  story et clips.
 - **Durée** : en montage kills, la durée maximale de la plateforme devient un plafond de plus ; un montage highlights
   trop long est refusé avant le rendu, avec la durée à atteindre.
 - Le nom du fichier porte la plateforme : `valorant_2026-09-27_killmontage_tiktok_9x16.mp4`.

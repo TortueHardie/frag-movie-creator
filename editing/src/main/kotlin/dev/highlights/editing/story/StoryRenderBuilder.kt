@@ -1,5 +1,6 @@
 package dev.highlights.editing.story
 
+import dev.highlights.editing.HudPin
 import dev.highlights.editing.ZoomCrop
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.FfmpegCommand
@@ -113,7 +114,8 @@ object StoryRenderBuilder {
         shots.forEachIndexed { i, source ->
             val shot = screen[i]
             graph += RenderCommandBuilder.videoChain(i, shot.media, request.format, edit, "g$i")
-            val sized = if (RenderCommandBuilder.outputSize(request.format, shot.media, edit) == w to h) {
+            val fits = RenderCommandBuilder.outputSize(request.format, shot.media, edit) == w to h
+            val sized = if (fits) {
                 "g$i"
             } else {
                 graph += "[g$i]scale=$w:$h:force_original_aspect_ratio=decrease:flags=lanczos,pad=$w:$h:(ow-iw)/2:(oh-ih)/2,setsar=1[z$i]"
@@ -121,7 +123,13 @@ object StoryRenderBuilder {
             }
             val base = slowVideo(graph, i, sized, source, edit.fps)
             val effects = mutableListOf<String>()
-            effects += framing(shot, w, h, story.punchIn.amount, story.punchIn.ramp, story.shake.amplitude, story.shake.duration, story.shake.frequency)
+            val motion = framing(shot, w, h, story.punchIn.amount, story.punchIn.ramp, story.shake.amplitude, story.shake.duration, story.shake.frequency)
+            // HUD recollé en 9:16 : fixe par-dessus le punch-in et la secousse, sous sous-titres et libellés (HudPin).
+            val targets = if (fits) RenderCommandBuilder.hudTargets(request.format, shot.media, edit) else emptyList()
+            val start = HudPin.statements(base, emptyList(), motion, targets, "hp$i")?.let { (lines, out) ->
+                graph += lines
+                out
+            } ?: base.also { effects += motion }
             // Après le cadrage : le texte ne suit ni le zoom ni la secousse.
             val captionY = if (request.format == OutputFormat.VERTICAL) story.captions.verticalY else story.captions.y
             shot.captions.forEach { effects += Captions.drawText(it, story.captions, w, h, captionY, edit.safeArea) }
@@ -146,7 +154,7 @@ object StoryRenderBuilder {
             effects += "setsar=1"
             effects += "format=yuv420p"
             effects += "settb=AVTB"
-            graph += "[$base]${effects.joinToString(",")}[v$i]"
+            graph += "[$start]${effects.joinToString(",")}[v$i]"
             graph += audioChain(graph, i, source, edit.audioIndices(AudioTracks.of(shot.media.audio, request.audioLayout)), story.transition.audioFade)
         }
         graph += shots.indices.joinToString("") { "[v$it][a$it]" } + "concat=n=${shots.size}:v=1:a=1[vcat][acat]"
