@@ -8,22 +8,40 @@ import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.serialization.Durations
 import java.util.Locale
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Un kill désigné par l'utilisateur : le nom de fichier de sa capture et son instant dans la capture, « partie.mp4@3:12.4 ».
- * Lisible et stable d'un plan à l'autre, contrairement à une place dans le montage. L'instant n'a pas besoin d'être exact
- * ([TOLERANCE]) : le recalage sur le son du tir ([KillInspector]) déplace les kills de 0,6 s au plus.
+ * Un kill désigné par l'utilisateur : le nom de fichier de sa capture et son instant dans la capture,
+ * « partie.mp4@3:12.450 ». Lisible et stable d'un plan à l'autre, contrairement à une place dans le montage. Une
+ * désignation vise **un seul** kill : le plus proche de son instant dans sa capture ([MontageEdits.designated]), à
+ * [TOLERANCE] au plus (une désignation tapée à la main n'a pas besoin d'être exacte : le recalage sur le son du tir
+ * déplace les kills de 0,6 s au plus). Deux kills recalés à 0,1 s l'un de l'autre restent deux désignations distinctes :
+ * avant, chacune les attrapait tous les deux, et « écarter ce kill seul » en écartait deux (QA finale).
  */
 data class KillRef(val capture: String, val at: Duration) {
     fun matches(media: MediaInfo, kill: Duration): Boolean =
         media.path.fileName.toString().equals(capture, ignoreCase = true) && (kill - at).absoluteValue <= TOLERANCE
 
-    override fun toString() = "$capture@${clock(at)}"
+    /** Le même kill exactement (à la milliseconde, la précision de [toString]) : ce que la frise relit de ses désignations. */
+    fun exactly(media: MediaInfo, kill: Duration): Boolean =
+        media.path.fileName.toString().equals(capture, ignoreCase = true) && (kill - at).absoluteValue < EXACT
+
+    /** « capture@3:12.450 » : à la milliseconde, pour qu'une désignation relue vise le même kill qu'à l'écriture. */
+    override fun toString() = "$capture@${precise(at)}"
 
     companion object {
         /** Écart toléré entre l'instant écrit et celui du kill (même marge que [dev.highlights.montage.KillInspector] et la recherche). */
         val TOLERANCE = 1.seconds
+
+        /** Écart en deçà duquel deux instants sont le même (arrondi de [toString] à la milliseconde). */
+        private val EXACT = 1.5.milliseconds
+
+        /** « 3:12.450 ». */
+        fun precise(d: Duration): String {
+            val ms = d.inWholeMilliseconds.coerceAtLeast(0)
+            return String.format(Locale.ROOT, "%d:%02d.%03d", ms / 60_000, ms / 1000 % 60, ms % 1000)
+        }
 
         fun of(media: MediaInfo, kill: Duration) = KillRef(media.path.fileName.toString(), kill)
 
@@ -97,27 +115,38 @@ object MontageEdits {
     fun apply(groups: List<KillGroup>, constraints: MontageConstraints, style: KillStyle): List<KillGroup> {
         if (constraints.isEmpty) return groups
         val all = constraints.excluded + constraints.forced + constraints.pins.keys
-        all.firstOrNull { ref -> groups.none { g -> g.kills.any { ref.matches(g.media, it) } } }?.let {
-            throw InputException(Message("error.montage.edit.notFound", "kill" to it.toString()))
+        // Chaque désignation vise un seul kill, le plus proche : deux kills recalés à 0,1 s ne sont pas écartés ensemble.
+        val target = all.associateWith { designated(it, groups) }
+        target.entries.firstOrNull { it.value == null }?.let {
+            throw InputException(Message("error.montage.edit.notFound", "kill" to it.key.toString()))
         }
+        fun hit(refs: Collection<KillRef>, g: KillGroup, kill: Duration) = refs.any { r -> target[r]?.let { (p, k) -> p == g.media.path && k == kill } == true }
         all.firstOrNull { ref -> listOf(ref in constraints.excluded, ref in constraints.forced, ref in constraints.pins).count { it } > 1 }?.let {
             throw InputException(Message("error.montage.edit.conflict", "kill" to it.toString()))
         }
         if (constraints.pins.values.count { it == MontagePin.Drop } > 1) throw InputException(Message("error.montage.edit.twoDrops"))
         return groups.mapNotNull { g ->
-            val kept = g.kills.indices.filter { i -> constraints.excluded.none { it.matches(g.media, g.kills[i]) } }
+            val kept = g.kills.indices.filter { i -> !hit(constraints.excluded, g, g.kills[i]) }
             if (kept.isEmpty()) return@mapNotNull null
             val trimmed = when {
                 kept.size == g.kills.size -> g
                 g.traits.isEmpty() -> g.copy(kills = kept.map { g.kills[it] })
                 else -> MontagePlanner.withTraits(g, kept.map { g.kills[it] }, kept.map { g.traits[it] }, style)
             }
-            fun designates(ref: KillRef) = trimmed.kills.any { ref.matches(g.media, it) }
+            fun designates(ref: KillRef) = trimmed.kills.any { hit(listOf(ref), g, it) }
             val pins = constraints.pins.filterKeys(::designates).values.distinct()
             if (pins.size > 1) throw InputException(Message("error.montage.edit.conflict", "kill" to label(trimmed)))
             trimmed.copy(forced = constraints.forced.any(::designates), pin = pins.firstOrNull())
         }
     }
+
+    /**
+     * Le kill que vise [ref] : le plus proche de son instant parmi ceux de sa capture, à [KillRef.TOLERANCE] au plus ;
+     * null s'il n'y en a pas. (capture, instant du kill).
+     */
+    fun designated(ref: KillRef, groups: List<KillGroup>): Pair<java.nio.file.Path, Duration>? =
+        groups.flatMap { g -> g.kills.filter { ref.matches(g.media, it) }.map { g.media.path to it } }
+            .minByOrNull { (_, k) -> (k - ref.at).absoluteValue }
 
     /** Désignation lisible d'un groupe : son dernier kill (celui qui tombe sur le temps). */
     fun label(g: KillGroup): String = KillRef.of(g.media, g.kills.last()).toString()

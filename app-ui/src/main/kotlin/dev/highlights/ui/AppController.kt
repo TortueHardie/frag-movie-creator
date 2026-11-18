@@ -657,12 +657,16 @@ class AppController(
         val current = s.session ?: return
         val segment = current.segments.firstOrNull { it.key == key } ?: return
         val p = backend?.pipeline ?: return
-        withMemory(tr("ui.job.clip"), MEMORY_EXPORT) {
-            runTask(tr("ui.job.clip")) { progress ->
+        // Un rendu FFmpeg comme un export : dans la file (un seul rendu lourd à la fois, l'export reste disponible).
+        // Le titre nomme le moment et la partie : plusieurs clips peuvent attendre l'un derrière l'autre.
+        val title = tr("ui.job.clipOf", "moment" to segment.highlight.id, "name" to current.sessions[segment.entry].media.path.name)
+        withMemory(title, MEMORY_EXPORT) {
+            enqueue(title) { progress ->
                 saveNow(current)
                 val options = dev.highlights.pipeline.ClipOptions(segment.highlight.id, s.settings.platform, s.settings.outputDir)
                 val result = p.clip(current.sessions[segment.entry], options, progress)
                 _state.update { it.copy(lastExport = result, lastUpload = null) }
+                result.videos.values.firstOrNull()
             }
         }
     }
