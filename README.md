@@ -6,14 +6,22 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
 
 - **Détection des moments** : volume du jeu (EBU R128), prises de parole et rires (YAMNet), événements enregistrés par
   Outplayed (kills, morts, assistances), killfeed lu à l'image quand Outplayed n'est pas là (VALORANT, Counter-Strike 2),
-  icônes du HUD et journal des gains lu par OCR (Wardogs).
+  icônes du HUD et journal des gains lu par OCR (Wardogs), compteur d'éliminations du HUD lu
+  chiffre par chiffre (Fortnite).
 - **Highlights** : les meilleurs moments fusionnés et exportés en 16:9 et/ou 9:16, encodés par le GPU (AMD, NVIDIA,
   Intel) avec repli logiciel.
 - **Étalonnage** (`edit.grade` d'un profil, pour les highlights comme pour le montage) : table de correspondance
   `.cube` (chemin relatif au dossier de configuration), saturation, contraste et vignettage. Sert à unifier des
   captures venues de sessions ou de jeux différents. Neutre tant qu'on n'y touche pas.
 - **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
-- **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Counter-Strike 2, Wardogs, et un profil par défaut.
+- **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Counter-Strike 2, Wardogs, Fortnite, et un profil par défaut.
+  - **Fortnite** (`fortnite.yaml`, fichiers dont le chemin contient « Fortnite ») : les éliminations du joueur sont lues
+    sur son compteur en haut à droite (détecteur `hud-counter` : chiffres comparés à `config/templates/fortnite/digit_*.png`,
+    deux images par seconde, puis suite croissante la plus probable, remise à zéro à chaque partie). Les mises à terre
+    (« KNOCKED! ») sont relevées à part (`knock`) et ne font un plan du montage que si `montage.anchorEvents: [knock]`.
+    Réglé et vérifié sur une seule vidéo YouTube 854x480 de trois parties en escouade : 31 éliminations sur 31
+    (`verite/fortnite/`), aucune en trop. Non vérifié : captures 1080p, HUD déplacé dans les options du jeu, parties
+    où le joueur meurt et regarde un coéquipier (son compteur s'affiche alors à la place).
 - **Mémoire des analyses** : une capture déjà analysée n'est pas réanalysée. La rechoisir (application ou ligne de
   commande) reprend son analyse instantanément, moments décochés compris ; seule la sélection (seuil, cible) est
   recalculée. Elle est refaite d'office si le fichier change ou si les détecteurs, fenêtres ou pistes audio de son

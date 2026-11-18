@@ -2,3 +2,4 @@ dev.highlights.vision.HudTemplateDetectorFactory
 dev.highlights.vision.OcrLogDetectorFactory
 dev.highlights.vision.KillfeedDetectorFactory
 dev.highlights.vision.AmmoCounterDetectorFactory
+dev.highlights.vision.HudCounterDetectorFactory
