@@ -45,7 +45,7 @@ class WhooshIT : FunSpec({
 
         /** Volume moyen (dB) de la bande du souffle autour de la coupe du plan 1. */
         suspend fun render(whip: WhipPanEffect, files: List<String> = emptyList(), band: String = "highpass=f=800,lowpass=f=3000"): Double {
-            val settings = MontageSettings(killOffset = Duration.ZERO, whip = whip)
+            val settings = MontageSettings(killOffset = Duration.ZERO, whip = whip).earlierDefaults().copy(whip = whip)
             val plan = MontagePlanner.plan(groups, music, settings)
             MontageRenderBuilder.whips(plan)[1] shouldBe (if (whip.enabled) FlickDirection.RIGHT else null)
             val name = "${whip.whoosh}_${files.size}_${band.hashCode()}"
@@ -71,7 +71,7 @@ class WhooshIT : FunSpec({
             return mean
         }
 
-        val loud = render(WhipPanEffect())
+        val loud = render(WhipPanEffect(whoosh = WhipPanEffect.DEFAULT_WHOOSH))
         val quiet = render(WhipPanEffect(whoosh = 0.0))
         // Mesuré : −35 dB avec le souffle, −48 dB sans (le peu qui reste de la musique).
         (loud - quiet) shouldBeGreaterThan 10.0
@@ -84,8 +84,8 @@ class WhooshIT : FunSpec({
         val files = dev.highlights.editing.story.SfxBank.list(dir)
         files shouldBe listOf(whistle.toString())
         val narrow = "bandpass=f=5000:t=q:w=8"
-        val fromFile = render(WhipPanEffect(), files, narrow)
-        val generated = render(WhipPanEffect(), band = narrow)
+        val fromFile = render(WhipPanEffect(whoosh = WhipPanEffect.DEFAULT_WHOOSH), files, narrow)
+        val generated = render(WhipPanEffect(whoosh = WhipPanEffect.DEFAULT_WHOOSH), band = narrow)
         (fromFile - generated) shouldBeGreaterThan 10.0
     }
 })

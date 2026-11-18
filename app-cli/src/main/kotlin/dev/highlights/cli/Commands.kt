@@ -209,8 +209,10 @@ class MontageCommand : PipelineCommand("montage") {
     private val noFlash by option("--no-flash", help = "Sans flash aux coupes").flag()
     private val flashEveryCut by option("--flash-every-cut", help = "Flash à chaque coupe, pas seulement aux coupes fortes").flag()
     private val noWhip by option("--no-whip", help = "Sans whip pan dans le sens du flick").flag()
-    private val showcase by option("--showcase", help = "Ouverture vitrine : passages calmes des parties, sans kill, avant le premier kill").flag()
-    private val noWhoosh by option("--no-whoosh", help = "Whip pans muets, sans souffle sur la coupe").flag()
+    private val showcase by option("--showcase", help = "Ouverture vitrine : passages calmes des parties, sans kill, avant le premier kill (par défaut)").flag()
+    private val noShowcase by option("--no-showcase", help = "Sans ouverture vitrine : le montage commence sur un kill").flag()
+    private val noWhoosh by option("--no-whoosh", help = "Whip pans muets, sans souffle sur la coupe (par défaut)").flag()
+    private val whoosh by option("--whoosh", help = "Souffle (whoosh) sur les whip pans, muets par défaut").flag()
     private val whooshDir by option("--whoosh-dir", help = "Dossier de souffles (wav, mp3…) pour les whip pans, chacun à son tour, à la place des souffles générés")
         .path(mustExist = true, canBeFile = false)
     private val noMotionBlur by option("--no-motion-blur", help = "Sans flou de mouvement (traînées sur les mouvements rapides, flou radial sur les coupes)").flag()
@@ -231,6 +233,10 @@ class MontageCommand : PipelineCommand("montage") {
     private val gameAudio by option("--game-audio", help = "Son du jeu : full (défaut) ou kills (le son du kill seul, musique baissée dessous)")
         .choice("full" to GameAudio.FULL, "kills" to GameAudio.KILLS)
     private val fast by option("--fast", help = "Rythme rapide : un kill sur chaque temps de la musique (chaque coup de basse), un plan très court chacun").flag()
+    private val noFastParts by option(
+        "--no-fast-parts",
+        help = "Pas de rythme rapide sur les parties rapides et intenses de la musique (drop et après) : tout le montage au rythme du style",
+    ).flag()
     private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
     private val fails by option("--fails", help = "Montage des morts du joueur : les secondes d'avant, ralenti, image figée et petit texte (OUPS, RIP…), sur la musique").flag()
     private val style by option(
@@ -404,8 +410,16 @@ class MontageCommand : PipelineCommand("montage") {
         flash = if (noFlash) false else null,
         flashEveryCut = if (flashEveryCut) true else null,
         whip = if (noWhip) false else null,
-        showcase = if (showcase) true else null,
-        whoosh = if (noWhoosh) false else null,
+        showcase = when {
+            noShowcase -> false
+            showcase -> true
+            else -> null
+        },
+        whoosh = when {
+            noWhoosh -> false
+            whoosh -> true
+            else -> null
+        },
         whooshDir = whooshDir,
         boostColors = colors,
         motionBlur = if (noMotionBlur) false else null,
@@ -421,6 +435,7 @@ class MontageCommand : PipelineCommand("montage") {
         oneTaps = if (oneTaps) true else null,
         fails = if (fails) true else null,
         fast = if (fast) true else null,
+        fastParts = if (noFastParts) false else null,
         style = style.let { if (it == "none") null else it ?: defaultStyle },
         constraints = constraints,
         thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail },

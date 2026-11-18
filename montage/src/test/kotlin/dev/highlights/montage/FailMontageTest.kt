@@ -44,7 +44,7 @@ class FailMontageTest : FunSpec({
         )
     }
 
-    val base = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds)
+    val base = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds).earlierDefaults()
     val fails = base.forFails()
 
     test("réglages : les morts ancrent les plans, ce qui classe les kills est coupé, ralenti partout") {

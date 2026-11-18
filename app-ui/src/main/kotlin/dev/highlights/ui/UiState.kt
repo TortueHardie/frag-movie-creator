@@ -321,11 +321,11 @@ data class MontageUiState(
     val flash: Boolean = true,
     val whip: Boolean = true,
     /** Souffle sur les whip pans (sans whip pan, rien à faire sonner). */
-    val whoosh: Boolean = true,
+    val whoosh: Boolean = false,
     /** Ouverture vitrine : passages calmes avant le premier kill. */
-    val showcase: Boolean = false,
+    val showcase: Boolean = true,
     /** Couleurs boostées (vibrance, saturation, contraste), comme les kill montages de TikTok. */
-    val boostColors: Boolean = false,
+    val boostColors: Boolean = true,
     /** Flou de mouvement : traînées sur les mouvements rapides, flou radial sur les coupes. */
     val motionBlur: Boolean = true,
     /** Coupes déplacées de quelques images pour raccorder sur une animation qui revient (rechargement, sort…). */
@@ -347,6 +347,8 @@ data class MontageUiState(
     val fails: Boolean = false,
     /** Rythme rapide : un kill par temps de musique, sur chaque coup de basse. */
     val fast: Boolean = false,
+    /** Rythme rapide sur les seules parties rapides et intenses de la musique (drop et après). */
+    val fastParts: Boolean = true,
     /** Style de montage choisi (voir [chooseStyle]) ; null : réglages du profil seuls. */
     val style: String? = null,
     /** Styles proposés (`config/montage-styles.yaml`). */

@@ -156,6 +156,8 @@ data class MontageReportClip(
     val whoosh: String? = null,
     /** Montage des morts : texte affiché sur la mort (OUPS, RIP…, voir [FailLabels]) ; null ailleurs. */
     val failText: String? = null,
+    /** Plan d'une partie rapide de la musique, au rythme rapide (voir [FastSections]). */
+    val fastPart: Boolean = false,
 )
 
 class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoders: EncoderSelector) {
@@ -275,6 +277,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                     showcase = c.showcase,
                     whip = whips[i] != null,
                     whoosh = whooshes[i],
+                    fastPart = c.fastPart,
                     failText = fails[i],
                 )
             } },

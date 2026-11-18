@@ -26,7 +26,7 @@ class MontageScorerTest : FunSpec({
         listOf(MusicSection(0, 96, -14.0, 0.3), MusicSection(96, 240, -8.0, 0.95)), 96,
     )
 
-    val settings = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds)
+    val settings = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds).earlierDefaults()
 
     fun group(source: MediaInfo, vararg kills: Int) =
         KillGroup(source, kills.map { it.seconds }, 0.8, emptyList(), emptyList())

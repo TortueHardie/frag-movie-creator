@@ -119,7 +119,7 @@ Pistes, de la plus simple à la plus lourde :
   saturation, contraste, luminosité, appliqués à chaque plan avant flashs et textes. Valeurs par défaut réglées sur les
   références : 38 % de pixels très saturés et 5,6 % de noirs sur un vrai montage (7,5 % et 1,7 % avant).
   - [ ] Couleurs accordées au skin (teinte dominante de l'arme poussée, le reste un peu désaturé) : à voir.
-  - [ ] L'activer par défaut si le rendu plaît.
+  - [x] L'activer par défaut si le rendu plaît : activées par défaut le 18/11 (choix de l'utilisateur).
 - [x] Flou de mouvement (`montage.motionBlur`, activé par défaut, `--no-motion-blur`) : images mélangées sur 17 ms
   (traînées sur ce qui bouge vite) et flou radial de 50 ms sur chaque coupe franche. Coupes floutées : 31 sur 36 (11
   avant), comme les références (48 à 93 %).
@@ -136,7 +136,8 @@ Pistes, de la plus simple à la plus lourde :
     (`StoryRenderBuilder.frameCounts`, test `StoryFramesIT`).
 - [x] Rythme rapide (`montage.fast`, `--fast`, case « Rythme rapide ») : un kill par temps, plans de 0,37 s à
   161 BPM (médiane des références : 0,37 à 0,67 s) au lieu de quatre temps (1,5 s).
-  - [ ] L'activer par défaut si le rendu plaît, ou seulement au-dessus d'un tempo.
+  - [x] L'activer par défaut si le rendu plaît, ou seulement au-dessus d'un tempo : par partie de la musique depuis le
+    18/11 (`montage.fastParts`, `--no-fast-parts`) : la drop et la suite, si elles sont intenses et le tempo vif.
   - Premier essai jugé illisible (74 kills, R2D2) : 40 % d'images floues juste après le kill (flou de la coupe
     suivante, 0,17 s après le kill, et traînée), échanges montrant l'écran de mort, animations du personnage prises
     pour des mouvements de caméra. Corrigé (zone nette autour du kill, flou de coupe proportionné, échanges écartés,
@@ -178,7 +179,8 @@ Pistes, de la plus simple à la plus lourde :
   - [ ] Variantes au-delà du planificateur (ordre chronologique / montée, accroche, densité d'effets) : à décider avec l'utilisateur.
 - [x] Styles nommés (`config/montage-styles.yaml`, `--style`, puces en haut de la fenêtre, cases sous « Réglages
   avancés ») : tiktok, propre, onetaps, cinematique. Une case modifiée à la main passe devant le style.
-  - [ ] Style par défaut et défauts des options « à activer si le rendu plaît » : rendus de comparaison dans
+  - [x] Style par défaut et défauts des options « à activer si le rendu plaît » (décidés le 18/11 : Cinématique,
+    couleurs boostées, vitrine, whip pans muets, rythme rapide par partie) : rendus de comparaison dans
     `output/revue/styles-montage/`, décision de l'utilisateur attendue.
 - [x] Whoosh sur les whip pans (souffles générés de `StoryRenderBuilder`, ou un dossier de sons : `whip.sounds`,
   `--whoosh-dir`), volume qui suit la musique dans `audio.balance`, case de la fenêtre de montage, rapport par plan.

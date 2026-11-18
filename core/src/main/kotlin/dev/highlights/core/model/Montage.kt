@@ -87,6 +87,8 @@ data class MontageSettings(
     val formats: List<OutputFormat> = listOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
     /** Rythme rapide : un kill par temps de musique (voir [FastMontage]), appliqué par [forFast]. */
     val fast: FastMontage = FastMontage(),
+    /** Rythme rapide sur les seules parties rapides et intenses de la musique (voir [FastParts]). */
+    val fastParts: FastParts = FastParts(),
     /** Réglages du montage « onetaps », appliqués par [forOneTaps] quand on le demande. */
     val oneTaps: OneTapMontage = OneTapMontage(),
     /** Réglages du montage des morts (« fails »), appliqués par [forFails] quand on le demande. */
@@ -305,6 +307,29 @@ data class FastMontage(
         require(preRoll >= minLead) { "montage.fast.preRoll doit couvrir minLead" }
         require(postRoll >= minTail) { "montage.fast.postRoll doit couvrir minTail" }
         require(cut.isPositive() && perClip.isPositive() && min.isPositive()) { "montage.fast : durées positives attendues" }
+    }
+}
+
+/**
+ * Rythme rapide par partie de la musique, dans un même montage : les parties calmes (intro, montée) gardent le rythme
+ * du style, les parties rapides et intenses passent au rythme rapide ([FastMontage] : un kill par temps quand le tempo
+ * le permet, ni ralenti ni rampe, zoom d'approche vers le réticule). Demande de l'utilisateur du 18/11 : le rythme
+ * rapide « quand la musique s'y prête, par exemple Rome Is Burning après la drop ». Une partie est rapide si elle commence
+ * à la drop ou après, si son intensité atteint [minIntensity] (0 à 1 dans le morceau ; la partie après la drop de « Rome
+ * Is Burning » : 0,95, son intro : 0,25) et si le tempo atteint [minBpm] (« Rome Is Burning » : 126 BPM). Le tempo
+ * détecté est parfois le double du vrai (« Lose Yourself » : 171 pour 86) : il ne sert que de garde-fou contre les
+ * musiques lentes et lourdes (« HEAVENLY JUMPSTYLE (Slowed) », 111 BPM, garde son rythme). Le rythme rapide forcé
+ * ([FastMontage.enabled], `--fast`) l'emporte : tout le montage est rapide.
+ */
+@Serializable
+data class FastParts(
+    val enabled: Boolean = true,
+    val minIntensity: Double = 0.7,
+    val minBpm: Double = 120.0,
+) {
+    init {
+        require(minIntensity in 0.0..1.0) { "montage.fastParts.minIntensity doit être entre 0 et 1" }
+        require(minBpm > 0) { "montage.fastParts.minBpm doit être positif" }
     }
 }
 
@@ -653,9 +678,10 @@ data class WhipPanEffect(
     /**
      * Volume du souffle (whoosh) qui culmine sur la coupe, celui des highlights story (bruit filtré qui enfle puis
      * retombe) ; 0 : whip pan muet. Sous le son du jeu (1) et la musique (0,8) : il accompagne le mouvement sans
-     * couvrir le tir qui suit.
+     * couvrir le tir qui suit. Muet par défaut depuis le 18/11 (choix de l'utilisateur après les rendus de comparaison) ;
+     * le réactiver (case, `--whoosh`) donne [DEFAULT_WHOOSH].
      */
-    val whoosh: Double = 0.5,
+    val whoosh: Double = 0.0,
     /**
      * Dossier de souffles (wav, mp3…) qui remplacent les souffles générés, chacun à son tour dans un ordre mélangé mais
      * toujours le même, comme les bruitages des highlights story (`SfxBank`). Chemin relatif au fichier de configuration ;
@@ -667,6 +693,11 @@ data class WhipPanEffect(
         require(duration.inWholeMilliseconds in 40..600) { "montage.whip.duration doit être entre 40 ms et 600 ms" }
         require(blur in 0.0..0.1) { "montage.whip.blur doit être entre 0 et 0,1" }
         require(whoosh in 0.0..2.0) { "montage.whip.whoosh doit être entre 0 et 2" }
+    }
+
+    companion object {
+        /** Volume du souffle quand on le réactive : sous le son du jeu (1) et la musique (0,8). */
+        const val DEFAULT_WHOOSH = 0.5
     }
 }
 
@@ -749,7 +780,8 @@ data class MotionBlur(
  */
 @Serializable
 data class ColorBoost(
-    val enabled: Boolean = false,
+    /** Activées par défaut depuis le 18/11 (« always by default » après les rendus de comparaison) ; on peut les couper. */
+    val enabled: Boolean = true,
     /** Vibrance, -2 à 2 : renforce les couleurs ternes plus que les vives. */
     val vibrance: Double = 0.5,
     /** Saturation (1 = inchangée). */
@@ -940,7 +972,8 @@ data class TextEffect(
  */
 @Serializable
 data class ShowcaseOpening(
-    val enabled: Boolean = false,
+    /** Activée par défaut depuis le 18/11 : l'utilisateur l'a retenue après avoir vu les rendus de comparaison. */
+    val enabled: Boolean = true,
     val length: SerialDuration = 8.seconds,
     val shotBeats: Int = 2,
     val afterEvent: SerialDuration = 5.seconds,

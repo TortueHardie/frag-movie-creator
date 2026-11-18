@@ -8,7 +8,7 @@ import io.kotest.matchers.shouldBe
 class MontageStyleUiTest : FunSpec({
     val tiktok = MontageStyle("tiktok", fast = true, colors = true, flash = true)
     val propre = MontageStyle("propre", fast = false, effectDensity = EffectDensity.SOBER, flash = false, zoom = false)
-    val base = MontageUiState(styles = listOf(tiktok, propre), profileKnobs = StyleKnobs(zoom = true, flash = true))
+    val base = MontageUiState(styles = listOf(tiktok, propre), profileKnobs = StyleKnobs(zoom = true, flash = true, boostColors = false))
 
     /** Ce que fait le contrôleur à chaque modification de la fenêtre. */
     fun MontageUiState.edit(change: (MontageUiState) -> MontageUiState) = change(this).trackedFrom(this)
@@ -23,7 +23,7 @@ class MontageStyleUiTest : FunSpec({
         clean.boostColors shouldBe false
         clean.flash shouldBe false
         clean.density shouldBe EffectDensity.SOBER
-        clean.chooseStyle(null).knobs shouldBe StyleKnobs(zoom = true, flash = true)
+        clean.chooseStyle(null).knobs shouldBe StyleKnobs(zoom = true, flash = true, boostColors = false)
     }
 
     test("une case modifiée à la main garde sa valeur quand on change de style, jusqu'au retour au style") {

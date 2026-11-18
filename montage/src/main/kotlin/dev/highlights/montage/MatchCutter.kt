@@ -400,8 +400,9 @@ object ScopeCuts {
         for (i in 1 until clips.size) {
             val out = plan.clips[i - 1]
             val into = plan.clips[i]
-            // Plan d'un temps : le kill ouvre le plan, rien à retailler avant lui.
-            if (into.leadIn.isPositive()) continue
+            // Plan d'un temps : le kill ouvre le plan, rien à retailler avant lui. Partie rapide de la musique : pas de
+            // portions ralenties pour tenir la pose, le rythme rapide n'a pas de ralenti.
+            if (into.leadIn.isPositive() || into.fastPart || out.fastPart) continue
             val tail = out.group.aim.tail
             // La pose mesurée précède le premier kill du groupe : sans lui à l'écran, elle ne dit rien du début du plan.
             val head = into.group.aim.head?.takeIf { into.kills.firstOrNull() == into.group.kills.first() }
