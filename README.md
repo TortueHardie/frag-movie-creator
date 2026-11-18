@@ -7,14 +7,15 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
 - **Détection des moments** : volume du jeu (EBU R128), prises de parole et rires (YAMNet), événements enregistrés par
   Outplayed (kills, morts, assistances), killfeed lu à l'image quand Outplayed n'est pas là (VALORANT, Counter-Strike 2),
   icônes du HUD et journal des gains lu par OCR (Wardogs), compteur d'éliminations du HUD lu
-  chiffre par chiffre (Fortnite).
+  chiffre par chiffre (Fortnite), notifications de kill
+  lues par OCR (Apex Legends).
 - **Highlights** : les meilleurs moments fusionnés et exportés en 16:9 et/ou 9:16, encodés par le GPU (AMD, NVIDIA,
   Intel) avec repli logiciel.
 - **Étalonnage** (`edit.grade` d'un profil, pour les highlights comme pour le montage) : table de correspondance
   `.cube` (chemin relatif au dossier de configuration), saturation, contraste et vignettage. Sert à unifier des
   captures venues de sessions ou de jeux différents. Neutre tant qu'on n'y touche pas.
 - **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
-- **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Counter-Strike 2, Wardogs, Fortnite, et un profil par défaut.
+- **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Counter-Strike 2, Wardogs, Fortnite, Apex Legends, et un profil par défaut.
   - **Fortnite** (`fortnite.yaml`, fichiers dont le chemin contient « Fortnite ») : les éliminations du joueur sont lues
     sur son compteur en haut à droite (détecteur `hud-counter` : chiffres comparés à `config/templates/fortnite/digit_*.png`,
     deux images par seconde, puis suite croissante la plus probable, remise à zéro à chaque partie). Les mises à terre
@@ -877,6 +878,28 @@ Windows (rien à installer), par lots et en parallèle pendant le décodage de l
   `montage.killStyle.downedAsDeath: true` le ferait compter comme une mort (rounds, kill aussitôt payé, K/D) ; désactivé.
 - Sur une partie de 1 h 25 : 14 kills sur 14, 3 aides sur 3, 8 réanimations sur 10, aucun faux positif (les icônes
   seules : 12 kills et un faux, aucune aide, 4 réanimations). Environ 1 min d'analyse pour 1 h 53 de vidéo.
+
+## Notifications de kill (Apex Legends)
+
+Le profil `apex` lit avec `ocr-log` la notification affichée sous le réticule, au lieu d'un journal : « KNOCKED DOWN
+<pseudo> » donne un événement `knock` (ennemi mis à terre : la fusillade), « ELIMINATED <pseudo> » et « SQUAD WIPE »
+un `kill`. Les notifications s'empilent, la nouvelle au-dessus des autres : `maxDrop: 1` laisse une ligne déjà vue
+descendre d'un cran sans la recompter (sans lui, une élimination poussée par un « KNOCKED DOWN » comptait deux fois).
+Jeu en anglais (`language: en-US`).
+
+- Le montage s'ancre sur les `kill` ; les `knock` comptent pour les moments forts des highlights (`eventBoosts`) et la
+  secousse du mode story. Ni ace ni clutch déduits (escouades de trois, pas de rounds).
+- 9:16 : compteur (escouades restantes, kills, dégâts) et killfeed, en haut à droite, sont replacés en haut à gauche ;
+  rien en bas, pour ne pas couvrir la notification.
+- Mesuré sur « Apex 53 kills octane » (compilation YouTube de trois parties, 854x480, image teintée) contre le
+  compteur de kills du HUD, relevé à l'œil (`verite/apex/`) : 33 kills sur 56 crédits, aucun en trop. Le reste est
+  surtout crédité d'un coup par un « SQUAD WIPE » (dernier de l'escouade à terre : les ennemis que le joueur avait mis
+  à terre meurent avec lui, 2 ou 3 kills sous une seule notification). Deuxième capture, relevée après le réglage
+  (« Apex 37 kills revenant », une partie, autre légende) : 27 kills sur 36, aucun en trop ; la notification « SQUAD
+  WIPE » y arrive jusqu'à 4,5 s après le crédit (le joueur ouvre une death box au moment du kill : notification
+  cachée), d'où une tolérance de 5 s pour cette vérité. Le compteur lui-même (chiffres de ~6 px en
+  480p) n'est pas lisible par l'OCR de Windows ; une lecture par modèles d'image n'a pas été tentée. Morts du joueur
+  non lues : aucune dans cette capture.
 
 ## Voix et rires
 

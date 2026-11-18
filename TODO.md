@@ -222,9 +222,16 @@ Pistes, de la plus simple à la plus lourde :
   → événement `downed`.
 - [ ] Décider si « à terre » compte comme une mort (`montage.killStyle.downedAsDeath`, faux par défaut) : rounds,
   kill aussitôt payé, statistiques K/D.
-- [ ] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
+- [x] Profil Apex Legends (`config/profiles/apex.yaml`) : notifications KNOCKED DOWN / ELIMINATED / SQUAD WIPE lues
+  par `ocr-log` (`maxDrop` pour les notifications empilées) ; vérité `verite/apex/` (compteur du HUD) : 33 kills sur 56
+  et 27 sur 36 (deux vidéos), aucun faux.
+- [ ] Apex : « SQUAD WIPE » vu jusqu'à 4,5 s après le kill (death box ouverte) : le montage s'y cale en retard ; caler
+  sur le dernier « knock » qui précède ?
+- [ ] Apex : compter les kills crédités en rafale par un SQUAD WIPE (lire le compteur du HUD, illisible en 480p : à
+  revoir sur une capture 1080p brute), lire les morts du joueur, vérifier sur une capture non montée.
+- [x] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
   Captures déposées le 18/11 dans `D:\Vidéo` (hors dépôt) :
-  - [ ] Apex : « Apex 53 kills octane.mp4 », « Apex 37 kills revenant.mp4 » (atelier `apex`).
+  - [x] Apex : « Apex 53 kills octane.mp4 », « Apex 37 kills revenant.mp4 » (atelier `apex`).
   - [x] CS2 : « CS2- 33 Kills On Dust 2.mp4 » (atelier `cs2`) : profil `cs2`, `killfeed` en mode `outline` (lignes
     encadrées), vérité `verite/cs2/` : 32 kills sur 33, 13 morts sur 14 ; les assistances sortent en kills (6 sur 7).
     Reste : distinguer assistance et kill (le texte de la ligne), une seule capture 480p mesurée.

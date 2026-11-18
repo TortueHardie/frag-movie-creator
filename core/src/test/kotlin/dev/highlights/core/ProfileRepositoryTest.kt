@@ -133,12 +133,21 @@ class ProfileRepositoryTest : FunSpec({
 
     test("les profils du dépôt sont valides") {
         val repo = ProfileRepository.loadDirectory(Path("../config/profiles"))
-        repo.all().map { it.id }.toSet() shouldBe setOf("default", "lol", "valorant", "cs2", "wardogs", "fortnite")
+        repo.all().map { it.id }.toSet() shouldBe setOf("apex", "default", "lol", "valorant", "cs2", "wardogs", "fortnite")
     }
 
     test("une capture de Counter-Strike 2 prend le profil cs2") {
         val repo = ProfileRepository.loadDirectory(Path("../config/profiles"))
         repo.resolve(Path("D:/Vidéo/CS2- 33 Kills On Dust 2.mp4")).id shouldBe "cs2"
         repo.resolve(Path("D:/Captures/Counter-Strike 2/partie.mp4")).id shouldBe "cs2"
+    }
+
+    test("apex : une capture dont le chemin dit « Apex » prend le profil Apex, notifications empilées suivies") {
+        val repo = ProfileRepository.loadDirectory(Path("../config/profiles"))
+        repo.resolve(Path("D:/Vidéo/Apex 53 kills octane.mp4"), null).id shouldBe "apex"
+        repo.resolve(Path("D:/Vidéo/APEX LEGENDS 2026-11-18 21-04-11.mp4"), null).id shouldBe "apex"
+        val events = repo.byId("apex").detectors.single { it.id == "game-events" }
+        events.type shouldBe "ocr-log"
+        events.eventBoosts.keys shouldBe setOf("kill", "knock")
     }
 })
