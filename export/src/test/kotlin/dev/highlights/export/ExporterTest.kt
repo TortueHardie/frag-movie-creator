@@ -181,6 +181,13 @@ class ExporterTest : FunSpec({
                 exporter.export(session(source), request(platform = "tiktok", maxDuration = 5.seconds), ProgressTracker(listener = {}).root)
             }.text.key shouldBe "error.export.platformTooLong"
             ffmpeg.runs.shouldBeEmpty()
+
+            // Sans plateforme (limite du réglage du clip) : un message qui le dit, jamais « la plateforme visée () ».
+            val clip = shouldThrow<InputException> {
+                exporter.export(session(source), request(maxDuration = 5.seconds), ProgressTracker(listener = {}).root)
+            }
+            clip.text.key shouldBe "error.export.clipTooLong"
+            clip.localizedMessage.contains("()") shouldBe false
         }
     }
 

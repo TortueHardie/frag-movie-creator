@@ -7,6 +7,7 @@ import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.session.SessionStore
 import dev.highlights.pipeline.Pipelines
 import dev.highlights.testing.TestMedia
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.engine.spec.tempdir
 import io.kotest.matchers.collections.shouldHaveSize
@@ -102,17 +103,12 @@ class AppControllerIT : FunSpec({
             controller.state.value.jobs.last().title shouldContain "h002"
             controller.state.value.job.shouldBeNull()
             controller.state.value.canExport shouldBe true
-            // Fini ou en échec, mais par la file : un clip réussi a sa vidéo, un échec son message, sans boîte de
-            // dialogue (sur cette vidéo de synthèse, le clip peut dépasser sa durée maximale : défaut du clip, pas de la file).
+            // Le clip réussit et tient sous son plafond de 30 s (QA finale : 31 s, puis échec « la plateforme visée () »).
             val clipped = await("clip 9:16") { s -> !s.jobs.last().active }.jobs.last()
-            when (clipped.status) {
-                JobStatus.DONE -> clipped.result.shouldNotBeNull().exists() shouldBe true
-                else -> {
-                    clipped.status shouldBe JobStatus.FAILED
-                    clipped.error.shouldNotBeNull()
-                    controller.state.value.error.shouldBeNull()
-                }
-            }
+            withClue(clipped.error ?: "") { clipped.status shouldBe JobStatus.DONE }
+            val clipVideo = clipped.result.shouldNotBeNull()
+            clipVideo.exists() shouldBe true
+            (TestMedia.requireFfmpeg().probe(clipVideo).duration <= 30.seconds) shouldBe true
 
             controller.previewVertical("h002")
             val preview = await("aperçu 9:16") { it.imagePreview != null }

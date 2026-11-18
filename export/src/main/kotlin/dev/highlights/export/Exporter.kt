@@ -115,7 +115,12 @@ class Exporter(
         // Trop long pour la plateforme : on le dit avant le rendu, plutôt que de livrer une vidéo qu'elle refusera.
         request.maxDuration?.let { max ->
             if (duration > max) {
-                throw InputException(Message("error.export.platformTooLong", "duration" to duration, "platform" to request.platform, "max" to max))
+                // Sans plateforme, la limite vient du réglage du clip (edit.clip.maxDuration) : jamais un nom vide.
+                val platform = request.platform
+                throw InputException(
+                    if (platform != null) Message("error.export.platformTooLong", "duration" to duration, "platform" to platform, "max" to max)
+                    else Message("error.export.clipTooLong", "duration" to duration, "max" to max),
+                )
             }
         }
         val encoder = encoders.select().withMaxBitrate(settings.maxBitrate)
