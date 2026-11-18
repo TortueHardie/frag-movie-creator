@@ -964,9 +964,9 @@ drop). Avant, l'intro et la montée gardent le rythme du style (Cinématique : p
 temps, sans ralenti ni rampe, zoom d'approche vers le réticule. Le rythme rapide part de la drop elle-même (choix de
 l'utilisateur du 18/11) : le meilleur groupe y tombe, en plan rapide, sans ralenti (un multi-kill s'étend juste avant
 la drop pour y finir). Une musique lente (« HEAVENLY JUMPSTYLE (Slowed) », 111 BPM) reste entière au rythme du style.
-Limite connue : le tempo détecté est parfois le double du vrai (« Lose Yourself » lu 171 BPM pour 86, « life kinda
-sucks » 188) ; une telle musique passe au rythme rapide après sa drop. Aucun indice simple ne trahit le doublement
-(temps pairs et impairs aussi forts que sur une vraie musique rapide) : `--no-fast-parts` ou la case pour l'éviter.
+Une musique lente lue au double de son tempo passerait à tort au rythme rapide : l'analyse la ramène à sa noire
+(« Tempo : musiques lues au double » ci-dessous). Si une musique passe encore au rythme rapide sans l'être,
+`--no-fast-parts` ou la case l'évitent.
 Le rythme rapide forcé (ci-dessous) rend tout le montage rapide.
 
 Case « Rythme rapide » du dialogue du montage kills, `montage --fast` ou `search --montage … --fast` : un kill sur
@@ -985,6 +985,62 @@ En 21:9, l'ennemi n'est souvent que quelques pixels au fond d'un couloir : il gr
   0,17 s après le kill et ne montrait que l'écran de mort.
 - Dans un dossier de musiques, celles qui gardent des plans d'un temps passent devant (`fast.musicPace`).
 - `montage.fast.enabled: true` dans le profil pour l'avoir par défaut.
+
+## Tempo : musiques lues au double
+
+Le tempo est lu par autocorrélation des attaques, avec une préférence pour 120 BPM. Une musique lente aux croches
+très régulières peut alors se lire sur ses croches : « Lose Yourself » sortait à 171 BPM pour 86, et passait au rythme
+rapide après sa drop. Au-dessus de 140 BPM lus, l'analyse ramène le tempo à la noire quand deux choses se voient à la
+fois (`MusicAnalyzer.halvesTempo`) :
+- **rien ne bat entre deux temps lus**, dans aucune bande (basses < 220 Hz, médiums < 2,2 kHz, aigus) :
+  l'autocorrélation de chaque bande au demi-temps lu reste ≤ −0,1. Une vraie musique rapide a quelque chose entre ses
+  temps (charleston, caisse claire, basse) ;
+- **la noire est presque aussi nette que le temps lu** (autocorrélation à deux temps lus ≥ 0,85 × celle du temps lu).
+
+Mesuré sur les 19 musiques différentes de `D:\Musique` et de `music sample`. Le « réel » n'est noté que s'il est
+établi : tempo publié par plusieurs sources, ou dit par l'utilisateur. Une mesure maison de la battue (grosse caisse et
+caisse claire séparées, puis leur alternance) a été essayée : elle se trompait sur des musiques connues (« Fortunate
+Son », « R2D2 »), donc elle ne sert pas de référence.
+
+| Musique | Lu avant | Lu après | Réel | Source du réel | Entre deux temps / noire (lu > 140) |
+|---|---|---|---|---|---|
+| Eminem - Lose Yourself | 171,4 | **85,7** | 86 | piste de batterie de Karaoke-Version (85,7) ; plusieurs bases de données donnent 171, le même doublement | −0,26 / 0,96 → ramené |
+| Creedence - Fortunate Son | 132,6 | 132,6 | 132 | analyses publiées (Université de Waterloo 132,7 ; AcousticBrainz 132-133) | — |
+| Two Door Cinema Club - Undercover Martyn | 159,9 | 159,9 | 161 | audiokeychain (une seule source) | 0,32 / 0,78 |
+| R2D2 | 161,4 | 161,4 | rapide | dit par l'utilisateur ; aucun BPM publié trouvé | 0,02 / 0,73 |
+| GO2 - Spitfire | 157,0 | 157,0 | rapide | dit par l'utilisateur ; eurobeat (genre à 150-160) ; aucun BPM publié trouvé | 0,45 / 0,87 |
+| Apashe - Rome Is Burning | 126,1 | 126,1 | rapide après la drop | dit par l'utilisateur ; aucun BPM publié trouvé | — |
+| Apashe - Menace | 155,0 | 155,0 | non établi | aucun BPM publié trouvé ; rap sur trap, peut-être 77 (à écouter) | 0,12 / 1,12 |
+| life kinda sucks | 187,6 | 187,6 | non établi | aucun BPM publié trouvé ; peut-être 94 (à écouter) | 0,24 / 0,72 |
+| Meg & Dia - Monster (DotEXE Dubstep Remix) | 140,0 | 140,0 | non établi | dubstep, d'habitude publié à 140 et ressenti à 70 | — (139,7 à la grille de l'autocorrélation, sous 140) |
+| BACK2BACK | 124,0 | 124,0 | non établi | — | — |
+| HEAVENLY JUMPSTYLE (Slowed) | 111,2 | 111,2 | non établi | jumpstyle (~150) ralenti, cohérent | — |
+| Hanumankind - Big Dawgs | 90,4 | 90,4 | non établi | aucun BPM publié trouvé | — |
+| KEYGEN CHURCH - Tenebre Rosso Sangue | 88,1 | 88,1 | non établi | aucun BPM publié trouvé | — |
+| MokuMoku - You Are Not Invited | 110,2 | 110,2 | non établi | aucun BPM publié trouvé | — |
+| Nightcore - Snake Eyes | 131,4 | 131,4 | non établi | — | — |
+| RUBIKDICE - MONTAGEM PEGADORA | 110,4 | 110,4 | non établi | aucun BPM publié trouvé | — |
+| STORM I | 123,0 | 123,0 | non établi | — | — |
+| Time Is Ticking | 101,7 | 101,7 | non établi | — | — |
+| Doom Eternal - The Only Thing They Fear Is You | 103,0 | 103,0 | non établi | aucun BPM publié trouvé | — |
+
+Deux boucles synthétiques des tests (grosse caisse à chaque temps, charleston entre) restent à 150 et 170 BPM
+(entre deux temps : 0,61 et 0,80). Une seule musique est ramenée : le critère tient sur un seul exemple, d'où des
+seuils loin des musiques gardées. Une musique rapide sans rien entre ses temps et à la noire très nette, une boucle de
+grosse caisse seule par exemple, serait ramenée à tort.
+
+Note du montage par défaut (WARDOGS, deux parties, ~10 kills), avant et après :
+
+| Musique | BPM | Durée | Plans (rapides) | Note | sync | accent | durée remplie | creux | action |
+|---|---|---|---|---|---|---|---|---|---|
+| Lose Yourself avant | 171,4 | 22 s | 25 (10) | 0,837 | 1,00 | 0,51 | 0,40 | 1,00 | 0,97 |
+| Lose Yourself après | 85,7 | 43 s | 20 (0) | 0,862 | 1,00 | 0,54 | 0,94 | 0,85 | 0,88 |
+| Rome Is Burning avant / après | 126,1 | 16 s | 22 (13) | 0,833 / 0,833 | identiques | | | | |
+| R2D2 avant / après | 161,4 | 16 s | 25 (13) | 0,813 / 0,813 | identiques | | | | |
+
+Les plans restent calés sur les temps (sync 1,00). « Lose Yourself » n'a plus de partie rapide, et le montage remplit
+sa durée cible (43 s contre 22). Il perd un peu en creux et en action : des plans plus longs à 86 BPM.
+`MusicAnalyzer.VERSION` passe à 4 : les analyses gardées des bibliothèques de musiques sont refaites.
 
 ## Montage des morts
 
