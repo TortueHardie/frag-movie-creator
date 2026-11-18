@@ -173,15 +173,24 @@ edit:
   # Vertical 9:16 : le recadrage au centre ne gardait que le milieu du bandeau du haut (score, minuteur), les avatars
   # des deux équipes coupés sur les côtés. Le recadrage part donc sous le bandeau (y 0,09 : il ne s'y voit plus), et le
   # bandeau entier est replacé en haut, sur toute la largeur. Mesuré sur une capture 16:9 ; centré, il garde sa taille
-  # en pixels en 21:9 (ScreenGeometry). Le réticule remonte de 5 % au-dessus du centre de l'image verticale.
+  # en pixels en 21:9 (ScreenGeometry).
+  # Même chose en bas : le bloc vie, armure, capacités et munitions (x 0,27 à 0,73, y 0,89 à 0,995, mesuré sur
+  # « Valorant- 44 kills » en 16:9) était rogné sur les côtés. Le recadrage s'arrête au-dessus de lui (y 0,885), et le
+  # bloc entier est replacé en bas, dans la zone sûre des applications verticales (marges de 5 % à gauche, 14 % à
+  # droite, 22 % en bas : TikTok). Bandeau et bloc restent fixes pendant les zooms (HudPin). Le réticule tombe alors à
+  # 1,6 % sous le centre de l'image verticale.
   vertical:
     size: { width: 1080, height: 1920 }
     reference: { width: 1920, height: 1080 }
-    cropRegion: { x: 0.0, y: 0.09, width: 1.0, height: 0.91 }
+    cropRegion: { x: 0.0, y: 0.09, width: 1.0, height: 0.795 }
     hud:
       - name: topbar
         source: { x: 0.20, y: 0.008, width: 0.60, height: 0.080 }
         target: { x: 0.0, y: 0.0, width: 1.0 }
+        anchor: center
+      - name: abilities
+        source: { x: 0.27, y: 0.89, width: 0.46, height: 0.105 }
+        target: { x: 0.05, y: 0.72, width: 0.81 }
         anchor: center
 
 montage:
