@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.editing.story.TextMeasure
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
@@ -205,7 +206,11 @@ object MontageRenderBuilder {
                 // commente ; sans gel, sur la mort. Posé sur la mort, il s'effaçait juste quand l'image se figeait.
                 failTexts[i]?.let { text -> outKills.lastOrNull()?.let { k ->
                     val at = clip.speeds.firstOrNull { it.kind == SpeedKind.FREEZE }?.let { clip.toOutput(it.range.start) + lead } ?: k
-                    effects += drawText(font, text, at, (h * 0.12).roundToInt(), labelY, border = (h * 0.007).roundToInt().coerceAtLeast(3), safe = request.edit.safeArea)
+                    // Aussi gros que possible sans sortir de l'image : « BIEN ESSAYÉ » à 12 % de la hauteur débordait du 9:16.
+                    val nominal = h * 0.12
+                    val size = TextMeasure.width(VideoFonts.forText(font, text), nominal, text)
+                        ?.let { measured -> if (measured > w * 0.88) nominal * w * 0.88 / measured else nominal } ?: nominal
+                    effects += drawText(font, text, at, size.roundToInt(), labelY, border = (size * 0.06).roundToInt().coerceAtLeast(3), safe = request.edit.safeArea)
                 } }
                 if (!settings.fails.enabled) outKills.forEachIndexed { j, k ->
                     if (j >= 1 && labels.isNotEmpty()) {
