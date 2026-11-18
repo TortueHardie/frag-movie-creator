@@ -569,9 +569,10 @@ plan au lieu de tout relancer à l'aveugle.
 
 ## Récap de soirée
 
-Une vidéo highlights de toute une soirée, partie par partie : avant chaque partie, un intercalaire de 1,5 s
+Une vidéo highlights de toute une soirée, partie par partie : avant chaque partie, un intercalaire d'une seconde avec un
+impact sonore (ceux du style story, au volume du reste)
 (« PARTIE 3 – 14 KILLS », le jeu et l'heure, sur une image floutée de la partie), puis ses meilleurs moments ; à la fin,
-le bilan (« SOIRÉE DU 16/11 », « 47 KILLS · MEILLEURE PARTIE : N°3 (14) »). La soirée est celle des statistiques (de 6 h
+le bilan, 2 s sur un souffle (« SOIRÉE DU 16/11 », « 47 KILLS · MEILLEURE PARTIE : N°3 (14) »). La soirée est celle des statistiques (de 6 h
 à 6 h, un jeu à la fois) ; les moments de chaque partie sont recalculés avec une cible de durée partagée sur la soirée
 (moments retouchés à la main gardés), et rendus par l'export habituel (style simple ou story, formats, plateforme). Une
 partie sans moment n'a pas d'intercalaire mais garde son numéro. Dans l'application : « Récap de la soirée » sur chaque

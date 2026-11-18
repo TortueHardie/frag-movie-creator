@@ -155,6 +155,16 @@ class RecapRenderer(private val ffmpeg: FfmpegService, private val encoders: Enc
         /** Écran de fin : deux lignes de bilan à lire, un peu plus longtemps qu'un intercalaire. */
         val END_CARD = 2000.milliseconds
 
+        /**
+         * Gains des bruitages d'un carton, en plus du volume du style story : là, ils passent sous le son du jeu et le
+         * tout est normalisé ensemble ; seuls sur un carton, ils étaient bien trop bas. Mesuré sur le récap VALORANT du
+         * 17/11 (EBU R128, sonie momentanée maximale) : impact à -21 LUFS et souffle à -40 LUFS, contre -11 LUFS pour
+         * les parties. ×2,4 (+7,6 dB) met l'impact à -13,7 LUFS (crête -1,6 dBFS), ×16 (+24 dB) le souffle à -15,9 LUFS
+         * (crête -3,2 dBFS) : au volume du reste, sans le dépasser.
+         */
+        const val IMPACT_GAIN = 2.4
+        const val WHOOSH_GAIN = 16.0
+
         /** Instant de l'impact dans un intercalaire : avec l'apparition du titre (« pop » de 0,12 s). */
         val SOUND_AT = 60.milliseconds
 

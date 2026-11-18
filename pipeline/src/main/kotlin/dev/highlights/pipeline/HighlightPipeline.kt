@@ -719,13 +719,13 @@ class HighlightPipeline(
                     val subtitle = stats?.let(RecapText::gameSubtitle) ?: profile.name
                     // Un impact court à l'apparition du titre, comme ceux du style story, à leur volume ; un son différent
                     // à chaque partie (variantes à tour de rôle).
-                    val sound = sfx?.let { RecapSound(StoryRenderBuilder.IMPACTS[k % StoryRenderBuilder.IMPACTS.size], it.impactVolume, RecapRenderer.SOUND_AT) }
+                    val sound = sfx?.let { RecapSound(StoryRenderBuilder.IMPACTS[k % StoryRenderBuilder.IMPACTS.size], it.impactVolume * RecapRenderer.IMPACT_GAIN, RecapRenderer.SOUND_AT) }
                     RecapPart(RecapCard(title, subtitle, session.media.path, best(session), RecapRenderer.CARD, sound), exports[k].videos.getValue(format))
                 }
             }
             val last = games.maxBy { (_, s) -> s.highlights.filter { it.enabled }.maxOf { it.score } }.second
             // Le bilan s'ouvre sur un souffle, plus doux qu'un impact : la soirée se referme.
-            val endSound = sfx?.let { RecapSound(StoryRenderBuilder.WHOOSHES.first(), it.whooshVolume) }
+            val endSound = sfx?.let { RecapSound(StoryRenderBuilder.WHOOSHES.first(), it.whooshVolume * RecapRenderer.WHOOSH_GAIN) }
             val end = RecapCard(RecapText.endTitle(evening), RecapText.endSubtitle(evening), last.media.path, best(last), RecapRenderer.END_CARD, endSound)
             val names = OutputNamer.reserve(outputDir, profile.id, evening.date, formats, kind = "recap")
             val renderer = RecapRenderer(ffmpeg, exporter.encoders)
