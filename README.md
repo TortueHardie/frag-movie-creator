@@ -321,6 +321,10 @@ meilleurs moments ne sont plus posés bout à bout : chacun est remonté comme l
   moments ne la refait pas. Il faut le modèle, trop lourd pour le dépôt et l'installeur :
   [`ggml-large-v3-turbo-q5_0.bin`](https://huggingface.co/ggerganov/whisper.cpp) (~574 Mo) dans `config/models/`
   (`story.captions.model`). Sans lui, le montage sort sans sous-titres.
+  Une capture **sans piste micro séparée** (une seule piste « tout le son », comme les vidéos VALORANT téléchargées)
+  n'est pas sous-titrée : whisper y transcrivait l'annonceur du jeu (« REMAINING. - LES », « 1 ENNEMI »).
+  `story.captions.withoutMic: true` force la transcription du son complet (désactivé par défaut). Un sous-titre reste
+  affiché 3 s au plus (ou son temps de lecture) : whisper étirait parfois un mot sur 7 s de silence.
 - Son adouci à chaque coupe, fondu au noir final, normalisation EBU R128.
 
 ```powershell
