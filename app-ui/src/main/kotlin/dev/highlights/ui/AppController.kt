@@ -150,6 +150,8 @@ interface UiActions {
     fun copyToClipboard(text: String)
     /** Miniature YouTube de la vidéo à publier (habillage par défaut, le vif), écrite à côté d'elle. */
     fun makeThumbnail()
+    /** Réponse à la question du rythme rapide sous le résultat d'un montage kills : ressenti de sa musique retenu. */
+    fun rateMusicFeel(vote: dev.highlights.montage.FeelVote) {}
     /** Ouvre app.yaml dans l'éditeur (identifiant YouTube, réglages de publication). */
     fun editConfig()
     fun browse(uri: java.net.URI)
@@ -1089,6 +1091,25 @@ class AppController(
     }
 
     override fun copyToClipboard(text: String) = platform.copy(text)
+
+    override fun rateMusicFeel(vote: dev.highlights.montage.FeelVote) {
+        val result = state.value.lastExport ?: return
+        val music = result.music ?: return
+        val p = backend?.pipeline ?: return
+        val hadFast = (result.fastShots ?: 0) > 0
+        // Réponse affichée tout de suite ; les mesures de la musique (pour l'apprentissage) se lisent ensuite.
+        _state.update { s -> s.copy(musicFeels = s.musicFeels + (result.report to vote.feel(hadFast))) }
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { p.rateMusic(music, vote, hadFast) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { s -> s.copy(musicFeels = s.musicFeels - result.report) }
+                reportFailure(tr("ui.error.musicFeel"), e)
+            }
+        }
+    }
 
     override fun makeThumbnail() {
         val video = state.value.publish?.video ?: return

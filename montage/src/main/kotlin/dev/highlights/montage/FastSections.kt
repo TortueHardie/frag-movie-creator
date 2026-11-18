@@ -3,6 +3,7 @@ package dev.highlights.montage
 import dev.highlights.core.model.CutSettings
 import dev.highlights.core.model.FastParts
 import dev.highlights.core.model.MontageSettings
+import dev.highlights.core.model.MusicFeel
 import kotlin.math.ceil
 import kotlin.math.log10
 
@@ -32,10 +33,12 @@ object FastSections {
      */
     fun of(music: MusicAnalysis, settings: MontageSettings): Rhythm? {
         val parts = settings.fastParts
-        if (!parts.enabled || settings.cuts.singleBeat || music.sections.isEmpty()) return null
+        // Musique ressentie calme par l'utilisateur : jamais de rythme rapide.
+        if (!parts.enabled || parts.feel == MusicFeel.CALM || settings.cuts.singleBeat || music.sections.isEmpty()) return null
         val split = withCalmBreaks(music, parts)
         val dropSection = split.sectionIndexAt(split.dropBeat)
-        val sections = split.sections.indices.filter { it >= dropSection && split.sections[it].intensity >= parts.minIntensity }.toSet()
+        val threshold = threshold(parts)
+        val sections = split.sections.indices.filter { it >= dropSection && split.sections[it].intensity >= threshold }.toSet()
         if (sections.isEmpty()) return null
         val fast = settings.forFast()
         val period = split.beatPeriod
@@ -49,6 +52,10 @@ object FastSections {
         )
         return Rhythm(sections, fast.cuts, minBeats, planSettings, split)
     }
+
+    /** Intensité à partir de laquelle une partie d'après la drop est rapide : plus bas pour une musique ressentie rapide. */
+    fun threshold(parts: FastParts): Double =
+        if (parts.feel == MusicFeel.FAST) minOf(parts.fastIntensity, parts.minIntensity) else parts.minIntensity
 
     /**
      * Creux des sections intenses ([FastParts.minIntensity]) à partir de la drop : suites d'au moins [FastParts.calmBars]
@@ -66,7 +73,7 @@ object FastSections {
         val dropSection = music.sectionIndexAt(music.dropBeat)
         val breaks = mutableListOf<IntRange>()
         music.sections.forEachIndexed { si, s ->
-            if (si < dropSection || s.intensity < parts.minIntensity) return@forEachIndexed
+            if (si < dropSection || s.intensity < threshold(parts)) return@forEachIndexed
             val calm = bars.filter { (b, level) -> b >= s.startBeat && b + BAR <= s.endBeat && reference - level >= parts.calmDb }.map { it.first }
             var k = 0
             while (k < calm.size) {
@@ -104,7 +111,7 @@ object FastSections {
             for (b in inside) {
                 if (b.first > at) pieces += s.copy(startBeat = at, endBeat = b.first, rise = 0.0)
                 val db = level(b.first, b.last + 1)
-                val intensity = (s.intensity - 0.8 * (s.loudnessDb - db) / range).coerceIn(0.0, parts.minIntensity - 0.01)
+                val intensity = (s.intensity - 0.8 * (s.loudnessDb - db) / range).coerceIn(0.0, threshold(parts) - 0.01)
                 pieces += MusicSection(b.first, b.last + 1, db, intensity, kind = SectionKind.BREAKDOWN)
                 at = b.last + 1
             }

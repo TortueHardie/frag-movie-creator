@@ -1,6 +1,7 @@
 package dev.highlights.pipeline
 
 import dev.highlights.core.i18n.tr
+import dev.highlights.core.model.MusicFeel
 import dev.highlights.core.userMessage
 import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
@@ -46,11 +47,19 @@ import dev.highlights.editing.story.StoryRenderBuilder
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
+import dev.highlights.montage.FeelEntry
+import dev.highlights.montage.FeelSource
+import dev.highlights.montage.FeelVote
+import dev.highlights.montage.LearnedFeel
 import dev.highlights.montage.MontagePin
 import dev.highlights.montage.PreviewProxies
 import dev.highlights.montage.KillRef
 import dev.highlights.montage.MontageScorer
 import dev.highlights.montage.LearnedTaste
+import dev.highlights.montage.MusicFeatures
+import dev.highlights.montage.MusicFeelLearner
+import dev.highlights.montage.MusicFeelStore
+import dev.highlights.montage.MusicFeels
 import dev.highlights.montage.TasteLearner
 import dev.highlights.montage.TasteEdit
 import dev.highlights.montage.TasteChoice
@@ -331,6 +340,9 @@ class HighlightPipeline(
 
     /** Choix de variantes et corrections de l'éditeur : de quoi apprendre les goûts de l'utilisateur ([TasteLearner]). */
     val tasteHistory = TasteHistory(config.outputDir.resolve("sessions").resolve("taste-history.json"))
+
+    /** Ressenti de chaque musique pour le rythme rapide (question après un montage, `app musique-ressenti`). */
+    val musicFeelStore = MusicFeelStore(config.outputDir.resolve("sessions").resolve("music-feel.json"))
 
     /** Soirées déjà montées par le montage de soirée (voir [EveningHistory]). */
     val eveningHistory = EveningHistory(config.outputDir.resolve("sessions").resolve("evening-montages.json"))
@@ -845,9 +857,31 @@ class HighlightPipeline(
         musicHistory.record(plan.music.file) // Choisie ou imposée : elle a servi, elle se repose un peu.
         if (pick != null) recordChoice(pick, plan, planned.variants, planned.variantsFile, planned.profile.id, result)
         recordTaste(pick, planned, options.constraints, result)
+        val felt = result.copy(fastShots = plan.clips.count { it.fastPart }, musicFeel = plan.settings.fastParts.feel)
         // Rendu final seulement (variante choisie comprise) : les aperçus de variantes n'en ont pas.
-        return options.thumbnail?.let { result.copy(thumbnails = thumbnails.makeAll(result.videos.values, it)) } ?: result
+        return options.thumbnail?.let { felt.copy(thumbnails = thumbnails.makeAll(felt.videos.values, it)) } ?: felt
     }
+
+    /**
+     * Réponse de l'utilisateur sur le rythme rapide de [music] après un montage ([hadFast] : il avait des plans
+     * rapides) : retenue comme ressenti de la musique ([FeelVote.feel]), avec ses mesures pour l'apprentissage.
+     */
+    suspend fun rateMusic(music: Path, vote: FeelVote, hadFast: Boolean): FeelEntry? =
+        musicFeelStore.record(music, vote.feel(hadFast), vote, featuresOf(music))
+
+    /** Ressenti de [music] dit directement (`app musique-ressenti`) ; AUTO l'efface. */
+    suspend fun setMusicFeel(music: Path, feel: MusicFeel): FeelEntry? =
+        musicFeelStore.record(music, feel, features = if (feel == MusicFeel.AUTO) null else featuresOf(music))
+
+    /** Ressentis gardés et modèle appris, pour `app musique-ressenti`. */
+    fun musicFeels(): MusicFeelState {
+        val stored = musicFeelStore.load()
+        return MusicFeelState(musicFeelStore.file, stored.songs, MusicFeelLearner.learn(stored.songs))
+    }
+
+    /** Mesures de [music] (analyse gardée de la bibliothèque, faite au besoin), null si elle est inexploitable. */
+    private suspend fun featuresOf(music: Path): MusicFeatures? =
+        runCatching { musicLibrary.analysis(ffmpeg, music)?.features }.onFailure { log.warn { "Mesures de ${music.fileName} indisponibles : ${it.message}" } }.getOrNull()
 
     /**
      * Ce que l'utilisateur a montré de ses goûts sur ce rendu : la variante choisie face aux autres (critères de la note
@@ -1113,6 +1147,10 @@ class HighlightPipeline(
         val musicStep = progress.child(tr(if (music.isDirectory()) "progress.musics" else "progress.music"), 0.06)
         val musics = if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music))
         musicStep.complete()
+        // Ressenti de chaque musique : dit par l'utilisateur, appris de ses réponses, ou la règle par défaut.
+        val feels = MusicFeels(musicFeelStore).let { f -> musics.associate { it.file to f.resolve(it) } }
+        feels.forEach { (file, r) -> if (r.source != FeelSource.DEFAULT) log.info { "Ressenti de ${file.fileName} : ${r.feel} (${r.source}${r.probability?.let { p -> ", %.2f".format(p) } ?: ""})" } }
+        fun feelOf(file: Path) = feels[file]?.feel ?: MusicFeel.AUTO
         val picked = MontagePlanner.groups(sessions, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: all }
         if (options.fails == true && picked.isEmpty()) throw InputException(Message("error.montage.noDeaths"))
         if (picked.isEmpty()) throw InputException(Message("error.montage.pickedMissing"))
@@ -1145,13 +1183,14 @@ class HighlightPipeline(
             // Variante choisie après les aperçus : la musique des aperçus, même si le classement des musiques a bougé
             // depuis (une autre a servi entre-temps et se repose).
             val tried = variants?.let { v -> musics.filter { normalized(it.file) == normalized(Path.of(v.music)) }.ifEmpty { null } } ?: musics
-            val ranked = MusicChoice.rank(groups, tried, planning, musicHistory.recent(), fromStartOf)
+            val ranked = MusicChoice.rank(groups, tried, planning, musicHistory.recent(), feels.mapValues { it.value.feel }, fromStartOf)
             val best = ranked.first()
             val plan = best.plan ?: throw HighlightsException(Message("error.montage.noMusicFits", "dir" to music, "reason" to best.error))
             log.info { "Musique choisie : ${best.music.file.fileName} (note ${"%.3f".format(best.score)}, ${best.groups} groupe(s), parmi ${ranked.size})" }
-            (if (count == null) listOf(plan) else plans(best.music, MusicChoice.settingsFor(planning, fromStartOf(best.music.file)))) to ranked.map(MontageReportMusic::of)
+            (if (count == null) listOf(plan) else plans(best.music, MusicChoice.withFeel(MusicChoice.settingsFor(planning, fromStartOf(best.music.file)), feelOf(best.music.file)))) to ranked.map(MontageReportMusic::of)
         } else {
-            plans(MusicChoice.prepare(musics.single(), planning), planning) to emptyList()
+            val own = MusicChoice.withFeel(planning, feelOf(musics.single().file))
+            plans(MusicChoice.prepare(musics.single(), own), own) to emptyList()
         }
         // Raccords d'abord : un plan raccordé garde son début dans la pose, il n'est pas coupé dans l'attente.
         val finished = chosen.map { c ->
@@ -1303,3 +1342,6 @@ class HighlightPipeline(
         private const val PROXY_WEIGHT = 0.3
     }
 }
+
+/** Ressentis gardés ([file]) et modèle appris de leurs mesures, pour `app musique-ressenti`. */
+data class MusicFeelState(val file: Path, val songs: List<FeelEntry>, val learned: LearnedFeel)

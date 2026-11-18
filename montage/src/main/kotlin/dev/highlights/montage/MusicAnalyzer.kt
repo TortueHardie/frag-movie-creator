@@ -93,6 +93,33 @@ data class MusicHit(val at: Duration, val strength: Double, val beat: Double) {
 }
 
 /**
+ * Mesures du contenu d'une musique, indépendantes du tempo sauf [bpm], sur la partie qui passerait au rythme rapide :
+ * sections à partir de la drop d'intensité au moins 0,7 (toute la suite de la drop s'il n'y en a pas). Servent à
+ * apprendre le ressenti de l'utilisateur ([MusicFeelLearner]). Mesurées le 18/11 sur 19 musiques : aucune ne sépare seule
+ * les musiques ressenties rapides des calmes (R2D2, rapide, a le moins d'attaques par seconde des 19).
+ * [onsets] : attaques par seconde, toutes bandes ; [lowOnsets] (< 220 Hz), [midOnsets] (< 2,2 kHz), [highOnsets] (au-delà) ;
+ * [loudnessDb] : volume moyen des temps (dB) ; [percussive] : part percussive de l'énergie (séparation harmonique /
+ * percussive par filtres médians, Fitzgerald 2010), 0..1.
+ */
+@Serializable
+data class MusicFeatures(
+    val bpm: Double,
+    val onsets: Double,
+    val lowOnsets: Double,
+    val midOnsets: Double,
+    val highOnsets: Double,
+    val loudnessDb: Double,
+    val percussive: Double,
+) {
+    /** Valeurs dans l'ordre de [NAMES]. */
+    fun values(): DoubleArray = doubleArrayOf(bpm, onsets, lowOnsets, midOnsets, highOnsets, loudnessDb, percussive)
+
+    companion object {
+        val NAMES = listOf("bpm", "onsets", "lowOnsets", "midOnsets", "highOnsets", "loudnessDb", "percussive")
+    }
+}
+
+/**
  * Structure rythmique et musicale d'un morceau.
  * [beats] : instants des temps ; [downbeatPhase] : indice modulo 4 des premiers temps de mesure ;
  * [beatAccent] : force de l'attaque sur chaque temps (0..1) ; [sections] : structure ; [dropBeat] : temps où commence la
@@ -117,6 +144,8 @@ data class MusicAnalysis(
      * retient. Vide : inconnue.
      */
     val salience: DoubleArray = DoubleArray(0),
+    /** Mesures du contenu de la partie d'après la drop ([MusicFeatures]), pour apprendre le ressenti. Null : inconnues. */
+    val features: MusicFeatures? = null,
 ) {
     /** Force musicale d'un temps : son attaque, ou sa saillance si elle le distingue davantage. */
     fun strength(beat: Int): Double = maxOf(beatAccent.getOrElse(beat) { 0.0 }, salience.getOrElse(beat) { 0.0 })
@@ -180,7 +209,7 @@ data class MusicAnalysis(
 
 object MusicAnalyzer {
     /** À augmenter quand l'analyse change de calcul : les analyses gardées par [MusicLibrary] sont alors refaites. */
-    const val VERSION = 4
+    const val VERSION = 6
 
     /** Part de la durée du montage avant laquelle une drop doit tomber pour y compter, avec de quoi la suivre. */
     private const val REACH = 0.7
@@ -312,8 +341,108 @@ object MusicAnalyzer {
                 "${s.kind.name.lowercase()} ${range.count { notes[it] >= SALIENT }}+${range.count { changes[it] >= SALIENT && notes[it] < SALIENT }}/${s.beats}"
             }
         }
-        return MusicAnalysis(file, duration, bpm, beats, phase, energy, accent, sections, drop, halfAccent, salience)
+        val features = features(spec, sections, drop, beats, loudness, bpm)
+        log.info { "Contenu après la drop : $features" }
+        return MusicAnalysis(file, duration, bpm, beats, phase, energy, accent, sections, drop, halfAccent, salience, features)
     }
+
+    /**
+     * Mesures du contenu ([MusicFeatures]) sur les sections à partir de la drop d'intensité au moins
+     * [FEATURE_INTENSITY], ou sur toute la suite de la drop s'il n'y en a pas. Attaques : pics du flux spectral positif
+     * de la bande (normalisé à son 99e centile), maxima sur ±[PEAK_RADIUS] trames, au-dessus de la moyenne sur une
+     * seconde plus 0,1 écart-type, à [MIN_ONSET_GAP] au moins l'un de l'autre.
+     */
+    private fun features(spec: Spectrogram, sections: List<MusicSection>, drop: Int, beats: List<Duration>, loudness: DoubleArray, bpm: Double): MusicFeatures {
+        val dropIndex = sections.indexOfLast { drop >= it.startBeat }.coerceAtLeast(0)
+        val after = sections.drop(dropIndex)
+        val part = after.filter { it.intensity >= FEATURE_INTENSITY }.ifEmpty { after }
+        fun frameOf(beat: Int) = ((beats[beat.coerceIn(0, beats.lastIndex)].inWholeMicroseconds / 1e6) * FPS).toInt().coerceIn(0, spec.frames)
+        val inside = BooleanArray(spec.frames)
+        part.forEach { s -> for (f in frameOf(s.startBeat) until frameOf(s.endBeat)) inside[f] = true }
+        val seconds = inside.count { it } / FPS
+        if (seconds <= 0) return MusicFeatures(bpm, 0.0, 0.0, 0.0, 0.0, -60.0, 0.0)
+        fun density(bands: IntRange): Double {
+            val flux = DoubleArray(spec.frames)
+            for (t in 1 until spec.frames) for (k in bands) {
+                val d = spec.mel[t][k] - spec.mel[t - 1][k]
+                if (d > 0) flux[t] += d
+            }
+            val scale = percentile(flux, 0.99).takeIf { it > 1e-9 } ?: return 0.0
+            for (t in flux.indices) flux[t] /= scale
+            val mean = flux.average()
+            val std = sqrt(flux.sumOf { (it - mean) * (it - mean) } / flux.size)
+            val window = FPS.roundToInt()
+            val prefix = DoubleArray(flux.size + 1).also { for (i in flux.indices) it[i + 1] = it[i] + flux[i] }
+            val gap = (MIN_ONSET_GAP.inWholeMilliseconds / 1000.0 * FPS).roundToInt()
+            var count = 0
+            var last = -1_000_000
+            for (t in flux.indices) {
+                if (!inside[t]) continue
+                val lo = maxOf(0, t - PEAK_RADIUS)
+                val hi = minOf(flux.lastIndex, t + PEAK_RADIUS)
+                if ((lo..hi).any { flux[it] > flux[t] }) continue
+                val a = maxOf(0, t - window / 2)
+                val b = minOf(flux.size, t + window / 2 + 1)
+                if (flux[t] < MIN_ONSET || flux[t] <= (prefix[b] - prefix[a]) / (b - a) + 0.1 * std) continue
+                if (t - last < gap) continue
+                count++
+                last = t
+            }
+            return count / seconds
+        }
+        val partBeats = part.flatMap { (it.startBeat until minOf(it.endBeat, loudness.size)).toList() }
+        val loud = if (partBeats.isEmpty()) -60.0 else partBeats.sumOf { loudness[it] } / partBeats.size
+        return MusicFeatures(
+            bpm = bpm,
+            onsets = density(0 until MEL_BANDS),
+            lowOnsets = density(0 until lowBands),
+            midOnsets = density(lowBands until midBands),
+            highOnsets = density(midBands until MEL_BANDS),
+            loudnessDb = loud,
+            percussive = percussiveShare(spec, inside),
+        )
+    }
+
+    /**
+     * Part percussive de l'énergie des trames [inside] : médiane dans le temps ([HPSS_TIME] trames : l'harmonique, ce
+     * qui dure) contre médiane dans le spectre ([HPSS_BANDS] bandes : le percussif, ce qui couvre le spectre d'un coup),
+     * masque doux P² / (H² + P²) (Fitzgerald 2010), sur l'amplitude mel linéaire.
+     */
+    private fun percussiveShare(spec: Spectrogram, inside: BooleanArray): Double {
+        var total = 0.0
+        var perc = 0.0
+        val column = DoubleArray(HPSS_TIME)
+        val row = DoubleArray(HPSS_BANDS)
+        // Amplitude linéaire (le spectre est gardé en ln(1 + 100 × amplitude)) : sur l'échelle compressée, les deux
+        // médianes se valaient sur toutes les vraies musiques (part de 0,50 partout).
+        fun amp(t: Int, k: Int) = kotlin.math.expm1(spec.mel[t][k])
+        for (t in 0 until spec.frames) {
+            if (!inside[t]) continue
+            for (k in 0 until MEL_BANDS) {
+                val v = amp(t, k)
+                for (i in 0 until HPSS_TIME) column[i] = amp((t + i - HPSS_TIME / 2).coerceIn(0, spec.frames - 1), k)
+                for (i in 0 until HPSS_BANDS) row[i] = amp(t, (k + i - HPSS_BANDS / 2).coerceIn(0, MEL_BANDS - 1))
+                column.sort()
+                row.sort()
+                val h = column[HPSS_TIME / 2]
+                val p = row[HPSS_BANDS / 2]
+                val e = v * v
+                total += e
+                perc += e * p * p / (h * h + p * p + 1e-12)
+            }
+        }
+        return if (total <= 0) 0.0 else perc / total
+    }
+
+    /** Intensité des sections mesurées pour [MusicFeatures] : celle des parties rapides (`montage.fastParts.minIntensity`). */
+    private const val FEATURE_INTENSITY = 0.7
+    private const val PEAK_RADIUS = 4
+    private val MIN_ONSET_GAP = 100.milliseconds
+
+    /** Attaque minimale, en part de la forte attaque de la bande (99e centile) : les fuites d'une autre bande ne comptent pas. */
+    private const val MIN_ONSET = 0.25
+    private const val HPSS_TIME = 17
+    private const val HPSS_BANDS = 9
 
     /**
      * Saillance de chaque temps (voir [MusicAnalysis.salience]), jugée dans son voisinage ([SALIENCE_WINDOW] temps de

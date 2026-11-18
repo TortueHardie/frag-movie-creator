@@ -123,6 +123,17 @@ class MusicAnalyzerTest : FunSpec({
         MusicAnalyzer.fromStart(analysis, 10.seconds).dropBeat shouldBe 666
     }
 
+    test("mesures du contenu après la drop : attaques par seconde par bande, part percussive") {
+        // 120 BPM : une grosse caisse par temps (2/s) et un charleston entre deux (2/s), soit 4 attaques par seconde. Le
+        // charleston de la boucle est un bruit blanc : il atteint aussi les basses (4/s mesurées, contre 2 de grosse caisse).
+        val f = MusicAnalyzer.analyzeSamples(beatLoop(120.0, 40)).features!!
+        f.bpm shouldBe (120.0 plusOrMinus 1.5)
+        f.onsets shouldBe (4.5 plusOrMinus 1.0)
+        f.lowOnsets shouldBe (3.5 plusOrMinus 1.5)
+        // Rien que des percussions.
+        (f.percussive > 0.7) shouldBe true
+    }
+
     test("tempos variés") {
         listOf(90.0, 100.0, 120.0, 140.0, 150.0, 170.0).forEach { bpm ->
             withClue("$bpm BPM") { MusicAnalyzer.analyzeSamples(beatLoop(bpm, 40)).bpm shouldBe (bpm plusOrMinus 1.5) }
