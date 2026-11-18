@@ -442,8 +442,17 @@ private fun SegmentRow(
                     Spacer(Modifier.width(8.dp))
                     Text(I18n.fixed(highlight.score, 2), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.width(14.dp))
+                    // Les événements cèdent la place quand la ligne est pleine (VALORANT : tirs, balles, kills…), pas la
+                    // part des signaux : sinon « son 0,74 » devenait « son … ».
                     if (highlight.events.isNotEmpty()) {
-                        Text(eventsLabel(highlight.events), style = MaterialTheme.typography.labelLarge, color = Palette.accent)
+                        Text(
+                            eventsLabel(highlight.events),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Palette.accent,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
                         Spacer(Modifier.width(12.dp))
                     }
                     Text(
@@ -451,7 +460,7 @@ private fun SegmentRow(
                         style = MaterialTheme.typography.bodySmall,
                         color = Palette.textMuted,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        softWrap = false,
                     )
                 }
             }

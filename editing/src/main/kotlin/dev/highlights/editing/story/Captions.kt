@@ -14,6 +14,7 @@ import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 /** Un sous-titre : quelques mots et l'intervalle où ils sont prononcés. */
 data class Caption(
@@ -55,6 +56,12 @@ object Captions {
     /** Temps de lecture d'un sous-titre : une base, plus un temps par caractère. */
     private val MIN_READ = 400.milliseconds
     private val PER_CHAR = 45.milliseconds
+
+    /**
+     * Durée d'affichage maximale d'un sous-titre (au moins son temps de lecture) : whisper étire parfois un mot sur tout
+     * le silence qui suit. Mesuré sur un clip VALORANT : « 1 ENNEMI » affiché 7 s.
+     */
+    private val MAX_SHOWN = 3.seconds
 
     /** Sous-titre coupé par un plan au point d'être visible moins longtemps que ça : pas affiché. */
     private val MIN_VISIBLE = 250.milliseconds
@@ -101,13 +108,15 @@ object Captions {
      * Laisse à chaque sous-titre le temps d'être lu : whisper donne souvent des segments très courts, voire de durée
      * nulle, et parfois deux segments consécutifs au même instant. Les sous-titres sont donc posés l'un après l'autre :
      * chacun commence au plus tôt quand le précédent a fini, et dure au moins [MIN_READ] plus un temps par caractère
-     * (à peu près le temps de prononcer la phrase, si bien que le décalage ne s'accumule pas).
+     * (à peu près le temps de prononcer la phrase, si bien que le décalage ne s'accumule pas), et au plus
+     * [MAX_SHOWN] (ou son temps de lecture, s'il est plus long).
      */
     fun readable(captions: List<Caption>): List<Caption> {
         var cursor = Duration.ZERO
         return captions.sortedBy { it.range.start }.map { c ->
             val start = maxOf(c.range.start, cursor)
-            val end = maxOf(c.range.end, start + MIN_READ + PER_CHAR * c.text.length)
+            val read = MIN_READ + PER_CHAR * c.text.length
+            val end = minOf(maxOf(c.range.end, start + read), start + maxOf(MAX_SHOWN, read))
             cursor = end
             c.copy(range = TimeRange(start, end))
         }

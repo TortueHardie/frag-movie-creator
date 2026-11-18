@@ -52,7 +52,14 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         cacheDir: Path?,
     ): List<Caption> {
         val tracks = AudioTracks.of(media.audio, layout)
-        val audio = tracks.indexOf(settings.role) ?: tracks.indexOf(AudioRole.MIX) ?: tracks.mixIndices().firstOrNull() ?: return emptyList()
+        // Pas de piste de la voix du joueur : le son complet mêle l'annonceur et les voix du jeu, que whisper transcrit
+        // aussi. Pas de sous-titres, sauf si le profil le demande (withoutMic).
+        val own = tracks.indexOf(settings.role)
+        if (own == null && !settings.withoutMic) {
+            log.info { "Pas de piste ${settings.role} séparée dans ${media.path.name} : pas de sous-titres (story.captions.withoutMic pour transcrire le son complet)" }
+            return emptyList()
+        }
+        val audio = own ?: tracks.indexOf(AudioRole.MIX) ?: tracks.mixIndices().firstOrNull() ?: return emptyList()
         val segments = timeline?.segments.orEmpty().filter { it.kind in voiceKinds }.map { it.range }
         // L'analyse a cherché la voix et n'en a pas trouvé ici : rien à transcrire (et rien à inventer pour whisper).
         if (segments.isNotEmpty() && segments.none { it.isWithin(range) }) return emptyList()
