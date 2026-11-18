@@ -23,7 +23,21 @@ private val log = KotlinLogging.logger {}
  * Carton du récap de soirée : une image d'une partie, floutée et assombrie, sous un titre et un sous-titre. [source] et
  * [at] : l'image prise dans la capture (le meilleur moment de la partie).
  */
-data class RecapCard(val title: String, val subtitle: String, val source: Path, val at: Duration, val length: Duration)
+data class RecapCard(
+    val title: String,
+    val subtitle: String,
+    val source: Path,
+    val at: Duration,
+    val length: Duration,
+    /** Bruitage du carton ; null : silence. */
+    val sound: RecapSound? = null,
+)
+
+/**
+ * Bruitage d'un carton : [source], une source FFmpeg générée (les souffles et impacts du style story,
+ * `StoryRenderBuilder.WHOOSHES`/`IMPACTS`), au volume [volume], posée à [at] dans le carton.
+ */
+data class RecapSound(val source: String, val volume: Double, val at: Duration = Duration.ZERO)
 
 /** Récap rendu : sa durée, et l'instant où commence chaque carton (les intercalaires, puis l'écran de fin). */
 data class RecapTimeline(val duration: Duration, val cards: List<Duration>)
@@ -85,7 +99,7 @@ class RecapRenderer(private val ffmpeg: FfmpegService, private val encoders: Enc
             if (kind == "card") {
                 val card = cards[i]
                 graph += "[$index:v]" + cardFilter(card, w, h, fps, font, safe) + "[v$index]"
-                graph += "anullsrc=r=48000:cl=stereo,atrim=duration=${sec(card.length)}[a$index]"
+                graph += cardAudio(card) + "[a$index]"
             } else {
                 graph += "[$index:v]fps=${num(fps)},scale=$w:$h:force_original_aspect_ratio=decrease,pad=$w:$h:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v$index]"
                 graph += if (partInfo[i].audio.isEmpty()) {
@@ -129,14 +143,42 @@ class RecapRenderer(private val ffmpeg: FfmpegService, private val encoders: Enc
          */
         private const val COLON = "¦"
 
-        /** Fondu d'entrée et de sortie d'un carton : celui du fondu final des exports, en plus court. */
-        val FADE = 250.milliseconds
+        /** Fondu d'entrée et de sortie d'un carton : court, le carton ne dure qu'une seconde. */
+        val FADE = 150.milliseconds
 
-        /** Durée d'un intercalaire : assez pour lire « Partie 3 – 14 kills », pas assez pour qu'on décroche. */
-        val CARD = 1500.milliseconds
+        /**
+         * Durée d'un intercalaire : une seconde, le temps de lire « Partie 3 – 14 kills » (1,5 s paraissait long à
+         * l'utilisateur, 18/11).
+         */
+        val CARD = 1000.milliseconds
 
-        /** Écran de fin : deux lignes de bilan à lire. */
-        val END_CARD = 2500.milliseconds
+        /** Écran de fin : deux lignes de bilan à lire, un peu plus longtemps qu'un intercalaire. */
+        val END_CARD = 2000.milliseconds
+
+        /**
+         * Gains des bruitages d'un carton, en plus du volume du style story : là, ils passent sous le son du jeu et le
+         * tout est normalisé ensemble ; seuls sur un carton, ils étaient bien trop bas. Mesuré sur le récap VALORANT du
+         * 17/11 (EBU R128, sonie momentanée maximale) : impact à -21 LUFS et souffle à -40 LUFS, contre -11 LUFS pour
+         * les parties. ×2,4 (+7,6 dB) met l'impact à -13,7 LUFS (crête -1,6 dBFS), ×16 (+24 dB) le souffle à -15,9 LUFS
+         * (crête -3,2 dBFS) : au volume du reste, sans le dépasser.
+         */
+        const val IMPACT_GAIN = 2.4
+        const val WHOOSH_GAIN = 16.0
+
+        /** Instant de l'impact dans un intercalaire : avec l'apparition du titre (« pop » de 0,12 s). */
+        val SOUND_AT = 60.milliseconds
+
+        /**
+         * Son du carton, sur toute sa durée : son bruitage posé à son instant, puis du silence ; sans bruitage, du
+         * silence. Stéréo 48 kHz comme les parties.
+         */
+        internal fun cardAudio(card: RecapCard): String {
+            val length = sec(card.length)
+            val sound = card.sound ?: return "anullsrc=r=48000:cl=stereo,atrim=duration=$length"
+            val ms = sound.at.inWholeMilliseconds
+            return "${sound.source},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=${num(sound.volume)}," +
+                "adelay=$ms|$ms,apad,atrim=duration=$length"
+        }
 
         /**
          * Image du carton : recadrée au format, floutée et assombrie (le texte se lit dessus), titre puis sous-titre

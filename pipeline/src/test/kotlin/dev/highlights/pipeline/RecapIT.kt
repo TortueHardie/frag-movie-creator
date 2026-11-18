@@ -83,9 +83,20 @@ class RecapIT : FunSpec({
         // Un carton par partie montrée, puis l'écran de fin ; le premier ouvre la vidéo.
         report.cards.size shouldBe report.games.size + 1
         report.cards.first() shouldBe 0.0
-        // Durée : les parties, plus 1,5 s par intercalaire et 2,5 s pour la fin.
+        // Durée : les parties, plus 1 s par intercalaire et 2 s pour la fin.
         val probed = TestMedia.requireFfmpeg().probe(video)
         (probed.duration.inWholeMilliseconds / 1000.0) shouldBe (result.duration.inWholeMilliseconds / 1000.0 plusOrMinus 0.5)
-        (result.duration.inWholeMilliseconds / 1000.0 > 1.5 * report.games.size + 2.5) shouldBe true
+        (result.duration.inWholeMilliseconds / 1000.0 > 1.0 * report.games.size + 2.0) shouldBe true
+        // Le carton d'une partie dure une seconde : la partie suivante commence 1 s après son carton.
+        (report.cards[1] - report.cards[0] > 1.0) shouldBe true
+        // Le son des intercalaires : pas un silence (impact du style story, au moins -40 dB de crête sur la première seconde).
+        val peak = TestMedia.requireFfmpeg().let { ff ->
+            val lines = mutableListOf<String>()
+            kotlinx.coroutines.runBlocking {
+                ff.run(dev.highlights.core.ffmpeg.FfmpegCommand(listOf("-t", "1", "-i", video.toString(), "-af", "volumedetect", "-f", "null", "-"), "crête du carton")) { lines += it }
+            }
+            lines.firstNotNullOfOrNull { Regex("""max_volume: (-?[\d.]+) dB""").find(it)?.groupValues?.get(1)?.toDouble() }
+        }
+        (peak!! > -40.0) shouldBe true
     }
 })
