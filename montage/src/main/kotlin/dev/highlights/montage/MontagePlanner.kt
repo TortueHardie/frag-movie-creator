@@ -787,6 +787,15 @@ object MontagePlanner {
             }
         }
         val (plan, describe) = result
+        // Garde-fou du rythme rapide par partie : peu de kills, un plan d'un temps chacun, et le montage tenait en 1,5 s
+        // (3 kills, depuis que le tempo ne retient plus les musiques lentes). Sous [MontageLength.min], le même montage au
+        // rythme du style. Pas sous la durée visée : 10 kills WARDOGS au rythme rapide font 17 à 26 s, et l'utilisateur les
+        // a préférés (18/11).
+        val floor = minOf(settings.length.min, settings.maxDuration)
+        if (settings.fastParts.enabled && plan.duration < floor && plan.clips.any { it.fastPart }) {
+            log.info { "Rythme rapide : ${Durations.format(plan.duration)} seulement, sous ${Durations.format(floor)} ; montage au rythme du style" }
+            return plan(all, music, settings.copy(fastParts = settings.fastParts.copy(enabled = false)), variant)
+        }
         if (edited) MontageEdits.check(plan, groups)
         // Les variantes essayées par [best] ne méritent pas une ligne chacune : seul le plan de base est détaillé.
         if (variant == PlanVariant.BASE) log.info(describe) else log.debug(describe)
@@ -812,15 +821,17 @@ object MontagePlanner {
     }
 
     /** Plan pour une durée visée donnée, et sa description pour le journal. */
-    private fun layout(groups: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings, variant: PlanVariant, target: Duration): Pair<MontagePlan, () -> String> {
+    private fun layout(groups: List<KillGroup>, source: MusicAnalysis, settings: MontageSettings, variant: PlanVariant, target: Duration): Pair<MontagePlan, () -> String> {
+        // Parties rapides de la musique : leur propre cadence de coupes, un kill par plan, sans ralenti. Le plan travaille
+        // sur la musique dont les sections intenses sont coupées à leurs creux (voir [FastSections]).
+        val fast = FastSections.of(source, settings)
+        val music = fast?.music ?: source
         val cuts = settings.cuts.let { it.copy(dropPosition = (it.dropPosition + variant.dropShift).coerceIn(0.0, 1.0)) }
         val period = music.beatPeriod
         val minLeadBeats = beatsCeil(cuts.minLead, period).coerceAtLeast(1)
         val minTailBeats = beatsCeil(cuts.minTail, period).coerceAtLeast(1)
         val single = singleBeat(settings, period)
         val minBeats = if (single) 1 else maxOf(2, minLeadBeats + minTailBeats)
-        // Parties rapides de la musique : leur propre cadence de coupes, un kill par plan, sans ralenti.
-        val fast = FastSections.of(music, settings)
 
         // Grille : plus grossière quand il y a moins de clips que de plans dans la durée visée. Un montage raccourci
         // garde un plan de réserve par multi-kill et par réaction à garder : ils s'étendent sur un voisin, sans prendre
