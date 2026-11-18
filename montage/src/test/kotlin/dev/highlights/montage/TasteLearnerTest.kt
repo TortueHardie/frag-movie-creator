@@ -77,6 +77,14 @@ class TasteLearnerTest : FunSpec({
         TasteHistory(aside!!).load().choices shouldBe listOf(one)
     }
 
+    test("seul taste-history.json est relu : historiques mis de côté (QA, remises à zéro) ignorés") {
+        val dir = Files.createTempDirectory("gouts")
+        val aside = TasteHistory(dir.resolve("taste-history.qa-finale.json"))
+        choices(TasteLearner.MIN_CHOICES, seed = 8).forEach(aside::record)
+        TasteHistory(dir.resolve("taste-history.reset-2026-11-18T00-00-00Z.json")).record(choices(1, seed = 9).single())
+        TasteHistory(dir.resolve("taste-history.json")).load().choices shouldBe emptyList()
+    }
+
     test("la note d'un montage suit les poids donnés par les réglages") {
         val criteria = base.keys.associateWith<String, Double?> { 0.5 } + mapOf("action" to 1.0)
         val heavier = base + mapOf("action" to 0.40)

@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.serialization.roundTo
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
@@ -150,6 +151,17 @@ object TasteLearner {
 
     private const val STEPS = 2000
     private const val RATE = 0.02
+
+    /**
+     * Réglages du montage avec les goûts appris de [choices] : [MontageSettings.scoreWeights] posés seulement si le
+     * profil apprend ([MontageSettings.learnTaste]) et qu'il y a au moins [MIN_CHOICES] choix utilisables ; sinon
+     * [settings] tels quels, donc le même plan et la même note que sans apprentissage.
+     */
+    fun applyTo(settings: MontageSettings, choices: List<TasteChoice>): MontageSettings {
+        if (!settings.learnTaste) return settings
+        val learned = learn(choices)
+        return if (learned.active) settings.copy(scoreWeights = learned.weights) else settings
+    }
 
     fun learn(choices: List<TasteChoice>, base: Map<String, Double> = MontageScorer.WEIGHTS, minChoices: Int = MIN_CHOICES): LearnedTaste {
         val usable = choices.filter { it.variants.size >= 2 }

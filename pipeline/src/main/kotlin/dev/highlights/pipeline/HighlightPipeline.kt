@@ -234,6 +234,8 @@ data class TasteState(
     val last: TasteChoice?,
     val lastBefore: List<Double>?,
     val lastAfter: List<Double>?,
+    /** Tous les profils chargés, pour dire lesquels n'apprennent pas. */
+    val allProfiles: List<String> = emptyList(),
 )
 
 /** Aperçus des variantes d'un montage et le fichier qui les décrit (à passer à [VariantPick]). */
@@ -885,6 +887,7 @@ class HighlightPipeline(
             last = last,
             lastBefore = last?.variants?.map { MontageScorer.total(it, learned.base) },
             lastAfter = last?.variants?.map { MontageScorer.total(it, learned.weights) },
+            allProfiles = profiles.all().map { it.id },
         )
     }
 
@@ -981,13 +984,11 @@ class HighlightPipeline(
     /** Poids appris donnés au scoreur quand le profil apprend les goûts et que l'historique a assez de choix. */
     private fun withTaste(settings: MontageSettings): MontageSettings {
         if (!settings.learnTaste) return settings
-        val learned = TasteLearner.learn(tasteHistory.load().choices)
-        if (!learned.active) {
-            log.info { "Goûts : ${learned.choices} choix sur ${TasteLearner.MIN_CHOICES} nécessaires, poids d'origine" }
-            return settings
-        }
-        log.info { "Goûts appris sur ${learned.choices} choix : ${learned.weights}" }
-        return settings.copy(scoreWeights = learned.weights)
+        val choices = tasteHistory.load().choices
+        val tasted = TasteLearner.applyTo(settings, choices)
+        if (tasted.scoreWeights == null) log.info { "Goûts : ${choices.size} choix sur ${TasteLearner.MIN_CHOICES} nécessaires, poids d'origine" }
+        else log.info { "Goûts appris sur ${choices.size} choix : ${tasted.scoreWeights}" }
+        return tasted
     }
 
     private fun normalized(p: Path) = p.toAbsolutePath().normalize().toString().lowercase()

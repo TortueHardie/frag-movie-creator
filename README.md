@@ -1066,14 +1066,16 @@ Chaque fois qu'une version est rendue après les aperçus (`--pick`, « Rendre c
 sobriété, variété, durée, rythme, images gelées, ouverture, trous, action) et celle qui a été rendue. Les corrections de
 l'éditeur de plan (kills écartés, forcés, épinglés) y sont gardées aussi, pour plus tard.
 
-Avec `montage.learnTaste: true` dans un profil, et au moins 10 choix, les poids de ces critères s'ajustent pour que la
+Dès 10 choix (`montage.learnTaste`, actif par défaut), les poids de ces critères s'ajustent pour que la
 version rendue batte les autres (préférence par paires) : un critère que vous préférez plus que le moteur ne le pensait
 pèse plus, et décide de la version 1, des versions proposées et du montage rendu sans aperçu. Prudent : chaque poids
 reste entre le quart et le quadruple de l'origine, leur somme ne change pas, et un rappel vers l'origine empêche
-quelques choix de tout renverser. Désactivé par défaut.
+quelques choix de tout renverser. Tant qu'il y a moins de 10 choix, rien ne change : même plan, même note qu'avec
+les poids d'origine. Pour revenir aux poids d'origine : `app gouts --reset` ; pour ne jamais apprendre :
+`montage.learnTaste: false` dans le profil.
 
 ```powershell
-& $app gouts            # choix gardés, poids appris contre poids d'origine, et ce que ça changerait au dernier choix
+& $app gouts            # « actif, N choix sur 10 avant d'apprendre », choix gardés, poids appris contre poids d'origine, et ce que ça changerait au dernier choix
 & $app gouts --reset    # oublier : l'historique est mis de côté (taste-history.reset-<date>.json), pas effacé
 ```
 
