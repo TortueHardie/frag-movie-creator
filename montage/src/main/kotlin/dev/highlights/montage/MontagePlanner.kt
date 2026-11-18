@@ -812,15 +812,17 @@ object MontagePlanner {
     }
 
     /** Plan pour une durée visée donnée, et sa description pour le journal. */
-    private fun layout(groups: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings, variant: PlanVariant, target: Duration): Pair<MontagePlan, () -> String> {
+    private fun layout(groups: List<KillGroup>, source: MusicAnalysis, settings: MontageSettings, variant: PlanVariant, target: Duration): Pair<MontagePlan, () -> String> {
+        // Parties rapides de la musique : leur propre cadence de coupes, un kill par plan, sans ralenti. Le plan travaille
+        // sur la musique dont les sections intenses sont coupées à leurs creux (voir [FastSections]).
+        val fast = FastSections.of(source, settings)
+        val music = fast?.music ?: source
         val cuts = settings.cuts.let { it.copy(dropPosition = (it.dropPosition + variant.dropShift).coerceIn(0.0, 1.0)) }
         val period = music.beatPeriod
         val minLeadBeats = beatsCeil(cuts.minLead, period).coerceAtLeast(1)
         val minTailBeats = beatsCeil(cuts.minTail, period).coerceAtLeast(1)
         val single = singleBeat(settings, period)
         val minBeats = if (single) 1 else maxOf(2, minLeadBeats + minTailBeats)
-        // Parties rapides de la musique : leur propre cadence de coupes, un kill par plan, sans ralenti.
-        val fast = FastSections.of(music, settings)
 
         // Grille : plus grossière quand il y a moins de clips que de plans dans la durée visée. Un montage raccourci
         // garde un plan de réserve par multi-kill et par réaction à garder : ils s'étendent sur un voisin, sans prendre

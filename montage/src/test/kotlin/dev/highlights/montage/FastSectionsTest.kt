@@ -1,5 +1,7 @@
 package dev.highlights.montage
 
+import dev.highlights.core.config.ConfigYaml
+import dev.highlights.core.model.FastParts
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.ScoredTimeline
@@ -32,13 +34,16 @@ class FastSectionsTest : FunSpec({
         )
     }
 
-    /** Intro calme (0,1), montée (0,5), drop intense (1,0) jusqu'à la fin, à [bpm]. */
-    fun music(bpm: Double): MusicAnalysis {
+    /**
+     * Intro calme (0,1), montée (0,5), drop intense (1,0) jusqu'à la fin, à [bpm]. [calm] : temps de la drop où le son
+     * tombe à -14 dB (la basse qui s'arrête), au lieu de 0 dB.
+     */
+    fun music(bpm: Double, calm: IntRange = IntRange.EMPTY): MusicAnalysis {
         val n = (120 * bpm / 60).toInt()
         val drop = 64
         return MusicAnalysis(
             Path("musique.mp3"), 120.seconds, bpm, List(n) { (it * 60.0 / bpm).seconds }, downbeatPhase = 0,
-            beatEnergy = DoubleArray(n) { 1.0 }, beatAccent = DoubleArray(n) { if (it % 4 == 0) 1.0 else 0.5 },
+            beatEnergy = DoubleArray(n) { if (it in calm) 0.2 else if (it < drop) 0.3 else 1.0 }, beatAccent = DoubleArray(n) { if (it % 4 == 0) 1.0 else 0.5 },
             sections = listOf(MusicSection(0, 32, -20.0, 0.1), MusicSection(32, drop, -14.0, 0.5), MusicSection(drop, n, -8.0, 1.0)),
             dropBeat = drop,
         )
@@ -46,12 +51,13 @@ class FastSectionsTest : FunSpec({
 
     // Vitrine coupée : elle ajoute des plans sans kill devant, sans rapport avec ce qui est vérifié ici.
     val settings = MontageSettings(killOffset = Duration.ZERO, maxDuration = 40.seconds).let { it.copy(showcase = it.showcase.copy(enabled = false)) }
-    fun plan(bpm: Double = 126.0, s: MontageSettings = settings) = MontagePlanner.plan(MontagePlanner.groups(listOf(session), s), music(bpm), s)
+    fun plan(bpm: Double = 126.0, s: MontageSettings = settings, calm: IntRange = IntRange.EMPTY) =
+        MontagePlanner.plan(MontagePlanner.groups(listOf(session), s), music(bpm, calm), s)
 
-    test("parties rapides : la drop et ce qui suit, si elles sont intenses et le tempo assez vif") {
+    test("parties rapides : la drop et ce qui suit, si elles sont intenses, quel que soit le tempo") {
         FastSections.of(music(126.0), settings)!!.sections shouldBe setOf(2)
-        // Musique lente (« HEAVENLY JUMPSTYLE (Slowed) », 111 BPM) : le rythme du style partout.
-        FastSections.of(music(111.0), settings) shouldBe null
+        // Musique lente : rapide aussi après sa drop (choix de l'utilisateur du 18/11, règle des 120 BPM retirée).
+        FastSections.of(music(90.0), settings)!!.sections shouldBe setOf(2)
         // Coupé, ou montage déjà entièrement rapide : rien à faire par partie.
         FastSections.of(music(126.0), settings.copy(fastParts = settings.fastParts.copy(enabled = false))) shouldBe null
         FastSections.of(music(126.0), settings.forFast()) shouldBe null
@@ -82,7 +88,39 @@ class FastSectionsTest : FunSpec({
         plan(s = settings.copy(fastParts = settings.fastParts.copy(enabled = false))).clips.none { it.fastPart } shouldBe true
     }
 
-    test("musique lente : aucun plan au rythme rapide") {
-        plan(bpm = 111.0).clips.none { it.fastPart } shouldBe true
+    test("musique lente : rapide après la drop, au rythme du style avant") {
+        val p = plan(bpm = 90.0)
+        p.clips.any { it.fastPart } shouldBe true
+        p.clips.filter { it.fastPart }.all { it.slot.startBeat >= 64 } shouldBe true
+    }
+
+    test("creux d'une partie intense : deux mesures basses en sont un, une seule non") {
+        val parts = settings.fastParts
+        FastSections.calmBreaks(music(126.0, calm = 96 until 104), parts) shouldBe listOf(96 until 104)
+        FastSections.calmBreaks(music(126.0, calm = 96 until 100), parts) shouldBe emptyList()
+        // Avant la drop, ce n'est jamais un creux de partie rapide.
+        FastSections.calmBreaks(music(126.0, calm = 40 until 48), parts) shouldBe emptyList()
+        FastSections.calmBreaks(music(126.0), parts) shouldBe emptyList()
+    }
+
+    test("creux : section à part, plus calme que le seuil, au rythme du style ; le rythme rapide reprend après") {
+        val split = FastSections.withCalmBreaks(music(126.0, calm = 96 until 104), settings.fastParts)
+        split.sections.map { it.startBeat } shouldBe listOf(0, 32, 64, 96, 104)
+        split.sections[3].kind shouldBe SectionKind.BREAKDOWN
+        (split.sections[3].intensity < settings.fastParts.minIntensity) shouldBe true
+        FastSections.of(music(126.0, calm = 96 until 104), settings)!!.sections shouldBe setOf(2, 4)
+
+        val p = plan(calm = 96 until 104, s = settings.copy(maxDuration = 120.seconds))
+        val inBreak = p.clips.filter { it.slot.startBeat in 96 until 104 }
+        inBreak.shouldNotBeEmpty()
+        inBreak.none { it.fastPart } shouldBe true
+        p.clips.any { it.fastPart && it.slot.startBeat < 96 } shouldBe true
+        p.clips.any { it.fastPart && it.slot.startBeat >= 104 } shouldBe true
+    }
+
+    test("ancienne configuration : minBpm encore accepté, sans effet") {
+        val parts = ConfigYaml.yaml.decodeFromString(FastParts.serializer(), "minBpm: 120\nminIntensity: 0.7")
+        parts.minBpm shouldBe 120.0
+        FastSections.of(music(90.0), settings.copy(fastParts = parts))!!.sections shouldBe setOf(2)
     }
 })

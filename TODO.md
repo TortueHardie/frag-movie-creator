@@ -137,7 +137,8 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Rythme rapide (`montage.fast`, `--fast`, case « Rythme rapide ») : un kill par temps, plans de 0,37 s à
   161 BPM (médiane des références : 0,37 à 0,67 s) au lieu de quatre temps (1,5 s).
   - [x] L'activer par défaut si le rendu plaît, ou seulement au-dessus d'un tempo : par partie de la musique depuis le
-    18/11 (`montage.fastParts`, `--no-fast-parts`) : la drop et la suite, si elles sont intenses et le tempo vif.
+    18/11 (`montage.fastParts`, `--no-fast-parts`) : la drop et la suite, si elles sont intenses, quel que soit le
+    tempo (seuil des 120 BPM retiré le 18/11) ; les creux après la drop reviennent au rythme du style (`calmDb`, `calmBars`).
   - Premier essai jugé illisible (74 kills, R2D2) : 40 % d'images floues juste après le kill (flou de la coupe
     suivante, 0,17 s après le kill, et traînée), échanges montrant l'écran de mort, animations du personnage prises
     pour des mouvements de caméra. Corrigé (zone nette autour du kill, flou de coupe proportionné, échanges écartés,

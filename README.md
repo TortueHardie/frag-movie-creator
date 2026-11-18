@@ -959,14 +959,28 @@ les parties analysées avant sont à mettre à jour.
 
 **Par défaut, seulement sur les parties rapides de la musique** (`montage.fastParts`, case « Rythme rapide sur les
 parties rapides » de « Réglages avancés », `--no-fast-parts` pour l'éviter) : la drop et ce qui suit, si cette partie est
-intense (`minIntensity` 0,7) et le tempo vif (`minBpm` 120 ; « Rome Is Burning » : 126 BPM, intensité 0,95 après la
-drop). Avant, l'intro et la montée gardent le rythme du style (Cinématique : plans longs, ralentis) ; après, un kill par
-temps, sans ralenti ni rampe, zoom d'approche vers le réticule. Le rythme rapide part de la drop elle-même (choix de
+intense (`minIntensity` 0,7 ; « Rome Is Burning » : 0,95 après la drop), quel que soit le tempo. Avant, l'intro et la
+montée gardent le rythme du style (Cinématique : plans longs, ralentis) ; après, un kill par temps (deux à 160 BPM et
+plus), sans ralenti ni rampe, zoom d'approche vers le réticule. Le rythme rapide part de la drop elle-même (choix de
 l'utilisateur du 18/11) : le meilleur groupe y tombe, en plan rapide, sans ralenti (un multi-kill s'étend juste avant
-la drop pour y finir). Une musique lente (« HEAVENLY JUMPSTYLE (Slowed) », 111 BPM) reste entière au rythme du style.
-Une musique lente lue au double de son tempo passerait à tort au rythme rapide : l'analyse la ramène à sa noire
-(« Tempo : musiques lues au double » ci-dessous). Si une musique passe encore au rythme rapide sans l'être,
-`--no-fast-parts` ou la case l'évitent.
+la drop pour y finir). Si une musique passe au rythme rapide sans que vous le vouliez, `--no-fast-parts` ou la case
+l'évitent.
+
+**Le rythme suit la musique après la drop** : chaque partie calme qui suit (breakdown, couplet plus doux, outro) revient
+au rythme du style, et le rythme rapide reprend quand la musique redevient intense. Les sections de l'analyse font au
+moins quatre mesures ; une coupure plus courte au milieu d'une partie intense (la basse de « Big Dawgs » qui s'arrête
+deux mesures à 0:20) est repérée à part : une suite d'au moins `calmBars` (2) mesures dont le volume est à `calmDb`
+(7 dB) ou plus sous le niveau fort du morceau devient une section calme, au rythme du style. Mesuré sur les 19 musiques
+de test : seule cette coupure de « Big Dawgs » descend aussi bas (9,2 dB) ; ailleurs, deux mesures d'une partie intense
+ne descendent jamais à plus de 5,8 dB. Avec beaucoup de kills, le montage peut finir avant le retour au calme : 45 kills
+d'un plan d'un temps tiennent en 25 s après la drop, et la première partie calme de « Rome Is Burning » arrive 61 s
+après la sienne.
+
+Plus de seuil de tempo (choix de l'utilisateur du 18/11, après des montages côte à côte avec et sans lui) : le seuil des
+120 BPM gardait au rythme du style des musiques lentes mais intenses (« Doom Eternal » 103 BPM, « Big Dawgs » 90).
+Aucune mesure du contenu (attaques par seconde, part percussive, volume) ne séparait mieux les musiques ressenties
+rapides des calmes. Une ancienne configuration qui pose `montage.fastParts.minBpm` se charge encore ; le réglage est
+ignoré.
 Le rythme rapide forcé (ci-dessous) rend tout le montage rapide.
 
 Case « Rythme rapide » du dialogue du montage kills, `montage --fast` ou `search --montage … --fast` : un kill sur

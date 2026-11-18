@@ -69,8 +69,13 @@ class KillMontageIT : FunSpec({
             baseDir = Path("../config").toAbsolutePath().normalize(),
             source = null,
         )
+        // Rythme du style d'un bout à l'autre : les parties rapides (testées par FastSectionsTest) couperaient le doublé
+        // en plans d'un temps. Depuis le 18/11, elles ne dépendent plus du tempo, et cette musique à 120 BPM passait juste
+        // sous l'ancien seuil.
         val result = Pipelines.create(config, ffmpeg).killMontage(
-            listOf(session), music, MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds, showcase = false), ProgressReporter.NONE,
+            listOf(session), music,
+            MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds, showcase = false, fastParts = false),
+            ProgressReporter.NONE,
         )
 
         val out = ffmpeg.probe(result.videos.getValue(OutputFormat.VERTICAL))
