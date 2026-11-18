@@ -4,6 +4,7 @@ plugins {
 
 dependencies {
     implementation(project(":pipeline"))
+    implementation(project(":assistant"))
     implementation(libs.clikt)
     implementation(libs.logback)
 
