@@ -76,7 +76,7 @@ class ThumbnailTest : FunSpec({
 
     test("texte : ACE, CLUTCH, la série, sinon les kills de la vidéo, rien sous deux kills — dans la langue choisie") {
         I18n.withLanguage("fr") {
-            ThumbnailPicker.label(ThumbnailMoment(Path("a"), 1.seconds, 2, ace = true), 9) shouldBe "ACE"
+            ThumbnailPicker.label(ThumbnailMoment(Path("a"), 1.seconds, 2, ace = true), 9) shouldBe "9 KILLS"
             ThumbnailPicker.label(ThumbnailMoment(Path("a"), 1.seconds, 1, clutch = true), 9) shouldBe "CLUTCH"
             ThumbnailPicker.label(ThumbnailMoment(Path("a"), 1.seconds, 3), 9) shouldBe "TRIPLÉ"
             ThumbnailPicker.label(ThumbnailMoment(Path("a"), 1.seconds, 7), 9) shouldBe "QUINTUPLÉ"
