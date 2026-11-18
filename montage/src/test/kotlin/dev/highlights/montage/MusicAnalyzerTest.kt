@@ -129,6 +129,22 @@ class MusicAnalyzerTest : FunSpec({
         }
     }
 
+    test("tempo doublé : ramené à la noire seulement si rien ne bat entre deux temps lus et que la noire est aussi nette") {
+        val fps = MusicAnalyzer.SAMPLE_RATE / 256.0
+        // Autocorrélation de l'enveloppe au temps lu (décalage 30 trames, 172 BPM) et à la noire (60).
+        fun r(beat: Double, half: Double) = DoubleArray(130) { lag -> when (lag) { 30 -> beat; 60 -> half; else -> 0.0 } }
+        // « Lose Yourself » : 171 lus, rien entre deux temps lus dans aucune bande (−0,28), noire 0,97.
+        MusicAnalyzer.halvesTempo(r(0.82, 0.80), 30, fps, between = -0.28) shouldBe true
+        // « GO2 - Spitfire » : noire nette mais des attaques entre les temps (0,45) : vraiment rapide.
+        MusicAnalyzer.halvesTempo(r(0.40, 0.35), 30, fps, between = 0.45) shouldBe false
+        // « R2D2 » : presque rien entre les temps (0,02) ; même sans rien, sa noire est bien moins nette (0,73).
+        MusicAnalyzer.halvesTempo(r(0.54, 0.39), 30, fps, between = 0.02) shouldBe false
+        MusicAnalyzer.halvesTempo(r(0.54, 0.39), 30, fps, between = -0.3) shouldBe false
+        // Sous 140 BPM, un tempo lu n'est jamais divisé (40 trames : 129 BPM).
+        val slow = DoubleArray(130) { lag -> when (lag) { 40 -> 0.8; 80 -> 0.8; else -> -0.2 } }
+        MusicAnalyzer.halvesTempo(slow, 40, fps, between = -0.5) shouldBe false
+    }
+
     test("rôles des sections : intro, montée vers la drop, creux, outro") {
         val sections = listOf(
             MusicSection(0, 32, -20.0, 0.10, rise = 1.0),

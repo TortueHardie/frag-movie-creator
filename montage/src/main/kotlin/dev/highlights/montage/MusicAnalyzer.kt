@@ -16,8 +16,10 @@ import java.nio.file.Path
 import kotlin.io.path.isRegularFile
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.exp
+import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.log2
@@ -178,7 +180,7 @@ data class MusicAnalysis(
 
 object MusicAnalyzer {
     /** À augmenter quand l'analyse change de calcul : les analyses gardées par [MusicLibrary] sont alors refaites. */
-    const val VERSION = 3
+    const val VERSION = 4
 
     /** Part de la durée du montage avant laquelle une drop doit tomber pour y compter, avec de quoi la suivre. */
     private const val REACH = 0.7
@@ -247,7 +249,7 @@ object MusicAnalyzer {
         val spec = melSpectrogram(samples)
         val onset = onsetEnvelope(spec)
         // Tempo sur une enveloppe plus lissée : les pics fins (~12 ms) rendent l'autocorrélation sensible à la quantification du lag.
-        val bpmEstimate = estimateTempo(smooth(onset, sigma = 3.0), FPS)
+        val bpmEstimate = estimateTempo(smooth(onset, sigma = 3.0), FPS, bandEnvelopes(spec))
         val beatFrames = trackBeats(onset, FPS * 60.0 / bpmEstimate)
         if (beatFrames.size < 8) throw HighlightsException(Message("error.music.noTempo", "name" to file.fileName.toString()))
 
@@ -479,6 +481,29 @@ object MusicAnalyzer {
         return smooth(DoubleArray(frames) { allN[it] + 1.5 * lowN[it] }, sigma = 2.0)
     }
 
+    /**
+     * Attaques par bande (flux positif, normalisé, lissé comme l'enveloppe du tempo) : basses (< 220 Hz), médiums
+     * (< [MID_TOP_HZ]) et aigus. Servent à voir si quelque chose bat entre deux temps lus ([halvesTempo]).
+     */
+    private fun bandEnvelopes(spec: Spectrogram): List<DoubleArray> =
+        listOf(0 until lowBands, lowBands until midBands, midBands until MEL_BANDS).map { bands ->
+            val flux = DoubleArray(spec.frames)
+            for (t in 1 until spec.frames) for (k in bands) {
+                val d = spec.mel[t][k] - spec.mel[t - 1][k]
+                if (d > 0) flux[t] += d
+            }
+            smooth(normalize(flux), sigma = 3.0)
+        }
+
+    /** Bandes sous [MID_TOP_HZ] : basses et médiums (voix, guitare, caisse claire) ; au-dessus, les aigus (charleston). */
+    private val midBands: Int by lazy {
+        val lo = hzToMel(30.0)
+        val hi = hzToMel(SAMPLE_RATE / 2.0)
+        (0 until MEL_BANDS).count { melToHz(lo + (hi - lo) * (it + 1) / (MEL_BANDS + 1)) < MID_TOP_HZ }
+    }
+
+    private const val MID_TOP_HZ = 2200.0
+
     private fun smooth(values: DoubleArray, sigma: Double): DoubleArray {
         val radius = (3 * sigma).toInt()
         val kernel = DoubleArray(2 * radius + 1) { exp(-0.5 * ((it - radius) / sigma).let { x -> x * x }) }
@@ -520,38 +545,102 @@ object MusicAnalyzer {
 
     // ------------------------------------------------------------------ tempo et temps
 
-    /** Autocorrélation de l'enveloppe d'attaques, pondérée autour de 120 BPM (log-normale, une octave). */
-    internal fun estimateTempo(onset: DoubleArray, fps: Double): Double {
+    /**
+     * Autocorrélation de l'enveloppe d'attaques, pondérée autour de 120 BPM (log-normale, une octave), puis choix de
+     * l'octave ([halvesTempo], avec les attaques par bande [bands]) : un tempo vif lu sur les croches d'une musique
+     * lente est ramené à la noire.
+     */
+    internal fun estimateTempo(onset: DoubleArray, fps: Double, bands: List<DoubleArray> = emptyList()): Double {
         val minLag = (fps * 60.0 / 200.0).toInt()
         val maxLag = (fps * 60.0 / 60.0).toInt().coerceAtMost(onset.size / 2)
-        val mean = onset.average()
-        val centered = DoubleArray(onset.size) { onset[it] - mean }
+        // Jusqu'au double du plus long décalage : la noire d'un tempo lu doublé.
+        val r = autocorrelation(onset, minOf(2 * maxLag + 2, onset.size - 1))
         var bestLag = minLag
         var bestScore = Double.NEGATIVE_INFINITY
         val scores = DoubleArray(maxLag + 2)
         for (lag in minLag..maxLag) {
-            var r = 0.0
-            for (t in 0 until centered.size - lag) r += centered[t] * centered[t + lag]
             val bpm = 60.0 * fps / lag
             val weight = exp(-0.5 * (log2(bpm / 120.0) / 1.0).let { it * it })
-            scores[lag] = r * weight
+            scores[lag] = r[lag] * weight
             if (scores[lag] > bestScore) {
                 bestScore = scores[lag]
                 bestLag = lag
             }
         }
-        // Interpolation parabolique autour du maximum.
-        val refined = if (bestLag in (minLag + 1) until maxLag) {
-            val a = scores[bestLag - 1]
-            val b = scores[bestLag]
-            val c = scores[bestLag + 1]
-            val denom = a - 2 * b + c
-            if (denom != 0.0) bestLag + 0.5 * (a - c) / denom else bestLag.toDouble()
-        } else {
-            bestLag.toDouble()
+        val between = if (bands.isEmpty()) Double.POSITIVE_INFINITY else bands.maxOf { near(autocorrelation(it, bestLag), bestLag / 2.0) }
+        if (halvesTempo(r, bestLag, fps, between)) {
+            // Noire = deux croches lues : le maximum de l'autocorrélation autour du double du décalage.
+            val lag = (2 * bestLag - 2..2 * bestLag + 2).filter { it in 1 until r.lastIndex }.maxBy { r[it] }
+            log.info { "Tempo : ${"%.1f".format(60.0 * fps / bestLag)} BPM lus sur les croches, ramenés à la noire, ${"%.1f".format(60.0 * fps / lag)}" }
+            return 60.0 * fps / refine(r, lag)
         }
-        return 60.0 * fps / refined
+        return 60.0 * fps / if (bestLag in (minLag + 1) until maxLag) refine(scores, bestLag) else bestLag.toDouble()
     }
+
+    /**
+     * Autocorrélation de [values] centrées, décalages 0 à [top], rapportée à la valeur au décalage nul. Les produits sont
+     * divisés par la longueur entière (pas par le nombre de produits) : comme avant le choix d'octave, une pulsation
+     * parfaitement régulière garde le plus court de deux décalages à égalité (boucle à 170 BPM lue 170, pas 85).
+     */
+    private fun autocorrelation(values: DoubleArray, top: Int): DoubleArray {
+        val mean = values.average()
+        val centered = DoubleArray(values.size) { values[it] - mean }
+        val zero = centered.sumOf { it * it } / centered.size
+        return DoubleArray(top + 1) { lag ->
+            if (zero < 1e-12 || lag >= centered.size) 0.0
+            else {
+                var acc = 0.0
+                for (t in 0 until centered.size - lag) acc += centered[t] * centered[t + lag]
+                acc / centered.size / zero
+            }
+        }
+    }
+
+    /** Plus forte valeur de [r] autour du décalage fractionnaire [at] (une trame de marge de part et d'autre). */
+    private fun near(r: DoubleArray, at: Double): Double =
+        (floor(at).toInt() - 1..ceil(at).toInt() + 1).filter { it in 1..r.lastIndex }.maxOfOrNull { r[it] } ?: 0.0
+
+    /** Interpolation parabolique autour du maximum [lag] de [values]. */
+    private fun refine(values: DoubleArray, lag: Int): Double {
+        if (lag <= 0 || lag >= values.lastIndex) return lag.toDouble()
+        val a = values[lag - 1]
+        val b = values[lag]
+        val c = values[lag + 1]
+        val denom = a - 2 * b + c
+        return if (denom != 0.0) lag + 0.5 * (a - c) / denom else lag.toDouble()
+    }
+
+    /**
+     * Tempo lu doublé ? Une musique lente aux croches très régulières se lit parfois sur ses croches, au-dessus de
+     * [HALVE_ABOVE] BPM (« Lose Yourself » : 171 lus pour 86). Elle se trahit par deux choses à la fois :
+     * - le temps lu est la plus fine pulsation dans toutes les bandes : basses, médiums et aigus n'ont aucune attaque
+     *   régulière entre deux temps lus ([between] : la plus forte autocorrélation des bandes au demi-temps lu,
+     *   au plus [HALVE_BETWEEN]) ;
+     * - la noire (deux temps lus) est presque aussi nette que le temps lu (autocorrélation de l'enveloppe, au moins
+     *   [HALVE_BEAT] × celle du temps lu).
+     * Une vraie musique rapide a quelque chose entre ses temps (charleston, caisse claire, basse) ou une noire bien
+     * moins nette. Mesuré sur 19 musiques (D:\Musique et « music sample », tableau dans le README, « Tempo ») :
+     * « Lose Yourself » demi-temps −0,28, noire 0,97 ; gardées : « R2D2 » (161) 0,02 et 0,73, « Menace » (155) 0,12
+     * et 1,12, « life kinda sucks » (188) 0,24, « Undercover Martyn » (160) 0,32, « GO2 - Spitfire » (157) 0,45 ; une
+     * boucle synthétique à 170 BPM (grosse caisse à chaque temps, charleston entre) 0,81. Une seule musique ramenée :
+     * le critère tient sur un exemple, d'où des seuils loin des musiques gardées.
+     */
+    internal fun halvesTempo(r: DoubleArray, lag: Int, fps: Double, between: Double): Boolean {
+        if (60.0 * fps / lag < HALVE_ABOVE || 2 * lag + 2 > r.lastIndex) return false
+        val beat = r[lag].takeIf { it > 1e-9 } ?: return false
+        val half = near(r, 2.0 * lag) / beat
+        log.debug { "Octave à ${"%.1f".format(60.0 * fps / lag)} BPM : entre deux temps ${"%.2f".format(between)}, noire ${"%.2f".format(half)}" }
+        return between <= HALVE_BETWEEN && half >= HALVE_BEAT
+    }
+
+    /** Tempo lu au-dessus duquel il peut être le double du vrai (voir [halvesTempo]). */
+    private const val HALVE_ABOVE = 140.0
+
+    /** Pulsation de la noire (deux temps lus) face à celle du temps lu, au moins, pour ramener le tempo à la noire. */
+    private const val HALVE_BEAT = 0.85
+
+    /** Autocorrélation des bandes au demi-temps lu, au plus, pour ramener le tempo à la noire (rien entre deux temps). */
+    private const val HALVE_BETWEEN = -0.1
 
     /** Suivi de temps par programmation dynamique (Ellis 2007) : attaques fortes et intervalles réguliers. */
     internal fun trackBeats(onset: DoubleArray, period: Double, tightness: Double = 100.0): List<Int> {
