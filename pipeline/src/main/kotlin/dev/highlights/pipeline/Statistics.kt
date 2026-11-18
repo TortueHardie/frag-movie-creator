@@ -41,6 +41,10 @@ data class GameStats(
     val rounds: Int?,
     /** Analysée avec d'autres réglages de détection que ceux du profil aujourd'hui : à réanalyser pour être à jour. */
     val outdated: Boolean = false,
+    /** [playedAt] vient de l'enregistrement, pas de la date du fichier (voir [dev.highlights.core.model.MediaInfo.reliableTime]). */
+    val reliableTime: Boolean = true,
+    /** Taille de la capture (octets) : deux copies d'une même capture ont la même taille et la même durée. */
+    val sizeBytes: Long = 0,
 ) {
     /** Kills par mort (les kills seuls sans mort). */
     val kd: Double? get() = deaths?.let { kills.toDouble() / it.coerceAtLeast(1) }
@@ -133,6 +137,8 @@ object Statistics {
             bestRound = if (deaths != null) rounds.maxOfOrNull { it.kills.size } ?: 0 else null,
             rounds = if (deaths != null) rounds.size else null,
             outdated = outdated,
+            reliableTime = session.media.reliableTime,
+            sizeBytes = session.media.sizeBytes,
         )
     }
 
@@ -158,8 +164,11 @@ object Statistics {
 
     /**
      * On ne joue pas deux parties d'un même jeu à la fois : deux captures qui se chevauchent sur plus de la moitié de
-     * la plus courte sont la même partie, vue par deux enregistreurs (18:07, 44 min, et 18:08, 40 min). La plus riche
-     * en kills reste.
+     * la plus courte sont la même partie, vue par deux enregistreurs (18:07, 44 min, et 18:08, 40 min). Seulement si
+     * les deux horaires viennent de l'enregistrement ([GameStats.reliableTime]) : deux parties VALORANT sans date dans
+     * leurs métadonnées, copiées à une minute d'écart, passaient pour une seule (« 1 partie, 46 kills » au lieu de
+     * 2 parties, 61 kills). La même capture, elle, reste une partie quels que soient ses horaires ([sameCapture]). La
+     * plus riche en kills reste.
      */
     fun distinctGames(games: List<GameStats>): List<GameStats> {
         val kept = mutableListOf<GameStats>()
@@ -169,12 +178,17 @@ object Statistics {
                 val kStart = k.playedAt!!
                 val overlap = minOf(start + g.duration.toJavaDuration(), kStart + k.duration.toJavaDuration()).epochSecond -
                     maxOf(start, kStart).epochSecond
-                k.game == g.game && overlap > minOf(g.duration, k.duration).inWholeSeconds / 2
+                k.game == g.game && (sameCapture(k, g) || (k.reliableTime && g.reliableTime && overlap > minOf(g.duration, k.duration).inWholeSeconds / 2))
             }
             if (!same) kept += g
         }
         return kept.sortedBy { it.playedAt }
     }
+
+    /** La même capture : même fichier, ou une copie (même taille à l'octet près, même durée à la seconde). */
+    internal fun sameCapture(a: GameStats, b: GameStats): Boolean =
+        a.source.toAbsolutePath().normalize() == b.source.toAbsolutePath().normalize() ||
+            (a.sizeBytes > 0 && a.sizeBytes == b.sizeBytes && (a.duration - b.duration).absoluteValue < kotlin.time.Duration.parse("1s"))
 
     fun eveningOf(at: Instant, zone: ZoneId = ZoneId.systemDefault()): LocalDate =
         at.atZone(zone).minusHours(EVENING_END.inWholeHours).toLocalDate()
