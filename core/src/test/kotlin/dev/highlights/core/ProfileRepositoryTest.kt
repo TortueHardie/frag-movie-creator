@@ -133,6 +133,15 @@ class ProfileRepositoryTest : FunSpec({
 
     test("les profils du dépôt sont valides") {
         val repo = ProfileRepository.loadDirectory(Path("../config/profiles"))
-        repo.all().map { it.id }.toSet() shouldBe setOf("default", "lol", "valorant", "wardogs")
+        repo.all().map { it.id }.toSet() shouldBe setOf("apex", "default", "lol", "valorant", "wardogs")
+    }
+
+    test("apex : une capture dont le chemin dit « Apex » prend le profil Apex, notifications empilées suivies") {
+        val repo = ProfileRepository.loadDirectory(Path("../config/profiles"))
+        repo.resolve(Path("D:/Vidéo/Apex 53 kills octane.mp4"), null).id shouldBe "apex"
+        repo.resolve(Path("D:/Vidéo/APEX LEGENDS 2026-11-18 21-04-11.mp4"), null).id shouldBe "apex"
+        val events = repo.byId("apex").detectors.single { it.id == "game-events" }
+        events.type shouldBe "ocr-log"
+        events.eventBoosts.keys shouldBe setOf("kill", "knock")
     }
 })

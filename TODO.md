@@ -220,7 +220,12 @@ Pistes, de la plus simple à la plus lourde :
   → événement `downed`.
 - [ ] Décider si « à terre » compte comme une mort (`montage.killStyle.downedAsDeath`, faux par défaut) : rounds,
   kill aussitôt payé, statistiques K/D.
-- [ ] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
+- [x] Profil Apex Legends (`config/profiles/apex.yaml`) : notifications KNOCKED DOWN / ELIMINATED / SQUAD WIPE lues
+  par `ocr-log` (`maxDrop` pour les notifications empilées) ; vérité `verite/apex/` (compteur du HUD) : 33 kills sur 56,
+  aucun faux.
+- [ ] Apex : compter les kills crédités en rafale par un SQUAD WIPE (lire le compteur du HUD, illisible en 480p : à
+  revoir sur une capture 1080p brute), lire les morts du joueur, vérifier sur une capture non montée.
+- [ ] Profils pour d'autres jeux (CS2, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
 
 ## Entretien
 - [x] Mettre à jour `CLAUDE.md` et le versionner.

@@ -1,0 +1,134 @@
+id: apex
+displayName: Apex Legends
+
+match:
+  pathContains: ["Apex"]
+  priority: 10
+
+# Fusillades brèves : fenêtres courtes pour localiser précisément le pic.
+window: { size: 1s, hop: 500ms }
+
+# Les pistes sont désignées par leur rôle : Outplayed en écrit trois (mix, jeu, micro), OBS une ou deux, et le bon
+# choix se fait tout seul. Pour imposer des index : « audio: { game: 1, mic: 2 } » au niveau du profil.
+detectors:
+  - id: game-audio
+    type: audio-loudness
+    weight: 0.7
+    normalization: { lowPercentile: 0.5, highPercentile: 0.98, minSpread: 10 }
+    params: { role: game, localBaseline: 20s }
+
+  - id: mic-audio
+    type: audio-loudness
+    weight: 0.3
+    normalization: { lowPercentile: 0.8, highPercentile: 0.99, minSpread: 12 }
+    params: { role: mic, optional: true }
+
+  # Kills et ennemis mis à terre lus dans la notification sous le réticule, par l'OCR de Windows :
+  # « KNOCKED DOWN <pseudo> » (ennemi à terre : c'est la fusillade), « ELIMINATED <pseudo> » (achevé ou mort
+  # au sol), « SQUAD WIPE » (dernier de l'escouade : toute l'escouade tombe d'un coup). Les notifications
+  # s'empilent : la nouvelle s'insère au-dessus et pousse les autres d'une ligne (maxDrop).
+  # Mesuré sur « Apex 53 kills octane » (compilation YouTube de 3 parties en 854x480, image teintée) contre le
+  # compteur de kills du HUD, lu à l'œil (verite/apex/) : 33 kills sur 56 crédits du compteur, aucun en trop,
+  # tous à moins de 3 s. Les crédits manqués sont surtout ceux d'un « SQUAD WIPE » : le jeu y crédite d'un coup
+  # 2 ou 3 kills (les ennemis déjà mis à terre par le joueur) sous une seule notification. 51 « knock ».
+  # Pas de mort du joueur dans cette capture : « death » n'est pas lu (rien à mesurer).
+  - id: game-events
+    type: ocr-log
+    weight: 0
+    eventBoosts: { kill: 0.8, knock: 0.5 }
+    params:
+      # Bande des notifications, sous le réticule : deux lignes empilées (y 0,66 à 0,83 d'une capture 16:9).
+      # referenceHeight fixe aussi l'agrandissement avant l'OCR : 1920 = ×4 en 480p, ×1,8 en 1080p (texte de
+      # ~37 px). referenceWidth donne le format 16:9 de la mesure.
+      region: { x: 0.30, y: 0.658, width: 0.40, height: 0.175 }
+      referenceHeight: 1920
+      referenceWidth: 3413
+      anchor: center
+      # Jeu en anglais : pour une autre langue, la langue de l'OCR et les libellés traduits.
+      language: en-US
+      rules:
+        - match: [CRATEREVEAL]
+        - kind: kill
+          match: [SQUADWIPE, ELIMINATED]
+        - kind: knock
+          match: [KNOCKEDDOWN]
+      # Écart entre deux lignes empilées, en pixels de la zone agrandie (mesuré : 99 puis 239).
+      rowPitch: 130
+      rowTolerance: 12
+      maxDrop: 1
+      # Une notification reste 2 à 4 s ; deux kills de suite la remplacent au même endroit. Une lecture suffit
+      # (« ELIMINATED » souvent lu une seule fois sur ciel clair) et un trou d'une seconde fait une nouvelle ligne.
+      # Simulé : 2 lectures et 2 s d'oubli → 28 kills ; 1 lecture et 1 s → 32 (33 par app verite), toujours sans faux positif.
+      hold: 1s
+      minSightings: 1
+      # 2 img/s : une notification lue 4 à 8 fois. Images clés trop espacées sur les vidéos réencodées.
+      sampling: fps
+      fps: 2.0
+
+  # Prises de parole sur la piste micro : un moment n'est jamais coupé au milieu d'une phrase ou d'un rire.
+  - id: voice
+    type: voice-activity
+    weight: 0
+    params: { role: mic, optional: true, silenceDb: -50 }
+
+  # Rires et exclamations sur le micro (IA locale YAMNet) : deviennent des moments à garder, et ne sont jamais coupés.
+  - id: reactions
+    type: audio-events
+    weight: 0
+    eventBoosts: { laughter: 0.7, shout: 0.35 }
+    params: { role: mic, optional: true }
+
+selection:
+  keepWhole: [speech, laughter]
+  maxExtension: 8s
+  threshold: 0.6
+  mergeGap: 4s
+  preRoll: 4s
+  postRoll: 1500ms
+  minClip: 4s
+  maxClip: 18s
+  target: { totalDuration: 60s }
+
+edit:
+  # story : montage façon YouTube (temps morts coupés en jump cuts, accroche du meilleur moment en ouverture,
+  # punch-in sur les rires et cris, secousse sur les kills, flash + whoosh entre les moments).
+  style: story
+  story:
+    # Rythme Apex : longs déplacements entre des combats de 5 à 20 s ; les kills d'un même combat forment une scène.
+    scenes: { gap: 15s, maxLength: 45s }
+    jumpCuts: { minGap: 2s, breath: 300ms, deadScore: 0.35, alternateZoom: 1.08 }
+    coldOpen: { enabled: true, length: 3s }
+    punchIn: { amount: 0.15, on: [laughter, shout] }
+    shake: { amplitude: 0.012, events: [kill, knock] }
+    sfx: { enabled: true, whooshVolume: 0.35, impactVolume: 0.5 }
+    labels: { enabled: true }
+    slowMo: { enabled: true, factor: 0.5, onlyStrong: true }
+    captions: { model: models/ggml-large-v3-turbo-q5_0.bin, language: fr, maxChars: 18 }
+  order: chronological
+  transition: { type: fade, duration: 250ms }
+  loudnessLufs: -14
+  audio: mix
+  formats: ["source"]
+  # Vertical 9:16 : le recadrage au centre perd tout le HUD de droite. Le compteur (escouades restantes, kills,
+  # dégâts) et le killfeed, en haut à droite, sont replacés en haut à gauche, hors des boutons des applications
+  # verticales (à droite). Rien n'est replacé en bas : la notification KNOCKED DOWN / ELIMINATED (y 0,66 à 0,83,
+  # au centre) reste dans l'image recadrée et ne doit pas être couverte. Mesuré en 16:9 (854x480).
+  vertical:
+    size: { width: 1080, height: 1920 }
+    reference: { width: 1920, height: 1080 }
+    hud:
+      - name: stats
+        source: { x: 0.805, y: 0.04, width: 0.145, height: 0.08 }
+        target: { x: 0.05, y: 0.035, width: 0.55 }
+        anchor: right
+      - name: killfeed
+        source: { x: 0.70, y: 0.125, width: 0.255, height: 0.165 }
+        target: { x: 0.05, y: 0.135, width: 0.62 }
+        anchor: right
+
+montage:
+  killStyle:
+    # Ni round ni ace dans Apex : escouades de trois, et un combat ne se termine pas sur un nombre de kills. Le
+    # clutch déduit (round survécu sur un multi-kill) étiquetait presque chaque combat.
+    aceKills: 99
+    clutchKills: 99

@@ -63,6 +63,24 @@ class RewardsLogTest : FunSpec({
         tracker.update(31.seconds, listOf(row(0, "kill"))).map { it.at } shouldBe listOf(30.seconds)
     }
 
+    test("notifications empilées (Apex) : la ligne poussée d'un cran vers le bas n'est pas recomptée") {
+        fun row(y: Int, kind: String) = Triple(y, kind, kind)
+        // Relevé de « Apex 53 kills octane » à 1:30-1:32 : « ELIMINATED » à y 99, puis « KNOCKED DOWN » s'insère
+        // au-dessus et le pousse à y 239 (pas de 130).
+        val reads = listOf(
+            90.5.seconds to listOf(row(99, "kill")),
+            91.seconds to listOf(row(102, "kill")),
+            92.seconds to listOf(row(95, "knock"), row(239, "kill")),
+            92.5.seconds to listOf(row(101, "knock"), row(240, "kill")),
+        )
+        fun events(tracker: LogTracker) = reads.flatMap { (at, rows) -> tracker.update(at, rows) }.map { it.kind to it.at }
+
+        events(LogTracker(hold = 1.seconds, rowPitch = 130, minSightings = 1, maxDrop = 1)) shouldBe
+            listOf("kill" to 90.5.seconds, "knock" to 92.seconds)
+        // Sans maxDrop (journal qui ne fait que remonter), l'élimination poussée comptait deux fois.
+        events(LogTracker(hold = 1.seconds, rowPitch = 130, minSightings = 1)).count { it.first == "kill" } shouldBe 2
+    }
+
     test("fusion : l'icône date, le journal donne le type, chacun comble les trous de l'autre") {
         val log = listOf(
             LogEvent(100.seconds, "kill", ""), // lu avec l'icône
