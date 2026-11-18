@@ -483,6 +483,9 @@ private fun RetouchBar(key: String, position: Int, montageSize: Int, actions: Ui
             Spacer(Modifier.width(16.dp))
         }
         Spacer(Modifier.weight(1f))
+        // Ce moment seul, en vidéo 9:16 de 15 à 30 s prête pour TikTok ou Shorts.
+        OutlinedButton(onClick = { actions.clipMoment(key) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.session.clip")) }
+        Spacer(Modifier.width(6.dp))
         if (position >= 0 && montageSize > 1) {
             OutlinedButton(onClick = { actions.moveSegment(key, -1) }, enabled = position > 0, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.session.earlier")) }
             Spacer(Modifier.width(6.dp))
