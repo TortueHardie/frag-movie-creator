@@ -147,8 +147,15 @@ object RenderCommandBuilder {
             "-i", source.toString(),
         )
 
-    /** Chaîne vidéo d'une entrée jusqu'au label [out] : géométrie du format, cadence, HUD éventuel, étalonnage. */
-    fun videoChain(input: Int, media: MediaInfo, format: OutputFormat, settings: EditSettings, out: String): List<String> {
+    /**
+     * Chaîne vidéo d'une entrée jusqu'au label [out] : géométrie du format, cadence, HUD éventuel, étalonnage.
+     *
+     * [pinHud] : le HUD recollé n'est pas collé dans l'image mais empilé dessous, dans la même trame (image 9:16 puis
+     * chaque morceau du HUD, calé à gauche, l'un sous l'autre : voir [HudPin]). Il suit ainsi exactement les mêmes
+     * ralentis et gels que l'image, et [HudPin] le recolle fixe après le zoom. Collé avant, le zoom l'agrandissait :
+     * le bloc du bas de VALORANT apparaissait en double sous sa copie fixe.
+     */
+    fun videoChain(input: Int, media: MediaInfo, format: OutputFormat, settings: EditSettings, out: String, pinHud: Boolean = false): List<String> {
         val video = media.video ?: throw HighlightsException(Message("error.input.noVideo", "file" to media.path))
         val head = "[$input:v:0]setpts=PTS-STARTPTS,fps=${settings.fps}"
         // L'étalonnage vient après le recadrage et le HUD : il s'applique à l'image finale, avant les effets du montage.
@@ -163,11 +170,22 @@ object RenderCommandBuilder {
         val statements = mutableListOf<String>()
         statements += "$head,split=${overlays.size + 1}[${p}base]" + overlays.indices.joinToString("") { "[${p}hud$it]" }
         statements += "[${p}base]${geometry(format, video.width, video.height, settings)}[${p}l0]"
-        hudBoxes(video.width, video.height, settings, overlays).forEachIndexed { k, (src, dst) ->
-            statements += "[${p}hud$k]crop=${src.w}:${src.h}:${src.x}:${src.y},scale=${dst.w}:${dst.h}:flags=lanczos,setsar=1[${p}o$k]"
-            statements += "[${p}l$k][${p}o$k]overlay=x=${dst.x}:y=${dst.y}:shortest=1[${p}l${k + 1}]"
+        val boxes = hudBoxes(video.width, video.height, settings, overlays)
+        val width = settings.vertical.size.width
+        boxes.forEachIndexed { k, (src, dst) ->
+            val piece = "[${p}hud$k]crop=${src.w}:${src.h}:${src.x}:${src.y},scale=${dst.w}:${dst.h}:flags=lanczos,setsar=1"
+            if (pinHud) {
+                statements += "$piece,pad=$width:${dst.h}:0:0[${p}o$k]"
+            } else {
+                statements += "$piece[${p}o$k]"
+                statements += "[${p}l$k][${p}o$k]overlay=x=${dst.x}:y=${dst.y}:shortest=1[${p}l${k + 1}]"
+            }
         }
-        statements += "[${p}l${overlays.size}]$tail"
+        statements += if (pinHud) {
+            "[${p}l0]" + boxes.indices.joinToString("") { "[${p}o$it]" } + "vstack=inputs=${boxes.size + 1}:shortest=1,$tail"
+        } else {
+            "[${p}l${overlays.size}]$tail"
+        }
         return statements
     }
 
