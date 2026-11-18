@@ -108,10 +108,11 @@ data class MontageSettings(
     val minKills: Int = 3,
     /**
      * Apprendre les goûts de l'utilisateur : les poids des critères de la note (`MontageScorer`) sont ajustés d'après
-     * ses choix de variantes après les aperçus (`TasteLearner`, à partir de `TasteLearner.MIN_CHOICES` choix). Désactivé
-     * par défaut : tant qu'il ne l'active pas, les poids d'origine décident seuls. `app gouts` montre ce qui a été appris.
+     * ses choix de variantes après les aperçus (`TasteLearner`, à partir de `TasteLearner.MIN_CHOICES` choix). Actif par
+     * défaut : sans effet tant qu'il y a moins de `MIN_CHOICES` choix (poids d'origine, même plan, même note) ;
+     * `app gouts` montre ce qui a été appris, `app gouts --reset` met l'historique de côté (retour aux poids d'origine).
      */
-    val learnTaste: Boolean = false,
+    val learnTaste: Boolean = true,
     /**
      * Poids des critères de la note qui remplacent ceux d'origine (`MontageScorer.WEIGHTS`), par nom de critère ; null :
      * ceux d'origine. Posé par le pipeline depuis les goûts appris quand [learnTaste] est vrai, pas à écrire à la main.
