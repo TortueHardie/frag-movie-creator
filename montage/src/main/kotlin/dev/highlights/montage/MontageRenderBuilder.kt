@@ -89,6 +89,8 @@ object MontageRenderBuilder {
         val flashes = flashes(plan)
         val whips = whips(plan)
         val zooms = zooms(plan)
+        // Montage des morts : un texte par mort (OUPS, RIP…), le même pour la même mort d'un rendu à l'autre.
+        val failTexts = if (settings.fails.enabled && settings.text.enabled) FailLabels.assign(clips, FailLabels.available(settings.fails)) else clips.map { null }
 
         val args = mutableListOf<String>()
         clips.forEachIndexed { i, clip ->
@@ -199,7 +201,13 @@ object MontageRenderBuilder {
                 val labelY = if (request.format == OutputFormat.VERTICAL) "h*0.25" else "h*0.20"
                 val font = settings.text.font
                 val labels = settings.text.labels
-                outKills.forEachIndexed { j, k ->
+                // Montage des morts : le texte (à la place des DOUBLÉ, TRIPLÉ des kills) arrive avec l'image figée qu'il
+                // commente ; sans gel, sur la mort. Posé sur la mort, il s'effaçait juste quand l'image se figeait.
+                failTexts[i]?.let { text -> outKills.lastOrNull()?.let { k ->
+                    val at = clip.speeds.firstOrNull { it.kind == SpeedKind.FREEZE }?.let { clip.toOutput(it.range.start) + lead } ?: k
+                    effects += drawText(font, text, at, (h * 0.12).roundToInt(), labelY, border = (h * 0.007).roundToInt().coerceAtLeast(3), safe = request.edit.safeArea)
+                } }
+                if (!settings.fails.enabled) outKills.forEachIndexed { j, k ->
                     if (j >= 1 && labels.isNotEmpty()) {
                         val label = labels[minOf(j - 1, labels.lastIndex)]
                         effects += drawText(font, label, k, (h * 0.10).roundToInt(), labelY, border = (h * 0.006).roundToInt().coerceAtLeast(3), safe = request.edit.safeArea)
@@ -595,6 +603,8 @@ object MontageRenderBuilder {
     internal fun slowAudio(part: SpeedPart, extra: Duration, audio: MontageAudio): String {
         if (part.factor == 1.0) return ""
         val out = part.outputLength + extra
+        // Image figée : le son ne s'étire pas (atempo ne descend pas sous 0,5) ; il se tait, la musique porte le gel.
+        if (part.kind == SpeedKind.FREEZE) return ",volume=0,apad=whole_dur=${sec(out)},atrim=duration=${sec(out)}"
         if (part.kind != SpeedKind.SLOW || audio.slowMotion == SlowAudio.STRETCH) return ",atempo=${num(part.factor)}"
         val played = part.sourceLength + extra
         val fade = audio.slowFade.coerceAtMost(played)

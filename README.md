@@ -913,6 +913,25 @@ En 21:9, l'ennemi n'est souvent que quelques pixels au fond d'un couloir : il gr
 - Dans un dossier de musiques, celles qui gardent des plans d'un temps passent devant (`fast.musicPace`).
 - `montage.fast.enabled: true` dans le profil pour l'avoir par défaut.
 
+## Montage des morts
+
+`montage --fails` (ou la case « Montage des morts » de la fenêtre de montage, réglages avancés) monte les morts du
+joueur au lieu de ses kills, sur la musique, avec le même moteur : un plan par mort, la mort sur un temps.
+
+- Chaque plan montre les 3 secondes qui précèdent la mort, un ralenti qui finit sur elle, une image figée (0,7 s, son
+  du jeu coupé, la musique continue) et un petit texte : OUPS, RIP, AÏE, GAME OVER, BIEN ESSAYÉ, RATÉ (`video.fail.*`,
+  dans la langue de l'interface, ou `montage.fails.labels` du profil). Le texte d'une mort est tiré d'une empreinte de
+  la mort (capture et instant) : le même montage garde les mêmes textes, et deux morts voisines n'ont jamais le même.
+- Les morts sont les `death` du killfeed ou d'Outplayed. Dans Wardogs, « à terre » ne compte que si
+  `montage.killStyle.downedAsDeath` est activé ; sinon une partie de Wardogs n'a pas de mort, et le montage le dit.
+- Une mort juste après un kill (un échange) reste : elle est drôle aussi. Rounds, tirs à la tête, one taps et raccords
+  sur la pose de l'arme ne servent pas ici.
+- Fichiers : `<jeu>_<date>_fails.mp4`, à côté de son rapport (le texte de chaque mort y est : `failText`).
+
+```powershell
+& $app montage "Valorant- 44 kills.session.json" Valorant_game.session.json -m D:\Musique\R2D2.mp3 --fails -f 9:16
+```
+
 ## Montage onetaps
 
 Case « Onetaps » du dialogue du montage kills, `montage --onetaps` ou `search --onetaps --montage` : que les kills
