@@ -166,15 +166,15 @@ class CommandOptionsTest : FunSpec({
         options.music shouldBe null
     }
 
-    test("miniature : --thumbnail seul = sobre, --thumbnail-style choisit l'habillage, rien sans option") {
+    test("miniature : --thumbnail seul = vif (choix du joueur), --thumbnail-style choisit l'habillage, rien sans option") {
         parse(ExportCommand(), "export", session.toString()) { it.exportOptions().thumbnail } shouldBe null
-        parse(ExportCommand(), "export", session.toString(), "--thumbnail") { it.exportOptions().thumbnail } shouldBe ThumbnailStyle.SOBER
+        parse(ExportCommand(), "export", session.toString(), "--thumbnail") { it.exportOptions().thumbnail } shouldBe ThumbnailStyle.VIVID
         parse(ExportCommand(), "export", session.toString(), "--thumbnail-style", "big") { it.exportOptions().thumbnail } shouldBe ThumbnailStyle.BIG_TEXT
-        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--thumbnail") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.SOBER
-        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--thumbnail-style", "vivid") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.VIVID
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--thumbnail") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.VIVID
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--thumbnail-style", "sober") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.SOBER
         // Avec --pick (rendu final d'une variante) : la miniature suit ; les aperçus (--variants) n'en font jamais.
-        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--pick", "2", "--thumbnail") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.SOBER
-        parse(ThumbnailCommand(), "thumbnail", session.toString()) { it.chosenStyle() } shouldBe ThumbnailStyle.SOBER
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--pick", "2", "--thumbnail") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.VIVID
+        parse(ThumbnailCommand(), "thumbnail", session.toString()) { it.chosenStyle() } shouldBe ThumbnailStyle.VIVID
         parse(ThumbnailCommand(), "thumbnail", session.toString(), "--thumbnail-style", "big") { it.chosenStyle() } shouldBe ThumbnailStyle.BIG_TEXT
         usageError(ExportCommand(), "export", session.toString(), "--thumbnail-style", "fluo").statusCode shouldBe 1
     }

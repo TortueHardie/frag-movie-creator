@@ -736,7 +736,7 @@ class HighlightPipeline(
     }
 
     /** Miniature YouTube de [video] (highlights ou montage kills), d'après le rapport écrit avec elle ([Thumbnails]). */
-    suspend fun miniature(video: Path, style: ThumbnailStyle = ThumbnailStyle.SOBER): Path = thumbnails.make(video, style)
+    suspend fun miniature(video: Path, style: ThumbnailStyle = ThumbnailStyle.DEFAULT): Path = thumbnails.make(video, style)
 
     /** Aperçu PNG des formats de sortie à un instant donné, sans analyse. */
     suspend fun preview(file: Path, at: Duration, profileId: String?, formats: List<OutputFormat>?, outputDir: Path?): List<Path> {
