@@ -75,7 +75,8 @@ style) → `KillInspector.inspect` (`ShotLocator` recale sur l'attaque du tir ; 
 (variantes échelle×dropShift notées par `MontageScorer`) → `ScopeCuts.apply` (raccords sur la pose, retiming) →
 `KillMontageExporter.export` (`MontageRenderBuilder.build`, `MontageReport` JSON avec `MontageScore`).
 Aperçus (`HighlightPipeline.montagePreviews`) : même préparation (`planMontage(…, count = n)`, privée, derrière `planKillMontage`), `MontageVariants.distinct` au lieu
-de `best`, chaque variante rendue en aperçu (`MontageExportRequest.preview`) dans `<sortie>/apercus` + `*_variantes.json` ;
+de `best`, `PreviewProxies.prepare` (passages réduits de toutes les variantes, une fois) puis chaque variante rendue en aperçu
+(`MontageExportRequest.preview` + `proxies`, `onReady` à chaque aperçu prêt) dans `<sortie>/apercus` + `*_variantes.json` ;
 puis `killMontage` avec `MontageOptions.pick` (`VariantPick`) rend la variante n en pleine qualité (empreinte vérifiée) et écrit `*.choix.json`.
 
 ### 3d. UI
@@ -290,6 +291,12 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `MontagePreview.kt` (`edit` : petit côté 360 px, `plan` : sans flou par vecteurs ni minterpolate, `ENCODER` x264 ultrafast, `format` vertical d'abord,
   `frames` : images de vignette animée) ; `MontageChoice.kt` (`MontageVariantsFile` `*_variantes.json` et `MontageChoiceRecord` `*.choix.json`, versionnés,
   formats documentés en KDoc). `MontagePlanner.SCALES/DROP_SHIFTS/MIN_CLIP_SHARE/MIN_GAIN` sont `internal` pour `MontageVariants`.
+- `PreviewProxies.kt` (branche `apercus-proxies`) : copies réduites des passages lus par les aperçus (`<workDir>/cache/proxies/<capture>_<hauteur>/`,
+  `index.json` + `p_<début>_<fin>.mp4`), `-copyts` (horodatages de la capture image pour image), son copié, image clé / 0,5 s ; `height` (pixels de
+  capture que l'aperçu montre, via `RenderCommandBuilder.pixelScale` : 640 pour WARDOGS 9:16, null si < 25 % de gain, VALORANT 480p), `PAD`/`MERGE_GAP`,
+  `sweep` (capture modifiée/disparue, `VERSION`), `MAX_BYTES` (moins récemment servis effacés), `usage` ; `ProxySources.apply(plan, fps)` → plan dont les
+  clips servis ont un `MediaInfo` à la taille du proxy (même chemin : rapport et contrôle des sources inchangés) + `SourceCuts` vers les passages ;
+  géométrie (recadrage, HUD, zoom) en coordonnées relatives, donc juste sur le proxy. `HighlightPipeline.previewProxies`. Le rendu final lit toujours les captures.
 
 ### publish (`dev.highlights.publish`)
 - `YouTubeText.kt` : `VideoKind`, `VideoFacts` (jeu, date, durée, taille, kills, headshots, multiKills, aces, clutches, moments, musique), `YouTubeMetadata` (+ `problems()` = refus prévisibles de YouTube),
@@ -359,7 +366,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `openYouTubeUpload/copyToClipboard` (mode manuel, par défaut : `PublishUiState.api` false), `UiState.lastUpload` ; `Platform.browse/copy` (défaut vide pour les faux).
 - Aperçus de variantes : `VariantsView.kt` (`VariantsUiState`, `VariantCard`, `VariantsWindow` : une carte par variante, vignette animée, Lire = lecteur du système,
   « Rendre celle-ci » ; `PreviewVariantsButton` dans `MontageDialog`), actions `previewMontage/renderVariant/closeVariants` (défauts vides dans `UiActions`),
-  `UiState.variants` ; `AppController.montageOptions` (options communes au montage et aux aperçus), `pendingVariants`.
+  `UiState.variants` ; `AppController.montageOptions` (options communes au montage et aux aperçus), `pendingVariants` ; `VariantsUiState.partial` :
+  la fenêtre s'ouvre dès le premier aperçu prêt (`total`/`pending`, `variantsFile` null tant que tous ne sont pas faits).
 - Recherche : `SearchView.kt` (`SearchState` : moments chargés une fois, filtres, `unpicked`, `results/picked` ; `SearchPeriod`), actions `showSearch/closeSearch/updateSearch/toggleMoment/montageFromSearch`
   (ouvre les parties via `openSessions(files, then)` puis `openMontage` avec `MontageUiState.pick`).
 - Statistiques : `StatsView.kt` (`StatsState` : games, jeu choisi, `evenings/gameNames/shown`), actions `showStats/closeStats/setStatsGame`, `UiState.stats` (remplace la liste des analyses).

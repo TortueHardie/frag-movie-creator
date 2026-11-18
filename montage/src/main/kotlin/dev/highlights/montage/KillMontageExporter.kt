@@ -16,6 +16,7 @@ import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.serialization.roundTo
 import dev.highlights.core.serialization.toTimecode
 import dev.highlights.editing.SourceCutter
+import dev.highlights.editing.SourceCuts
 import dev.highlights.editing.story.SfxBank
 import dev.highlights.export.ExportResult
 import dev.highlights.export.OutputNamer
@@ -60,6 +61,8 @@ data class MontageExportRequest(
      * Un seul format, celui de [MontagePreview.format].
      */
     val preview: Boolean = false,
+    /** Aperçu : passages réduits à lire à la place des captures ([PreviewProxies]) ; aucun : les captures elles-mêmes. */
+    val proxies: ProxySources = ProxySources.NONE,
 )
 
 @Serializable
@@ -168,16 +171,23 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         // Aperçu : même plan (même empreinte, mêmes images), réglages de rendu ramenés à l'aperçu.
         val signature = MontageVariants.signature(plan)
         if (request.preview) {
+            val edit = MontagePreview.edit(request.edit)
+            // Proxies : les mêmes plans, lus dans les passages réduits (géométrie à leur taille) ; le rapport garde le plan d'origine.
+            val (proxied, cuts) = request.proxies.apply(MontagePreview.plan(plan), edit.fps)
             return render(
-                MontagePreview.plan(plan),
-                request.copy(formats = listOf(MontagePreview.format(request.formats)), edit = MontagePreview.edit(request.edit), audioBitrate = MontagePreview.AUDIO_BITRATE, hwaccel = null),
-                MontagePreview.ENCODER, signature, progress,
+                proxied,
+                request.copy(formats = listOf(MontagePreview.format(request.formats)), edit = edit, audioBitrate = MontagePreview.AUDIO_BITRATE, hwaccel = null),
+                MontagePreview.ENCODER, signature, progress, cuts.takeUnless { it.isEmpty },
             )
         }
         return render(plan, request, encoders.select().withMaxBitrate(request.edit.maxBitrate), signature, progress)
     }
 
-    private suspend fun render(plan: MontagePlan, request: MontageExportRequest, encoder: EncoderProfile, signature: String, progress: ProgressReporter): ExportResult {
+    private suspend fun render(
+        plan: MontagePlan, request: MontageExportRequest, encoder: EncoderProfile, signature: String, progress: ProgressReporter,
+        /** Entrées déjà prêtes (proxies d'aperçu) : pas de pré-découpe, les passages sont déjà petits. */
+        ready: SourceCuts? = null,
+    ): ExportResult {
         request.outputDir.createDirectories()
         request.workDir.createDirectories()
         val kind = request.platform?.let { "${request.kind}_${OutputNamer.slug(it)}" } ?: request.kind
@@ -194,7 +204,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         val motionStep = progress.child(tr("progress.cameraMotion"), MOTION_WEIGHT)
         val (cuts, motion) = coroutineScope {
             val motion = async { if (plan.settings.motionBlur.usesVectors) CameraMotion(ffmpeg).measure(plan, motionStep) else emptyList() }
-            SourceCutter.prepare(ffmpeg, MontageRenderBuilder.sourceCuts(plan, request.edit.fps), request.workDir.resolve("cuts"), cutStep) to motion.await()
+            (ready?.also { cutStep.complete() } ?: SourceCutter.prepare(ffmpeg, MontageRenderBuilder.sourceCuts(plan, request.edit.fps), request.workDir.resolve("cuts"), cutStep)) to motion.await()
         }
 
         val whooshFiles = whooshFiles(plan)

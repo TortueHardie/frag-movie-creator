@@ -40,6 +40,7 @@ import androidx.compose.ui.window.rememberDialogState
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.i18n.tr
 import dev.highlights.pipeline.MontagePreviews
+import dev.highlights.pipeline.VariantPreview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -56,19 +57,27 @@ import org.jetbrains.skia.Image as SkiaImage
 data class VariantsUiState(
     val cards: List<VariantCard>,
     val requested: Int,
-    val variantsFile: Path,
+    /** Fichier des variantes, écrit quand tous les aperçus sont prêts ; null avant. */
+    val variantsFile: Path?,
     /** Avertissements du lot (peu de kills trouvés…), affichés une fois au-dessus des cartes. */
     val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
+    /** Aperçus attendus en tout quand les premiers sont montrés avant les autres ; égal au nombre de cartes à la fin. */
+    val total: Int = cards.size,
 ) {
+    /** Aperçus encore en cours de rendu. */
+    val pending: Int get() = (total - cards.size).coerceAtLeast(0)
+
     companion object {
         fun of(previews: MontagePreviews, requested: Int) = VariantsUiState(
-            previews.previews.map { p ->
-                VariantCard(p.entry.index, p.entry.score.total, p.entry.clips, p.entry.kills, p.entry.durationSeconds, p.video, p.frames)
-            },
+            previews.previews.map(VariantCard::of),
             requested,
             previews.variantsFile,
             previews.notices,
         )
+
+        /** Premiers aperçus prêts sur [total] : montrés tout de suite, les autres arrivent ensuite. */
+        fun partial(ready: List<VariantPreview>, total: Int, requested: Int) =
+            VariantsUiState(ready.sortedBy { it.entry.index }.map(VariantCard::of), requested, null, total = total)
     }
 }
 
@@ -81,7 +90,11 @@ data class VariantCard(
     val durationSeconds: Double,
     val video: Path,
     val frames: List<Path>,
-)
+) {
+    companion object {
+        fun of(p: VariantPreview) = VariantCard(p.entry.index, p.entry.score.total, p.entry.clips, p.entry.kills, p.entry.durationSeconds, p.video, p.frames)
+    }
+}
 
 /** Fenêtre des aperçus : une carte par variante, côte à côte, chacune lisible et rendable. */
 @Composable
@@ -101,7 +114,9 @@ fun VariantsWindow(variants: VariantsUiState, busy: Boolean, actions: UiActions)
                 variants.notices.forEach { notice ->
                     Text(notice.text(), style = MaterialTheme.typography.bodyMedium, color = Palette.accent)
                 }
-                if (variants.cards.size < variants.requested) {
+                if (variants.pending > 0) {
+                    Text(tr("ui.variants.rendering", "done" to variants.cards.size, "total" to variants.total), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                } else if (variants.cards.size < variants.requested) {
                     Text(tr("ui.variants.fewer", "count" to variants.cards.size), style = MaterialTheme.typography.bodySmall, color = Palette.accent)
                 }
                 Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
