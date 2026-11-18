@@ -35,7 +35,7 @@ class MontageRenderBuilderTest : FunSpec({
         video = VideoStream(0, "h264", 3440, 1440, 60.0),
         audio = listOf(AudioStream(1, 0, "aac", 2, 48000), AudioStream(2, 1, "aac", 2, 48000)),
     )
-    val settings = MontageSettings(killOffset = Duration.ZERO)
+    val settings = MontageSettings(killOffset = Duration.ZERO).earlierDefaults()
     val music = MusicAnalysis(
         Path("musique.wav"), 120.seconds, 120.0, List(240) { (it * 0.5).seconds }, 0, DoubleArray(240) { 1.0 }, DoubleArray(240) { 0.8 },
         listOf(MusicSection(0, 96, -14.0, 0.4), MusicSection(96, 240, -8.0, 1.0)), 96,

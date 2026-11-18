@@ -840,6 +840,7 @@ class AppController(
                     fitKills = montage?.length?.fitKills ?: true,
                     formats = montage?.formats?.toSet() ?: setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
                     rounds = montage?.killStyle?.deathEvent?.isNotEmpty() ?: true,
+                    fastParts = montage?.fastParts?.enabled ?: true,
                     balance = montage?.audio?.balance ?: 0.0,
                     killCounter = montage?.text?.killCounter ?: dev.highlights.core.model.KillCounterMode.OFF,
                     platform = it.settings.platform,
@@ -966,6 +967,7 @@ class AppController(
         oneTaps = montage.oneTaps,
         fails = if (montage.fails) true else null,
         fast = montage.fast,
+        fastParts = montage.fastParts,
         // Les cases de la fenêtre sont déjà passées ; le style garde ce qu'elle ne montre pas (accroche, rampes…).
         style = montage.style,
         constraints = montage.constraints,

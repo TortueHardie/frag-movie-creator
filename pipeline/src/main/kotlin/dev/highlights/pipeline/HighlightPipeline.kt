@@ -27,6 +27,7 @@ import dev.highlights.core.model.MontageStyle
 import dev.highlights.core.model.MontageStyles
 import dev.highlights.core.model.PlatformProfile
 import dev.highlights.core.model.SelectionTarget
+import dev.highlights.core.model.WhipPanEffect
 import dev.highlights.core.model.WindowGrid
 import dev.highlights.core.profile.DetectorConfig
 import dev.highlights.core.profile.GameProfile
@@ -192,6 +193,8 @@ data class MontageOptions(
     val fails: Boolean? = null,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
+    /** Rythme rapide sur les parties rapides de la musique ([dev.highlights.core.model.FastParts]) ; null : réglage du profil. */
+    val fastParts: Boolean? = null,
     /** Style de montage ([dev.highlights.core.model.MontageStyle]) : remplit les réglages laissés à null ci-dessus. */
     val style: String? = null,
     /** Corrections de l'utilisateur sur le plan : kills exclus, groupes forcés ou épinglés (voir [MontageConstraints]). */
@@ -1032,7 +1035,12 @@ class HighlightPipeline(
             ),
             whip = base.whip.copy(
                 enabled = options.whip ?: base.whip.enabled,
-                whoosh = if (options.whoosh == false) 0.0 else base.whip.whoosh,
+                // Souffle muet par défaut : le demander (case, --whoosh, un dossier de souffles) le remet à son volume.
+                whoosh = when {
+                    options.whoosh == false -> 0.0
+                    options.whoosh == true || options.whooshDir != null -> base.whip.whoosh.takeIf { it > 0 } ?: WhipPanEffect.DEFAULT_WHOOSH
+                    else -> base.whip.whoosh
+                },
                 sounds = (options.whooshDir?.toString() ?: base.whip.sounds)?.let { config.resolve(it).toString() },
             ),
             motionBlur = base.motionBlur.copy(enabled = options.motionBlur ?: base.motionBlur.enabled),
@@ -1050,6 +1058,7 @@ class HighlightPipeline(
             speedRamp = base.speedRamp.copy(enabled = options.speedRamp ?: base.speedRamp.enabled),
             text = base.text.copy(enabled = options.text ?: base.text.enabled, killCounter = options.killCounter ?: base.text.killCounter),
             showcase = base.showcase.copy(enabled = options.showcase ?: base.showcase.enabled),
+            fastParts = base.fastParts.copy(enabled = options.fastParts ?: base.fastParts.enabled),
             reactions = options.reactions ?: base.reactions,
             audio = base.audio.copy(
                 balance = options.audioBalance ?: base.audio.balance,

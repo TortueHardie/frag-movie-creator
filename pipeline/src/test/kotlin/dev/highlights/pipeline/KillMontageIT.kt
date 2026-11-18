@@ -70,7 +70,7 @@ class KillMontageIT : FunSpec({
             source = null,
         )
         val result = Pipelines.create(config, ffmpeg).killMontage(
-            listOf(session), music, MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds), ProgressReporter.NONE,
+            listOf(session), music, MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds, showcase = false), ProgressReporter.NONE,
         )
 
         val out = ffmpeg.probe(result.videos.getValue(OutputFormat.VERTICAL))
@@ -136,7 +136,7 @@ class KillMontageIT : FunSpec({
         )
         val pipeline = Pipelines.create(config, ffmpeg)
         val result = pipeline.killMontage(
-            listOf(session), library, MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds), ProgressReporter.NONE,
+            listOf(session), library, MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds, showcase = false), ProgressReporter.NONE,
         )
 
         result.music shouldBe library.resolve("rythmee.wav")

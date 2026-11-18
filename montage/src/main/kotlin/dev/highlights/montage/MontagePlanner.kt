@@ -161,6 +161,8 @@ data class MontageClip(
     val anchorHalf: Boolean = false,
     /** Plan de l'ouverture « vitrine » : un passage calme, sans kill (voir [MontagePlanner.showcase]). */
     val showcase: Boolean = false,
+    /** Plan d'une partie rapide de la musique ([FastSections]) : rythme rapide, zoom d'approche au rendu. */
+    val fastPart: Boolean = false,
 ) {
     val beats: Int get() = slot.beats
 
@@ -812,6 +814,8 @@ object MontagePlanner {
         val minTailBeats = beatsCeil(cuts.minTail, period).coerceAtLeast(1)
         val single = singleBeat(settings, period)
         val minBeats = if (single) 1 else maxOf(2, minLeadBeats + minTailBeats)
+        // Parties rapides de la musique : leur propre cadence de coupes, un kill par plan, sans ralenti.
+        val fast = FastSections.of(music, settings)
 
         // Grille : plus grossière quand il y a moins de clips que de plans dans la durée visée. Un montage raccourci
         // garde un plan de réserve par multi-kill et par réaction à garder : ils s'étendent sur un voisin, sans prendre
@@ -830,10 +834,10 @@ object MontagePlanner {
         fun holdsPins(w: List<CutSlot>) = (dropPinned == null || w.any { it.dropBeat != null }) &&
             pinnedBeats.all { b -> w.first().startBeat <= b && b < w.last().endBeat }
         fun select(accept: (List<CutSlot>) -> Boolean = { true }) =
-            CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size + spare + (if (single) 1 else 0), variant.scale?.let(::listOf), target) { w ->
+            CutGrid.select(music, cuts, minBeats, settings.maxDuration, groups.size + spare + (if (single) 1 else 0), variant.scale?.let(::listOf), target, fast) { w ->
                 holdsPins(w) && accept(w)
             }
-        fun assigned(w: List<CutSlot>) = runCatching { assign(w, groups, music, settings, minLeadBeats, minTailBeats) }.getOrNull()
+        fun assigned(w: List<CutSlot>) = runCatching { assign(w, groups, music, settings, minLeadBeats, minTailBeats, fast) }.getOrNull()
         val best = dropPinned ?: groups.maxByOrNull { it.rank }
         val (scale, _, selected) = if (settings.order == MontageOrder.CHRONOLOGICAL && best != null) {
             val shown = assigned(select().window)?.size ?: 0
@@ -859,19 +863,26 @@ object MontagePlanner {
             selected
         }
 
-        val cells = assign(window, groups, music, settings, minLeadBeats, minTailBeats)
+        val cells = assign(window, groups, music, settings, minLeadBeats, minTailBeats, fast)
         val preferred = preferredOffsets(cells.map { it.first }, music, minLeadBeats, minTailBeats)
         fun build(i: Int, aim: AimFit): MontageClip {
             val cell = cells[i]
             val offset = preferred[cell.first.section to cell.first.beats]
+            // Partie rapide : contexte du rythme rapide autour du kill, jamais de ralenti (pas la place dans un temps). Le
+            // plan de la drop reste au rythme du style : il part de la montée et pose le meilleur kill sur la drop.
+            val inFast = fast != null && cell.first.section in fast.sections && cell.first.dropBeat == null
+            val s = if (inFast) fast!!.settings else settings
+            val lead = if (inFast) beatsCeil(s.cuts.minLead, period).coerceAtLeast(1) else minLeadBeats
+            val tail = if (inFast) beatsCeil(s.cuts.minTail, period).coerceAtLeast(1) else minTailBeats
             // Le plan sans ralenti d'abord : c'est lui qui dit combien de kills seront réellement à l'écran, donc si le
             // plan mérite le ralenti. Un multi-kill dont tout le début serait coupé n'en est pas un pour le spectateur.
-            val plain = clipFor(cell, music, settings, minLeadBeats, minTailBeats, offset, allowSlow = false, aim = aim)
-            return if (allowsSlow(settings, i, cell.first, plain.kills.size, plain.flick)) {
-                clipFor(cell, music, settings, minLeadBeats, minTailBeats, offset, allowSlow = true, aim = aim)
+            val plain = clipFor(cell, music, s, lead, tail, offset, allowSlow = false, aim = aim)
+            val clip = if (!inFast && allowsSlow(settings, i, cell.first, plain.kills.size, plain.flick)) {
+                clipFor(cell, music, s, lead, tail, offset, allowSlow = true, aim = aim)
             } else {
                 plain
             }
+            return if (inFast) clip.copy(fastPart = true) else clip
         }
         val blind = cells.indices.map { build(it, AimFit.NONE) }
         val fits = cells.indices.map { i -> aimFit(cells.getOrNull(i - 1)?.second, cells[i].second, cells.getOrNull(i + 1)?.second, settings) }
@@ -986,12 +997,25 @@ object MontagePlanner {
         settings: MontageSettings,
         minLeadBeats: Int,
         minTailBeats: Int,
+        fast: FastSections.Rhythm? = null,
     ): List<Pair<CutSlot, KillGroup>> {
         val cuts = settings.cuts
         val period = music.beatPeriod
         val cells = window.map { Cell(it.startBeat, it.endBeat, it.section, it.dropBeat) }.toMutableList()
 
-        fun need(g: KillGroup, onDrop: Boolean = false): Int = need(g, settings, period, minLeadBeats, minTailBeats, onDrop)
+        fun inFast(section: Int) = fast != null && section in fast.sections
+
+        /**
+         * Temps que [g] demande dans une cellule de la section [section] : au rythme rapide dans une partie rapide, sauf
+         * le plan de la drop ([onDrop]), qui garde le rythme du style.
+         */
+        fun need(g: KillGroup, onDrop: Boolean = false, section: Int = -1): Int =
+            if (inFast(section) && !onDrop) {
+                val s = fast!!.settings
+                need(g, s, period, beatsCeil(s.cuts.minLead, period).coerceAtLeast(1), beatsCeil(s.cuts.minTail, period).coerceAtLeast(1), onDrop)
+            } else {
+                need(g, settings, period, minLeadBeats, minTailBeats, onDrop)
+            }
 
         fun importance(c: Cell) = (if (c.dropBeat != null) 10.0 else 0.0) + music.sections[c.section].intensity + 1e-4 * c.startBeat
 
@@ -1012,21 +1036,22 @@ object MontagePlanner {
         fun bestFree(g: KillGroup): Int? =
             cells.indices.filter { cells[it].group == null }.maxByOrNull { importance(cells[it]) - monotony(it, g) }
 
-        // Plus petit plan qui porte encore un kill : celui de la grille.
-        val minRest = if (singleBeat(settings, period)) 1 else maxOf(2, minLeadBeats + minTailBeats)
+        // Plus petit plan qui porte encore un kill : celui de la grille (celui du rythme rapide dans une partie rapide).
+        val normalRest = if (singleBeat(settings, period)) 1 else maxOf(2, minLeadBeats + minTailBeats)
+        fun minRestOf(section: Int) = if (inFast(section)) fast!!.minBeats else normalRest
 
         /**
          * Une cellule de [beats] temps peut-elle en céder [taken] ? Le reste doit porter un kill et garder au moins la
          * moitié de sa longueur, pour que la cadence de sa section reste lisible : un plan de 16 temps d'une section
          * calme, réduit à 3 par la drop qui s'étendait vers l'arrière, laissait un plan éclair avant la drop.
          */
-        fun keeps(beats: Int, taken: Int): Boolean = beats - taken >= maxOf(minRest, (beats + 1) / 2)
+        fun keeps(beats: Int, taken: Int, section: Int): Boolean = beats - taken >= maxOf(minRestOf(section), (beats + 1) / 2)
 
         /** Temps qu'une cellule libre voisine peut céder (voir [keeps]) ; aucun si elle est prise, absente ou la drop. */
         fun spare(index: Int): Int {
             val c = cells.getOrNull(index) ?: return 0
             if (c.group != null || c.dropBeat != null) return 0
-            return (c.beats - maxOf(minRest, (c.beats + 1) / 2)).coerceAtLeast(0)
+            return (c.beats - maxOf(minRestOf(c.section), (c.beats + 1) / 2)).coerceAtLeast(0)
         }
 
         /**
@@ -1071,7 +1096,7 @@ object MontagePlanner {
                     if (next !in cells.indices || cells[next].group != null || cells[next].dropBeat != null) break
                     val neighbour = cells[next]
                     val missing = needed - cell.beats
-                    if (needed <= cuts.maxBeats && keeps(neighbour.beats, missing)) {
+                    if (needed <= cuts.maxBeats && keeps(neighbour.beats, missing, neighbour.section)) {
                         if (dir < 0) {
                             neighbour.endBeat -= missing
                             cell.startBeat = neighbour.endBeat
@@ -1099,7 +1124,7 @@ object MontagePlanner {
             for (dir in if (cell.dropBeat != null) listOf(-1, 1) else listOf(1)) {
                 var next = index + dir
                 while (next in cells.indices && cells[next].group == null && cells[next].dropBeat == null) {
-                    if (needed <= cuts.maxBeats && keeps(cells[next].beats, needed - total)) return true
+                    if (needed <= cuts.maxBeats && keeps(cells[next].beats, needed - total, cells[next].section)) return true
                     if (total + cells[next].beats > cuts.maxBeats) break
                     total += cells[next].beats
                     if (total >= needed) return true
@@ -1110,7 +1135,7 @@ object MontagePlanner {
         }
 
         fun place(index: Int, g: KillGroup) {
-            val i = grow(index, need(g, cells[index].dropBeat != null))
+            val i = grow(index, need(g, cells[index].dropBeat != null, cells[index].section))
             cells[i].group = g
         }
 
@@ -1141,7 +1166,7 @@ object MontagePlanner {
                 // Multi-kills : le slot le plus important qui peut les contenir entièrement.
                 for (g in remaining.filter { it.kills.size > 1 }) {
                     val free = cells.indices.filter { cells[it].group == null }.sortedByDescending { importance(cells[it]) - monotony(it, g) }
-                    val index = free.firstOrNull { canGrow(it, need(g)) } ?: free.firstOrNull() ?: break
+                    val index = free.firstOrNull { canGrow(it, need(g, section = cells[it].section)) } ?: free.firstOrNull() ?: break
                     place(index, g)
                     remaining -= g
                 }
@@ -1154,7 +1179,7 @@ object MontagePlanner {
                 val placed = cells.mapNotNull { it.group }.toSet()
                 for (g in groups.filter { it.forced && it.pin == null && it !in placed }) {
                     val victims = cells.indices.filter { cells[it].group?.kept == false }
-                    val index = victims.filter { cells[it].beats >= need(g, cells[it].dropBeat != null) }.minByOrNull { cells[it].group!!.rank }
+                    val index = victims.filter { cells[it].beats >= need(g, cells[it].dropBeat != null, cells[it].section) }.minByOrNull { cells[it].group!!.rank }
                         ?: victims.minByOrNull { cells[it].group!!.rank } ?: break
                     cells[index].group = g
                 }
@@ -1173,7 +1198,7 @@ object MontagePlanner {
                     var i = from
                     for (g in list) {
                         if (i >= until()) return false
-                        i = grow(i, need(g))
+                        i = grow(i, need(g, section = cells[i].section))
                         if (cells[i].group != null) return false
                         cells[i].group = g
                         i++
