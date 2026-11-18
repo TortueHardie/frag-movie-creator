@@ -192,8 +192,14 @@ data class CaptionSettings(
     val language: String = "fr",
     /** Longueur maximale d'un sous-titre, en caractères : deux à quatre mots, lisibles d'un coup d'œil. */
     val maxChars: Int = 18,
-    /** Piste transcrite : la voix du joueur (mic), à défaut le son complet. */
+    /** Piste transcrite : la voix du joueur (mic). */
     val role: AudioRole = AudioRole.MIC,
+    /**
+     * Transcrire le son complet quand la capture n'a pas de piste micro séparée ([role] absent). Désactivé : whisper y
+     * transcrit l'annonceur et les voix du jeu (« REMAINING. - LES », « 1 ENNEMI » sur une partie VALORANT à piste
+     * unique). À n'activer que pour un jeu sans voix, où le son complet est surtout celui du joueur.
+     */
+    val withoutMic: Boolean = false,
     /** Police des sous-titres et libellés, remplacée par un repli de Windows pour les caractères qu'elle n'a pas (`VideoFonts`). */
     val font: String = "C:/Windows/Fonts/impact.ttf",
     /** Taille du texte, en part de la hauteur de l'image. */

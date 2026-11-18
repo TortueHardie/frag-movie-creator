@@ -83,6 +83,11 @@ class CaptionsTest : FunSpec({
         )
     }
 
+    test("temps d'affichage borné : un mot étiré sur 7 s par whisper ne reste que 3 s") {
+        // Clip VALORANT de la QA : « 1 ENNEMI » affiché 7 s.
+        Captions.readable(listOf(Caption(ms(10000, 17000), "1 ennemi"))) shouldContainExactly listOf(Caption(ms(10000, 13000), "1 ennemi"))
+    }
+
     test("temps de lecture : un segment déjà assez long garde ses bornes") {
         Captions.readable(listOf(Caption(ms(1000, 4000), "ok"))) shouldContainExactly listOf(Caption(ms(1000, 4000), "ok"))
     }
