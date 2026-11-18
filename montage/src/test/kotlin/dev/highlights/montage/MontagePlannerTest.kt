@@ -59,7 +59,7 @@ class MontagePlannerTest : FunSpec({
         )
     }
 
-    val settings = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds)
+    val settings = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds).earlierDefaults()
     /** Ancien comportement : la durée maximale occupée quoi qu'il arrive. */
     val filling = settings.copy(length = settings.length.copy(fitKills = false))
     fun seconds(d: Duration) = d.inWholeMicroseconds / 1e6

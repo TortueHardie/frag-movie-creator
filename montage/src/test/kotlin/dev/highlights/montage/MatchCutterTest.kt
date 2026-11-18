@@ -38,7 +38,7 @@ class MatchCutterTest : FunSpec({
         }
     }
 
-    val settings = MontageSettings(killOffset = Duration.ZERO)
+    val settings = MontageSettings(killOffset = Duration.ZERO).earlierDefaults()
     val media = MediaInfo(Path("partie.mp4"), 1, 30.minutes, video = VideoStream(0, "h264", 1920, 1080, 60.0))
     val scope = settings.matchCut
 

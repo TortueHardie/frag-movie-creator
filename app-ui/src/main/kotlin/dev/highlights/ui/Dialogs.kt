@@ -266,6 +266,12 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                         MontageToggle(tr("ui.montage.fast"), montage.fast) { v ->
                             actions.updateMontage { it.copy(fast = v) }
                         }
+                        // Sans objet quand tout le montage est déjà au rythme rapide.
+                        if (!montage.fast && !montage.oneTaps) {
+                            MontageToggle(tr("ui.montage.fastParts"), montage.fastParts) { v ->
+                                actions.updateMontage { it.copy(fastParts = v) }
+                            }
+                        }
                     }
                     DialogGroup(tr("ui.montage.effects")) {
                         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {

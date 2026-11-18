@@ -52,7 +52,7 @@ class MusicLibraryTest : FunSpec({
         )
     }
 
-    val settings = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds)
+    val settings = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds).earlierDefaults()
     val kills = listOf(60, 180, 183, 300, 420, 540, 660, 780, 900, 1020)
     val groups = MontagePlanner.groups(listOf(session(kills)), settings)
 

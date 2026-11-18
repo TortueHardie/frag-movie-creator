@@ -46,7 +46,7 @@ class HudPinTest : FunSpec({
         val hud = HudOverlay("topbar", CropRegion(0.2, 0.008, 0.6, 0.08), OverlayTarget(0.0, 0.0, 1.0))
         val edit = EditSettings(audioStreams = listOf(0), vertical = VerticalSettings(cropRegion = CropRegion(0.0, 0.09, 1.0, 0.91), hud = listOf(hud)))
         RenderCommandBuilder.hudTargets(OutputFormat.VERTICAL, media, edit).size shouldBe 1
-        val settings = dev.highlights.core.model.MontageSettings(killOffset = Duration.ZERO, effectDensity = dev.highlights.core.model.EffectDensity.HEAVY)
+        val settings = dev.highlights.core.model.MontageSettings(killOffset = Duration.ZERO, effectDensity = dev.highlights.core.model.EffectDensity.HEAVY).earlierDefaults()
         val music = MusicAnalysis(
             Path("musique.wav"), 120.seconds, 120.0, List(240) { (it * 0.5).seconds }, 0, DoubleArray(240) { 1.0 }, DoubleArray(240) { 0.8 },
             listOf(MusicSection(0, 96, -14.0, 0.4), MusicSection(96, 240, -8.0, 1.0)), 96,

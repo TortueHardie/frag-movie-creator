@@ -8,8 +8,9 @@
 # gameAudio (full, kills), reactions. Nom et description affichés : traduits pour les styles livrés (clés style.<id>),
 # sinon displayName et description ci-dessous. On peut en ajouter, en retirer ou les modifier.
 
-# Style choisi quand on n'en demande aucun ; commenté : les réglages du profil seuls.
-# default: tiktok
+# Style choisi quand on n'en demande aucun (Cinématique : choix de l'utilisateur du 18/11) ; retiré : les réglages du
+# profil seuls.
+default: cinematique
 
 styles:
   # Les edits TikTok de référence : un kill par temps, couleurs vives, flou de mouvement, zoom d'approche vers le
@@ -33,10 +34,8 @@ styles:
     effectDensity: sober
     zoom: false
     flash: false
-    colors: false
     matchCut: true
     whip: true
-    whoosh: true
     text: false
     showcase: false
 
@@ -62,5 +61,4 @@ styles:
     showcase: true
     colors: true
     whip: true
-    whoosh: true
     flash: true

@@ -51,13 +51,27 @@ object CutGrid {
         return if (i <= 0.5) between(cuts.low, cuts.mid, i * 2) else between(cuts.mid, cuts.high, i * 2 - 1)
     }
 
-    /** Grille sur toute la musique. [scale] multiplie les durées visées : grille plus grossière quand il y a peu de clips. */
-    fun build(music: MusicAnalysis, cuts: CutSettings, minBeats: Int, scale: Double = 1.0): List<CutSlot> {
+    /**
+     * Grille sur toute la musique. [scale] multiplie les durées visées : grille plus grossière quand il y a peu de clips.
+     * [fast] : parties rapides de la musique ([FastSections]), découpées à leur cadence ([FastSections.Rhythm]).
+     */
+    fun build(music: MusicAnalysis, cuts: CutSettings, minBeats: Int, scale: Double = 1.0, fast: FastSections.Rhythm? = null): List<CutSlot> {
         val sections = music.sections
         val period = music.beatPeriod
-        val lengths = sections.map { sectionBeats(it, cuts, period, minBeats, scale) }
+        fun cutsOf(si: Int) = if (fast != null && si in fast.sections) fast.cuts else cuts
+        fun minBeatsOf(si: Int) = if (fast != null && si in fast.sections) fast.minBeats else minBeats
+        // Une partie rapide garde ses plans courts quelle que soit l'échelle : avec peu de kills (15 sur trois parties
+        // WARDOGS), la grille ×4 en faisait des plans de 4 à 6 temps. C'est le montage qui raccourcit, pas les plans.
+        val lengths = sections.mapIndexed { si, s ->
+            sectionBeats(s, cutsOf(si), period, minBeatsOf(si), if (fast != null && si in fast.sections) 1.0 else scale)
+        }
         val dropSection = music.sectionIndexAt(music.dropBeat)
-        val dropSlot = if (dropSection > 0 && sections[dropSection].startBeat == music.dropBeat) {
+        val fastDrop = fast != null && dropSection in fast.sections
+        val dropSlot = if (fastDrop && sections[dropSection].startBeat == music.dropBeat) {
+            // Partie rapide dès la drop (« fast from the drop », 18/11) : un plan court qui s'ouvre sur la drop, le meilleur
+            // kill dessus, le contexte d'avant pris sur la fin du plan précédent comme tout plan d'un temps.
+            CutSlot(music.dropBeat, music.dropBeat + lengths[dropSection].coerceAtMost(sections[dropSection].beats), dropSection, dropBeat = music.dropBeat)
+        } else if (dropSection > 0 && sections[dropSection].startBeat == music.dropBeat) {
             val before = sections[dropSection - 1]
             val pre = lengths[dropSection - 1].coerceIn(4, 8).coerceAtMost(before.beats)
             val post = lengths[dropSection].coerceAtMost(8).coerceAtMost(sections[dropSection].beats)
@@ -67,9 +81,10 @@ object CutGrid {
         }
 
         val slots = mutableListOf<CutSlot>()
-        val lead = leadBeats(cuts, period)
         sections.forEachIndexed { si, s ->
             val l = lengths[si]
+            val minBeats = minBeatsOf(si)
+            val lead = leadBeats(cutsOf(si), period)
             // Dans une montée, les plans raccourcissent au fur et à mesure : les coupes accélèrent avec la musique.
             val accelerate = cuts.accelerateBuildUp && s.kind == SectionKind.BUILD_UP
             // Une section qui a des notes marquantes (une phrase de piano, un riff) se découpe sur elles.
@@ -212,12 +227,13 @@ object CutGrid {
         clipCount: Int,
         scales: List<Double>? = null,
         target: Duration = maxDuration,
+        fast: FastSections.Rhythm? = null,
         accept: (List<CutSlot>) -> Boolean = { true },
     ): Selection {
         var best: Selection? = null
         var bestScore = Double.NEGATIVE_INFINITY
         for (scale in scales ?: listOf(1.0, 2.0, 4.0, 8.0)) {
-            val slots = build(music, cuts, minBeats, scale)
+            val slots = build(music, cuts, minBeats, scale, fast)
             val window = window(slots, music, maxDuration, clipCount, cuts.dropPosition, target, cuts.fromStart, cuts.dropLead, accept)
             if (window.isNotEmpty()) {
                 val length = music.beatTime(window.last().endBeat) - music.beatTime(window.first().startBeat)

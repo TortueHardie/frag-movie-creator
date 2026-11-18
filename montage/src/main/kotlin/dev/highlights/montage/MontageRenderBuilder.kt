@@ -175,8 +175,11 @@ object MontageRenderBuilder {
                     "if(gte(t\\,$tk)\\,exp(-(t-$tk)/${num(decay)})\\,0)"
                 } + ")"
                 // Approche : montée en douceur (carré du temps) jusqu'au kill, puis retombée avec le punch.
-                val approach = settings.zoom.approach.takeIf { it > 0 }?.let { a ->
-                    val lead = settings.zoom.approachLead.inWholeMicroseconds / 1e6
+                // Partie rapide de la musique (FastSections) : l'approche du rythme rapide, même si le montage n'en a pas.
+                val approachAmount = if (clip.fastPart) settings.fast.zoomApproach else settings.zoom.approach
+                val approachLead = if (clip.fastPart) settings.fast.zoomApproachLead else settings.zoom.approachLead
+                val approach = approachAmount.takeIf { it > 0 }?.let { a ->
+                    val lead = approachLead.inWholeMicroseconds / 1e6
                     "+${num(a)}*(" + zoomKills.joinToString("+") { k ->
                         val tk = sec(k)
                         val from = num((k.inWholeMicroseconds / 1e6 - lead).coerceAtLeast(0.0))
