@@ -166,6 +166,10 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   Basse définition (hauteur < `fillBelow` 720) : `FrameShape.solid`, aplat jaune pur du portrait (`fillColor`, `fill*`), vu `fillMinSeen` 2 s,
   suivi en attente oublié après `fillPendingGap` (`FeedTracker.pendingGap`), toute la vidéo décodée (pas de `keyframeScan`). Mesuré sur 2 parties 854x480.
   Utilisé par valorant.yaml en `fallbackFor: game-events`.
+- `KillfeedOutline.kt` — mode **`outline`** du `killfeed` (CS2, profil cs2.yaml) : `OutlineParams`, `OutlineReader` (ligne entière
+  encadrée de la couleur du joueur = kill, fond plein = mort ; paires de traits finissant au même bord droit, `bridge` 16),
+  `RowReader` (interface commune avec `FeedReader`). `FeedTracker(newLineGrowth)` : rapprochement par hauteur et ligne qui
+  s'allonge = nouvelle ligne (null = VALORANT inchangé). Mesuré sur une capture 480p : `verite/cs2/`.
 - `RewardsLog.kt` : `RewardsLog.classify/fuzzyDistance/rows`, `LogTracker` (suivi de lignes, minSightings), `EventFusion.fuse`, `NoticeRead`, `NoticeLabels.relabel` (libellé le plus proche dans [before, after] : son type, "" = icône écartée, rien = icône inchangée).
 - `TemplateMatcher.kt` : `GrayImage`, `PreparedTemplate`, `TemplateMatcher.match` (NCC), `BrightTemplate/BrightMatcher`.
 - `WindowsOcr.kt` : lance `resources/.../windows-ocr.ps1` (Windows.Media.Ocr) par lots ; `WindowsOcr.supported`.
@@ -393,8 +397,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 
 ## 5. Configuration (`config/`)
 - `app.yaml` → `AppConfig`. Installée : `%APPDATA%\Highlights\config`, sortie `~/Videos/Highlights` (filtre au packaging).
-- `profiles/{default,lol,valorant,wardogs}.yaml` → `GameProfile`. Sections : `id, displayName, match{pathContains, priority}, window{size,hop}, audio{mix,game,mic}, detectors[], selection, edit{style, story, grade, vertical{reference, hud[]}, formats…}, montage{…}`.
-  YAML strict : une clé inconnue = `ConfigException`. Profils : wardogs (ocr-log + icônes + gate hud-template, pose `aim`), valorant (outplayed-events avec offsets −390 ms, killfeed en secours et `kill-confirm` toujours, `matchCut.pose: rest`, weapon ammo_icon, `vertical` : recadrage sous le bandeau du haut + bandeau `topbar` replacé, mesuré en 16:9, test `ValorantVerticalTest`), lol (audio+voix+rires), default.
+- `profiles/{default,lol,valorant,cs2,wardogs}.yaml` → `GameProfile`. Sections : `id, displayName, match{pathContains, priority}, window{size,hop}, audio{mix,game,mic}, detectors[], selection, edit{style, story, grade, vertical{reference, hud[]}, formats…}, montage{…}`.
+  YAML strict : une clé inconnue = `ConfigException`. Profils : wardogs (ocr-log + icônes + gate hud-template, pose `aim`), valorant (outplayed-events avec offsets −390 ms, killfeed en secours et `kill-confirm` toujours, `matchCut.pose: rest`, weapon ammo_icon, `vertical` : recadrage sous le bandeau du haut + bandeau `topbar` replacé, mesuré en 16:9, test `ValorantVerticalTest`), cs2 (killfeed `outline` seul : kills/morts, assistances comptées en kills ; `vertical` : bandeau, killfeed et vie/munitions replacés, mesuré en 854x480), lol (audio+voix+rires), default.
 - `templates/<jeu>/*.png` (modèles HUD), `models/yamnet.onnx` + `yamnet_class_map.csv` ; `models/ggml-*.bin` (whisper) hors dépôt et hors installeur.
 - Chemins relatifs dans les profils → résolus par `LoadedConfig.resolve` (dans `gradedEdit`, `killMontage` pour `matchCut.weapon.template`, et `ctx.configDir` pour les détecteurs).
 

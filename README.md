@@ -5,15 +5,15 @@ Transforme des captures de gameplay brutes (Outplayed, OBS, ShadowPlay…) en mo
 Deux interfaces sur le même moteur : une **application de bureau** (Compose) et une **ligne de commande**.
 
 - **Détection des moments** : volume du jeu (EBU R128), prises de parole et rires (YAMNet), événements enregistrés par
-  Outplayed (kills, morts, assistances), killfeed lu à l'image quand Outplayed n'est pas là (VALORANT), icônes du HUD
-  et journal des gains lu par OCR (Wardogs).
+  Outplayed (kills, morts, assistances), killfeed lu à l'image quand Outplayed n'est pas là (VALORANT, Counter-Strike 2),
+  icônes du HUD et journal des gains lu par OCR (Wardogs).
 - **Highlights** : les meilleurs moments fusionnés et exportés en 16:9 et/ou 9:16, encodés par le GPU (AMD, NVIDIA,
   Intel) avec repli logiciel.
 - **Étalonnage** (`edit.grade` d'un profil, pour les highlights comme pour le montage) : table de correspondance
   `.cube` (chemin relatif au dossier de configuration), saturation, contraste et vignettage. Sert à unifier des
   captures venues de sessions ou de jeux différents. Neutre tant qu'on n'y touche pas.
 - **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
-- **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Wardogs, et un profil par défaut.
+- **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Counter-Strike 2, Wardogs, et un profil par défaut.
 - **Mémoire des analyses** : une capture déjà analysée n'est pas réanalysée. La rechoisir (application ou ligne de
   commande) reprend son analyse instantanément, moments décochés compris ; seule la sélection (seuil, cible) est
   recalculée. Elle est refaite d'office si le fichier change ou si les détecteurs, fenêtres ou pistes audio de son
@@ -822,6 +822,32 @@ ligne est un événement.
   14 morts : 46 kills et 18 morts lus (1 et 0 avant) ; 4 des morts portent l'icône de l'ultime de Phoenix, qui ramène le
   joueur sans compter de mort (hypothèse, non traitée). La géométrie 16:9 n'était pas en cause : la zone mesurée en
   21:9 tombe juste sur le killfeed en 16:9.
+
+### Counter-Strike 2 : lignes encadrées (`outline`)
+
+Dans CS2, le joueur n'a pas de portrait dans le killfeed : c'est sa **ligne entière** qui est marquée, entourée d'un
+contour rouge quand il tue (ou aide), sur fond rouge plein quand il meurt. Avec `outline` (profil `cs2`), le détecteur
+`killfeed` cherche ces lignes au lieu du cadre d'un portrait ; `fillBelow` et les réglages du cadre ne servent plus.
+
+- Rouge du joueur (`color`) : rouge nettement au-dessus du vert et du bleu, eux égaux (contour 163/92/100 sur un mur
+  clair, fond 96/23/21) ; le sable et les murs au soleil (180/135/97) restent à 0.
+- En 854x480, le contour fait 2 px en haut et en bas mais un seul sur les côtés, et la couleur sous-échantillonnée en
+  efface des morceaux sur un ciel ou un mur clair (côtés, moitié gauche d'un trait, trous de 8 à 14 px sous les
+  lettres, d'où `bridge: 16`). Une ligne est donc une **paire de traits horizontaux** qui finissent au même bord droit,
+  l'un 13 à 16 px sous l'autre, l'intérieur presque vide (`maxInnerFill`) ; deux lignes du joueur empilées (doublé)
+  sont deux kills. Une bande de la hauteur d'une ligne, colorée à 50 % au moins (`deathFill`), est une mort ; collée
+  au bord de l'écran ou loin de lui (`minEdgeGap`, `maxEdgeGap`), c'est du décor (voile rouge des dégâts, panneaux).
+- Suivi : le bord gauche d'une ligne n'étant pas sûr, une ligne est rapprochée du suivi le plus proche en hauteur ; une
+  ligne qui dépasse à gauche de 45 px (`newLineGrowth`) le suivi qu'elle rejoint en est une nouvelle (une ligne plus
+  longue prend la place de la plus ancienne). Une ligne doit être vue 1 s (`minSightings: 10` à 10 img/s).
+- Mesuré sur « CS2- 33 Kills On Dust 2 » (854x480, 28 min, `verite/cs2/`) : **32 kills sur 33**, 13 morts sur 14, aucune
+  mort en trop ; 10 kills en trop : 6 assistances et 4 doublons d'une ligne qui monte. Manqués : un kill dont la ligne,
+  plus courte, remplace au même endroit celle du kill d'avant ; une mort sur un écran déjà rouge. Analyse : 40 s.
+- Limite : le contour marque aussi les assistances (« coéquipier + joueur ») ; rien dans la forme ne les distingue
+  d'un kill (seul le texte le ferait, illisible pour l'OCR de Windows en 480p, essayé sur le message « +$300 for
+  neutralizing an enemy » du chat). Elles sortent donc en kills.
+- 9:16 : bandeau du haut, killfeed et ligne du bas (vie, munitions) sont replacés (`vertical.hud`), la mini-carte
+  non.
 
 ## Journal des gains (Wardogs)
 

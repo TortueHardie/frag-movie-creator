@@ -165,6 +165,12 @@ data class KillfeedParams(
     val fillMinSeen: SerialDuration = 2.seconds,
     /** Basse définition : une ligne pas encore confirmée qu'on ne revoit pas pendant ce temps est oubliée (voir [FeedTracker]). */
     val fillPendingGap: SerialDuration = 500.milliseconds,
+    /**
+     * Joueur marqué par sa ligne entière, encadrée quand il tue et sur fond plein quand il meurt (Counter-Strike 2), au
+     * lieu du cadre de son portrait : voir [OutlineParams]. Les réglages du cadre (minHeight… victimWidth, fill*) ne
+     * servent plus, [fillBelow] non plus. null = cadre du portrait (VALORANT).
+     */
+    val outline: OutlineParams? = null,
 ) {
     init {
         require(fps > 0) { "fps doit être > 0" }
@@ -237,7 +243,7 @@ internal class FeedReader(
     private val victimWidth: Int,
     private val bridge: Int,
     private val shape: FrameShape,
-) {
+) : RowReader {
     private companion object {
         /** Tache collée au bord gauche : du décor coupé par la zone, les lignes y tiennent en entier. */
         const val EDGE = 4
@@ -246,7 +252,7 @@ internal class FeedReader(
         const val SOLID_EDGE = 2
     }
 
-    fun rows(frame: ZoneFrame): List<FeedRow> {
+    override fun rows(frame: ZoneFrame): List<FeedRow> {
         val w = frame.width
         val h = frame.height
         val pixels = frame.pixels
@@ -381,6 +387,13 @@ internal class FeedTracker(
      * perdu. Par défaut [maxGap] (pleine définition inchangée).
      */
     private val pendingGap: Duration = maxGap,
+    /**
+     * Lignes encadrées (CS2) : le bord gauche d'une ligne n'est pas sûr (son trait s'efface par morceaux), toutes les
+     * lignes finissent au même bord droit. Une ligne est alors rapprochée du suivi le plus proche en hauteur, et une
+     * ligne qui dépasse de ce nombre de pixels à gauche le bord gauche le plus à gauche du suivi en est une autre (voir
+     * [OutlineParams.newLineGrowth]). null = rapprochement par le bord gauche (VALORANT).
+     */
+    private val newLineGrowth: Int? = null,
 ) {
     private class Track(
         val role: KillfeedRole,
@@ -392,7 +405,10 @@ internal class FeedTracker(
         var sightings: Int,
         /** Ligne déjà présente avant le passage relu (vue sur une image clé) : suivie, jamais comptée. */
         val known: Boolean = false,
-    )
+    ) {
+        /** Bord gauche le plus à gauche vu pour cette ligne. */
+        var minLeft = left
+    }
 
     private val tracks = mutableListOf<Track>()
 
@@ -410,11 +426,13 @@ internal class FeedTracker(
             val match = tracks.asSequence()
                 .filter { it !in used && it.role == row.role && at - it.last <= (if (it.sightings >= minSightings) maxGap else pendingGap) }
                 .filter { minOf(it.right, row.right) >= maxOf(it.left, row.left) && row.center <= it.center + tolerance }
-                .minByOrNull { abs(it.left - row.left) }
+                .filter { newLineGrowth == null || row.left >= it.minLeft - newLineGrowth }
+                .minByOrNull { if (newLineGrowth == null) abs(it.left - row.left).toDouble() else abs(it.center - row.center) }
             if (match == null) {
                 tracks += Track(row.role, row.left, row.right, row.center, at, at, 1).also { used += it }
             } else {
                 match.left = row.left
+                match.minLeft = minOf(match.minLeft, row.left)
                 match.right = row.right
                 match.center = row.center
                 match.last = at
@@ -451,7 +469,7 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         val rows: MutableList<List<FeedRow>>,
         val tolerance: Int,
         val zone: FrameZone,
-        val reader: FeedReader,
+        val reader: RowReader,
         /** Intervalle des images clés quand [subscription] ne lit qu'elles (lecture en deux temps), sinon null. */
         val keyframes: Duration?,
         /** Part de la progression réservée à la relecture des passages repérés. */
@@ -460,6 +478,8 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         val sightings: Int,
         /** Basse définition : lecture de l'aplat du portrait. */
         val solid: Boolean,
+        /** Lignes encadrées ([KillfeedParams.outline]) : allongement qui fait d'une ligne suivie une nouvelle ligne. */
+        val newLineGrowth: Int?,
     )
 
     @Volatile
@@ -477,7 +497,7 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         // Même finesse pour toutes les définitions : scale pixels lus par pixel de référence, sans jamais agrandir.
         val reduction = (params.scale * params.referenceHeight / video.height).coerceAtMost(1.0)
         // Basse définition : le contour du cadre n'est plus lisible, l'aplat jaune du portrait l'est encore.
-        val solid = video.height < params.fillBelow
+        val solid = params.outline == null && video.height < params.fillBelow
         val zone = FrameZone(
             cx, cy, cw, ch, (cw * reduction).roundToInt().coerceAtLeast(1), (ch * reduction).roundToInt().coerceAtLeast(1),
             if (solid) params.fillColor else params.color,
@@ -485,7 +505,9 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         // Pixels de référence → pixels de la zone lue.
         val k = zone.height.toDouble() / ch * video.height / params.referenceHeight
         fun px(v: Int) = (v * k).roundToInt().coerceAtLeast(1)
-        if (zone.height < px(params.maxHeight) || zone.width < px(params.victimWidth + params.minWidth)) {
+        val tooSmall = params.outline?.let { zone.height < px(it.maxHeight) || zone.width < px(it.minWidth) }
+            ?: (zone.height < px(params.maxHeight) || zone.width < px(params.victimWidth + params.minWidth))
+        if (tooSmall) {
             throw ConfigException(Message("error.detector.zoneTooSmall", "id" to id, "size" to "${zone.width}x${zone.height}"))
         }
         val shape = if (solid) {
@@ -501,7 +523,20 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
             )
         }
         // Un aplat est plein : rien à combler entre deux pixels.
-        val reader = FeedReader(params.threshold, px(params.victimWidth), if (solid) 0 else params.bridge, shape)
+        val outline = params.outline
+        val reader = if (outline != null) {
+            OutlineReader(
+                params.threshold, params.bridge,
+                outline.copy(
+                    minHeight = px(outline.minHeight), maxHeight = px(outline.maxHeight), lineHeight = px(outline.lineHeight),
+                    minWidth = px(outline.minWidth), maxWidth = px(outline.maxWidth), edgeTolerance = px(outline.edgeTolerance),
+                    minEdgeGap = (outline.minEdgeGap * k).roundToInt(), maxEdgeGap = px(outline.maxEdgeGap),
+                    newLineGrowth = px(outline.newLineGrowth),
+                ),
+            )
+        } else {
+            FeedReader(params.threshold, px(params.victimWidth), if (solid) 0 else params.bridge, shape)
+        }
         val sightings = if (solid) maxOf(params.minSightings, ceil(params.fillMinSeen.toDouble(DurationUnit.SECONDS) * params.fps).toInt()) else params.minSightings
         val rows = mutableListOf<List<FeedRow>>()
         // Basse définition : toute la vidéo est lue. Les passages relus autour des images clés (2,4 s après celle qui
@@ -511,6 +546,7 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         log.info {
             "$id : killfeed ${cw}x$ch à ($cx, $cy), lu en ${zone.width}x${zone.height}, ${params.fps} img/s" +
                 (if (solid) ", basse définition : aplat du portrait, vu $sightings fois" else "") +
+                (if (outline != null) ", lignes encadrées" else "") +
                 (keyframes?.let { ", repéré sur les images clés (toutes les $it)" } ?: ", toute la vidéo")
         }
         val scanProgress = if (keyframes == null) ctx.progress else ctx.progress.child(tr("progress.keyframes"), SCAN_SHARE)
@@ -523,7 +559,7 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
             onFrame = { _, zones -> rows += reader.rows(zones[0]) },
         )
         val review = if (keyframes == null) ProgressReporter.NONE else ctx.progress.child("killfeed", 1 - SCAN_SHARE)
-        prepared = Prepared(subscription, rows, px(params.matchTolerance), zone, reader, keyframes, review, sightings, solid)
+        prepared = Prepared(subscription, rows, px(params.matchTolerance), zone, reader, keyframes, review, sightings, solid, outline?.let { px(it.newLineGrowth) })
     }
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
@@ -535,7 +571,10 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         val count = minOf(times.size, state.rows.size)
         if (count == 0) return SignalTrack.missing(id, ctx.grid.count, Message("notice.noFrames"))
 
-        val tracker = FeedTracker(state.tolerance, state.sightings, params.maxGap, params.deathSpacing, if (state.solid) params.fillPendingGap else params.maxGap)
+        val tracker = FeedTracker(
+            state.tolerance, state.sightings, params.maxGap, params.deathSpacing, if (state.solid) params.fillPendingGap else params.maxGap,
+            newLineGrowth = state.newLineGrowth,
+        )
         val end = ctx.media.duration
         if (state.keyframes == null) {
             for (i in 0 until count) tracker.add(times[i], state.rows[i])
