@@ -252,7 +252,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `KillInspector.kt` : `inspect` (cache `InspectionCache`), `ShotLocator.locate/rises`, `FlickMeter.motions/speeds/direction/score/shift`.
 - `MatchCutter.kt` : `MatchCutter.inspect(only = MontagePlanner.placeable)/read/footage/pose` (une lecture `SourceFrames` visée + arme par groupe quand les fenêtres d'avant/après sont alignées à l'image près, sinon deux ; `Footage.slice` reproduit le compte d'images de FFmpeg), `Pose` (ressemblances mémorisées), `HeldPose`, `WeaponTemplate.score/matches` (sommes cumulées), `ScopeCut`, `ScopeCuts.apply/count/aimCurve/restCurve/runs/similarity/compatible/aimStart/aimEnd/speeds/cut/retimeTail/retimeHead/disarm/symmetry`.
 - `MontageRenderBuilder.kt` : graphe FFmpeg du montage : `build`, `sourceCuts`, `flashes`, `whips`/`whipStages` (+ souffle `whip.whoosh` × `audio.musicGain` via `StoryRenderBuilder.placeSfx`, fichiers `whip.sounds` → `MontageRenderRequest.whooshFiles` (`SfxBank.list`) sinon `WHOOSHES` ; `whooshes` = souffle par plan pour le rapport `whip`/`whoosh`), `zooms`, `cutBlurStages` (flou radial des coupes), `leads` (preBeatFrames), `bleeds`, `speedParts`, `slowAudio`, `envelope`, `volumeExpression`.
-- `MontageEdits.kt` : corrections de l'utilisateur. `KillRef(capture, at)` (« partie.mp4@3:12.4 », `parse/of/clock`, `matches` à `TOLERANCE` 1 s), `MontagePin{Drop, At(music)}`,
+- `MontageEdits.kt` : corrections de l'utilisateur. `KillRef(capture, at)` (« partie.mp4@3:12.450 » : `toString` à la ms, `parse/of/clock/precise`, `matches` à `TOLERANCE` 1 s, `exactly` pour la frise ; une désignation vise UN kill, le plus proche : `MontageEdits.designated`), `MontagePin{Drop, At(music)}`,
   `MontageConstraints(excluded, forced, pins ; clear/exclude/force/pin)`, `MontageEdits.apply` (kills exclus retirés via `withTraits`, `KillGroup.forced/pin`, erreurs `error.montage.edit.*`),
   `check(plan, groups)` (appelé par `MontagePlanner.plan` dès qu'un groupe est `kept` : erreur nommant le kill si une contrainte n'est pas tenue), `nearestBeat`.
   Dans le planificateur : plancher et `placeable` gardent les `kept` ; `layout` n'accepte que les fenêtres qui contiennent la drop/les temps épinglés ;
@@ -270,6 +270,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `killMontage` enregistre le choix (`--pick`) et les contraintes (`recordTaste`) ; `HighlightPipeline.taste()` → `TasteState` ; CLI `TasteCommand.kt` : `gouts [--reset --history]`.
 - `Thumbnail.kt` : miniature YouTube. `ThumbnailStyle{SOBER,VIVID,BIG_TEXT}` (zoom, `GradeSettings`, texte), `ThumbnailMoment`, `ThumbnailPicker` (`fromMontage/fromHighlights`, `strength` kills+3 ace+2 clutch+0,3 HS+0,5 drop, `contenders` à `TIE` près, `label` via `video.*`),
   `ThumbnailFrames` (10 img/s de −0,4 à +1,2 s, `sharpness` variance du laplacien, `readability` ×1,2 après le kill × luminosité/80, `DARK` écarté), `ThumbnailRenderer.filter/render` (crop centré + punch-in, `RenderCommandBuilder.grade`, `drawtext` mesuré par `TextMeasure`, police `VideoFonts.forText`).
+- `KillMontageExporter.recordingDate(sessions)` : date du montage = `MediaInfo.recordedAt` de la première partie (sinon analyse), jamais le rendu ; `YouTubePublisher.facts` prend la date des captures du rapport (nom de fichier en repli).
 - `KillMontageExporter.kt` : `MontageExportRequest(musicChoice, preview)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates, signature, preview)`, `export` (aperçu → `MontagePreview`), `recordingDate`.
 - Aperçus de variantes (branche `montage-apercu-variantes`) : `MontageVariants.kt` (`distinct` : variantes de `best` classées comme lui, la 1 = celle
   de `best`, suivantes à `distance` ≥ `MIN_DISTANCE` 0,25 de toutes les retenues, choix glouton donc liste pour n = début de celle pour n+1 ;
@@ -295,6 +296,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `library`, `previewDir`, `withJobDir` (workDir/job-UUID, gardé si échec).
 - `Pipelines.kt` : câblage manuel (pas de DI) `Pipelines.ffmpeg(config)`, `Pipelines.create(config)`.
 - `ConfigLocator.locate` : explicite > env `HIGHLIGHTS_CONFIG` > prop `highlights.config` > `./config/app.yaml` > `<install>/config/app.yaml`.
+- `AnalysisLibrary.entries()` recompte les événements d'une session réécrite depuis son comptage (`LibraryEntry.eventsCountedAt`, `countEvents`) : la bibliothèque affiche les kills de la partie.
 - `AnalysisLibrary.kt` : index `outputDir/sessions/library.json` (`LibraryEntry`), `find/contains/record/entries/forget` (oublie : entrée + `*.session.json`, jamais une capture), `fingerprint`, `stamp`, `ANALYSIS_VERSION`.
 - `FolderWatcher.kt` : `poll(isKnown)` → fichiers stables depuis `settle` ; `writing()` (une capture s'écrit encore : soirée pas finie).
 - `Recap.kt` (récap de soirée) : `RecapOptions`, `RecapText` (`video.recap.*` : intercalaire, fin), `RecapReport` ; `HighlightPipeline.eveningRecap(evening, options, progress)`
@@ -363,7 +365,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   actions `setEveningMontage/setEveningDelay/setEveningMinKills/setEveningStyle/openLastEvening` (`EveningAuto.style`, `WatchState.eveningStyles`) ; `AppController(clock)`.
 - File des traitements : `JobQueue.kt` (`QueuedJob(id, title, blocking, status JobStatus, fraction…, result, error, details)`, `submit/cancel/move/clearFinished/cancelAll`, un à la fois,
   échec sans bloquer la suite) ; `AppController.enqueue` (bloquant : analyse, réanalyse → `UiState.job` avec `queueId`, l'écran attend ; sinon libre), `describeFailure`,
-  `watchJobs`/`queuedEvenings` (dossier surveillé, soirées) ; `UiState.jobs`, `quitConfirm` ; `JobsView.kt` (`JobsCard`, `QuitDialog`) ; actions `cancelQueuedJob/moveQueuedJob/openJobResult/showJobError/clearFinishedJobs/confirmQuit/cancelQuit`,
+  `watchJobs`/`queuedEvenings` (dossier surveillé, soirées) ; `UiState.jobs`, `quitConfirm` ; `JobsView.kt` (`JobsCard` bornée : 360 dp et `weight(1f, fill = false)` dans App, attente et finis qui défilent ; `QuitDialog`), le clip 9:16 aussi passe par la file ; actions `cancelQueuedJob/moveQueuedJob/openJobResult/showJobError/clearFinishedJobs/confirmQuit/cancelQuit`,
   `requestQuit()` (Main) ; tests `JobQueueTest`, capture `16_file_des_traitements`.
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).

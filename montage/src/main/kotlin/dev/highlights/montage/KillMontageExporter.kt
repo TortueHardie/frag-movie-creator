@@ -25,6 +25,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.nio.file.Path
+import dev.highlights.core.session.Session
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -296,6 +297,15 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         /** Mesure du mouvement de caméra : un décodage en tout petit de chaque plan, rapide face au rendu. */
         private const val MOTION_WEIGHT = 0.06
 
-        fun recordingDate(instant: Instant?): LocalDate = (instant ?: Instant.now()).atZone(ZoneId.systemDefault()).toLocalDate()
+        /**
+         * Date de la première partie jouée, qui nomme le montage : la date d'enregistrement de la capture
+         * ([dev.highlights.core.model.MediaInfo.recordedAt] : inscrite dans le fichier, sinon sa date de modification),
+         * sinon celle de l'analyse ; jamais celle du rendu. Même règle que l'export highlights. Une capture VALORANT
+         * sans date inscrite donnait `valorant_2026-11-18_killmontage` pour une partie du 17 rendue le 18.
+         */
+        fun recordingDate(sessions: List<Session>, zone: ZoneId = ZoneId.systemDefault()): LocalDate {
+            val instant = sessions.mapNotNull { it.media.recordedAt }.minOrNull() ?: sessions.minOf { it.createdAt }
+            return instant.atZone(zone).toLocalDate()
+        }
     }
 }

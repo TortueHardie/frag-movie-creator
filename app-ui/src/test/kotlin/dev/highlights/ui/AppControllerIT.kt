@@ -13,6 +13,7 @@ import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -93,6 +94,25 @@ class AppControllerIT : FunSpec({
             result.videos.values.all { it.exists() } shouldBe true
             // La session enregistrée garde le segment décoché.
             SessionStore.load(session.entries.single().file).highlights.first { it.id == "h001" }.enabled shouldBe false
+
+            // Clip 9:16 : dans la file des traitements comme un export, sans verrouiller l'écran ni griser l'export
+            // (QA finale : il partait hors file, en parallèle d'un rendu).
+            val clipKey = controller.state.value.session!!.segments.first { it.highlight.id == "h002" }.key
+            controller.clipMoment(clipKey)
+            controller.state.value.jobs.last().title shouldContain "h002"
+            controller.state.value.job.shouldBeNull()
+            controller.state.value.canExport shouldBe true
+            // Fini ou en échec, mais par la file : un clip réussi a sa vidéo, un échec son message, sans boîte de
+            // dialogue (sur cette vidéo de synthèse, le clip peut dépasser sa durée maximale : défaut du clip, pas de la file).
+            val clipped = await("clip 9:16") { s -> !s.jobs.last().active }.jobs.last()
+            when (clipped.status) {
+                JobStatus.DONE -> clipped.result.shouldNotBeNull().exists() shouldBe true
+                else -> {
+                    clipped.status shouldBe JobStatus.FAILED
+                    clipped.error.shouldNotBeNull()
+                    controller.state.value.error.shouldBeNull()
+                }
+            }
 
             controller.previewVertical("h002")
             val preview = await("aperçu 9:16") { it.imagePreview != null }

@@ -368,7 +368,9 @@ class MontageCommand : PipelineCommand("montage") {
         if (left.isNotEmpty()) {
             echo("  écartés :")
             left.forEach { g ->
-                val excluded = g.kills.all { k -> constraints.excluded.any { it.matches(g.media, k) } }
+                val excluded = g.kills.all { k ->
+                    constraints.excluded.any { r -> dev.highlights.montage.MontageEdits.designated(r, planned.candidates) == (g.media.path to k) }
+                }
                 echo("      %s%s".format(g.kills.joinToString(" ") { KillRef.of(g.media, it).toString() }, if (excluded) "  [exclu]" else ""))
             }
         }
