@@ -31,6 +31,8 @@ detectors:
   # compteur de kills du HUD, lu à l'œil (verite/apex/) : 33 kills sur 56 crédits du compteur, aucun en trop,
   # tous à moins de 3 s. Les crédits manqués sont surtout ceux d'un « SQUAD WIPE » : le jeu y crédite d'un coup
   # 2 ou 3 kills (les ennemis déjà mis à terre par le joueur) sous une seule notification. 51 « knock ».
+  # Deuxième capture, relevée après ce réglage (« Apex 37 kills revenant », une partie, autre légende) : 27 kills sur
+  # 36, aucun en trop, mais « SQUAD WIPE » jusqu'à 4,5 s après le crédit (death box ouverte au moment du kill).
   # Pas de mort du joueur dans cette capture : « death » n'est pas lu (rien à mesurer).
   - id: game-events
     type: ocr-log

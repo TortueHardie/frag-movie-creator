@@ -859,7 +859,10 @@ Jeu en anglais (`language: en-US`).
 - Mesuré sur « Apex 53 kills octane » (compilation YouTube de trois parties, 854x480, image teintée) contre le
   compteur de kills du HUD, relevé à l'œil (`verite/apex/`) : 33 kills sur 56 crédits, aucun en trop. Le reste est
   surtout crédité d'un coup par un « SQUAD WIPE » (dernier de l'escouade à terre : les ennemis que le joueur avait mis
-  à terre meurent avec lui, 2 ou 3 kills sous une seule notification). Le compteur lui-même (chiffres de ~6 px en
+  à terre meurent avec lui, 2 ou 3 kills sous une seule notification). Deuxième capture, relevée après le réglage
+  (« Apex 37 kills revenant », une partie, autre légende) : 27 kills sur 36, aucun en trop ; la notification « SQUAD
+  WIPE » y arrive jusqu'à 4,5 s après le crédit (le joueur ouvre une death box au moment du kill : notification
+  cachée), d'où une tolérance de 5 s pour cette vérité. Le compteur lui-même (chiffres de ~6 px en
   480p) n'est pas lisible par l'OCR de Windows ; une lecture par modèles d'image n'a pas été tentée. Morts du joueur
   non lues : aucune dans cette capture.
 

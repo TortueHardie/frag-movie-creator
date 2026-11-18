@@ -221,8 +221,10 @@ Pistes, de la plus simple à la plus lourde :
 - [ ] Décider si « à terre » compte comme une mort (`montage.killStyle.downedAsDeath`, faux par défaut) : rounds,
   kill aussitôt payé, statistiques K/D.
 - [x] Profil Apex Legends (`config/profiles/apex.yaml`) : notifications KNOCKED DOWN / ELIMINATED / SQUAD WIPE lues
-  par `ocr-log` (`maxDrop` pour les notifications empilées) ; vérité `verite/apex/` (compteur du HUD) : 33 kills sur 56,
-  aucun faux.
+  par `ocr-log` (`maxDrop` pour les notifications empilées) ; vérité `verite/apex/` (compteur du HUD) : 33 kills sur 56
+  et 27 sur 36 (deux vidéos), aucun faux.
+- [ ] Apex : « SQUAD WIPE » vu jusqu'à 4,5 s après le kill (death box ouverte) : le montage s'y cale en retard ; caler
+  sur le dernier « knock » qui précède ?
 - [ ] Apex : compter les kills crédités en rafale par un SQUAD WIPE (lire le compteur du HUD, illisible en 480p : à
   revoir sur une capture 1080p brute), lire les morts du joueur, vérifier sur une capture non montée.
 - [ ] Profils pour d'autres jeux (CS2, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
