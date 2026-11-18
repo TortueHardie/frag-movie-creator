@@ -113,8 +113,10 @@ object StoryRenderBuilder {
         val screen = shots.map(::onScreen)
         shots.forEachIndexed { i, source ->
             val shot = screen[i]
-            graph += RenderCommandBuilder.videoChain(i, shot.media, request.format, edit, "g$i")
             val fits = RenderCommandBuilder.outputSize(request.format, shot.media, edit) == w to h
+            // HUD recollé en 9:16 : empilé sous l'image, recollé fixe après le punch-in et la secousse (HudPin).
+            val targets = if (fits) RenderCommandBuilder.hudTargets(request.format, shot.media, edit) else emptyList()
+            graph += RenderCommandBuilder.videoChain(i, shot.media, request.format, edit, "g$i", pinHud = targets.isNotEmpty())
             val sized = if (fits) {
                 "g$i"
             } else {
@@ -124,9 +126,8 @@ object StoryRenderBuilder {
             val base = slowVideo(graph, i, sized, source, edit.fps)
             val effects = mutableListOf<String>()
             val motion = framing(shot, w, h, story.punchIn.amount, story.punchIn.ramp, story.shake.amplitude, story.shake.duration, story.shake.frequency)
-            // HUD recollé en 9:16 : fixe par-dessus le punch-in et la secousse, sous sous-titres et libellés (HudPin).
-            val targets = if (fits) RenderCommandBuilder.hudTargets(request.format, shot.media, edit) else emptyList()
-            val start = HudPin.statements(base, emptyList(), motion, targets, "hp$i")?.let { (lines, out) ->
+            // Sous-titres et libellés par-dessus le HUD recollé.
+            val start = HudPin.statements(base, emptyList(), motion, targets, w, h, "hp$i")?.let { (lines, out) ->
                 graph += lines
                 out
             } ?: base.also { effects += motion }

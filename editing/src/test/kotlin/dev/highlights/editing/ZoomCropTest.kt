@@ -40,4 +40,15 @@ class ZoomCropTest : FunSpec({
         x shouldBe (0.5 plusOrMinus 0.002)
         y shouldBe (0.4444 plusOrMinus 0.002)
     }
+
+    test("point visé par les zooms : le réticule, ou la hauteur vertical.zoomFocus de la capture en 9:16") {
+        val media = MediaInfo(Path("x.mp4"), 1, 10.minutes, video = VideoStream(0, "h264", 1920, 1080, 60.0))
+        val crop = CropRegion(0.0, 0.09, 1.0, 0.795)
+        RenderCommandBuilder.zoomFocus(OutputFormat.VERTICAL, media, EditSettings(vertical = VerticalSettings(cropRegion = crop))) shouldBe
+            RenderCommandBuilder.crosshair(OutputFormat.VERTICAL, media, EditSettings(vertical = VerticalSettings(cropRegion = crop)))
+        // VALORANT : 0,726 de la capture, recadrage de 0,09 à 0,885 → 0,80 du cadre.
+        val (_, y) = RenderCommandBuilder.zoomFocus(OutputFormat.VERTICAL, media, EditSettings(vertical = VerticalSettings(cropRegion = crop, zoomFocus = 0.726)))
+        y shouldBe (0.80 plusOrMinus 0.005)
+        RenderCommandBuilder.zoomFocus(OutputFormat.SOURCE, media, EditSettings(vertical = VerticalSettings(zoomFocus = 0.726))) shouldBe (0.5 to 0.5)
+    }
 })

@@ -22,19 +22,19 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 class HudPinTest : FunSpec({
-    test("le HUD est recollé fixe par-dessus les effets qui bougent l'image") {
+    test("le HUD empilé sous l'image est recollé fixe par-dessus les effets qui bougent l'image") {
         val box = RenderCommandBuilder.CropBox(0, 0, 1080, 150)
-        val (lines, out) = HudPin.statements("s0", listOf("tpad=start_duration=1"), listOf("scale=w='z'", "crop=1080:1920"), listOf(box), "hp0")!!
+        val (lines, out) = HudPin.statements("s0", listOf("tpad=start_duration=1"), listOf("scale=w='z'", "crop=1080:1920"), listOf(box), 1080, 1920, "hp0")!!
         lines shouldBe listOf(
-            "[s0]tpad=start_duration=1,split=2[hp0m][hp0f]",
-            "[hp0m]scale=w='z',crop=1080:1920[hp0z]",
-            "[hp0f]crop=1080:150:0:0[hp0c0]",
+            "[s0]tpad=start_duration=1,split=2[hp0m][hp0f0]",
+            "[hp0m]crop=1080:1920:0:0,scale=w='z',crop=1080:1920[hp0z]",
+            "[hp0f0]crop=1080:150:0:1920[hp0c0]",
             "[hp0z][hp0c0]overlay=x=0:y=0:shortest=1[hp0o0]",
         )
         out shouldBe "hp0o0"
-        // Rien qui bouge, ou pas de HUD : rien à faire.
-        HudPin.statements("s0", emptyList(), emptyList(), listOf(box), "hp0") shouldBe null
-        HudPin.statements("s0", emptyList(), listOf("crop"), emptyList(), "hp0") shouldBe null
+        // Sans HUD : rien à faire. Sans effet qui bouge l'image : le HUD empilé est quand même recollé.
+        HudPin.statements("s0", emptyList(), listOf("crop"), emptyList(), 1080, 1920, "hp0") shouldBe null
+        HudPin.statements("s0", emptyList(), emptyList(), listOf(box), 1080, 1920, "hp0")!!.second shouldBe "hp0o0"
     }
 
     test("montage 9:16 avec bandeau recollé : bandeau recollé après le zoom, avant couleurs, textes et compteur") {
@@ -65,5 +65,7 @@ class HudPinTest : FunSpec({
         val after = graph.indexOf("[hp${n}o0]", pin + 1)
         (after shouldBeGreaterThan pin)
         graph.indexOf("drawtext", after) shouldBeGreaterThan after
+        // Le HUD n'est pas collé dans l'image qui zoome : il est empilé dessous (vstack), jamais recouvert par overlay avant.
+        graph.contains("vstack=inputs=2") shouldBe true
     }
 })

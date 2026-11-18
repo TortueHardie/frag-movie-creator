@@ -133,8 +133,11 @@ object MontageRenderBuilder {
             val parts = speedParts(clip, lead)
 
             // --- vidéo : géométrie du format (recadrage 9:16 + HUD), puis ralenti et rampes
-            graph += RenderCommandBuilder.videoChain(i, media, request.format, edit, "g$i")
             val own = RenderCommandBuilder.outputSize(request.format, media, edit)
+            // HUD recollé en 9:16 (bandeau, killfeed, bloc du bas) : empilé sous l'image, recollé fixe après zoom et
+            // flous, sous couleurs, textes et compteur (HudPin). Seulement quand le plan a déjà la taille du montage.
+            val targets = if (own == w to h) RenderCommandBuilder.hudTargets(request.format, media, edit) else emptyList()
+            graph += RenderCommandBuilder.videoChain(i, media, request.format, edit, "g$i", pinHud = targets.isNotEmpty())
             val sized = if (own == w to h) {
                 "g$i"
             } else {
@@ -189,7 +192,8 @@ object MontageRenderBuilder {
                 val z = "(1+$punch$approach)"
                 // Recadrage recentré à chaque image (voir ZoomCrop : `iw` resterait celui de la première image).
                 // Vers le réticule réel : le centre de la capture, qui n'est plus au centre du cadre si le 9:16 est décalé.
-                val (fx, fy) = RenderCommandBuilder.crosshair(request.format, media, edit)
+                // Ou la hauteur choisie par le profil (vertical.zoomFocus) : VALORANT vise sous le réticule, l'icône du kill reste dans l'image.
+                val (fx, fy) = RenderCommandBuilder.zoomFocus(request.format, media, edit)
                 motion += ZoomCrop.filters(w, h, z, settings.zoom.scaleFlags, focusX = fx, focusY = fy)
             }
             // Flou de mouvement après le zoom : le punch-in traîne lui aussi ; avant textes et flash, qui restent nets.
@@ -200,11 +204,8 @@ object MontageRenderBuilder {
                 val pixelsPerWidth = (media.video?.width ?: w) * RenderCommandBuilder.pixelScale(request.format, media, edit)
                 motion += VectorBlur.filters("vb$i", VectorBlur.sigmas(clip, track, lead, frames, fps, pixelsPerWidth, w, settings.motionBlur, outKills), fps)
             }
-            // HUD recollé en 9:16 (bandeau, killfeed) : fixe par-dessus zoom et flous, sous couleurs, textes et compteur
-            // (HudPin). Seulement quand le plan a déjà la taille du montage : sinon ses rectangles ne sont plus là.
-            val targets = if (own == w to h) RenderCommandBuilder.hudTargets(request.format, media, edit) else emptyList()
             val effects = mutableListOf<String>()
-            val start = HudPin.statements(base, pre, motion, targets, "hp$i")?.let { (lines, out) ->
+            val start = HudPin.statements(base, pre, motion, targets, w, h, "hp$i")?.let { (lines, out) ->
                 graph += lines
                 out
             } ?: base.also { effects += pre + motion }
