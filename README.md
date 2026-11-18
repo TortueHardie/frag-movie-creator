@@ -342,6 +342,9 @@ détecte les kills). En ligne de commande :
 & $app montage output\sessions\partie.session.json --music D:\Musique\son.mp3 --style tiktok
 ```
 
+- **Défauts** (choisis par l'utilisateur le 18/11) : style Cinématique, couleurs boostées (`--colors natural` pour les
+  couper), ouverture vitrine (`--no-showcase`), whip pans muets (`--whoosh` ou un `--whoosh-dir` pour le souffle),
+  rythme rapide sur les parties rapides de la musique (voir « Rythme rapide »).
 - **Styles** (`config/montage-styles.yaml`) : un jeu de réglages choisi d'un coup, en haut de la fenêtre de montage
   (puces « Aucun », « Edit TikTok », « Propre », « One taps », « Cinématique ») ou par `--style <id>` ; les cases
   détaillées sont repliées sous « Réglages avancés ». Livrés : `tiktok` (rythme rapide, couleurs boostées, flou, zoom
@@ -946,6 +949,15 @@ compteur de munitions jusqu'à 0,12 s après cette ligne (à ±0,07 s de l'icôn
 les parties analysées avant sont à mettre à jour.
 
 ## Rythme rapide : un kill par temps
+
+**Par défaut, seulement sur les parties rapides de la musique** (`montage.fastParts`, case « Rythme rapide sur les
+parties rapides » de « Réglages avancés », `--no-fast-parts` pour l'éviter) : la drop et ce qui suit, si cette partie est
+intense (`minIntensity` 0,7) et le tempo vif (`minBpm` 120 ; « Rome Is Burning » : 126 BPM, intensité 0,95 après la
+drop). Avant, l'intro et la montée gardent le rythme du style (Cinématique : plans longs, ralentis) ; après, un kill par
+temps, sans ralenti ni rampe, zoom d'approche vers le réticule. Le plan de la drop garde le rythme du style : il part
+de la montée et pose le meilleur kill sur la drop, ralenti compris. Une musique lente (« HEAVENLY JUMPSTYLE (Slowed) »,
+111 BPM) reste entière au rythme du style. Le tempo détecté est parfois le double du vrai : ce n'est qu'un garde-fou.
+Le rythme rapide forcé (ci-dessous) rend tout le montage rapide.
 
 Case « Rythme rapide » du dialogue du montage kills, `montage --fast` ou `search --montage … --fast` : un kill sur
 chaque temps de la musique, sur chaque coup de grosse caisse d'une techno, comme les edits TikTok de référence (plans de
