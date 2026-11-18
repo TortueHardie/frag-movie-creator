@@ -316,21 +316,36 @@ data class FastMontage(
  * du style, les parties rapides et intenses passent au rythme rapide ([FastMontage] : un kill par temps quand le tempo
  * le permet, ni ralenti ni rampe, zoom d'approche vers le réticule). Demande de l'utilisateur du 18/11 : le rythme
  * rapide « quand la musique s'y prête, par exemple Rome Is Burning après la drop ». Une partie est rapide si elle commence
- * à la drop ou après, si son intensité atteint [minIntensity] (0 à 1 dans le morceau ; la partie après la drop de « Rome
- * Is Burning » : 0,95, son intro : 0,25) et si le tempo atteint [minBpm] (« Rome Is Burning » : 126 BPM). Le tempo
- * détecté est parfois le double du vrai (« Lose Yourself » : 171 pour 86) : il ne sert que de garde-fou contre les
- * musiques lentes et lourdes (« HEAVENLY JUMPSTYLE (Slowed) », 111 BPM, garde son rythme). Le rythme rapide forcé
- * ([FastMontage.enabled], `--fast`) l'emporte : tout le montage est rapide.
+ * à la drop ou après et si son intensité atteint [minIntensity] (0 à 1 dans le morceau ; la partie après la drop de
+ * « Rome Is Burning » : 0,95, son intro : 0,25). Le tempo n'y entre plus (choix de l'utilisateur du 18/11, après des
+ * montages côte à côte avec et sans la règle des 120 BPM sur WARDOGS et VALORANT) : une musique lente passe aussi au rythme
+ * rapide après sa drop. Un creux net à l'intérieur d'une partie intense ([calmDb] sous le niveau fort du morceau pendant au
+ * moins [calmBars] mesures : la basse qui s'arrête deux mesures) revient au rythme du style, puis le rythme rapide reprend.
+ * Le rythme rapide forcé ([FastMontage.enabled], `--fast`) l'emporte : tout le montage est rapide.
  */
 @Serializable
 data class FastParts(
     val enabled: Boolean = true,
     val minIntensity: Double = 0.7,
-    val minBpm: Double = 120.0,
+    /**
+     * Creux d'une partie intense : volume moyen d'une mesure à au moins ce nombre de dB sous le niveau fort du morceau
+     * (90e centile des mesures). Mesuré sur 19 musiques : la coupure de basse de « Big Dawgs » (0:20, deux mesures) est
+     * à 9,2 dB ; ailleurs, deux mesures de suite d'une partie intense ne descendent jamais à plus de 5,8 dB
+     * (« HEAVENLY JUMPSTYLE »), un couplet plus calme de « Lose Yourself » à 5,3 dB.
+     */
+    val calmDb: Double = 7.0,
+    /** Nombre de mesures de suite qu'il faut à un creux : une seule mesure basse est une respiration, pas une partie. */
+    val calmBars: Int = 2,
+    /**
+     * Ancien seuil de tempo (120 BPM), retiré le 18/11. Ignoré : seulement accepté pour qu'une ancienne configuration
+     * qui le pose se charge encore.
+     */
+    val minBpm: Double? = null,
 ) {
     init {
         require(minIntensity in 0.0..1.0) { "montage.fastParts.minIntensity doit être entre 0 et 1" }
-        require(minBpm > 0) { "montage.fastParts.minBpm doit être positif" }
+        require(calmDb > 0) { "montage.fastParts.calmDb doit être positif" }
+        require(calmBars >= 1) { "montage.fastParts.calmBars doit valoir au moins 1" }
     }
 }
 
