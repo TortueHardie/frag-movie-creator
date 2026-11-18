@@ -221,6 +221,13 @@ Pistes, de la plus simple à la plus lourde :
 - [ ] Décider si « à terre » compte comme une mort (`montage.killStyle.downedAsDeath`, faux par défaut) : rounds,
   kill aussitôt payé, statistiques K/D.
 - [ ] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
+  Captures déposées le 18/11 dans `D:\Vidéo` (hors dépôt) :
+  - [ ] Apex : « Apex 53 kills octane.mp4 », « Apex 37 kills revenant.mp4 » (atelier `apex`).
+  - [ ] CS2 : « CS2- 33 Kills On Dust 2.mp4 » (atelier `cs2`).
+  - [ ] Fortnite : « 81 Elimination Squads Zero Build Fortnite.mp4 » (atelier `fortnite`).
+- [ ] Assistant « nouveau jeu » : marquer un kill dans une vidéo → modèle du HUD découpé, profil proposé et testé.
+- [ ] Aperçus quasi instantanés : copies basse définition des parties, faites une fois.
+- [ ] Ressenti par musique : 👍/👎 sur le rythme rapide après chaque montage, mémorisé, puis mesure apprise.
 
 ## Entretien
 - [x] Mettre à jour `CLAUDE.md` et le versionner.
