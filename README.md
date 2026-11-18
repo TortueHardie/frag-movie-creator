@@ -672,7 +672,8 @@ commande pour `export`, `process` et `montage`) adapte l'export à là où la vi
 - **HUD fixe pendant les zooms** : en 9:16, le HUD recollé (`vertical.hud` : bandeau VALORANT, killfeed WARDOGS) reste
   fixe par-dessus le punch-in, le zoom d'approche, la secousse et le flou de mouvement ; seule l'image du jeu zoome.
   Les couleurs du montage, le flash, les textes et le compteur de kills restent par-dessus. Montage kills, montage
-  story et clips.
+  story et clips. VALORANT : le bandeau du haut et le bloc du bas (vie, armure, capacités, munitions) sont replacés
+  entiers, le bloc dans la zone sûre des applications verticales ; le recadrage 9:16 s'arrête au-dessus de lui.
 - **Durée** : en montage kills, la durée maximale de la plateforme devient un plafond de plus ; un montage highlights
   trop long est refusé avant le rendu, avec la durée à atteindre.
 - Le nom du fichier porte la plateforme : `valorant_2026-09-27_killmontage_tiktok_9x16.mp4`.
