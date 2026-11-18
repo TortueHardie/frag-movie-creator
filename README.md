@@ -1126,7 +1126,7 @@ dont chaque image pleine taille redescend de la carte graphique).
   même temps quand les images lues sont petites (copies réduites, captures ≤ 1080p). Dans l'application, la fenêtre des
   versions s'ouvre dès que la première est prête.
 
-Mesuré (3 versions, « GO2 - Spitfire », sous le verrou de rendu ; détail dans `outputevuepercu-rapide\`) :
+Mesuré (3 versions, « GO2 - Spitfire », sous le verrou de rendu ; détail dans `output\revue\apercu-rapide\`) :
 
 | parties | avant | après, 1re fois | après, copies déjà faites |
 |---|---|---|---|

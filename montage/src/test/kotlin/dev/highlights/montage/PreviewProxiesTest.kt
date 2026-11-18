@@ -136,8 +136,8 @@ class PreviewProxiesTest : FunSpec({
     }
 
     test("passages proches regroupés, éloignés gardés à part") {
-        val merged = PreviewProxies.merge(listOf(TimeRange(10.seconds, 14.seconds), TimeRange(0.seconds, 5.seconds), TimeRange(17.seconds, 20.seconds), TimeRange(40.seconds, 41.seconds)))
-        merged shouldBe listOf(TimeRange(0.seconds, 5.seconds), TimeRange(10.seconds, 20.seconds), TimeRange(40.seconds, 41.seconds))
+        val merged = PreviewProxies.merge(listOf(TimeRange(10.seconds, 14.seconds), TimeRange(0.seconds, 5.seconds), TimeRange(15.5.seconds, 20.seconds), TimeRange(22.5.seconds, 24.seconds)))
+        merged shouldBe listOf(TimeRange(0.seconds, 5.seconds), TimeRange(10.seconds, 20.seconds), TimeRange(22.5.seconds, 24.seconds))
     }
 
     test("les proxies d'une capture modifiée ou disparue sont effacés, ceux d'une capture intacte gardés") {
