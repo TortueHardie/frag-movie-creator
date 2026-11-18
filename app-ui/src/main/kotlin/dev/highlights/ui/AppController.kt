@@ -911,7 +911,12 @@ class AppController(
         withMemory(title, MEMORY_MONTAGE) {
             enqueue(title) { progress ->
                 saveNow(session)
-                val previews = p.montagePreviews(session.sessions, music, options, MontageVariants.DEFAULT_COUNT, progress)
+                // Chaque aperçu se montre dès qu'il est prêt ; fenêtre fermée entre-temps : elle ne rouvre qu'à la fin.
+                val ready = mutableListOf<dev.highlights.pipeline.VariantPreview>()
+                val previews = p.montagePreviews(session.sessions, music, options, MontageVariants.DEFAULT_COUNT, progress) { preview, total ->
+                    ready += preview
+                    _state.update { if (it.variants == null && ready.size > 1) it else it.copy(variants = VariantsUiState.partial(ready.toList(), total, MontageVariants.DEFAULT_COUNT)) }
+                }
                 pendingVariants = PendingVariants(session.sessions, music, options, previews.variantsFile)
                 _state.update { it.copy(variants = VariantsUiState.of(previews, MontageVariants.DEFAULT_COUNT)) }
                 null

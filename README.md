@@ -1092,10 +1092,33 @@ Un rendu pleine qualité du montage kills prend plusieurs minutes : le juger à 
 3 versions » du dialogue du montage, ou `montage … --variants 3` : trois versions du même montage sont rendues en petit
 (360 pixels sur le petit côté, vertical d'abord), vite (x264 `ultrafast`, sans flou par vecteurs), dans
 `<sortie>\apercus\`. Chaque plan y garde exactement son nombre d'images : coupes, kills sur les temps et son sont ceux
-du rendu final. Mesuré sur deux parties WARDOGS et « Rome Is Burning » : un aperçu se rend en 11,6 s contre 25,5 s pour le
-rendu final (35 s de montage), les trois aperçus en 47 s contre 35 s pour un seul rendu final. Le décodage des
-captures 3440x1440 domine : l'aperçu les décode en logiciel, sans filtre de boucle H.264 (plus rapide ici que le
-décodage matériel, dont chaque image pleine taille redescend de la carte graphique).
+du rendu final. L'aperçu décode en logiciel, sans filtre de boucle H.264 (plus rapide ici que le décodage matériel,
+dont chaque image pleine taille redescend de la carte graphique).
+
+**Aperçus rapides** : deux choses les accélèrent.
+- **Copies réduites (proxies)** : chaque passage de capture que lisent les aperçus est réduit une fois (à la taille
+  que l'aperçu montre vraiment : 640 lignes pour WARDOGS 3440x1440 en 9:16), avec une image clé toutes les 0,5 s, et
+  gardé dans `%TEMP%\highlights\cache\proxies` pour les aperçus suivants (autre musique, autre style). Mêmes
+  horodatages d'images que la capture et son copié tel quel : coupes, kills et son ne bougent pas ; le cadrage (9:16,
+  HUD recollé, zoom vers le réticule) se calcule en coordonnées relatives, donc juste sur la copie. Les copies d'une
+  capture modifiée ou effacée sont jetées ; au-delà de 3 Go, les moins récemment servies partent. Une capture déjà
+  petite (VALORANT 480p) est lue telle quelle. Le rendu final lit toujours les captures d'origine.
+- **Rendus simultanés** : le graphe de filtres d'un montage n'occupe qu'un cœur ; les trois aperçus se rendent donc en
+  même temps quand les images lues sont petites (copies réduites, captures ≤ 1080p). Dans l'application, la fenêtre des
+  versions s'ouvre dès que la première est prête.
+
+Mesuré (3 versions, « GO2 - Spitfire », sous le verrou de rendu ; détail dans `outputevuepercu-rapide\`) :
+
+| parties | avant | après, 1re fois | après, copies déjà faites |
+|---|---|---|---|
+| WARDOGS 22-55-31 (2 versions, 19 plans) | 34,7 s | 28,8 s | 15,0 s |
+| WARDOGS 20-4-19 (3 versions, 4 plans) | 9,9 s | 8,5 s | 4,7 s |
+| VALORANT « 44 kills » 480p (3 versions, ~50 plans) | 143,8 s | 71,0 s | 64,3 s |
+| VALORANT « game » 480p (2 versions) | 32,7 s | 21,7 s | 21,6 s |
+
+Ce qui reste cher : le graphe lui-même, surtout le flou radial des coupes (un `scale` recalculé à chaque image ; sans
+lui, 10,3 s au lieu de 15,0 s sur WARDOGS 22-55-31, 34 s au lieu de 64 s sur « 44 kills »), gardé dans l'aperçu parce
+qu'il s'y voit.
 
 - **Les versions** : celles que le planificateur note déjà (échelle de la grille de coupes × place de la drop) et le
   plan de base, classées comme il les classe : la version 1 est celle qu'un montage sans aperçu aurait rendue. Les

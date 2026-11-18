@@ -19,9 +19,10 @@ import kotlin.time.Duration
  *
  * Ce qui ne change pas : la cadence (images par seconde), donc le nombre d'images de chaque plan, les coupes, la place de
  * chaque kill sur son temps, le son (même mixage). L'aperçu se regarde comme le montage final, en flou.
- * Ce qui change : la taille (petit côté à [HEIGHT] pixels), l'encodeur (x264 `ultrafast`), le décodage ([DECODE]), et
- * le flou par vecteurs, qui demande un décodage de plus de chaque plan pour mesurer la caméra ([CameraMotion]) et ne se
- * voit pas en 360p.
+ * Ce qui change : la taille (petit côté à [HEIGHT] pixels), l'encodeur (x264 `ultrafast`), le décodage ([DECODE]) et
+ * la source (copies réduites des captures, [PreviewProxies]), le flou par vecteurs, qui demande un décodage de plus de
+ * chaque plan pour mesurer la caméra ([CameraMotion]) et ne se voit pas en 360p.
+ * Plusieurs aperçus se rendent en même temps ([PARALLELISM]).
  */
 object MontagePreview {
     /** Petit côté de l'image d'aperçu : 360p, lisible dans une vignette comme en plein écran sur un téléphone. */
@@ -39,7 +40,12 @@ object MontagePreview {
         maxBitrate = null,
     )
 
-    /** Plan ramené à l'aperçu : sans flou par vecteurs ni images calculées au ralenti (même nombre d'images, rendu bien plus court). */
+    /**
+     * Plan ramené à l'aperçu : sans flou par vecteurs ni images calculées au ralenti (même nombre d'images, rendu bien
+     * plus court). Le flou radial des coupes reste : il coûte cher (chacune de ses images passe par un `scale` recalculé
+     * à chaque image ; aperçu WARDOGS de 19 plans sur proxies : 10,7 s avec, 7,0 s sans), mais il se voit, même en 360p :
+     * dans un montage rapide, il couvre une bonne part des images (5 sur 6 prises au hasard sur WARDOGS 22-55-31).
+     */
     fun plan(plan: MontagePlan): MontagePlan = plan.copy(
         settings = plan.settings.copy(
             motionBlur = plan.settings.motionBlur.copy(vectors = false),
@@ -61,6 +67,29 @@ object MontagePreview {
      * lisse les blocs de compression : à 360 pixels, ils ne se voient pas.
      */
     val DECODE = listOf("-skip_loop_filter", "all")
+
+    /**
+     * Aperçus rendus en même temps. Le graphe de filtres d'un montage s'exécute sur un seul cœur (FFmpeg ne parallélise
+     * pas l'intérieur d'un graphe) : mesuré sur un aperçu VALORANT de 25 plans (23,7 s de montage, capture 854x480),
+     * 12,6 s seul, trois en même temps 15 à 17 s au lieu de 38 s l'un après l'autre (16 fils). Aucun filtre ne dominait :
+     * sans `loudnorm`, sans couleurs, sans flou de coupe ou en bilinéaire, chacun ne gagnait que 1 à 2 s.
+     */
+    const val PARALLELISM = 3
+
+    /**
+     * Pixels par image lue au-delà desquels les aperçus se rendent l'un après l'autre : un rendu ouvre un décodeur par plan,
+     * et trois rendus de 50 plans en 3440x1440 se disputeraient mémoire et cœurs. Proxy WARDOGS (1528x640) et capture
+     * VALORANT 480p en dessous ; une capture 1440p lue sans proxy au-dessus.
+     */
+    const val PARALLEL_MAX_PIXELS = 1920 * 1080
+
+    /** Aperçus de [plans] à rendre en même temps, une fois branchés sur leurs [proxies]. */
+    fun parallelism(plans: List<MontagePlan>, proxies: ProxySources, fps: Int): Int {
+        val largest = plans.maxOfOrNull { plan ->
+            proxies.apply(plan(plan), fps).first.clips.maxOfOrNull { c -> c.group.media.video?.let { it.width.toLong() * it.height } ?: 0L } ?: 0L
+        } ?: 0L
+        return if (largest <= PARALLEL_MAX_PIXELS) PARALLELISM else 1
+    }
 
     /** Débit audio de l'aperçu : on y juge le calage, pas la qualité du son. */
     const val AUDIO_BITRATE = "96k"
