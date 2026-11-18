@@ -225,7 +225,9 @@ Pistes, de la plus simple à la plus lourde :
 - [ ] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
   Captures déposées le 18/11 dans `D:\Vidéo` (hors dépôt) :
   - [ ] Apex : « Apex 53 kills octane.mp4 », « Apex 37 kills revenant.mp4 » (atelier `apex`).
-  - [ ] CS2 : « CS2- 33 Kills On Dust 2.mp4 » (atelier `cs2`).
+  - [x] CS2 : « CS2- 33 Kills On Dust 2.mp4 » (atelier `cs2`) : profil `cs2`, `killfeed` en mode `outline` (lignes
+    encadrées), vérité `verite/cs2/` : 32 kills sur 33, 13 morts sur 14 ; les assistances sortent en kills (6 sur 7).
+    Reste : distinguer assistance et kill (le texte de la ligne), une seule capture 480p mesurée.
   - [ ] Fortnite : « 81 Elimination Squads Zero Build Fortnite.mp4 » (atelier `fortnite`).
 - [ ] Assistant « nouveau jeu » : marquer un kill dans une vidéo → modèle du HUD découpé, profil proposé et testé.
 - [ ] Aperçus quasi instantanés : copies basse définition des parties, faites une fois.
