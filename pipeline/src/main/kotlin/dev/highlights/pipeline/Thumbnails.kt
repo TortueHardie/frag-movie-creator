@@ -33,7 +33,7 @@ private val log = KotlinLogging.logger {}
 class Thumbnails(private val ffmpeg: FfmpegService) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun make(video: Path, style: ThumbnailStyle = ThumbnailStyle.SOBER): Path {
+    suspend fun make(video: Path, style: ThumbnailStyle = ThumbnailStyle.DEFAULT): Path {
         if (!video.isRegularFile()) throw InputException(Message("error.input.videoNotFound", "file" to video))
         val report = reportOf(video) ?: throw InputException(Message("error.thumbnail.noReport", "file" to video))
         val (moments, total) = when {

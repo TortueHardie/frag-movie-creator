@@ -28,6 +28,6 @@ class ThumbnailCommand : PipelineCommand("thumbnail") {
         written.forEach { echo("  miniature  $it") }
     }
 
-    /** Habillage demandé, sobre par défaut. */
-    internal fun chosenStyle(): ThumbnailStyle = style ?: ThumbnailStyle.SOBER
+    /** Habillage demandé, vif par défaut ([ThumbnailStyle.DEFAULT]). */
+    internal fun chosenStyle(): ThumbnailStyle = style ?: ThumbnailStyle.DEFAULT
 }

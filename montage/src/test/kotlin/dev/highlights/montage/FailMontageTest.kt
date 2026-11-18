@@ -80,8 +80,9 @@ class FailMontageTest : FunSpec({
         val deaths = listOf(120, 400, 700, 1000, 1300)
         val plan = MontagePlanner.plan(MontagePlanner.groups(listOf(session(*deaths.map { it to "death" }.toTypedArray())), fails), m, fails)
         plan.clips.size shouldNotBe 0
-        // Chaque mort a son ralenti et son image figée : le placement leur a réservé la place.
-        plan.clips.all { c -> c.slow != null && c.speeds.any { it.kind == SpeedKind.FREEZE } } shouldBe true
+        // Chaque mort a son image figée ; le ralenti, un tiers d'entre elles (arrondi au-dessus), au moins une.
+        plan.clips.all { c -> c.speeds.any { it.kind == SpeedKind.FREEZE } } shouldBe true
+        plan.clips.count { it.slow != null } shouldBe kotlin.math.ceil(plan.clips.size / 3.0).toInt()
         plan.clips.forEach { c ->
             withClue("plan ${c.slot}") {
                 val slot = m.beatTime(c.slot.endBeat) - m.beatTime(c.slot.startBeat)
@@ -97,6 +98,37 @@ class FailMontageTest : FunSpec({
                 (c.anchor - c.start >= fails.fails.minLead) shouldBe true
             }
         }
+    }
+
+    test("ralenti : les morts les plus fortes, un tiers ; l'échange (kill juste avant) passe devant") {
+        val m = music()
+        // Six morts ; deux sont des échanges (un kill 1,5 s et 2 s avant), une autre suit un kill de trop loin (10 s).
+        val s = session(
+            300 to "death", 598 to "kill", 600 to "death", 890 to "kill", 900 to "death",
+            1198 to "kill", 1200 to "death", 1500 to "death", 1800 to "death",
+        )
+        val groups = MontagePlanner.groups(listOf(s), fails)
+        groups.filter { it.trade }.map { it.kills.single().inWholeSeconds } shouldContainExactly listOf(600L, 1200L)
+        val plan = MontagePlanner.plan(groups, m, fails)
+        val slowed = plan.clips.filter { it.slow != null }.map { it.anchor.inWholeSeconds }.toSet()
+        slowed.size shouldBe kotlin.math.ceil(plan.clips.size / 3.0).toInt()
+        // Les échanges présents dans le montage ont le ralenti.
+        plan.clips.filter { it.group.trade }.forEach { (it.anchor.inWholeSeconds in slowed) shouldBe true }
+        // Au moins une, même pour une seule mort ; toutes avec slowShare = 1.
+        val one = MontagePlanner.plan(MontagePlanner.groups(listOf(session(300 to "death")), fails), m, fails)
+        one.clips.single().slow shouldNotBe null
+        val all = base.copy(fails = FailMontage(slowShare = 1.0)).forFails()
+        MontagePlanner.plan(MontagePlanner.groups(listOf(s), all), m, all).clips.all { it.slow != null } shouldBe true
+    }
+
+    test("force d'une mort : échange, drop, intensité, ouverture") {
+        val slot = CutSlot(0, 8, 0, dropBeat = null)
+        val g = MontagePlanner.groups(listOf(session(300 to "death")), fails).single()
+        MontagePlanner.failStrength(1, slot, g.copy(score = 0.0)) shouldBe 0.0
+        MontagePlanner.failStrength(1, slot, g.copy(score = 0.0, trade = true)) shouldBe 1.0
+        MontagePlanner.failStrength(1, slot.copy(dropBeat = 4), g.copy(score = 0.0)) shouldBe 0.75
+        MontagePlanner.failStrength(1, slot, g.copy(score = 2.0)) shouldBe 0.5
+        MontagePlanner.failStrength(0, slot, g.copy(score = 0.0)) shouldBe 0.25
     }
 
     test("sans gel demandé, aucun segment figé") {

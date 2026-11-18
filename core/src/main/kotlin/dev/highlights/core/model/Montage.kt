@@ -180,7 +180,7 @@ data class MontageSettings(
         return copy(
             killEvent = style.deathEvent.ifEmpty { "death" },
             anchorEvents = deaths - style.deathEvent.ifEmpty { "death" },
-            fails = f.copy(enabled = true),
+            fails = f.copy(enabled = true, killEvent = killEvent),
             mergeGap = Duration.ZERO,
             preRoll = f.preRoll,
             postRoll = f.postRoll,
@@ -225,14 +225,24 @@ data class FailMontage(
     val slowFactor: Double = 0.5,
     val slowBefore: SerialDuration = 600.milliseconds,
     val slowAfter: SerialDuration = 300.milliseconds,
-    /** Image figée juste après le ralenti (durée dans le montage) ; zéro : aucune. */
+    /** Image figée juste après la mort ou son ralenti (durée dans le montage) ; zéro : aucune. */
     val freeze: SerialDuration = 700.milliseconds,
+    /**
+     * Part des morts qui ont le ralenti, les plus fortes (voir `MontagePlanner.failSlows`), au moins une : un ralenti
+     * sur chaque mort lassait (choix du joueur, 18/11). Les autres gardent l'image figée et le texte. 1 : toutes.
+     */
+    val slowShare: Double = 1.0 / 3,
+    /** Mort qui suit un kill du joueur de moins que ça : un échange, une mort plus forte (préférée pour le ralenti). */
+    val tradeWindow: SerialDuration = 3.seconds,
+    /** Événement des kills du joueur, pour reconnaître un échange ; posé par [MontageSettings.forFails]. */
+    val killEvent: String = "kill",
     /** Textes affichés sur la mort ; null : ceux de la langue de l'interface (`video.fail.*`). Vide : aucun texte. */
     val labels: List<String>? = null,
 ) {
     init {
         require(slowFactor in 0.1..1.0) { "montage.fails.slowFactor doit être entre 0,1 et 1" }
         require(!freeze.isNegative()) { "montage.fails.freeze ne peut pas être négatif" }
+        require(slowShare in 0.0..1.0) { "montage.fails.slowShare doit être entre 0 et 1" }
     }
 }
 
