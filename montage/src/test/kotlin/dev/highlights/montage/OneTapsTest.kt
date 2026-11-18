@@ -178,7 +178,11 @@ class OneTapsTest : FunSpec({
 
     test("plans d'un temps seulement si on les demande") {
         val groups = select(session(twelve)).groups
-        val plan = MontagePlanner.plan(groups, music(105.0), settings.copy(cuts = settings.cuts.copy(singleBeat = false)))
+        // Sans les parties rapides, qui donnent des plans d'un temps après la drop quel que soit le tempo depuis le 18/11.
+        val plan = MontagePlanner.plan(
+            groups, music(105.0),
+            settings.copy(cuts = settings.cuts.copy(singleBeat = false), fastParts = settings.fastParts.copy(enabled = false)),
+        )
         plan.clips.none { it.beats == 1 } shouldBe true
     }
 
