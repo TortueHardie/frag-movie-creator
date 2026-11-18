@@ -960,6 +960,7 @@ class AppController(
         platform = montage.platform,
         onlyKills = montage.pick,
         oneTaps = montage.oneTaps,
+        fails = if (montage.fails) true else null,
         fast = montage.fast,
         // Les cases de la fenêtre sont déjà passées ; le style garde ce qu'elle ne montre pas (accroche, rampes…).
         style = montage.style,

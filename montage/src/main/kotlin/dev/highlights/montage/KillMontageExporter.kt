@@ -153,6 +153,8 @@ data class MontageReportClip(
     val whip: Boolean = false,
     /** Souffle entendu sur ce whip pan : fichier de `whip.sounds` ou variante générée ; null : aucun. */
     val whoosh: String? = null,
+    /** Montage des morts : texte affiché sur la mort (OUPS, RIP…, voir [FailLabels]) ; null ailleurs. */
+    val failText: String? = null,
 )
 
 class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoders: EncoderSelector) {
@@ -253,7 +255,9 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             notices = request.notices,
             signature = signature,
             preview = request.preview,
-            clips = plan.clips.zip(plan.clipOffsets()).mapIndexed { i, (c, offset) ->
+            clips = plan.clips.zip(plan.clipOffsets()).mapIndexed { i, (c, offset) -> c to offset }.let { pairs ->
+                val fails = if (plan.settings.fails.enabled && plan.settings.text.enabled) FailLabels.assign(plan.clips, FailLabels.available(plan.settings.fails)) else plan.clips.map { null }
+                pairs.mapIndexed { i, (c, offset) ->
                 MontageReportClip(
                     c.group.media.path.toString(), c.start.toTimecode(), c.end.toTimecode(), c.kills.map { it.toTimecode() },
                     c.outputKills().map { ((offset + it).inWholeMilliseconds / 1000.0).roundTo(3) }, c.beats,
@@ -270,8 +274,9 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                     showcase = c.showcase,
                     whip = whips[i] != null,
                     whoosh = whooshes[i],
+                    failText = fails[i],
                 )
-            },
+            } },
         )
         paths.report.writeText(json.encodeToString(MontageReport.serializer(), report))
         return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file, notices = request.notices)

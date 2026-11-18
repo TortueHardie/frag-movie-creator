@@ -4,6 +4,7 @@ import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
 import dev.highlights.core.model.CutSettings
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.FailMontage
 import dev.highlights.core.model.KillStyle
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
@@ -123,7 +124,8 @@ data class RoundOutcome(val traded: Boolean = false, val ace: Boolean = false, v
  * [SLOW] : ralenti ; [RAMP] : rampe de vitesse d'un multi-kill ; [JUMP] : saut dans la source (jump cut à l'intérieur
  * d'un plan), joué en un instant : la portion n'est pas montrée.
  */
-enum class SpeedKind { SLOW, RAMP, JUMP }
+/** [FREEZE] : image figée du montage des morts (une image de la source étirée, voir [FailMontage]). */
+enum class SpeedKind { SLOW, RAMP, JUMP, FREEZE }
 
 /** Portion de la source jouée à une vitesse différente de 1 : 0,5 = ralenti ×2, 1,1 = légèrement accéléré (speed ramp). */
 data class SpeedSegment(val range: TimeRange, val factor: Double, val kind: SpeedKind = SpeedKind.RAMP) {
@@ -323,7 +325,7 @@ object MontagePlanner {
     fun groups(sessions: List<Session>, settings: MontageSettings): List<KillGroup> = sessions.flatMap { session ->
         val timeline = session.timeline
         val bounds = session.media.bounds
-        val allKills = timeline.events.filter { it.kind == settings.killEvent }.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
+        val allKills = timeline.events.filter { it.kind == settings.killEvent || it.kind in settings.anchorEvents }.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
         // Rythme rapide : un kill aussitôt suivi de la mort du joueur ne montrerait que l'écran de mort.
         val kills = if (!settings.skipDeathWithin.isPositive() || settings.killStyle.deathEvent.isEmpty()) allKills else {
             val died = timeline.events.filter { it.kind in settings.killStyle.deathKinds }.map { it.at + settings.killOffset }
@@ -1459,6 +1461,10 @@ object MontagePlanner {
         // Ralenti autour du kill d'ancrage, seulement s'il tient dans le slot : la vitesse descend par paliers avant le
         // kill, et le plein régime revient sur un temps (la relance tombe avec la musique).
         val slowSettings = settings.slowMotion
+        // Montage des morts : le placement a réservé ralenti et gel ([MontageSettings.forFails]) ; ici, seules les marges
+        // de part et d'autre comptent encore.
+        val leadNeed = if (settings.fails.enabled) settings.fails.minLead else cuts.minLead
+        val tailNeed = if (settings.fails.enabled) settings.fails.minTail else cuts.minTail
         val speeds = mutableListOf<SpeedSegment>()
         var sb = Duration.ZERO
         var sa = Duration.ZERO
@@ -1472,7 +1478,7 @@ object MontagePlanner {
             val snapped = if (slowSettings.snapToBeat) {
                 (1..(slot.endBeat - anchorBeat)).lastOrNull { k ->
                     val out = music.beatTime(anchorBeat + k) - anchorTime
-                    out * f <= maxAfter && postOut - out >= cuts.minTail
+                    out * f <= maxAfter && postOut - out >= tailNeed
                 }?.let { (music.beatTime(anchorBeat + it) - anchorTime) * f }
             } else {
                 null
@@ -1482,12 +1488,24 @@ object MontagePlanner {
             val pre = steps.fold(Duration.ZERO) { acc, s ->
                 acc + (minOf(s.range.end, anchor) - s.range.start).coerceAtLeast(Duration.ZERO) / s.factor
             }
-            if (steps.isNotEmpty() && preOut >= pre + cuts.minLead && postOut >= after / f + cuts.minTail) {
+            if (steps.isNotEmpty() && preOut >= pre + leadNeed && postOut >= after / f + tailNeed) {
                 speeds += steps
                 sb = before
                 sa = after
                 outBefore = pre
                 outAfter = after / f
+            }
+        }
+
+        // Montage des morts : l'image se fige juste après le ralenti (une image de la source étirée, la longueur du plan
+        // ne bouge pas), seulement si la place reste pour finir le plan.
+        val freeze = if (settings.fails.enabled) settings.fails.freeze else Duration.ZERO
+        if (freeze.isPositive()) {
+            val at = anchor + sa
+            if (postOut - outAfter >= freeze + tailNeed && at + FREEZE_SOURCE <= media.duration) {
+                speeds += SpeedSegment(TimeRange(at, at + FREEZE_SOURCE), FREEZE_SOURCE / freeze, SpeedKind.FREEZE)
+                sa += FREEZE_SOURCE
+                outAfter += freeze
             }
         }
 
@@ -1547,6 +1565,9 @@ object MontagePlanner {
             leadIn = if (single) cuts.minLead else Duration.ZERO, anchorHalf = anchorHalf,
         )
     }
+
+    /** Source étirée en image figée (montage des morts) : une image à 60 img/s, sans risque d'en montrer deux. */
+    internal val FREEZE_SOURCE = 16.milliseconds
 
     /**
      * Paliers du ralenti : la vitesse descend de 1 vers [factor] sur [before] (durée source, juste avant le kill), puis
