@@ -606,6 +606,11 @@ Bouton **Statistiques** au-dessus des analyses enregistrées (ou `app stats`) : 
 fois, soirée par soirée — kills par partie, K/D, part de tirs à la tête, meilleur round, doublés / triplés / aces /
 clutchs, et un graphique des kills par partie d'une soirée à l'autre. Chaque partie se rouvre d'un clic.
 
+Une même partie enregistrée deux fois (Outplayed et OBS en même temps, ou la même capture analysée deux fois) ne
+compte qu'une fois. Deux captures qui se chevauchent ne sont fusionnées que si leurs horaires viennent de
+l'enregistrement (date dans les métadonnées, ou nom daté par Outplayed, OBS ou ShadowPlay) : des captures copiées ou
+téléchargées n'ont que la date du fichier, et deux parties copiées à une minute d'écart restent deux parties.
+
 ```powershell
 & $app stats                     # dix dernières soirées, jeu par jeu, et la tendance
 & $app stats --game valorant --games --last 30
