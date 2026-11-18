@@ -27,6 +27,8 @@ data class QueuedJob(
     val id: Long,
     val title: String,
     val blocking: Boolean = false,
+    /** Lancé de lui-même (dossier surveillé, montage de soirée), pas à la main : il cède sa place aux traitements manuels. */
+    val auto: Boolean = false,
     val status: JobStatus = JobStatus.WAITING,
     val fraction: Double = 0.0,
     val stage: String = "",
@@ -42,7 +44,9 @@ data class QueuedJob(
 /**
  * File des traitements lourds (analyse, export, montage, aperçus, montage de soirée) : un seul à la fois, FFmpeg et la
  * mémoire ne supportent pas mieux (un export 9:16 seul prend déjà 1,5 Go, voir [MEMORY_EXPORT]) ; les suivants
- * attendent dans l'ordre, que l'utilisateur peut changer. Un échec ne bloque pas la suite : il reste affiché, lisible.
+ * attendent dans l'ordre, que l'utilisateur peut changer. Un traitement lancé à la main passe devant ceux lancés tout
+ * seuls ([QueuedJob.auto]) : un export demandé n'attend pas trois analyses du dossier surveillé ; celui en cours n'est
+ * jamais interrompu, et entre traitements manuels l'ordre reste celui d'arrivée. Un échec ne bloque pas la suite : il reste affiché, lisible.
  * Sans rien de Compose : testée seule ([onChange] reçoit la liste à chaque changement).
  */
 class JobQueue(
@@ -70,13 +74,22 @@ class JobQueue(
 
     /**
      * Ajoute [block] à la file (lancé aussitôt si rien ne tourne) ; il rend le fichier produit, ou null. [onProgress] :
-     * pour qui suit aussi l'avancement ailleurs (carte du dossier surveillé).
+     * pour qui suit aussi l'avancement ailleurs (carte du dossier surveillé). [auto] : lancé tout seul, il va au bout
+     * de la file ; sinon il se place derrière le dernier manuel en attente (l'ordre d'arrivée entre manuels, et les
+     * déplacements de l'utilisateur, tiennent), ou en tête de l'attente s'il n'y a que des automatiques.
      */
-    fun submit(title: String, blocking: Boolean = false, onProgress: ((ProgressSnapshot) -> Unit)? = null, block: suspend (ProgressReporter) -> Path?): Long {
+    fun submit(
+        title: String,
+        blocking: Boolean = false,
+        auto: Boolean = false,
+        onProgress: ((ProgressSnapshot) -> Unit)? = null,
+        block: suspend (ProgressReporter) -> Path?,
+    ): Long {
         val id = synchronized(lock) {
             val id = nextId++
             entries[id] = Entry(block, onProgress)
-            jobs = jobs + QueuedJob(id, title, blocking)
+            val job = QueuedJob(id, title, blocking, auto)
+            jobs = if (auto) jobs + job else jobs.toMutableList().apply { add(manualSlot(), job) }
             id
         }
         publish()
@@ -177,6 +190,14 @@ class JobQueue(
         }
         synchronized(lock) { running = launched }
         launched.start()
+    }
+
+    /** Place d'un nouveau traitement manuel dans [jobs] (voir [submit]). */
+    private fun manualSlot(): Int {
+        val lastManual = jobs.indexOfLast { it.status == JobStatus.WAITING && !it.auto }
+        if (lastManual >= 0) return lastManual + 1
+        val firstWaiting = jobs.indexOfFirst { it.status == JobStatus.WAITING }
+        return if (firstWaiting >= 0) firstWaiting else jobs.size
     }
 
     private fun update(id: Long, change: (QueuedJob) -> QueuedJob) {

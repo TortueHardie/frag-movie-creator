@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.highlights.core.i18n.I18n
@@ -76,7 +77,7 @@ private fun RunningRow(job: QueuedJob, actions: UiActions) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(job.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                JobTitle(job, MaterialTheme.typography.bodyLarge)
                 Text(job.stage.ifEmpty { tr("ui.job.preparing") }, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text(I18n.percent(job.fraction), style = MaterialTheme.typography.titleLarge, color = Palette.accent)
@@ -100,12 +101,28 @@ private fun RunningRow(job: QueuedJob, actions: UiActions) {
     }
 }
 
+/**
+ * Titre d'un traitement, suivi d'un petit libellé « auto » s'il s'est lancé tout seul : on voit pourquoi un export
+ * lancé à la main est passé devant lui.
+ */
+@Composable
+private fun JobTitle(job: QueuedJob, style: TextStyle) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(job.title, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        if (job.auto) {
+            Surface(shape = RoundedCornerShape(4.dp), color = Palette.surfaceHigh) {
+                Text(tr("ui.jobs.auto"), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted, maxLines = 1, modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
+            }
+        }
+    }
+}
+
 @Composable
 private fun WaitingRow(job: QueuedJob, index: Int, count: Int, actions: UiActions) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(tr("ui.jobs.position", "position" to index + 1), style = MaterialTheme.typography.labelLarge, color = Palette.textMuted, maxLines = 1, modifier = Modifier.width(56.dp))
         Column(Modifier.weight(1f)) {
-            Text(job.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            JobTitle(job, MaterialTheme.typography.bodyMedium)
             Text(tr("ui.jobs.waiting"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
         }
         TextButton(onClick = { actions.moveQueuedJob(job.id, -1) }, enabled = index > 0) { Text(tr("ui.jobs.up")) }
@@ -123,7 +140,7 @@ private fun FinishedRow(job: QueuedJob, actions: UiActions) {
             else -> tr("ui.jobs.cancelled") to Palette.textMuted
         }
         Column(Modifier.weight(1f)) {
-            Text(job.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            JobTitle(job, MaterialTheme.typography.bodyMedium)
             Text(
                 if (job.status == JobStatus.FAILED && job.error != null) "$label · ${job.error}" else label,
                 style = MaterialTheme.typography.bodySmall,

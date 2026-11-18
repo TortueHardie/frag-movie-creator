@@ -172,7 +172,7 @@ Pistes, de la plus simple à la plus lourde :
   rendue en pleine qualité (`--variants` / `--pick`, bouton « Aperçu de 3 versions »). Choix gardés dans `*.choix.json`.
   - [ ] Lecteur vidéo dans l'application (aujourd'hui : vignettes animées et lecteur du système).
   - [x] Apprendre des choix : historique `taste-history.json` (choix de variantes et corrections de l'éditeur), poids des
-    critères appris par préférence par paires, `montage.learnTaste` (désactivé par défaut), `app gouts`, `--reset`.
+    critères appris par préférence par paires, `montage.learnTaste` (actif par défaut depuis `gouts-actifs`, sans effet avant 10 choix), `app gouts`, `--reset`.
     - [ ] Valider sur de vrais choix de l'utilisateur (démonstration sur données synthétiques seulement).
     - [ ] Apprendre aussi des corrections de l'éditeur (kills écartés ou forcés : préférence de groupes, pas de critères).
     - [ ] Afficher les goûts appris dans l'application (aujourd'hui : `app gouts` seulement).

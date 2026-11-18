@@ -110,6 +110,22 @@ class MontageVariantsTest : FunSpec({
         score.total shouldBe (MontageScorer.total(criteria) plusOrMinus 1e-3)
     }
 
+    test("goûts actifs par défaut, mais sans historique (ou moins de 10 choix) : même plan, même note qu'avant") {
+        settings.learnTaste shouldBe true
+        val m = music()
+        val before = MontagePlanner.best(groups, m, settings.copy(learnTaste = false))
+        val choice = TasteChoice("2026-11-18T00:00:00Z", "wardogs", "musique.mp3", 0, List(3) { MontageScorer.score(before).criteria() })
+        listOf(emptyList(), List(TasteLearner.MIN_CHOICES - 1) { choice }).forEach { choices ->
+            val tasted = TasteLearner.applyTo(settings, choices)
+            tasted shouldBe settings
+            val after = MontagePlanner.best(groups, m, tasted)
+            MontageVariants.signature(after) shouldBe MontageVariants.signature(before)
+            MontageScorer.score(after) shouldBe MontageScorer.score(before)
+        }
+        TasteLearner.applyTo(settings, List(TasteLearner.MIN_CHOICES) { choice }).scoreWeights shouldNotBe null
+        TasteLearner.applyTo(settings.copy(learnTaste = false), List(TasteLearner.MIN_CHOICES) { choice }).scoreWeights shouldBe null
+    }
+
     test("aperçu : tailles ramenées à 360 pixels sur le petit côté, proportions gardées") {
         val edit = MontagePreview.edit(EditSettings(maxBitrate = "16M"))
         edit.vertical.size shouldBe FrameSize(360, 640)

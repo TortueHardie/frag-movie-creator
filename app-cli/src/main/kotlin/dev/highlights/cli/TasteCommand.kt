@@ -21,7 +21,7 @@ class TasteCommand : PipelineCommand("gouts") {
 
     override fun help(context: Context) =
         "Goûts appris des choix de variantes (montage --variants puis --pick) : poids des critères de la note, appris contre d'origine. " +
-            "Ne servent au montage que si le profil a montage.learnTaste: true, à partir de ${TasteLearner.MIN_CHOICES} choix."
+            "Actifs par défaut (montage.learnTaste), ils ne servent au montage qu'à partir de ${TasteLearner.MIN_CHOICES} choix ; --reset revient aux poids d'origine."
 
     override fun run() {
         val pipeline = Pipelines.create(env.config)
@@ -35,15 +35,16 @@ class TasteCommand : PipelineCommand("gouts") {
         val learned = state.learned
         echo("Historique : ${state.file}")
         echo("  ${state.choices} choix de variante, ${state.edits} montage(s) corrigé(s) dans l'éditeur")
+        val off = state.allProfiles - state.enabledProfiles.toSet()
         echo(
             "  apprentissage : " + when {
                 state.enabledProfiles.isEmpty() -> "désactivé (montage.learnTaste: false dans tous les profils)"
-                else -> "activé pour ${state.enabledProfiles.joinToString()}"
+                learned.active -> "actif, ${learned.choices} choix appris : les poids appris décident"
+                else -> "actif, ${learned.choices} choix sur ${TasteLearner.MIN_CHOICES} avant d'apprendre (d'ici là, les poids d'origine décident)"
             },
         )
-        if (!learned.active) {
-            echo("  ${learned.choices} choix utilisables sur ${TasteLearner.MIN_CHOICES} nécessaires : les poids d'origine décident.")
-        }
+        if (state.enabledProfiles.isNotEmpty() && off.isNotEmpty()) echo("  désactivé pour ${off.joinToString()} (montage.learnTaste: false)")
+        if (state.enabledProfiles.isNotEmpty()) echo("  pour revenir aux poids d'origine : app gouts --reset")
         echo("")
         echo("Poids des critères (somme constante ; bornés entre ×${TasteLearner.MIN_FACTOR} et ×${TasteLearner.MAX_FACTOR} de l'origine) :")
         echo("  %-10s %8s %8s %8s".format("critère", "origine", "appris", "écart"))
