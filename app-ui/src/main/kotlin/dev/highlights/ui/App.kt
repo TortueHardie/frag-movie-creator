@@ -81,7 +81,8 @@ fun App(state: UiState, actions: UiActions) {
             Column(Modifier.weight(1f).fillMaxHeight().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 state.update?.let { UpdateCard(it, busy = state.job != null, actions) }
                 state.job?.takeIf { it.queueId == null }?.let { JobCard(it, actions) }
-                JobsCard(state.jobs, actions)
+                // Part bornée de la colonne : la liste des moments et la barre d'export restent à l'écran (voir JobsCard).
+                if (state.jobs.isNotEmpty()) JobsCard(state.jobs, actions, Modifier.weight(1f, fill = false))
                 val session = state.session
                 if (session == null) {
                     if (state.job == null) {

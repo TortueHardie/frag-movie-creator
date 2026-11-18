@@ -883,12 +883,32 @@ class MontagePlannerTest : FunSpec({
     test("désignation d'un kill : « capture@instant » lu et écrit, à une seconde près, sans tenir compte de la casse") {
         KillRef.parse("partie.mp4@3:12.4") shouldBe KillRef("partie.mp4", 192.4.seconds)
         KillRef.parse("D:/x@y/partie.mp4@192.4") shouldBe KillRef("D:/x@y/partie.mp4", 192.4.seconds)
-        KillRef("partie.mp4", 192.44.seconds).toString() shouldBe "partie.mp4@3:12.4"
+        KillRef("partie.mp4", 192.44.seconds).toString() shouldBe "partie.mp4@3:12.440"
+        KillRef.parse("partie.mp4@3:12.440") shouldBe KillRef("partie.mp4", 192.44.seconds)
         KillRef("PARTIE.MP4", 192.seconds).matches(media, 192.8.seconds) shouldBe true
         KillRef("partie.mp4", 192.seconds).matches(media, 193.5.seconds) shouldBe false
         shouldThrow<dev.highlights.core.InputException> { KillRef.parse("partie.mp4") }
         MontagePin.parse("drop") shouldBe MontagePin.Drop
         MontagePin.parse("0:40") shouldBe MontagePin.At(40.seconds)
+    }
+
+    test("une désignation vise un seul kill : deux kills recalés à 0,1 s ne sont jamais écartés ensemble") {
+        // QA finale : un doublé à 0,4 s, recalé à 0,1 s d'écart ; en rythme rapide, deux plans presque identiques.
+        val a = 1504.45.seconds
+        val b = 1504.55.seconds
+        val together = listOf(KillGroup(media, listOf(a, b), 1.0, emptyList(), emptyList()))
+        val apart = listOf(KillGroup(media, listOf(a), 1.0, emptyList(), emptyList()), KillGroup(media, listOf(b), 1.0, emptyList(), emptyList()))
+        for (groups in listOf(together, apart)) {
+            withClue(groups.size) {
+                // Désignation exacte (celle de la frise et de --plan) : ce kill-là seulement.
+                MontageEdits.apply(groups, MontageConstraints(excluded = setOf(KillRef.of(media, b))), settings.killStyle).flatMap { it.kills } shouldBe listOf(a)
+                MontageEdits.apply(groups, MontageConstraints(excluded = setOf(KillRef.of(media, a))), settings.killStyle).flatMap { it.kills } shouldBe listOf(b)
+                // Désignation tapée à la main, approximative : le plus proche seulement.
+                MontageEdits.apply(groups, MontageConstraints(excluded = setOf(KillRef("partie.mp4", 1504.6.seconds))), settings.killStyle).flatMap { it.kills } shouldBe listOf(a)
+                // Relue depuis son texte (pont, action de la frise), elle vise toujours le même kill.
+                MontageEdits.apply(groups, MontageConstraints(excluded = setOf(KillRef.parse(KillRef.of(media, a).toString()))), settings.killStyle).flatMap { it.kills } shouldBe listOf(b)
+            }
+        }
     }
 
     test("kill exclu : retiré de son multi-kill, absent du montage, les autres kills toujours placés") {
