@@ -1,0 +1,64 @@
+# Vérité terrain relevée à l'image (18/11/2026) sur la vidéo « CS2- 33 Kills On Dust 2 » (854x480, YouTube) : chaque
+# ligne du killfeed où le joueur (Kryptek) apparaît, lue sur des planches agrandies (output/revue/cs2/). Kill = le joueur
+# est le premier nom de la ligne (seul ou « joueur + coéquipier ») ; 33 kills, autant que le titre. Mort = ligne sur fond
+# rouge plein où il est la victime. Instants : apparition de la ligne, à 0,5 s près.
+# Les assistances (« coéquipier + joueur », même contour rouge qu'un kill) ne sont pas des kills : le détecteur les
+# compte quand même (rien dans la forme ne les distingue), d'où la précision des kills. Relevées : 3m27s, 6m5s, 9m26s, 11m16s, 15m4.6s, 16m43.6s, 17m37s.
+capture: { name: CS2- 33 Kills On Dust 2.mp4, sizeBytes: 260042704, duration: 1696.171s }
+profile: cs2
+tolerance: 3s
+validated: null
+note: "Une partie de compétitif sur Dust 2 (score final 11-12), vidéo téléchargée de YouTube. Planches : output/revue/cs2/."
+kinds: [kill, death]
+events:
+  - { at: "26.8s", kind: death }
+  - { at: "1m32.5s", kind: kill }
+  - { at: "1m45.5s", kind: death, note: "mort trouvée par le détecteur, oubliée au premier relevé, vérifiée à l'image" }
+  - { at: "2m7.5s", kind: death }
+  - { at: "3m22.5s", kind: death }
+  - { at: "3m48.5s", kind: kill }
+  - { at: "4m7s", kind: death }
+  - { at: "4m57.5s", kind: kill }
+  - { at: "5m6.6s", kind: kill }
+  - { at: "5m7.4s", kind: death }
+  - { at: "6m17s", kind: kill }
+  - { at: "6m41.5s", kind: kill }
+  - { at: "6m56.7s", kind: death }
+  - { at: "8m10.5s", kind: kill }
+  - { at: "8m31s", kind: kill }
+  - { at: "8m32.8s", kind: kill }
+  - { at: "8m46s", kind: kill }
+  - { at: "9m22.5s", kind: death }
+  - { at: "10m40.3s", kind: kill }
+  - { at: "10m44.3s", kind: kill }
+  - { at: "11m35s", kind: kill }
+  - { at: "12m2s", kind: kill }
+  - { at: "12m15.8s", kind: kill }
+  - { at: "12m28.5s", kind: kill }
+  - { at: "12m59.5s", kind: death }
+  - { at: "14m50s", kind: kill }
+  - { at: "14m52s", kind: death }
+  - { at: "16m15s", kind: kill }
+  - { at: "16m29.4s", kind: kill }
+  - { at: "17m35.8s", kind: death }
+  - { at: "18m42.5s", kind: kill }
+  - { at: "18m50s", kind: kill, note: "la ligne remplace au même endroit celle du kill de 18:42, plus longue : vue comme la même ligne" }
+  - { at: "19m55.8s", kind: kill }
+  - { at: "20m0.3s", kind: kill }
+  - { at: "20m39.4s", kind: kill }
+  - { at: "20m55s", kind: kill }
+  - { at: "21m20.9s", kind: kill }
+  - { at: "22m20.3s", kind: kill }
+  - { at: "23m8.7s", kind: kill }
+  - { at: "23m28.4s", kind: kill }
+  - { at: "23m30s", kind: death }
+  - { at: "25m3s", kind: kill }
+  - { at: "25m17s", kind: kill }
+  - { at: "25m39.6s", kind: kill }
+  - { at: "25m45s", kind: kill }
+  - { at: "26m13s", kind: death }
+  - { at: "27m52.2s", kind: death }
+# Seuils = état mesuré au relevé : 32 kills sur 33 (la ligne de 18:50 prend la place de celle de 18:42), 10 lignes en
+# trop (8 assistances, 2 doublons d'une ligne qui monte) ; 13 morts sur 14, aucune en trop.
+thresholds:
+  killfeed: { kill: { precision: 0.75, recall: 0.96 }, death: { precision: 1.0, recall: 0.92 } }

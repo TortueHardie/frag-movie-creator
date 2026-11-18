@@ -92,8 +92,13 @@ object RewardsLog {
  * rien ou lit mal (texte blanc sur ciel clair). Une ligne ne fait que remonter : une ligne du même type vue au même
  * endroit ou plus bas depuis moins de [hold] est la même. Une ligne n'est comptée qu'après [minSightings] lectures
  * (une lecture isolée est souvent une confusion, ex. « SOIGNÉ » lu « SOJON ») et datée de sa première lecture.
+ *
+ * [maxDrop] : lignes dont une entrée peut aussi descendre, pour les notifications empilées où la nouvelle s'insère
+ * au-dessus et pousse les anciennes vers le bas (Apex : « KNOCKED DOWN » posé sur « ELIMINATED », 1:32 de la capture
+ * « Apex 53 kills octane » : l'élimination poussée d'une ligne était comptée deux fois). 0 : un journal qui ne fait
+ * que remonter (Wardogs).
  */
-class LogTracker(private val hold: Duration, private val rowPitch: Int, private val minSightings: Int) {
+class LogTracker(private val hold: Duration, private val rowPitch: Int, private val minSightings: Int, private val maxDrop: Int = 0) {
     private class Entry(val kind: String, var y: Int, var seen: Duration, val first: Duration, var count: Int, var emitted: Boolean, val text: String)
 
     private var entries = listOf<Entry>()
@@ -105,7 +110,7 @@ class LogTracker(private val hold: Duration, private val rowPitch: Int, private 
         val confirmed = mutableListOf<LogEvent>()
         for ((y, kind, text) in rows.sortedBy { it.first }) {
             val match = alive
-                .filter { it.kind == kind && y >= it.y - MAX_RISE * rowPitch - rowPitch / 2 && y <= it.y + rowPitch * 6 / 10 }
+                .filter { it.kind == kind && y >= it.y - MAX_RISE * rowPitch - rowPitch / 2 && y <= it.y + rowPitch * 6 / 10 + maxDrop * rowPitch }
                 .minByOrNull { abs(it.y - y) }
             val entry = if (match != null) {
                 alive -= match

@@ -52,6 +52,7 @@ import dev.highlights.montage.FeelSource
 import dev.highlights.montage.FeelVote
 import dev.highlights.montage.LearnedFeel
 import dev.highlights.montage.MontagePin
+import dev.highlights.montage.PreviewProxies
 import dev.highlights.montage.KillRef
 import dev.highlights.montage.MontageScorer
 import dev.highlights.montage.LearnedTaste
@@ -329,6 +330,9 @@ class HighlightPipeline(
 
     /** Kills et poses de l'arme déjà inspectés : un nouveau montage des mêmes parties ne redécode que les nouveaux. */
     private val inspections = InspectionCache(config.workDir.resolve("cache").resolve("kills"))
+
+    /** Passages réduits des captures lus par les aperçus de montage ([PreviewProxies]) ; gardés d'un aperçu à l'autre. */
+    val previewProxies = PreviewProxies(config.workDir.resolve("cache").resolve("proxies"))
 
     /** Musiques des derniers montages : une bibliothèque ne ressort pas toujours la même. */
     val musicHistory = MusicHistory(config.outputDir.resolve("sessions").resolve("music-history.json"))
@@ -960,24 +964,47 @@ class HighlightPipeline(
      * que le rendu final ([MontagePreview]), corrections de l'utilisateur ([MontageOptions.constraints]) comprises.
      * Écrits dans `<sortie>/apercus`, avec le fichier des variantes ([MontageVariantsFile]). La variante choisie se rend
      * ensuite par [killMontage] avec [MontageOptions.pick].
+     *
+     * Les extraits sont lus dans des copies réduites des captures ([PreviewProxies]), faites une fois pour toutes les
+     * variantes et gardées pour les aperçus suivants, et les aperçus se rendent en même temps quand elles sont petites
+     * ([MontagePreview.parallelism]). [onReady] reçoit chaque aperçu dès qu'il est prêt, dans l'ordre où ils finissent,
+     * un appel à la fois : on peut regarder le premier pendant que les autres se rendent.
      */
-    suspend fun montagePreviews(sessions: List<Session>, music: Path, requested: MontageOptions, count: Int, progress: ProgressReporter): MontagePreviews {
+    suspend fun montagePreviews(
+        sessions: List<Session>, music: Path, requested: MontageOptions, count: Int, progress: ProgressReporter,
+        onReady: (VariantPreview, Int) -> Unit = { _, _ -> },
+    ): MontagePreviews {
         val options = styled(requested)
         val planned = planMontage(sessions, music, options.copy(pick = null), progress, count = count)
         val plans = planned.variants
         val dir = (options.outputDir ?: config.outputDir).resolve(PREVIEW_DIR)
         val kind = montageKind(options)
+        val proxyStep = progress.child(tr("progress.proxies", "done" to 0, "total" to plans.size), PROXY_WEIGHT)
+        val frames = arrayOfNulls<List<Path>>(plans.size)
         val results = withJobDir { workDir ->
-            plans.mapIndexed { i, plan ->
-                val step = progress.child(tr("progress.preview", "index" to i + 1, "total" to plans.size), 0.86 / plans.size)
-                montageExporter.export(plan, montageRequest(planned, sessions, options, workDir.resolve("variante${i + 1}"), dir, "${kind}_variante${i + 1}", preview = true), step)
+            val base = montageRequest(planned, sessions, options, workDir, dir, preview = true)
+            val sources = previewProxies.prepare(ffmpeg, plans, base, proxyStep)
+            // Plusieurs aperçus à la fois quand les images lues sont petites (voir MontagePreview.PARALLELISM).
+            val gate = Semaphore(MontagePreview.parallelism(plans, sources, MontagePreview.edit(base.edit).fps))
+            val steps = plans.indices.map { i -> progress.child(tr("progress.preview", "index" to i + 1, "total" to plans.size), (0.86 - PROXY_WEIGHT) / plans.size) }
+            coroutineScope {
+                plans.mapIndexed { i, plan ->
+                    async {
+                        gate.withPermit {
+                            val request = montageRequest(planned, sessions, options, workDir.resolve("variante${i + 1}"), dir, "${kind}_variante${i + 1}", preview = true)
+                            montageExporter.export(plan, request.copy(proxies = sources), steps[i]).also { r ->
+                                val video = r.videos.values.first()
+                                val shown = runCatching { MontagePreview.frames(ffmpeg, video, plan.duration, previewDir.resolve("variantes").resolve("${video.nameWithoutExtension}_${MontageVariants.signature(plan)}")) }
+                                    .onFailure { log.warn { "Vignette animée impossible pour $video : ${it.message}" } }
+                                    .getOrDefault(emptyList())
+                                frames[i] = shown
+                                runCatching { synchronized(frames) { onReady(VariantPreview(MontageVariantEntry.of(i + 1, plan, plans.take(i), video, r.report), video, r.report, shown), plans.size) } }
+                                    .onFailure { log.warn { "Aperçu ${i + 1} prêt mais non montré : ${it.message}" } }
+                            }
+                        }
+                    }
+                }.awaitAll()
             }
-        }
-        val frames = results.mapIndexed { i, r ->
-            val video = r.videos.values.first()
-            runCatching { MontagePreview.frames(ffmpeg, video, plans[i].duration, previewDir.resolve("variantes").resolve("${video.nameWithoutExtension}_${MontageVariants.signature(plans[i])}")) }
-                .onFailure { log.warn { "Vignette animée impossible pour $video : ${it.message}" } }
-                .getOrDefault(emptyList())
         }
         val file = OutputNamer.reserve(dir, planned.profile.id, KillMontageExporter.recordingDate(sessions), emptyList(), kind = "${kind}_variantes").report
         val entries = plans.mapIndexed { i, plan -> MontageVariantEntry.of(i + 1, plan, plans.take(i), results[i].videos.values.first(), results[i].report) }
@@ -994,7 +1021,7 @@ class HighlightPipeline(
         log.info { "Aperçus : ${plans.size} variante(s) dans $dir, décrites dans ${file.fileName}" }
         return MontagePreviews(
             file,
-            results.mapIndexed { i, r -> VariantPreview(entries[i], r.videos.values.first(), r.report, frames[i]) },
+            results.mapIndexed { i, r -> VariantPreview(entries[i], r.videos.values.first(), r.report, frames[i].orEmpty()) },
             notices = listOfNotNull(planned.fewKills(options)),
         )
     }
@@ -1310,6 +1337,9 @@ class HighlightPipeline(
 
         /** Dossier des aperçus de variantes, dans le dossier de sortie. */
         const val PREVIEW_DIR = "apercus"
+
+        /** Part de la progression des aperçus prise par leurs proxies : un décodage pleine taille de chaque passage, la première fois. */
+        private const val PROXY_WEIGHT = 0.3
     }
 }
 

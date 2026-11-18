@@ -5,15 +5,24 @@ Transforme des captures de gameplay brutes (Outplayed, OBS, ShadowPlay…) en mo
 Deux interfaces sur le même moteur : une **application de bureau** (Compose) et une **ligne de commande**.
 
 - **Détection des moments** : volume du jeu (EBU R128), prises de parole et rires (YAMNet), événements enregistrés par
-  Outplayed (kills, morts, assistances), killfeed lu à l'image quand Outplayed n'est pas là (VALORANT), icônes du HUD
-  et journal des gains lu par OCR (Wardogs).
+  Outplayed (kills, morts, assistances), killfeed lu à l'image quand Outplayed n'est pas là (VALORANT, Counter-Strike 2),
+  icônes du HUD et journal des gains lu par OCR (Wardogs), compteur d'éliminations du HUD lu
+  chiffre par chiffre (Fortnite), notifications de kill
+  lues par OCR (Apex Legends).
 - **Highlights** : les meilleurs moments fusionnés et exportés en 16:9 et/ou 9:16, encodés par le GPU (AMD, NVIDIA,
   Intel) avec repli logiciel.
 - **Étalonnage** (`edit.grade` d'un profil, pour les highlights comme pour le montage) : table de correspondance
   `.cube` (chemin relatif au dossier de configuration), saturation, contraste et vignettage. Sert à unifier des
   captures venues de sessions ou de jeux différents. Neutre tant qu'on n'y touche pas.
 - **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
-- **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Wardogs, et un profil par défaut.
+- **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Counter-Strike 2, Wardogs, Fortnite, Apex Legends, et un profil par défaut.
+  - **Fortnite** (`fortnite.yaml`, fichiers dont le chemin contient « Fortnite ») : les éliminations du joueur sont lues
+    sur son compteur en haut à droite (détecteur `hud-counter` : chiffres comparés à `config/templates/fortnite/digit_*.png`,
+    deux images par seconde, puis suite croissante la plus probable, remise à zéro à chaque partie). Les mises à terre
+    (« KNOCKED! ») sont relevées à part (`knock`) et ne font un plan du montage que si `montage.anchorEvents: [knock]`.
+    Réglé et vérifié sur une seule vidéo YouTube 854x480 de trois parties en escouade : 31 éliminations sur 31
+    (`verite/fortnite/`), aucune en trop. Non vérifié : captures 1080p, HUD déplacé dans les options du jeu, parties
+    où le joueur meurt et regarde un coéquipier (son compteur s'affiche alors à la place).
 - **Mémoire des analyses** : une capture déjà analysée n'est pas réanalysée. La rechoisir (application ou ligne de
   commande) reprend son analyse instantanément, moments décochés compris ; seule la sélection (seuil, cible) est
   recalculée. Elle est refaite d'office si le fichier change ou si les détecteurs, fenêtres ou pistes audio de son
@@ -823,6 +832,32 @@ ligne est un événement.
   joueur sans compter de mort (hypothèse, non traitée). La géométrie 16:9 n'était pas en cause : la zone mesurée en
   21:9 tombe juste sur le killfeed en 16:9.
 
+### Counter-Strike 2 : lignes encadrées (`outline`)
+
+Dans CS2, le joueur n'a pas de portrait dans le killfeed : c'est sa **ligne entière** qui est marquée, entourée d'un
+contour rouge quand il tue (ou aide), sur fond rouge plein quand il meurt. Avec `outline` (profil `cs2`), le détecteur
+`killfeed` cherche ces lignes au lieu du cadre d'un portrait ; `fillBelow` et les réglages du cadre ne servent plus.
+
+- Rouge du joueur (`color`) : rouge nettement au-dessus du vert et du bleu, eux égaux (contour 163/92/100 sur un mur
+  clair, fond 96/23/21) ; le sable et les murs au soleil (180/135/97) restent à 0.
+- En 854x480, le contour fait 2 px en haut et en bas mais un seul sur les côtés, et la couleur sous-échantillonnée en
+  efface des morceaux sur un ciel ou un mur clair (côtés, moitié gauche d'un trait, trous de 8 à 14 px sous les
+  lettres, d'où `bridge: 16`). Une ligne est donc une **paire de traits horizontaux** qui finissent au même bord droit,
+  l'un 13 à 16 px sous l'autre, l'intérieur presque vide (`maxInnerFill`) ; deux lignes du joueur empilées (doublé)
+  sont deux kills. Une bande de la hauteur d'une ligne, colorée à 50 % au moins (`deathFill`), est une mort ; collée
+  au bord de l'écran ou loin de lui (`minEdgeGap`, `maxEdgeGap`), c'est du décor (voile rouge des dégâts, panneaux).
+- Suivi : le bord gauche d'une ligne n'étant pas sûr, une ligne est rapprochée du suivi le plus proche en hauteur ; une
+  ligne qui dépasse à gauche de 45 px (`newLineGrowth`) le suivi qu'elle rejoint en est une nouvelle (une ligne plus
+  longue prend la place de la plus ancienne). Une ligne doit être vue 1 s (`minSightings: 10` à 10 img/s).
+- Mesuré sur « CS2- 33 Kills On Dust 2 » (854x480, 28 min, `verite/cs2/`) : **32 kills sur 33**, 13 morts sur 14, aucune
+  mort en trop ; 10 kills en trop : 6 assistances et 4 doublons d'une ligne qui monte. Manqués : un kill dont la ligne,
+  plus courte, remplace au même endroit celle du kill d'avant ; une mort sur un écran déjà rouge. Analyse : 40 s.
+- Limite : le contour marque aussi les assistances (« coéquipier + joueur ») ; rien dans la forme ne les distingue
+  d'un kill (seul le texte le ferait, illisible pour l'OCR de Windows en 480p, essayé sur le message « +$300 for
+  neutralizing an enemy » du chat). Elles sortent donc en kills.
+- 9:16 : bandeau du haut, killfeed et ligne du bas (vie, munitions) sont replacés (`vertical.hud`), la mini-carte
+  non.
+
 ## Journal des gains (Wardogs)
 
 `ocr-log` lit un journal textuel affiché à l'écran : dans Wardogs, la liste des actions récompensées en haut à droite
@@ -843,6 +878,28 @@ Windows (rien à installer), par lots et en parallèle pendant le décodage de l
   `montage.killStyle.downedAsDeath: true` le ferait compter comme une mort (rounds, kill aussitôt payé, K/D) ; désactivé.
 - Sur une partie de 1 h 25 : 14 kills sur 14, 3 aides sur 3, 8 réanimations sur 10, aucun faux positif (les icônes
   seules : 12 kills et un faux, aucune aide, 4 réanimations). Environ 1 min d'analyse pour 1 h 53 de vidéo.
+
+## Notifications de kill (Apex Legends)
+
+Le profil `apex` lit avec `ocr-log` la notification affichée sous le réticule, au lieu d'un journal : « KNOCKED DOWN
+<pseudo> » donne un événement `knock` (ennemi mis à terre : la fusillade), « ELIMINATED <pseudo> » et « SQUAD WIPE »
+un `kill`. Les notifications s'empilent, la nouvelle au-dessus des autres : `maxDrop: 1` laisse une ligne déjà vue
+descendre d'un cran sans la recompter (sans lui, une élimination poussée par un « KNOCKED DOWN » comptait deux fois).
+Jeu en anglais (`language: en-US`).
+
+- Le montage s'ancre sur les `kill` ; les `knock` comptent pour les moments forts des highlights (`eventBoosts`) et la
+  secousse du mode story. Ni ace ni clutch déduits (escouades de trois, pas de rounds).
+- 9:16 : compteur (escouades restantes, kills, dégâts) et killfeed, en haut à droite, sont replacés en haut à gauche ;
+  rien en bas, pour ne pas couvrir la notification.
+- Mesuré sur « Apex 53 kills octane » (compilation YouTube de trois parties, 854x480, image teintée) contre le
+  compteur de kills du HUD, relevé à l'œil (`verite/apex/`) : 33 kills sur 56 crédits, aucun en trop. Le reste est
+  surtout crédité d'un coup par un « SQUAD WIPE » (dernier de l'escouade à terre : les ennemis que le joueur avait mis
+  à terre meurent avec lui, 2 ou 3 kills sous une seule notification). Deuxième capture, relevée après le réglage
+  (« Apex 37 kills revenant », une partie, autre légende) : 27 kills sur 36, aucun en trop ; la notification « SQUAD
+  WIPE » y arrive jusqu'à 4,5 s après le crédit (le joueur ouvre une death box au moment du kill : notification
+  cachée), d'où une tolérance de 5 s pour cette vérité. Le compteur lui-même (chiffres de ~6 px en
+  480p) n'est pas lisible par l'OCR de Windows ; une lecture par modèles d'image n'a pas été tentée. Morts du joueur
+  non lues : aucune dans cette capture.
 
 ## Voix et rires
 
@@ -1139,10 +1196,33 @@ Un rendu pleine qualité du montage kills prend plusieurs minutes : le juger à 
 3 versions » du dialogue du montage, ou `montage … --variants 3` : trois versions du même montage sont rendues en petit
 (360 pixels sur le petit côté, vertical d'abord), vite (x264 `ultrafast`, sans flou par vecteurs), dans
 `<sortie>\apercus\`. Chaque plan y garde exactement son nombre d'images : coupes, kills sur les temps et son sont ceux
-du rendu final. Mesuré sur deux parties WARDOGS et « Rome Is Burning » : un aperçu se rend en 11,6 s contre 25,5 s pour le
-rendu final (35 s de montage), les trois aperçus en 47 s contre 35 s pour un seul rendu final. Le décodage des
-captures 3440x1440 domine : l'aperçu les décode en logiciel, sans filtre de boucle H.264 (plus rapide ici que le
-décodage matériel, dont chaque image pleine taille redescend de la carte graphique).
+du rendu final. L'aperçu décode en logiciel, sans filtre de boucle H.264 (plus rapide ici que le décodage matériel,
+dont chaque image pleine taille redescend de la carte graphique).
+
+**Aperçus rapides** : deux choses les accélèrent.
+- **Copies réduites (proxies)** : chaque passage de capture que lisent les aperçus est réduit une fois (à la taille
+  que l'aperçu montre vraiment : 640 lignes pour WARDOGS 3440x1440 en 9:16), avec une image clé toutes les 0,5 s, et
+  gardé dans `%TEMP%\highlights\cache\proxies` pour les aperçus suivants (autre musique, autre style). Mêmes
+  horodatages d'images que la capture et son copié tel quel : coupes, kills et son ne bougent pas ; le cadrage (9:16,
+  HUD recollé, zoom vers le réticule) se calcule en coordonnées relatives, donc juste sur la copie. Les copies d'une
+  capture modifiée ou effacée sont jetées ; au-delà de 3 Go, les moins récemment servies partent. Une capture déjà
+  petite (VALORANT 480p) est lue telle quelle. Le rendu final lit toujours les captures d'origine.
+- **Rendus simultanés** : le graphe de filtres d'un montage n'occupe qu'un cœur ; les trois aperçus se rendent donc en
+  même temps quand les images lues sont petites (copies réduites, captures ≤ 1080p). Dans l'application, la fenêtre des
+  versions s'ouvre dès que la première est prête.
+
+Mesuré (3 versions, « GO2 - Spitfire », sous le verrou de rendu ; détail dans `output\revue\apercu-rapide\`) :
+
+| parties | avant | après, 1re fois | après, copies déjà faites |
+|---|---|---|---|
+| WARDOGS 22-55-31 (2 versions, 19 plans) | 34,7 s | 28,8 s | 15,0 s |
+| WARDOGS 20-4-19 (3 versions, 4 plans) | 9,9 s | 8,5 s | 4,7 s |
+| VALORANT « 44 kills » 480p (3 versions, ~50 plans) | 143,8 s | 71,0 s | 64,3 s |
+| VALORANT « game » 480p (2 versions) | 32,7 s | 21,7 s | 21,6 s |
+
+Ce qui reste cher : le graphe lui-même, surtout le flou radial des coupes (un `scale` recalculé à chaque image ; sans
+lui, 10,3 s au lieu de 15,0 s sur WARDOGS 22-55-31, 34 s au lieu de 64 s sur « 44 kills »), gardé dans l'aperçu parce
+qu'il s'y voit.
 
 - **Les versions** : celles que le planificateur note déjà (échelle de la grille de coupes × place de la drop) et le
   plan de base, classées comme il les classe : la version 1 est celle qu'un montage sans aperçu aurait rendue. Les

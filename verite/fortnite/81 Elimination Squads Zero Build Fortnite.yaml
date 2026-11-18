@@ -1,0 +1,47 @@
+# Vérité terrain relevée à l'œil sur le compteur d'éliminations du joueur (haut droite), image par image autour de
+# chaque changement : planche output/revue/fortnite/verite_compteur_*.png. Instants = première image où le compteur
+# affiche la nouvelle valeur (à la seconde près), soit l'élimination créditée, pas la mise à terre. Une équipe éliminée
+# d'un coup donne plusieurs kills au même instant (00:39 : 0 → 4). Les trois parties finissent à 11, 13 et 7 (écran de
+# fin vérifié) : 31 éliminations du joueur. Le titre de la vidéo (« 81 ») compte l'escouade entière (second compteur).
+# Mises à terre (« KNOCKED! ») non relevées : elles ne sont pas dans kinds.
+capture: { name: 81 Elimination Squads Zero Build Fortnite.mp4, sizeBytes: 395384303, duration: 2612.315s }
+profile: fortnite
+tolerance: 3s
+validated: null
+note: "Vidéo YouTube 854x480, trois parties en escouade (Zéro construction) montées bout à bout, toutes gagnées."
+kinds: [kill]
+events:
+  - { at: "00:39", kind: kill, note: "compteur 0→4" }
+  - { at: "00:39", kind: kill }
+  - { at: "00:39", kind: kill }
+  - { at: "00:39", kind: kill }
+  - { at: "04:46", kind: kill, note: "compteur 4→5" }
+  - { at: "06:22", kind: kill, note: "compteur 5→6" }
+  - { at: "06:28", kind: kill, note: "compteur 6→7" }
+  - { at: "08:07", kind: kill, note: "compteur 7→8" }
+  - { at: "09:15", kind: kill, note: "compteur 8→9" }
+  - { at: "09:38", kind: kill, note: "compteur 9→10" }
+  - { at: "12:04", kind: kill, note: "compteur 10→11" }
+  - { at: "12:58", kind: kill, note: "compteur 0→2" }
+  - { at: "12:58", kind: kill }
+  - { at: "14:36", kind: kill, note: "compteur 2→3" }
+  - { at: "15:59", kind: kill, note: "compteur 3→5" }
+  - { at: "15:59", kind: kill }
+  - { at: "19:32", kind: kill, note: "compteur 5→6" }
+  - { at: "20:08", kind: kill, note: "compteur 6→7" }
+  - { at: "20:31", kind: kill, note: "compteur 7→9" }
+  - { at: "20:31", kind: kill }
+  - { at: "21:50", kind: kill, note: "compteur 9→10" }
+  - { at: "21:54", kind: kill, note: "compteur 10→11" }
+  - { at: "24:20", kind: kill, note: "compteur 11→12" }
+  - { at: "26:17", kind: kill, note: "compteur 12→13" }
+  - { at: "30:03", kind: kill, note: "compteur 0→1" }
+  - { at: "32:37", kind: kill, note: "compteur 1→2" }
+  - { at: "32:40", kind: kill, note: "compteur 2→3" }
+  - { at: "33:47", kind: kill, note: "compteur 3→4" }
+  - { at: "36:59", kind: kill, note: "compteur 4→5" }
+  - { at: "37:28", kind: kill, note: "compteur 5→7" }
+  - { at: "37:28", kind: kill }
+# Seuils = état mesuré au relevé.
+thresholds:
+  game-events: { kill: { precision: 1.0, recall: 1.0 } }

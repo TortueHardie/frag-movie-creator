@@ -52,6 +52,11 @@ data class OcrLogParams(
     /** Écart vertical entre deux lignes du journal, et écart en dessous duquel deux morceaux lus sont la même ligne. */
     val rowPitch: Int = 32,
     val rowTolerance: Int = 10,
+    /**
+     * Lignes dont une ligne déjà vue peut descendre d'une image à l'autre : notifications empilées, la nouvelle au-dessus
+     * des anciennes (Apex). 0 : journal qui ne fait que remonter (Wardogs). Voir [LogTracker].
+     */
+    val maxDrop: Int = 0,
     /** Une ligne non relue depuis cette durée est oubliée (une ligne reste affichée une dizaine de secondes). */
     val hold: SerialDuration = 6.seconds,
     /** Lectures nécessaires avant de compter une ligne. */
@@ -73,7 +78,7 @@ data class OcrLogParams(
 ) {
     init {
         require(rules.isNotEmpty()) { "au moins une règle attendue" }
-        require(referenceHeight > 0 && rowPitch > 0 && minSightings >= 1 && parallelism >= 1 && fps > 0) { "paramètres invalides : $this" }
+        require(referenceHeight > 0 && rowPitch > 0 && maxDrop >= 0 && minSightings >= 1 && parallelism >= 1 && fps > 0) { "paramètres invalides : $this" }
     }
 }
 
@@ -169,7 +174,7 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
                 log.warn(e) { "$id : OCR en échec, icônes seules" }
                 emptyMap()
             }
-            val tracker = LogTracker(params.hold, params.rowPitch, params.minSightings)
+            val tracker = LogTracker(params.hold, params.rowPitch, params.minSightings, params.maxDrop)
             val logEvents = mutableListOf<LogEvent>()
             var readable = 0
             for (index in times.indices) {

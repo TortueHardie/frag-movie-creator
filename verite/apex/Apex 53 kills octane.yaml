@@ -1,0 +1,73 @@
+# Vérité terrain : crédits du compteur de kills du HUD (en haut à droite, tête de mort), lus à l'œil à 1 img/s sur
+# toute la capture (planches dans output/revue/apex/). Trois parties : 20, 23 et 13 kills, soit 56 (le titre de la
+# vidéo dit 53). Chaque événement est l'instant où le compteur monte ; quand il monte de 2 ou 3 d'un coup (« SQUAD
+# WIPE » : le dernier de l'escouade tombe et les ennemis que le joueur avait mis à terre meurent avec lui), autant
+# d'événements au même instant. Pas de mort du joueur à l'écran ; les « knock » (ennemis mis à terre) ne sont pas
+# relevés un par un.
+# Capture : compilation YouTube réencodée en 854x480, image teintée et montée (coupes) : pas une capture brute.
+capture: { name: Apex 53 kills octane.mp4, sizeBytes: 353057515, duration: 2259.116s }
+profile: apex
+tolerance: 3s
+validated: null
+note: "Relevé du compteur par Claude le 18/11/2026, à faire valider par le joueur. Les kills crédités en rafale par un SQUAD WIPE n'ont qu'une notification à l'écran : ils limitent le rappel à ~0,57."
+kinds: [kill]
+events:
+  - { at: "0:22", kind: kill, note: "partie 1, compteur 1" }
+  - { at: "0:57", kind: kill, note: "partie 1, compteur 2" }
+  - { at: "1:30", kind: kill, note: "partie 1, compteur 3" }
+  - { at: "1:48", kind: kill, note: "partie 1, compteur 4" }
+  - { at: "1:49", kind: kill, note: "partie 1, compteur 5" }
+  - { at: "2:22", kind: kill, note: "partie 1, compteur 6" }
+  - { at: "4:07", kind: kill, note: "partie 1, compteur 7" }
+  - { at: "4:22", kind: kill, note: "partie 1, compteur 8" }
+  - { at: "6:12", kind: kill, note: "partie 1, compteur 9" }
+  - { at: "6:13", kind: kill, note: "partie 1, compteur 10" }
+  - { at: "8:08", kind: kill, note: "partie 1, compteur 11" }
+  - { at: "9:27", kind: kill, note: "partie 1, compteur 12" }
+  - { at: "9:28", kind: kill, note: "partie 1, compteur 13" }
+  - { at: "10:28", kind: kill, note: "partie 1, compteur 14" }
+  - { at: "11:14", kind: kill, note: "partie 1, compteur 15" }
+  - { at: "12:01", kind: kill, note: "partie 1, compteur 16" }
+  - { at: "12:05", kind: kill, note: "partie 1, compteur 17" }
+  - { at: "14:02", kind: kill, note: "partie 1, compteur 18" }
+  - { at: "14:24", kind: kill, note: "partie 1, compteur 19" }
+  - { at: "16:40", kind: kill, note: "partie 1, compteur 20" }
+  - { at: "19:52", kind: kill, note: "partie 2, compteur 1" }
+  - { at: "19:53", kind: kill, note: "partie 2, compteur 2" }
+  - { at: "19:53", kind: kill, note: "partie 2, compteur 3" }
+  - { at: "20:47", kind: kill, note: "partie 2, compteur 4" }
+  - { at: "21:31", kind: kill, note: "partie 2, compteur 5" }
+  - { at: "21:45", kind: kill, note: "partie 2, compteur 6" }
+  - { at: "22:51", kind: kill, note: "partie 2, compteur 7" }
+  - { at: "23:15", kind: kill, note: "partie 2, compteur 8" }
+  - { at: "24:06", kind: kill, note: "partie 2, compteur 9" }
+  - { at: "24:11", kind: kill, note: "partie 2, compteur 10" }
+  - { at: "24:33", kind: kill, note: "partie 2, compteur 11" }
+  - { at: "26:09", kind: kill, note: "partie 2, compteur 12" }
+  - { at: "26:10", kind: kill, note: "partie 2, compteur 13" }
+  - { at: "26:57", kind: kill, note: "partie 2, compteur 14" }
+  - { at: "26:58", kind: kill, note: "partie 2, compteur 15" }
+  - { at: "27:06", kind: kill, note: "partie 2, compteur 16" }
+  - { at: "27:12", kind: kill, note: "partie 2, compteur 17" }
+  - { at: "28:49", kind: kill, note: "partie 2, compteur 18" }
+  - { at: "28:49", kind: kill, note: "partie 2, compteur 19" }
+  - { at: "28:49", kind: kill, note: "partie 2, compteur 20" }
+  - { at: "31:08", kind: kill, note: "partie 2, compteur 21" }
+  - { at: "31:08", kind: kill, note: "partie 2, compteur 22" }
+  - { at: "31:08", kind: kill, note: "partie 2, compteur 23" }
+  - { at: "32:23", kind: kill, note: "partie 3, compteur 1" }
+  - { at: "32:24", kind: kill, note: "partie 3, compteur 2" }
+  - { at: "32:24", kind: kill, note: "partie 3, compteur 3" }
+  - { at: "33:09", kind: kill, note: "partie 3, compteur 4" }
+  - { at: "33:09", kind: kill, note: "partie 3, compteur 5" }
+  - { at: "33:09", kind: kill, note: "partie 3, compteur 6" }
+  - { at: "34:08", kind: kill, note: "partie 3, compteur 7" }
+  - { at: "34:11", kind: kill, note: "partie 3, compteur 8" }
+  - { at: "35:50", kind: kill, note: "partie 3, compteur 9" }
+  - { at: "35:50", kind: kill, note: "partie 3, compteur 10" }
+  - { at: "35:50", kind: kill, note: "partie 3, compteur 11" }
+  - { at: "36:27", kind: kill, note: "partie 3, compteur 12" }
+  - { at: "36:27", kind: kill, note: "partie 3, compteur 13" }
+# Seuils = état mesuré au relevé (app verite, 18/11) : 33 kills sur 56, aucun en trop.
+thresholds:
+  game-events: { kill: { precision: 0.95, recall: 0.55 } }

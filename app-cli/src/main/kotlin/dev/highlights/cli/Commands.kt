@@ -336,15 +336,22 @@ class MontageCommand : PipelineCommand("montage") {
     /** Aperçus des variantes, leurs notes, et la commande pour rendre l'une d'elles. */
     private fun previews(count: Int, progress: ConsoleProgress, constraints: MontageConstraints) {
         val started = System.nanoTime()
+        var firstReady: Long? = null
+        lateinit var proxies: String
         val result = execute {
             val loaded = sessions.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).montagePreviews(loaded, music, montageOptions(constraints, defaultStyle()), count, ProgressTracker(listener = progress).root)
+                val pipeline = Pipelines.create(env.config)
+                pipeline.montagePreviews(loaded, music, montageOptions(constraints, defaultStyle()), count, ProgressTracker(listener = progress).root) { _, _ ->
+                    if (firstReady == null) firstReady = System.nanoTime()
+                }.also { proxies = pipeline.previewProxies.usage().toString() }
             } finally {
                 progress.finish()
             }
         }
-        echo("${result.previews.size} aperçu(s) en %.0f s (%s) :".format((System.nanoTime() - started) / 1e9, result.variantsFile))
+        val first = firstReady?.let { ", la première prête en %.0f s".format((it - started) / 1e9) } ?: ""
+        echo("${result.previews.size} aperçu(s) en %.0f s%s (%s) :".format((System.nanoTime() - started) / 1e9, first, result.variantsFile))
+        echo("  proxies d'aperçu : $proxies")
         if (result.previews.size < count) echo("  seulement ${result.previews.size} variante(s) assez différentes sur les $count demandées")
         result.previews.forEach { p ->
             val e = p.entry

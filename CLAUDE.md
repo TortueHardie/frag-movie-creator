@@ -75,7 +75,8 @@ style) → `KillInspector.inspect` (`ShotLocator` recale sur l'attaque du tir ; 
 (variantes échelle×dropShift notées par `MontageScorer`) → `ScopeCuts.apply` (raccords sur la pose, retiming) →
 `KillMontageExporter.export` (`MontageRenderBuilder.build`, `MontageReport` JSON avec `MontageScore`).
 Aperçus (`HighlightPipeline.montagePreviews`) : même préparation (`planMontage(…, count = n)`, privée, derrière `planKillMontage`), `MontageVariants.distinct` au lieu
-de `best`, chaque variante rendue en aperçu (`MontageExportRequest.preview`) dans `<sortie>/apercus` + `*_variantes.json` ;
+de `best`, `PreviewProxies.prepare` (passages réduits de toutes les variantes, une fois) puis chaque variante rendue en aperçu
+(`MontageExportRequest.preview` + `proxies`, `onReady` à chaque aperçu prêt) dans `<sortie>/apercus` + `*_variantes.json` ;
 puis `killMontage` avec `MontageOptions.pick` (`VariantPick`) rend la variante n en pleine qualité (empreinte vérifiée) et écrit `*.choix.json`.
 
 ### 3d. UI
@@ -154,7 +155,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `HudTemplateDetector.kt` — type **`hud-template`** : correspondance de modèles d'images du HUD. `HudMode{EVENTS,PRESENCE}`, `Sampling{AUTO,KEYFRAMES,FPS}`,
   `MatchMethod{ncc, bright}`, `TemplateSpec(name, kind, file, region, anchor, threshold, scales, minConsecutive, brightness, minContrast…)`.
   Mode presence + `role: gate` = détection « en jeu ».
-- `OcrLogDetector.kt` — type **`ocr-log`** : OCR Windows d'un journal à l'écran (Wardogs), `rules` → kinds, fusion avec icônes (`icons: HudTemplateParams`) via `EventFusion` ;
+- `OcrLogDetector.kt` — type **`ocr-log`** : OCR Windows d'un journal à l'écran (Wardogs) ou d'une notification empilée (Apex, `maxDrop`), `rules` → kinds, fusion avec icônes (`icons: HudTemplateParams`) via `EventFusion` ;
   `notice: NoticeParams` (libellé sous l'icône, 2e zone OCR agrandie ×2, ses `rules`) corrige ou écarte le type de chaque icône avant la fusion (`NoticeLabels.relabel`).
   Wardogs : `downed` = « EN ATTENTE DE RÉANIMATION » (à terre, pas une mort).
 - `KillfeedDetector.kt` — type **`killfeed`** : kills/morts du joueur lus dans le killfeed par la couleur de ses lignes (jaune VALORANT, zone `FrameZone.color`).
@@ -166,10 +167,17 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   Basse définition (hauteur < `fillBelow` 720) : `FrameShape.solid`, aplat jaune pur du portrait (`fillColor`, `fill*`), vu `fillMinSeen` 2 s,
   suivi en attente oublié après `fillPendingGap` (`FeedTracker.pendingGap`), toute la vidéo décodée (pas de `keyframeScan`). Mesuré sur 2 parties 854x480.
   Utilisé par valorant.yaml en `fallbackFor: game-events`.
-- `RewardsLog.kt` : `RewardsLog.classify/fuzzyDistance/rows`, `LogTracker` (suivi de lignes, minSightings), `EventFusion.fuse`, `NoticeRead`, `NoticeLabels.relabel` (libellé le plus proche dans [before, after] : son type, "" = icône écartée, rien = icône inchangée).
+- `KillfeedOutline.kt` — mode **`outline`** du `killfeed` (CS2, profil cs2.yaml) : `OutlineParams`, `OutlineReader` (ligne entière
+  encadrée de la couleur du joueur = kill, fond plein = mort ; paires de traits finissant au même bord droit, `bridge` 16),
+  `RowReader` (interface commune avec `FeedReader`). `FeedTracker(newLineGrowth)` : rapprochement par hauteur et ligne qui
+  s'allonge = nouvelle ligne (null = VALORANT inchangé). Mesuré sur une capture 480p : `verite/cs2/`.
+- `RewardsLog.kt` : `RewardsLog.classify/fuzzyDistance/rows`, `LogTracker` (suivi de lignes, minSightings, `maxDrop` : lignes poussées vers le bas), `EventFusion.fuse`, `NoticeRead`, `NoticeLabels.relabel` (libellé le plus proche dans [before, after] : son type, "" = icône écartée, rien = icône inchangée).
 - `TemplateMatcher.kt` : `GrayImage`, `PreparedTemplate`, `TemplateMatcher.match` (NCC), `BrightTemplate/BrightMatcher`.
 - `WindowsOcr.kt` : lance `resources/.../windows-ocr.ps1` (Windows.Media.Ocr) par lots ; `WindowsOcr.supported`.
 - `AmmoCounterDetector.kt` — type **`ammo-counter`** : compteur de munitions du HUD relu à 60 img/s autour de chaque kill (`ctx.events`, `dependsOn`) via `frames.extractRange` → events `hud-shot` ; `changes` (paliers : affichage stable `minPlateau` qui change, palier sans blanc `minDigits` = compteur absent, ignoré), `refills` (recharge animée du Combat à mort, zone `TEAL`, ignorée), `windows`.
+- `HudCounterDetector.kt` — type **`hud-counter`** : nombre du HUD (éliminations Fortnite) lu par modèles de chiffres (`digit_0..9.png`, chiffre + 1 px de marge, largeur variable)
+  calé à droite (`CounterReader` : unités sur les `slack` dernières colonnes, dizaines juste à gauche), puis `CounterDecoder` (Viterbi : reste, +1..`maxStep`, remise à 0 = nouvelle partie)
+  → un événement `kind` par unité gagnée. Réglé sur une vidéo 480p (31/31). Utilisé par fortnite.yaml (`game-events`).
 - `FrameSampling.kt` : `chooseSampling` (images clés vs fps selon intervalle mesuré).
 
 ### analysis-ml
@@ -291,6 +299,12 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `MontagePreview.kt` (`edit` : petit côté 360 px, `plan` : sans flou par vecteurs ni minterpolate, `ENCODER` x264 ultrafast, `format` vertical d'abord,
   `frames` : images de vignette animée) ; `MontageChoice.kt` (`MontageVariantsFile` `*_variantes.json` et `MontageChoiceRecord` `*.choix.json`, versionnés,
   formats documentés en KDoc). `MontagePlanner.SCALES/DROP_SHIFTS/MIN_CLIP_SHARE/MIN_GAIN` sont `internal` pour `MontageVariants`.
+- `PreviewProxies.kt` (branche `apercus-proxies`) : copies réduites des passages lus par les aperçus (`<workDir>/cache/proxies/<capture>_<hauteur>/`,
+  `index.json` + `p_<début>_<fin>.mp4`), `-copyts` (horodatages de la capture image pour image), son copié, image clé / 0,5 s ; `height` (pixels de
+  capture que l'aperçu montre, via `RenderCommandBuilder.pixelScale` : 640 pour WARDOGS 9:16, null si < 25 % de gain, VALORANT 480p), `PAD`/`MERGE_GAP`,
+  `sweep` (capture modifiée/disparue, `VERSION`), `MAX_BYTES` (moins récemment servis effacés), `usage` ; `ProxySources.apply(plan, fps)` → plan dont les
+  clips servis ont un `MediaInfo` à la taille du proxy (même chemin : rapport et contrôle des sources inchangés) + `SourceCuts` vers les passages ;
+  géométrie (recadrage, HUD, zoom) en coordonnées relatives, donc juste sur le proxy. `HighlightPipeline.previewProxies`. Le rendu final lit toujours les captures.
 
 ### publish (`dev.highlights.publish`)
 - `YouTubeText.kt` : `VideoKind`, `VideoFacts` (jeu, date, durée, taille, kills, headshots, multiKills, aces, clutches, moments, musique), `YouTubeMetadata` (+ `problems()` = refus prévisibles de YouTube),
@@ -360,7 +374,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `openYouTubeUpload/copyToClipboard` (mode manuel, par défaut : `PublishUiState.api` false), `UiState.lastUpload` ; `Platform.browse/copy` (défaut vide pour les faux).
 - Aperçus de variantes : `VariantsView.kt` (`VariantsUiState`, `VariantCard`, `VariantsWindow` : une carte par variante, vignette animée, Lire = lecteur du système,
   « Rendre celle-ci » ; `PreviewVariantsButton` dans `MontageDialog`), actions `previewMontage/renderVariant/closeVariants` (défauts vides dans `UiActions`),
-  `UiState.variants` ; `AppController.montageOptions` (options communes au montage et aux aperçus), `pendingVariants`.
+  `UiState.variants` ; `AppController.montageOptions` (options communes au montage et aux aperçus), `pendingVariants` ; `VariantsUiState.partial` :
+  la fenêtre s'ouvre dès le premier aperçu prêt (`total`/`pending`, `variantsFile` null tant que tous ne sont pas faits).
 - Recherche : `SearchView.kt` (`SearchState` : moments chargés une fois, filtres, `unpicked`, `results/picked` ; `SearchPeriod`), actions `showSearch/closeSearch/updateSearch/toggleMoment/montageFromSearch`
   (ouvre les parties via `openSessions(files, then)` puis `openMontage` avec `MontageUiState.pick`).
 - Statistiques : `StatsView.kt` (`StatsState` : games, jeu choisi, `evenings/gameNames/shown`), actions `showStats/closeStats/setStatsGame`, `UiState.stats` (remplace la liste des analyses).
@@ -401,8 +416,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 
 ## 5. Configuration (`config/`)
 - `app.yaml` → `AppConfig`. Installée : `%APPDATA%\Highlights\config`, sortie `~/Videos/Highlights` (filtre au packaging).
-- `profiles/{default,lol,valorant,wardogs}.yaml` → `GameProfile`. Sections : `id, displayName, match{pathContains, priority}, window{size,hop}, audio{mix,game,mic}, detectors[], selection, edit{style, story, grade, vertical{reference, hud[]}, formats…}, montage{…}`.
-  YAML strict : une clé inconnue = `ConfigException`. Profils : wardogs (ocr-log + icônes + gate hud-template, pose `aim`), valorant (outplayed-events avec offsets −390 ms, killfeed en secours et `kill-confirm` toujours, `matchCut.pose: rest`, weapon ammo_icon, `vertical` : recadrage sous le bandeau du haut + bandeau `topbar` replacé, mesuré en 16:9, test `ValorantVerticalTest`), lol (audio+voix+rires), default.
+- `profiles/{apex,default,lol,valorant,cs2,wardogs,fortnite}.yaml` → `GameProfile`. Sections : `id, displayName, match{pathContains, priority}, window{size,hop}, audio{mix,game,mic}, detectors[], selection, edit{style, story, grade, vertical{reference, hud[]}, formats…}, montage{…}`.
+  YAML strict : une clé inconnue = `ConfigException`. Profils : wardogs (ocr-log + icônes + gate hud-template, pose `aim`), valorant (outplayed-events avec offsets −390 ms, killfeed en secours et `kill-confirm` toujours, `matchCut.pose: rest`, weapon ammo_icon, `vertical` : recadrage sous le bandeau du haut + bandeau `topbar` replacé, mesuré en 16:9, test `ValorantVerticalTest`), cs2 (killfeed `outline` seul : kills/morts, assistances comptées en kills ; `vertical` : bandeau, killfeed et vie/munitions replacés, mesuré en 854x480), lol (audio+voix+rires), fortnite (hud-counter des éliminations + hud-template « KNOCKED! » → `knock`, montage par `anchorEvents: [knock]` facultatif), apex (ocr-log sur la notification sous le réticule : `knock` = KNOCKED DOWN, `kill` = ELIMINATED/SQUAD WIPE, `maxDrop: 1` notifications empilées ; 9:16 compteur + killfeed replacés en haut à gauche ; ni ace ni clutch ; vérité `verite/apex/` 33/56 et 27/36 (deux vidéos), les SQUAD WIPE créditent 2-3 kills sous une notification), default.
 - `templates/<jeu>/*.png` (modèles HUD), `models/yamnet.onnx` + `yamnet_class_map.csv` ; `models/ggml-*.bin` (whisper) hors dépôt et hors installeur.
 - Chemins relatifs dans les profils → résolus par `LoadedConfig.resolve` (dans `gradedEdit`, `killMontage` pour `matchCut.weapon.template`, et `ctx.configDir` pour les détecteurs).
 
