@@ -327,9 +327,10 @@ class AppController(
     private fun enqueue(
         title: String,
         blocking: Boolean = false,
+        auto: Boolean = false,
         onProgress: ((dev.highlights.core.progress.ProgressSnapshot) -> Unit)? = null,
         block: suspend (ProgressReporter) -> Path?,
-    ): Long = queue.submit(title, blocking, onProgress) { progress ->
+    ): Long = queue.submit(title, blocking, auto, onProgress) { progress ->
         try {
             block(progress)
         } catch (e: CancellationException) {
@@ -1327,7 +1328,7 @@ class AppController(
             if (!queuedEvenings.add(key)) continue
             val label = tr("ui.evening.label", "date" to I18n.date(e.date, "format.date.dayMonth"))
             val lastUpdate = AtomicLong(0)
-            enqueue(tr("ui.jobs.evening", "evening" to label), onProgress = { snap ->
+            enqueue(tr("ui.jobs.evening", "evening" to label), auto = true, onProgress = { snap ->
                 val now = System.currentTimeMillis()
                 if (now - lastUpdate.getAndUpdate { prev -> if (now - prev >= 250) now else prev } >= 250) {
                     _state.update { s -> s.copy(watch = s.watch.copy(montageFraction = snap.fraction)) }
@@ -1416,7 +1417,7 @@ class AppController(
                         // Chaque capture passe par la file : jamais en même temps qu'un export ou un montage.
                         for (file in found) {
                             val lastUpdate = AtomicLong(0)
-                            val id = enqueue(tr("ui.jobs.watchAnalyze", "name" to file.name), onProgress = { snap ->
+                            val id = enqueue(tr("ui.jobs.watchAnalyze", "name" to file.name), auto = true, onProgress = { snap ->
                                 val now = System.currentTimeMillis()
                                 if (now - lastUpdate.getAndUpdate { prev -> if (now - prev >= 250) now else prev } >= 250) {
                                     _state.update { s -> s.copy(watch = s.watch.copy(fraction = snap.fraction)) }

@@ -96,6 +96,50 @@ class JobQueueTest : FunSpec({
         scope.cancel()
     }
 
+    test("priorité : un traitement manuel passe devant les automatiques en attente, sans interrompre celui en cours") {
+        val scope = scope()
+        val queue = JobQueue(scope, onChange = {})
+        val order = Collections.synchronizedList(mutableListOf<String>())
+        val gate = CompletableDeferred<Unit>()
+        val running = queue.submit("analyse 1", auto = true) { order += "analyse 1"; gate.await(); null }
+        queue.submit("analyse 2", auto = true) { order += "analyse 2"; null }
+        queue.submit("analyse 3", auto = true) { order += "analyse 3"; null }
+        waitFor { queue.status(running) == JobStatus.RUNNING }
+        queue.submit("export") { order += "export"; null }
+        queue.submit("montage") { order += "montage"; null }
+        // Entre manuels, l'ordre d'arrivée ; les automatiques derrière ; celui en cours reste en cours.
+        queue.snapshot.map { it.title } shouldBe listOf("analyse 1", "export", "montage", "analyse 2", "analyse 3")
+        queue.status(running) shouldBe JobStatus.RUNNING
+        queue.snapshot.map { it.auto } shouldBe listOf(true, false, false, true, true)
+        gate.complete(Unit)
+        waitFor { queue.activeCount == 0 }
+        order shouldBe listOf("analyse 1", "export", "montage", "analyse 2", "analyse 3")
+        scope.cancel()
+    }
+
+    test("priorité : un déplacement à la main l'emporte, et un nouveau manuel ne repasse pas devant") {
+        val scope = scope()
+        val queue = JobQueue(scope, onChange = {})
+        val gate = CompletableDeferred<Unit>()
+        val running = queue.submit("en cours") { gate.await(); null }
+        queue.submit("analyse", auto = true) { null }
+        val export = queue.submit("export") { null }
+        waitFor { queue.status(running) == JobStatus.RUNNING }
+        queue.snapshot.map { it.title } shouldBe listOf("en cours", "export", "analyse")
+        // L'utilisateur remet l'analyse devant : elle y reste.
+        queue.move(export, 1)
+        queue.snapshot.map { it.title } shouldBe listOf("en cours", "analyse", "export")
+        // Un nouvel export se place derrière le dernier manuel en attente, pas devant l'analyse remontée.
+        queue.submit("export 2") { null }
+        queue.snapshot.map { it.title } shouldBe listOf("en cours", "analyse", "export", "export 2")
+        // Un nouvel automatique va au bout.
+        queue.submit("soirée", auto = true) { null }
+        queue.snapshot.map { it.title } shouldBe listOf("en cours", "analyse", "export", "export 2", "soirée")
+        gate.complete(Unit)
+        waitFor { queue.activeCount == 0 }
+        scope.cancel()
+    }
+
     test("tout annuler à la fermeture : rien ne reste en cours ni en attente") {
         val scope = scope()
         val queue = JobQueue(scope, onChange = {})
