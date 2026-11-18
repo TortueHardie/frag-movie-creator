@@ -29,10 +29,10 @@ detectors:
   # s'empilent : la nouvelle s'insère au-dessus et pousse les autres d'une ligne (maxDrop).
   # Mesuré sur « Apex 53 kills octane » (compilation YouTube de 3 parties en 854x480, image teintée) contre le
   # compteur de kills du HUD, lu à l'œil (verite/apex/) : 33 kills sur 56 crédits du compteur, aucun en trop,
-  # tous à moins de 3 s. Les crédits manqués sont surtout ceux d'un « SQUAD WIPE » : le jeu y crédite d'un coup
+  # tous à moins de 3 s (avant credits). Les crédits manqués sont surtout ceux d'un « SQUAD WIPE » : le jeu y crédite d'un coup
   # 2 ou 3 kills (les ennemis déjà mis à terre par le joueur) sous une seule notification. 51 « knock ».
-  # Deuxième capture, relevée après ce réglage (« Apex 37 kills revenant », une partie, autre légende) : 27 kills sur
-  # 36, aucun en trop, mais « SQUAD WIPE » jusqu'à 4,5 s après le crédit (death box ouverte au moment du kill).
+  # Deuxième capture, relevée après ce réglage (« Apex 37 kills revenant », une partie, autre légende) : 22 kills sur
+  # 36 à 3 s, et 5 vus 4 s en retard (« SQUAD WIPE » derrière une death box). Calage et compte des SQUAD WIPE : credits.
   # Pas de mort du joueur dans cette capture : « death » n'est pas lu (rien à mesurer).
   - id: game-events
     type: ocr-log
@@ -58,6 +58,16 @@ detectors:
       rowPitch: 130
       rowTolerance: 12
       maxDrop: 1
+      # « SQUAD WIPE » crédite d'un coup les ennemis que le joueur avait mis à terre, et arrive jusqu'à 4,5 s après
+      # la dernière mise à terre (death box ouverte : notification cachée). Daté de la dernière « knock » (6 s au
+      # plus avant), compté autant de fois qu'il y a eu de « knock » depuis le kill précédent (30 s au plus).
+      # Mesuré à 3 s sur verite/apex/ : octane 33 vrais / 0 faux → 43 / 1 ; revenant 22 / 5 → 29 / 2 (les faux
+      # restants sont de vrais kills dont la deuxième notification « ELIMINATED » arrive 4 s après le crédit).
+      credits:
+        - match: [SQUADWIPE]
+          to: knock
+          within: 6s
+          countSince: 30s
       # Une notification reste 2 à 4 s ; deux kills de suite la remplacent au même endroit. Une lecture suffit
       # (« ELIMINATED » souvent lu une seule fois sur ciel clair) et un trou d'une seconde fait une nouvelle ligne.
       # Simulé : 2 lectures et 2 s d'oubli → 28 kills ; 1 lecture et 1 s → 32 (33 par app verite), toujours sans faux positif.

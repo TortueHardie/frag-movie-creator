@@ -1,5 +1,6 @@
 package dev.highlights.vision
 
+import dev.highlights.core.serialization.SerialDuration
 import kotlinx.serialization.Serializable
 import java.text.Normalizer
 import kotlin.math.abs
@@ -21,6 +22,63 @@ data class LogRule(val kind: String? = null, val match: List<String>) {
         require(match.isNotEmpty() && match.all { RewardsLog.letters(it) == it && it.isNotEmpty() }) {
             "libellés en majuscules sans accents ni ponctuation attendus : $match"
         }
+    }
+}
+
+/**
+ * Notification qui crédite des kills d'un coup, en retard sur l'action (Apex : « SQUAD WIPE ») : le dernier ennemi
+ * d'une escouade tombe, et tous ceux que le joueur avait mis à terre meurent avec lui. Une ligne lue dont le texte
+ * correspond à l'un des libellés [match] (comparés comme ceux de [LogRule]) est :
+ * - datée de la dernière ligne [to] (« knock ») lue au plus [within] avant elle : la notification peut arriver
+ *   jusqu'à 4,5 s après la mise à terre, cachée par un menu (death box ouverte, « Apex 37 kills revenant » à 3:43) ;
+ * - comptée autant de fois qu'il y a eu de lignes [to] depuis l'événement précédent de son type, sans remonter plus
+ *   loin que [countSince] (une au moins) ; avec [countSince] null, une seule fois ;
+ * - écartée si aucune ligne [to] ne la précède depuis l'événement précédent et qu'une même notification a été comptée
+ *   moins de [within] avant : c'est la même, relue (deux « SQUAD WIPE » à 1,5 s, 7:29 de la même capture).
+ * Le compte est une estimation : sur les deux captures mesurées, juste pour 15 « SQUAD WIPE » sur 24, un de moins
+ * pour 5 (mise à terre non lue), un de plus pour 1.
+ */
+@Serializable
+data class LogCredit(
+    val match: List<String>,
+    val to: String,
+    val within: SerialDuration,
+    val countSince: SerialDuration? = null,
+) {
+    init {
+        require(match.isNotEmpty() && match.all { RewardsLog.letters(it) == it && it.isNotEmpty() }) {
+            "libellés en majuscules sans accents ni ponctuation attendus : $match"
+        }
+        require(within.isPositive() && (countSince == null || countSince.isPositive())) { "durées positives attendues : $this" }
+    }
+}
+
+/** Application des [LogCredit] aux événements lus (dans l'ordre du temps). */
+object LogCredits {
+    fun apply(events: List<LogEvent>, credits: List<LogCredit>): List<LogEvent> {
+        if (credits.isEmpty()) return events
+        val sorted = events.sortedBy { it.at }
+        val out = mutableListOf<LogEvent>()
+        val previous = mutableMapOf<String, Duration>()
+        val lastCredited = mutableMapOf<LogCredit, Duration>()
+        for (e in sorted) {
+            val credit = credits.firstOrNull { c -> e.kind != c.to && RewardsLog.classify(e.text, listOf(LogRule(e.kind, c.match))) == e.kind }
+            if (credit == null) {
+                out += e
+                if (credits.none { it.to == e.kind }) previous[e.kind] = e.at
+                continue
+            }
+            val marks = sorted.filter { it.kind == credit.to && it.at <= e.at }.map { it.at }
+            val since = maxOf(previous[e.kind] ?: -Duration.INFINITE, credit.countSince?.let { e.at - it } ?: -Duration.INFINITE)
+            val count = marks.count { it > since }
+            previous[e.kind] = e.at
+            val last = lastCredited[credit]
+            if (count == 0 && last != null && e.at - last <= credit.within) continue
+            lastCredited[credit] = e.at
+            val at = marks.filter { it >= e.at - credit.within }.maxOrNull() ?: e.at
+            repeat(if (credit.countSince == null) 1 else maxOf(1, count)) { out += e.copy(at = at) }
+        }
+        return out.sortedBy { it.at }
     }
 }
 

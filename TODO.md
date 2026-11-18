@@ -225,10 +225,11 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Profil Apex Legends (`config/profiles/apex.yaml`) : notifications KNOCKED DOWN / ELIMINATED / SQUAD WIPE lues
   par `ocr-log` (`maxDrop` pour les notifications empilées) ; vérité `verite/apex/` (compteur du HUD) : 33 kills sur 56
   et 27 sur 36 (deux vidéos), aucun faux.
-- [ ] Apex : « SQUAD WIPE » vu jusqu'à 4,5 s après le kill (death box ouverte) : le montage s'y cale en retard ; caler
-  sur le dernier « knock » qui précède ?
-- [ ] Apex : compter les kills crédités en rafale par un SQUAD WIPE (lire le compteur du HUD, illisible en 480p : à
-  revoir sur une capture 1080p brute), lire les morts du joueur, vérifier sur une capture non montée.
+- [x] Apex : « SQUAD WIPE » daté de la dernière mise à terre et compté par mise à terre (`credits` d'`ocr-log`,
+  `LogCredit`) : octane 33 → 43 kills sur 56, revenant 22 → 29 sur 36, à 3 s.
+- [ ] Apex : deuxième « ELIMINATED » vue 4 s après un crédit double (revenant 5:49, 14:22) : mal datée ; compte des
+  SQUAD WIPE approché (mises à terre non lues) — le compteur du HUD, illisible en 480p, serait exact sur une capture
+  1080p brute. Lire les morts du joueur, vérifier sur une capture non montée.
 - [x] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.
   Captures déposées le 18/11 dans `D:\Vidéo` (hors dépôt) :
   - [x] Apex : « Apex 53 kills octane.mp4 », « Apex 37 kills revenant.mp4 » (atelier `apex`).
