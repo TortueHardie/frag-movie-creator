@@ -12,6 +12,8 @@ import dev.highlights.editing.DefaultEditPlanner
 import dev.highlights.editing.story.StoryPlanner
 import java.nio.file.Path
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 /** Options du clip « meilleur moment » ([HighlightPipeline.clip]) ; null = réglage du profil ou choix automatique. */
 data class ClipOptions(
@@ -45,42 +47,79 @@ object MomentClips {
      * Session réduite au seul [moment], sa fenêtre élargie autour du pic jusqu'à ce que le montage story dure entre
      * [EditSettings.clip] `minDuration` et [maxDuration] (jump cuts retirés), au plus près de `target`. La durée du
      * montage croît avec la fenêtre (une fenêtre plus longue ne retire jamais un plan) : une recherche par dichotomie
-     * sur la longueur de la fenêtre suffit, chaque essai n'étant qu'une planification. La fenêtre contient toujours le
-     * moment d'origine et reste dans la capture : une capture trop courte donne un clip plus court.
+     * sur la longueur de la fenêtre suffit, chaque essai n'étant qu'une planification. La fenêtre contient le moment
+     * d'origine et reste dans la capture : une capture trop courte donne un clip plus court.
+     *
+     * Le clip final ne dépasse jamais le plafond ([fit]) : un moment long, ou une capture courte dont la fenêtre ne
+     * peut plus grandir, avec l'accroche en plus, faisaient 31 s pour un plafond de 30 s (QA finale), et l'export
+     * échouait. La fenêtre rétrécit alors autour du pic, quitte à couper le début ou la fin du moment d'origine.
      */
     fun window(session: Session, moment: Highlight, settings: EditSettings, maxDuration: Duration): Session {
         val clip = settings.clip
         val max = minOf(clip.maxDuration, maxDuration)
-        val target = clip.target.coerceAtMost(max)
+        // Marge sous le plafond : la vidéo rendue est arrondie à l'image et fondue en sortie, elle peut dépasser la
+        // durée planifiée de quelques centièmes.
+        val limit = (max - MARGIN).coerceAtLeast(max / 2)
+        val target = clip.target.coerceAtMost(limit)
         val media = session.media.duration
-        fun at(length: Duration): Session {
+        fun window(length: Duration, keepMoment: Boolean): Session {
             val before = length - (length * (1 - clip.lead)).coerceAtMost(clip.after)
             var start = (moment.peak - before).coerceAtLeast(Duration.ZERO)
             val end = (start + length).coerceAtMost(media)
             start = (end - length).coerceAtLeast(Duration.ZERO)
-            val range = TimeRange(minOf(start, moment.range.start), maxOf(end, moment.range.end))
+            val range = if (keepMoment) TimeRange(minOf(start, moment.range.start), maxOf(end, moment.range.end)) else TimeRange(start, end)
             return session.copy(highlights = listOf(moment.copy(range = range, enabled = true, order = null)))
         }
+        fun at(length: Duration) = window(length, keepMoment = true)
         fun duration(s: Session): Duration = StoryPlanner.plan(DefaultEditPlanner.plan(s, settings), listOf(s)).outputDuration
+
+        /**
+         * [chosen] s'il tient sous la limite ; sinon la plus longue fenêtre autour du pic qui y tient (le moment
+         * d'origine peut alors être rogné). Si même la plus courte ne tient pas, la plus courte : l'export le dira.
+         */
+        fun fit(chosen: Session): Session {
+            if (duration(chosen) <= limit) return chosen
+            var lo = MIN_WINDOW
+            var hi = chosen.highlights.single().range.length
+            var fitted = window(lo, keepMoment = false)
+            repeat(12) {
+                if (hi - lo < 50.milliseconds) return@repeat
+                val mid = (lo + hi) / 2
+                val s = window(mid, keepMoment = false)
+                if (duration(s) <= limit) {
+                    fitted = s
+                    lo = mid
+                } else {
+                    hi = mid
+                }
+            }
+            return fitted
+        }
 
         // Bornes de la fenêtre : du moment seul à dix fois le plafond. Avant un kill WARDOGS, l'attente coupée par les
         // jump cuts fait presque tout : 2 minutes de partie ne donnaient que 11,6 s de clip.
         var low = moment.range.length.coerceAtMost(target)
         var high = (max * 10).coerceAtMost(media)
-        if (low >= high) return at(high)
+        if (low >= high) return fit(at(high))
         var best = at(low)
         repeat(12) {
             val mid = (low + high) / 2
             val s = at(mid)
             val d = duration(s)
-            if (d > max) high = mid else {
+            if (d > limit) high = mid else {
                 best = s
                 if (d >= target) return s
                 low = mid
             }
         }
-        return best
+        return fit(best)
     }
+
+    /** Marge sous le plafond pour les arrondis du rendu (voir [window]). */
+    private val MARGIN = 250.milliseconds
+
+    /** Plus courte fenêtre essayée autour du pic : de quoi voir le kill. */
+    private val MIN_WINDOW = 2.seconds
 
     /** Réglages du clip : style story sur un seul moment (accroche comprise), vertical seul. */
     fun settings(edit: EditSettings): EditSettings = edit.copy(
