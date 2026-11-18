@@ -202,6 +202,12 @@ data class VerticalSettings(
      * zones sont converties au format de la capture traitée : un réglage fait en 21:9 vaut alors aussi en 16:9.
      */
     val reference: FrameSize? = null,
+    /**
+     * Hauteur dans la capture (0 = haut, 1 = bas) vers laquelle zooment le punch-in et le zoom d'approche en 9:16 ;
+     * null = le réticule (centre de la capture). Un point sous le réticule garde l'icône du kill (sous lui) dans
+     * l'image au zoom le plus fort ; le réticule remonte un peu pendant le zoom.
+     */
+    val zoomFocus: Double? = null,
 )
 
 /**

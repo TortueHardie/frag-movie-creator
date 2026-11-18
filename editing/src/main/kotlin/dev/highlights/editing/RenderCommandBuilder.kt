@@ -283,14 +283,24 @@ object RenderCommandBuilder {
      * le point que visent les zooms. Au centre sauf en 9:16 quand le recadrage n'est pas centré sur lui (zone
      * `vertical.cropRegion` décalée, par exemple sous le bandeau du haut).
      */
-    fun crosshair(format: OutputFormat, media: MediaInfo, settings: EditSettings): Pair<Double, Double> {
+    fun crosshair(format: OutputFormat, media: MediaInfo, settings: EditSettings): Pair<Double, Double> = sourcePoint(format, media, settings, 0.5)
+
+    /**
+     * Point que visent les zooms, en fractions du cadre de sortie : le réticule ([crosshair]), ou en 9:16 la hauteur
+     * `vertical.zoomFocus` de la capture si le profil en donne une.
+     */
+    fun zoomFocus(format: OutputFormat, media: MediaInfo, settings: EditSettings): Pair<Double, Double> =
+        sourcePoint(format, media, settings, if (format == OutputFormat.VERTICAL) settings.vertical.zoomFocus ?: 0.5 else 0.5)
+
+    /** Point de la capture (centre en largeur, hauteur [sourceY]) reporté dans le cadre de sortie du [format]. */
+    private fun sourcePoint(format: OutputFormat, media: MediaInfo, settings: EditSettings, sourceY: Double): Pair<Double, Double> {
         val video = media.video ?: return 0.5 to 0.5
         if (format != OutputFormat.VERTICAL) return 0.5 to 0.5
         val size = settings.vertical.size
         val region = settings.vertical.cropRegion?.let { ScreenGeometry.forVideo(it, settings.vertical.reference, video.width, video.height) }
         val box = cropBox(video.width, video.height, size.width.toDouble() / size.height, region)
         val x = ((video.width / 2.0 - box.x) / box.w).coerceIn(0.0, 1.0)
-        val y = ((video.height / 2.0 - box.y) / box.h).coerceIn(0.0, 1.0)
+        val y = ((video.height * sourceY - box.y) / box.h).coerceIn(0.0, 1.0)
         return x to y
     }
 

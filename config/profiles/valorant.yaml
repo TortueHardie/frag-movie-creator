@@ -183,6 +183,11 @@ edit:
     size: { width: 1080, height: 1920 }
     reference: { width: 1920, height: 1080 }
     cropRegion: { x: 0.0, y: 0.09, width: 1.0, height: 0.795 }
+    # Les zooms (punch-in + approche : ×1,43 au plus) visent sous le réticule : l'icône du kill (y 0,74 à 0,835 de la
+    # capture, mesuré sur 12 kills) reste entière dans l'image, sous le bloc replacé ; le réticule remonte à ~0,39.
+    # Visés sur le réticule, le recadrage ne pouvant s'agrandir sans montrer bandeau ou bloc en double, le crâne sortait
+    # par le bas.
+    zoomFocus: 0.726
     hud:
       - name: topbar
         source: { x: 0.20, y: 0.008, width: 0.60, height: 0.080 }

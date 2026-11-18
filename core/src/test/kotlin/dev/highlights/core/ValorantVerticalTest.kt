@@ -45,6 +45,26 @@ class ValorantVerticalTest : FunSpec({
         (block.target.y + height <= 1 - tiktok.bottom + 0.0001) shouldBe true
     }
 
+    test("zoom maximal (punch-in + approche) : réticule et icône du kill dans l'image, crâne hors du bloc replacé") {
+        // Icône du kill sous le réticule : y 0,74 à 0,835 de la capture (mesuré sur 12 kills de « Valorant- 44 kills »).
+        val skullTop = 0.74
+        val skullBottom = 0.835
+        val maxZoom = 1 + dev.highlights.core.model.ZoomEffect().amount + dev.highlights.core.model.FastMontage().zoomApproach
+        val crop = vertical.cropRegion!!
+        val focus = (vertical.zoomFocus!! - crop.y) / crop.height
+        fun out(source: Double, zoom: Double) = focus + ((source - crop.y) / crop.height - focus) * zoom
+        val block = vertical.hud.single { it.name == "abilities" }
+        val blockBottom = block.target.y + block.target.width * vertical.size.width * (block.source.height * 1080) / (block.source.width * 1920) / vertical.size.height
+        val barBottom = bar.target.width * vertical.size.width * (bar.source.height * 1080) / (bar.source.width * 1920) / vertical.size.height
+        for (zoom in listOf(1.0, (1 + maxZoom) / 2, maxZoom)) {
+            // Réticule sous le bandeau, crâne entier dans l'image et sous le bloc (jamais caché par lui).
+            (out(0.5, zoom) > barBottom) shouldBe true
+            (out(skullBottom, zoom) <= 1.0) shouldBe true
+            (out(skullTop, zoom) >= blockBottom) shouldBe true
+        }
+        out(0.5, maxZoom) shouldBe (0.39 plusOrMinus 0.02)
+    }
+
     test("21:9 : même bandeau en pixels, toujours centré") {
         val r = ScreenGeometry.forVideo(bar.source, vertical.reference, 3440, 1440, bar.anchor)
         // Le HUD suit la hauteur : 1152 px pour 1080 de haut font 1536 px pour 1440.

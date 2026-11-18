@@ -192,7 +192,8 @@ object MontageRenderBuilder {
                 val z = "(1+$punch$approach)"
                 // Recadrage recentré à chaque image (voir ZoomCrop : `iw` resterait celui de la première image).
                 // Vers le réticule réel : le centre de la capture, qui n'est plus au centre du cadre si le 9:16 est décalé.
-                val (fx, fy) = RenderCommandBuilder.crosshair(request.format, media, edit)
+                // Ou la hauteur choisie par le profil (vertical.zoomFocus) : VALORANT vise sous le réticule, l'icône du kill reste dans l'image.
+                val (fx, fy) = RenderCommandBuilder.zoomFocus(request.format, media, edit)
                 motion += ZoomCrop.filters(w, h, z, settings.zoom.scaleFlags, focusX = fx, focusY = fy)
             }
             // Flou de mouvement après le zoom : le punch-in traîne lui aussi ; avant textes et flash, qui restent nets.
