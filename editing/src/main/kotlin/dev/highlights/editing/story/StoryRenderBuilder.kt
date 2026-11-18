@@ -215,7 +215,7 @@ object StoryRenderBuilder {
         "anoisesrc=d=0.40:c=pink:r=48000:a=0.8,bandpass=f=2200:t=q:w=0.9,afade=t=in:d=0.28:curve=exp,afade=t=out:st=0.28:d=0.12",
         "anoisesrc=d=0.50:c=brown:r=48000:a=0.9,bandpass=f=900:t=q:w=0.6,afade=t=in:d=0.32:curve=exp,afade=t=out:st=0.32:d=0.18",
     )
-    internal val IMPACTS = listOf(
+    val IMPACTS = listOf(
         IMPACT_SOURCE_1,
         "aevalsrc=exprs='sin(2*PI*(38+70*exp(-t*22))*t)*exp(-t*6)':s=48000:d=0.6",
         "aevalsrc=exprs='sin(2*PI*(55+120*exp(-t*35))*t)*exp(-t*9)':s=48000:d=0.6",
