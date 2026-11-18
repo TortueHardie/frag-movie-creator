@@ -60,7 +60,11 @@ object CutGrid {
         val period = music.beatPeriod
         fun cutsOf(si: Int) = if (fast != null && si in fast.sections) fast.cuts else cuts
         fun minBeatsOf(si: Int) = if (fast != null && si in fast.sections) fast.minBeats else minBeats
-        val lengths = sections.mapIndexed { si, s -> sectionBeats(s, cutsOf(si), period, minBeatsOf(si), scale) }
+        // Une partie rapide garde ses plans courts quelle que soit l'échelle : avec peu de kills (15 sur trois parties
+        // WARDOGS), la grille ×4 en faisait des plans de 4 à 6 temps. C'est le montage qui raccourcit, pas les plans.
+        val lengths = sections.mapIndexed { si, s ->
+            sectionBeats(s, cutsOf(si), period, minBeatsOf(si), if (fast != null && si in fast.sections) 1.0 else scale)
+        }
         val dropSection = music.sectionIndexAt(music.dropBeat)
         val dropSlot = if (dropSection > 0 && sections[dropSection].startBeat == music.dropBeat) {
             val before = sections[dropSection - 1]

@@ -436,7 +436,7 @@ object MontagePlanner {
             val length = music.beatPeriod * s.shotBeats * 1.1
             val end = c.start - s.beforeClip
             if (end - length < maxOf(calm.start + s.afterEvent, c.group.media.bounds.start)) continue
-            shots += c.copy(end = end, speeds = emptyList(), padBefore = Duration.ZERO, padAfter = Duration.ZERO, matchCut = false, leadIn = Duration.ZERO, anchorHalf = false, showcase = true)
+            shots += c.copy(end = end, speeds = emptyList(), padBefore = Duration.ZERO, padAfter = Duration.ZERO, matchCut = false, leadIn = Duration.ZERO, anchorHalf = false, showcase = true, fastPart = false)
         }
         if (shots.isEmpty()) {
             log.info { "Ouverture vitrine : aucun passage calme assez long avant les plans du montage" }
