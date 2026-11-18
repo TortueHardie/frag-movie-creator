@@ -25,7 +25,8 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
   leur tour dans la carte « Traitements » (un seul traitement lourd à la fois : FFmpeg et la mémoire ne supportent pas
   mieux). On y annule un traitement en attente ou en cours, on change l'ordre de ceux qui attendent, on ouvre le
   résultat d'un traitement fini ou le détail d'un échec, qui ne bloque pas les suivants. Le dossier surveillé et le
-  montage des soirées passent par la même file. Fermer l'application avec des traitements en file demande
+  montage des soirées passent par la même file, derrière ce qu'on lance à la main : un export demandé passe devant les
+  analyses du dossier surveillé (marquées « auto ») sans interrompre celle en cours. Fermer l'application avec des traitements en file demande
   confirmation ; ils ne reprennent pas au lancement suivant.
 - **Dossier surveillé** : dans l'application, « Surveiller un dossier… » (celui d'Outplayed, d'OBS…, sous-dossiers
   compris). Chaque nouvelle capture y est analysée en fond une fois son enregistrement terminé (fichier inchangé

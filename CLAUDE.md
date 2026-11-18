@@ -368,8 +368,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `AppController.checkEvenings` (appelé par la boucle du dossier surveillé, relit la bibliothèque seulement à `eveningCheckAt`) → `montageEvening` (musique = `MusicPrefs.library`,
   formats/plateforme des réglages) → `Platform.notify` (DesktopPlatform : `TrayIcon.displayMessage`, clic = ouvre la vidéo) ; `EveningView.kt` (`EveningAutoSection`, une ligne dans `WatchCard`) ;
   actions `setEveningMontage/setEveningDelay/setEveningMinKills/setEveningStyle/openLastEvening` (`EveningAuto.style`, `WatchState.eveningStyles`) ; `AppController(clock)`.
-- File des traitements : `JobQueue.kt` (`QueuedJob(id, title, blocking, status JobStatus, fraction…, result, error, details)`, `submit/cancel/move/clearFinished/cancelAll`, un à la fois,
-  échec sans bloquer la suite) ; `AppController.enqueue` (bloquant : analyse, réanalyse → `UiState.job` avec `queueId`, l'écran attend ; sinon libre), `describeFailure`,
+- File des traitements : `JobQueue.kt` (`QueuedJob(id, title, blocking, auto, status JobStatus, fraction…, result, error, details)`, `submit/cancel/move/clearFinished/cancelAll`, un à la fois,
+  échec sans bloquer la suite ; `submit(auto = false)` se place derrière le dernier manuel en attente (`manualSlot`), devant les automatiques : dossier surveillé, soirées ; libellé `ui.jobs.auto` dans `JobsView.JobTitle`) ; `AppController.enqueue` (bloquant : analyse, réanalyse → `UiState.job` avec `queueId`, l'écran attend ; sinon libre), `describeFailure`,
   `watchJobs`/`queuedEvenings` (dossier surveillé, soirées) ; `UiState.jobs`, `quitConfirm` ; `JobsView.kt` (`JobsCard` bornée : 360 dp et `weight(1f, fill = false)` dans App, attente et finis qui défilent ; `QuitDialog`), le clip 9:16 aussi passe par la file ; actions `cancelQueuedJob/moveQueuedJob/openJobResult/showJobError/clearFinishedJobs/confirmQuit/cancelQuit`,
   `requestQuit()` (Main) ; tests `JobQueueTest`, capture `16_file_des_traitements`.
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action

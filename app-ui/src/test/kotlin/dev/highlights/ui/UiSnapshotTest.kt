@@ -189,6 +189,26 @@ class UiSnapshotTest : FunSpec({
         render("17_fermeture_avec_traitements", state.copy(quitConfirm = 3)).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("file des traitements : un export lancé à la main passe devant deux analyses du dossier surveillé") {
+        // Ordre produit par la vraie file : une analyse automatique en cours, deux en attente, puis l'export.
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+        val queue = JobQueue(scope, onChange = {})
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val first = queue.submit("Analyse en fond : WARDOGS_09-25-2026_21-4-12-105.mp4", auto = true) { gate.await(); null }
+        queue.submit("Analyse en fond : WARDOGS_09-25-2026_21-41-7-105.mp4", auto = true) { null }
+        queue.submit("Analyse en fond : WARDOGS_09-25-2026_22-20-55-105.mp4", auto = true) { null }
+        kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeout(5_000) { while (queue.snapshot.first().status != JobStatus.RUNNING) kotlinx.coroutines.delay(10) } }
+        val before = queue.snapshot.map { if (it.id == first) it.copy(fraction = 0.37, stage = "Détecteurs", elapsed = 41.seconds, eta = 70.seconds) else it }
+        queue.submit("Export : WARDOGS_09-22-2026_22-55-31-983.mp4") { null }
+        val after = queue.snapshot.map { if (it.id == first) it.copy(fraction = 0.37, stage = "Détecteurs", elapsed = 41.seconds, eta = 70.seconds) else it }
+        after.map { it.auto } shouldBe listOf(true, false, true, true)
+        val state = UiState(config = ready, sources = listOf(source), settings = settings)
+        render("16b_file_avant_export", state.copy(jobs = before)).fileSize() shouldBeGreaterThan 0L
+        render("16c_file_export_devant", state.copy(jobs = after)).fileSize() shouldBeGreaterThan 0L
+        gate.complete(Unit)
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+    }
+
     test("réglages du montage kills") {
         val state = UiState(
             config = ready,
