@@ -787,6 +787,15 @@ object MontagePlanner {
             }
         }
         val (plan, describe) = result
+        // Garde-fou du rythme rapide par partie : peu de kills, un plan d'un temps chacun, et le montage tenait en 1,5 s
+        // (3 kills, depuis que le tempo ne retient plus les musiques lentes). Sous [MontageLength.min], le même montage au
+        // rythme du style. Pas sous la durée visée : 10 kills WARDOGS au rythme rapide font 17 à 26 s, et l'utilisateur les
+        // a préférés (18/11).
+        val floor = minOf(settings.length.min, settings.maxDuration)
+        if (settings.fastParts.enabled && plan.duration < floor && plan.clips.any { it.fastPart }) {
+            log.info { "Rythme rapide : ${Durations.format(plan.duration)} seulement, sous ${Durations.format(floor)} ; montage au rythme du style" }
+            return plan(all, music, settings.copy(fastParts = settings.fastParts.copy(enabled = false)), variant)
+        }
         if (edited) MontageEdits.check(plan, groups)
         // Les variantes essayées par [best] ne méritent pas une ligne chacune : seul le plan de base est détaillé.
         if (variant == PlanVariant.BASE) log.info(describe) else log.debug(describe)

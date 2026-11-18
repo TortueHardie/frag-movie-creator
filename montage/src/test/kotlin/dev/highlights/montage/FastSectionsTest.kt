@@ -118,6 +118,22 @@ class FastSectionsTest : FunSpec({
         p.clips.any { it.fastPart && it.slot.startBeat >= 104 } shouldBe true
     }
 
+    test("peu de kills : le montage garde une longueur normale au lieu de tenir en quelques temps") {
+        // Trois kills isolés sur une musique lente : un plan d'un temps chacun ferait 2 s, sous montage.length.min.
+        val few = session.copy(timeline = session.timeline.copy(events = session.timeline.events.take(3)))
+        val p = MontagePlanner.plan(MontagePlanner.groups(listOf(few), settings), music(90.0), settings)
+        p.clips.none { it.fastPart } shouldBe true
+        p.clips.sumOf { it.kills.size } shouldBe 3
+        // Le montage au rythme du style, tel quel (10,7 s ici : trois plans de 4, 8 et 4 temps à 90 BPM).
+        val styled = settings.copy(fastParts = settings.fastParts.copy(enabled = false))
+        p.clips.map { it.slot } shouldBe MontagePlanner.plan(MontagePlanner.groups(listOf(few), styled), music(90.0), styled).clips.map { it.slot }
+        (p.duration >= 10.seconds) shouldBe true
+        // Même entrée, même plan : le garde-fou ne dépend que du plan.
+        MontagePlanner.plan(MontagePlanner.groups(listOf(few), settings), music(90.0), settings).clips.map { it.slot } shouldBe p.clips.map { it.slot }
+        // Avec assez de kills, le rythme rapide reste.
+        plan(bpm = 90.0).clips.any { it.fastPart } shouldBe true
+    }
+
     test("ancienne configuration : minBpm encore accepté, sans effet") {
         val parts = ConfigYaml.yaml.decodeFromString(FastParts.serializer(), "minBpm: 120\nminIntensity: 0.7")
         parts.minBpm shouldBe 120.0

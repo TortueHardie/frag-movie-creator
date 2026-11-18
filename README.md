@@ -976,6 +976,11 @@ ne descendent jamais à plus de 5,8 dB. Avec beaucoup de kills, le montage peut 
 d'un plan d'un temps tiennent en 25 s après la drop, et la première partie calme de « Rome Is Burning » arrive 61 s
 après la sienne.
 
+**Garde-fou : peu de kills.** Un plan d'un temps par kill raccourcit le montage d'autant : 3 kills faisaient 1,5 s. Si le
+montage au rythme rapide dure moins que `montage.length.min` (12 s), il est refait entièrement au rythme du style.
+Au-dessus, le rythme rapide reste, même s'il raccourcit le montage : 10 kills WARDOGS en font 17 à 26 s, et c'est la
+version préférée (18/11).
+
 Plus de seuil de tempo (choix de l'utilisateur du 18/11, après des montages côte à côte avec et sans lui) : le seuil des
 120 BPM gardait au rythme du style des musiques lentes mais intenses (« Doom Eternal » 103 BPM, « Big Dawgs » 90).
 Aucune mesure du contenu (attaques par seconde, part percussive, volume) ne séparait mieux les musiques ressenties
