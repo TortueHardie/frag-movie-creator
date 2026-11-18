@@ -284,7 +284,7 @@ Pistes, de la plus simple à la plus lourde :
 - [ ] Intro/outro personnalisées (logo, pseudo, fond) définies dans le profil.
 - [x] Miniature automatique : image du meilleur kill + punch-in + texte, PNG prêt pour YouTube (`--thumbnail`,
   `app thumbnail`, fenêtre de publication).
-- [ ] Choisir l'habillage de miniature par défaut (sobre, vif, texte gros : planche dans `output/revue/miniature-auto/`).
+- [x] Choisir l'habillage de miniature par défaut : le vif (18/11), `ThumbnailStyle.DEFAULT`.
 
 ## Musique
 - [x] Bibliothèque musicale : analyser un dossier une fois (BPM, drop, sections), choisir automatiquement la musique selon le nombre de kills et la durée visée.

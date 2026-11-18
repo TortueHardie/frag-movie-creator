@@ -49,6 +49,8 @@ data class KillGroup(
     val forced: Boolean = false,
     /** Place imposée par l'utilisateur : la drop ou un temps du morceau (voir [MontageConstraints.pins]). */
     val pin: MontagePin? = null,
+    /** Montage des morts : le joueur avait tué juste avant de mourir ([FailMontage.tradeWindow]), un échange. */
+    val trade: Boolean = false,
 ) {
     val rank: Double get() = kills.size + score / 10 + style
 
@@ -396,6 +398,9 @@ object MontagePlanner {
                 outcome = outcomes[i],
                 style = style(ks, traits, outcomes[i], style),
                 calm = calm,
+                trade = settings.fails.enabled && timeline.events.any { e ->
+                    e.kind == settings.fails.killEvent && (ks.last() - (e.at + settings.killOffset)).let { !it.isNegative() && it <= settings.fails.tradeWindow }
+                },
             )
         }
     }
@@ -865,19 +870,21 @@ object MontagePlanner {
 
         val cells = assign(window, groups, music, settings, minLeadBeats, minTailBeats, fast)
         val preferred = preferredOffsets(cells.map { it.first }, music, minLeadBeats, minTailBeats)
+        val failSlow = if (settings.fails.enabled) failSlows(cells, settings.fails) else emptySet()
         fun build(i: Int, aim: AimFit): MontageClip {
             val cell = cells[i]
             val offset = preferred[cell.first.section to cell.first.beats]
             // Partie rapide : contexte du rythme rapide autour du kill, jamais de ralenti (pas la place dans un temps). Le
-            // plan de la drop reste au rythme du style : il part de la montée et pose le meilleur kill sur la drop.
-            val inFast = fast != null && cell.first.section in fast.sections && cell.first.dropBeat == null
+            // plan de la drop en fait partie (« fast from the drop », 18/11) : le meilleur kill y tombe, sans ralenti.
+            val inFast = fast != null && cell.first.section in fast.sections
             val s = if (inFast) fast!!.settings else settings
             val lead = if (inFast) beatsCeil(s.cuts.minLead, period).coerceAtLeast(1) else minLeadBeats
             val tail = if (inFast) beatsCeil(s.cuts.minTail, period).coerceAtLeast(1) else minTailBeats
             // Le plan sans ralenti d'abord : c'est lui qui dit combien de kills seront réellement à l'écran, donc si le
             // plan mérite le ralenti. Un multi-kill dont tout le début serait coupé n'en est pas un pour le spectateur.
             val plain = clipFor(cell, music, s, lead, tail, offset, allowSlow = false, aim = aim)
-            val clip = if (!inFast && allowsSlow(settings, i, cell.first, plain.kills.size, plain.flick)) {
+            val slow = !inFast && (if (settings.fails.enabled) i in failSlow else allowsSlow(settings, i, cell.first, plain.kills.size, plain.flick))
+            val clip = if (slow) {
                 clipFor(cell, music, s, lead, tail, offset, allowSlow = true, aim = aim)
             } else {
                 plain
@@ -1005,12 +1012,9 @@ object MontagePlanner {
 
         fun inFast(section: Int) = fast != null && section in fast.sections
 
-        /**
-         * Temps que [g] demande dans une cellule de la section [section] : au rythme rapide dans une partie rapide, sauf
-         * le plan de la drop ([onDrop]), qui garde le rythme du style.
-         */
+        /** Temps que [g] demande dans une cellule de la section [section] : au rythme rapide dans une partie rapide. */
         fun need(g: KillGroup, onDrop: Boolean = false, section: Int = -1): Int =
-            if (inFast(section) && !onDrop) {
+            if (inFast(section)) {
                 val s = fast!!.settings
                 need(g, s, period, beatsCeil(s.cuts.minLead, period).coerceAtLeast(1), beatsCeil(s.cuts.minTail, period).coerceAtLeast(1), onDrop)
             } else {
@@ -1379,6 +1383,26 @@ object MontagePlanner {
      */
     internal fun isStrong(index: Int, slot: CutSlot, visibleKills: Int, flick: Boolean = false): Boolean =
         slot.dropBeat != null || visibleKills > 1 || index == 0 || flick
+
+    /**
+     * Montage des morts : les plans qui ont le ralenti, les morts les plus fortes, [FailMontage.slowShare] d'entre
+     * elles (arrondi au-dessus), au moins une. Force d'une mort :
+     * - +1 si c'est un échange ([KillGroup.trade]) : le joueur venait de tuer, la mort a une histoire ;
+     * - +0,75 sur la drop : le moment que la musique met en avant ;
+     * - +0,5 × l'intensité du moment ([KillGroup.score], la note de la timeline : fusillade, explosions), plafonnée à 1 :
+     *   une mort en plein combat se lit, une mort silencieuse dans le dos beaucoup moins ;
+     * - +0,25 pour le plan d'ouverture.
+     * À égalité, le premier plan. Ce qu'on ne sait pas mesurer ici (ennemi visible à l'image) n'entre pas en compte.
+     */
+    internal fun failSlows(cells: List<Pair<CutSlot, KillGroup>>, fails: FailMontage): Set<Int> {
+        if (cells.isEmpty() || fails.slowShare <= 0.0) return emptySet()
+        val count = kotlin.math.ceil(cells.size * fails.slowShare).toInt().coerceIn(1, cells.size)
+        return cells.indices.sortedWith(compareByDescending<Int> { failStrength(it, cells[it].first, cells[it].second) }.thenBy { it }).take(count).toSet()
+    }
+
+    /** Force d'une mort pour le ralenti (voir [failSlows]). */
+    internal fun failStrength(index: Int, slot: CutSlot, group: KillGroup): Double =
+        (if (group.trade) 1.0 else 0.0) + (if (slot.dropBeat != null) 0.75 else 0.0) + 0.5 * group.score.coerceIn(0.0, 1.0) + (if (index == 0) 0.25 else 0.0)
 
     /** Le plan a-t-il droit au ralenti, vu la quantité d'effets demandée ? */
     internal fun allowsSlow(settings: MontageSettings, index: Int, slot: CutSlot, visibleKills: Int, flick: Boolean = false): Boolean =

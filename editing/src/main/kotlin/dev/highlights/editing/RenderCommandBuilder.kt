@@ -10,6 +10,7 @@ import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.CropRegion
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.GradeSettings
+import dev.highlights.core.model.HudOverlay
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.ScreenGeometry
@@ -158,23 +159,40 @@ object RenderCommandBuilder {
             return listOf("$head,${geometry(format, video.width, video.height, settings)},$tail")
         }
 
-        val size = settings.vertical.size
         val p = "c$input"
         val statements = mutableListOf<String>()
         statements += "$head,split=${overlays.size + 1}[${p}base]" + overlays.indices.joinToString("") { "[${p}hud$it]" }
         statements += "[${p}base]${geometry(format, video.width, video.height, settings)}[${p}l0]"
-        overlays.forEachIndexed { k, hud ->
-            val region = ScreenGeometry.forVideo(hud.source, settings.vertical.reference, video.width, video.height, hud.anchor)
-            val src = pixelBox(video.width, video.height, region)
+        hudBoxes(video.width, video.height, settings, overlays).forEachIndexed { k, (src, dst) ->
+            statements += "[${p}hud$k]crop=${src.w}:${src.h}:${src.x}:${src.y},scale=${dst.w}:${dst.h}:flags=lanczos,setsar=1[${p}o$k]"
+            statements += "[${p}l$k][${p}o$k]overlay=x=${dst.x}:y=${dst.y}:shortest=1[${p}l${k + 1}]"
+        }
+        statements += "[${p}l${overlays.size}]$tail"
+        return statements
+    }
+
+    /**
+     * Emplacements du HUD recollé (`vertical.hud`) dans l'image de sortie du [format] : là où [videoChain] les colle.
+     * Vide hors 9:16 ou sans HUD. Sert à les recoller par-dessus un zoom ([HudPin]) : ils restent fixes.
+     */
+    fun hudTargets(format: OutputFormat, media: MediaInfo, settings: EditSettings): List<CropBox> {
+        val video = media.video ?: return emptyList()
+        if (format != OutputFormat.VERTICAL) return emptyList()
+        return hudBoxes(video.width, video.height, settings, settings.vertical.hud.filter { it.enabled }).map { it.second }
+    }
+
+    /** Pour chaque élément du HUD : zone lue dans la capture, et zone où il est collé dans l'image 9:16. */
+    private fun hudBoxes(srcWidth: Int, srcHeight: Int, settings: EditSettings, overlays: List<HudOverlay>): List<Pair<CropBox, CropBox>> {
+        val size = settings.vertical.size
+        return overlays.map { hud ->
+            val region = ScreenGeometry.forVideo(hud.source, settings.vertical.reference, srcWidth, srcHeight, hud.anchor)
+            val src = pixelBox(srcWidth, srcHeight, region)
             val w = even(hud.target.width * size.width)
             val h = even(w.toDouble() * src.h / src.w).coerceAtLeast(2)
             val x = (hud.target.x * size.width).roundToInt().coerceIn(0, size.width - w)
             val y = (hud.target.y * size.height).roundToInt().coerceIn(0, (size.height - h).coerceAtLeast(0))
-            statements += "[${p}hud$k]crop=${src.w}:${src.h}:${src.x}:${src.y},scale=$w:$h:flags=lanczos,setsar=1[${p}o$k]"
-            statements += "[${p}l$k][${p}o$k]overlay=x=$x:y=$y:shortest=1[${p}l${k + 1}]"
+            src to CropBox(x, y, w, h)
         }
-        statements += "[${p}l${overlays.size}]$tail"
-        return statements
     }
 
     private fun audioChain(i: Int, clip: PlannedClip, settings: EditSettings, layout: AudioLayout): String {
@@ -239,7 +257,7 @@ object RenderCommandBuilder {
         }
     }
 
-    internal data class CropBox(val x: Int, val y: Int, val w: Int, val h: Int)
+    data class CropBox(val x: Int, val y: Int, val w: Int, val h: Int)
 
     /** Plus grand rectangle au ratio [aspect] inscrit dans la zone (ou l'image entière), centré sur elle, borné à l'image. */
     /**

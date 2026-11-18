@@ -42,6 +42,6 @@ class ClipCommand : PipelineCommand("clip") {
     /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
     internal fun clipOptions() = ClipOptions(
         moment = moment, platform = platform, outputDir = out,
-        thumbnail = thumbnailStyle ?: ThumbnailStyle.SOBER.takeIf { thumbnail },
+        thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail },
     )
 }

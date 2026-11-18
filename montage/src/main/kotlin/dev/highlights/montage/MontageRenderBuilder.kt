@@ -17,6 +17,7 @@ import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.WhipPanEffect
 import dev.highlights.core.serialization.Durations
 import dev.highlights.editing.RenderCommand
+import dev.highlights.editing.HudPin
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.ZoomCrop
 import dev.highlights.editing.SourceCut
@@ -160,9 +161,11 @@ object MontageRenderBuilder {
                 sized
             }
 
-            val effects = mutableListOf<String>()
+            // Avant les effets qui bougent l'image (zoom, flous) : le gel du début ; ces effets ; puis le reste.
+            val pre = mutableListOf<String>()
+            val motion = mutableListOf<String>()
             // Source trop courte pour le slot : image gelée avant / après.
-            if (clip.padBefore.isPositive()) effects += "tpad=start_mode=clone:start_duration=${sec(clip.padBefore)}"
+            if (clip.padBefore.isPositive()) pre += "tpad=start_mode=clone:start_duration=${sec(clip.padBefore)}"
             // Le dernier kill du clip est celui calé sur le temps : c'est lui qui mérite le zoom en priorité.
             val zoomKills = if (settings.zoom.onEveryKill) outKills else outKills.takeLast(1)
             if (settings.zoom.enabled && zooms[i] && zoomKills.isNotEmpty()) {
@@ -187,16 +190,24 @@ object MontageRenderBuilder {
                 // Recadrage recentré à chaque image (voir ZoomCrop : `iw` resterait celui de la première image).
                 // Vers le réticule réel : le centre de la capture, qui n'est plus au centre du cadre si le 9:16 est décalé.
                 val (fx, fy) = RenderCommandBuilder.crosshair(request.format, media, edit)
-                effects += ZoomCrop.filters(w, h, z, settings.zoom.scaleFlags, focusX = fx, focusY = fy)
+                motion += ZoomCrop.filters(w, h, z, settings.zoom.scaleFlags, focusX = fx, focusY = fy)
             }
             // Flou de mouvement après le zoom : le punch-in traîne lui aussi ; avant textes et flash, qui restent nets.
-            if (blend > 1) effects += "tmix=frames=$blend"
+            if (blend > 1) motion += "tmix=frames=$blend"
             // Flou par vecteurs : une traînée dans le sens où le décor glisse, de la longueur parcourue.
             val track = request.motion.getOrNull(i)
             if (track != null && settings.motionBlur.usesVectors) {
                 val pixelsPerWidth = (media.video?.width ?: w) * RenderCommandBuilder.pixelScale(request.format, media, edit)
-                effects += VectorBlur.filters("vb$i", VectorBlur.sigmas(clip, track, lead, frames, fps, pixelsPerWidth, w, settings.motionBlur, outKills), fps)
+                motion += VectorBlur.filters("vb$i", VectorBlur.sigmas(clip, track, lead, frames, fps, pixelsPerWidth, w, settings.motionBlur, outKills), fps)
             }
+            // HUD recollé en 9:16 (bandeau, killfeed) : fixe par-dessus zoom et flous, sous couleurs, textes et compteur
+            // (HudPin). Seulement quand le plan a déjà la taille du montage : sinon ses rectangles ne sont plus là.
+            val targets = if (own == w to h) RenderCommandBuilder.hudTargets(request.format, media, edit) else emptyList()
+            val effects = mutableListOf<String>()
+            val start = HudPin.statements(base, pre, motion, targets, "hp$i")?.let { (lines, out) ->
+                graph += lines
+                out
+            } ?: base.also { effects += pre + motion }
             // Couleurs boostées après le zoom (le vignettage reste fixe dans le cadre), avant flash et textes (leur
             // blanc reste blanc).
             if (colors.isNotEmpty()) effects += colors
@@ -251,11 +262,11 @@ object MontageRenderBuilder {
             val cutBlur = cutBlurStages("q$i", "v$i", "k$i", frames, edge, blurIn, blurOut, w, h, fps, settings.motionBlur.cutZoom)
             val clipOut = if (cutBlur.isEmpty()) "v$i" else "q$i"
             if (stages.isEmpty()) {
-                graph += "[$base]${(effects + finish).joinToString(",")}[$clipOut]"
+                graph += "[$start]${(effects + finish).joinToString(",")}[$clipOut]"
             } else {
                 // Whip pan : chaque étape superpose deux copies décalées du plan, puis la dernière rend le plan fini.
                 var label = "w${i}e"
-                graph += "[$base]${effects.joinToString(",")}[$label]"
+                graph += "[$start]${effects.joinToString(",")}[$label]"
                 stages.forEachIndexed { k, (first, second) ->
                     val out = if (k == stages.lastIndex) clipOut else "w${i}s$k"
                     val tail = if (k == stages.lastIndex) ",$finish" else ""

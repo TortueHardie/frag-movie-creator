@@ -10,7 +10,6 @@ import dev.highlights.core.session.Session
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
 import java.time.Instant
 import kotlin.io.path.Path
 import kotlin.time.Duration
@@ -63,16 +62,20 @@ class FastSectionsTest : FunSpec({
         val (fast, calm) = p.clips.partition { it.fastPart }
         fast.shouldNotBeEmpty()
         calm.shouldNotBeEmpty()
-        // Les plans rapides sont dans la partie intense, les autres avant ; le plan de la drop garde le rythme du style
-        // (il part de la montée et pose le meilleur kill sur la drop, ralenti compris).
-        fast.all { it.slot.section == 2 && it.slot.dropBeat == null } shouldBe true
-        calm.all { it.slot.section < 2 || it.slot.dropBeat != null } shouldBe true
-        calm.single { it.slot.dropBeat != null }.slow shouldNotBe null
+        // Les plans rapides sont dans la partie intense, les autres avant. Le rythme rapide part de la drop elle-même
+        // (« fast from the drop », 18/11) : le plan de la drop est rapide, sans ralenti, ouvert sur la drop, et porte
+        // le meilleur groupe.
+        fast.all { it.slot.section == 2 } shouldBe true
+        calm.all { it.slot.section < 2 } shouldBe true
+        val drop = fast.single { it.slot.dropBeat != null }
+        drop.slow shouldBe null
+        drop.slot.startBeat shouldBe 64
+        drop.group.rank shouldBe p.clips.maxOf { it.group.rank }
         // Un kill par temps : des plans d'un temps (126 BPM : 0,48 s, assez pour le contexte du rythme rapide).
         (fast.count { it.beats == 1 } * 2 >= fast.size) shouldBe true
         fast.all { it.slow == null && it.ramps.isEmpty() } shouldBe true
         // Plans plus longs avant la drop.
-        (calm.filter { it.slot.dropBeat == null }.minOf { it.beats } > fast.maxOf { it.beats }) shouldBe true
+        (calm.minOf { it.beats } > fast.maxOf { it.beats }) shouldBe true
     }
 
     test("réglage coupé : tout le montage au rythme du style, comme avant") {

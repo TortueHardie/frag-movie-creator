@@ -66,12 +66,15 @@ object CutGrid {
             sectionBeats(s, cutsOf(si), period, minBeatsOf(si), if (fast != null && si in fast.sections) 1.0 else scale)
         }
         val dropSection = music.sectionIndexAt(music.dropBeat)
-        val dropSlot = if (dropSection > 0 && sections[dropSection].startBeat == music.dropBeat) {
+        val fastDrop = fast != null && dropSection in fast.sections
+        val dropSlot = if (fastDrop && sections[dropSection].startBeat == music.dropBeat) {
+            // Partie rapide dès la drop (« fast from the drop », 18/11) : un plan court qui s'ouvre sur la drop, le meilleur
+            // kill dessus, le contexte d'avant pris sur la fin du plan précédent comme tout plan d'un temps.
+            CutSlot(music.dropBeat, music.dropBeat + lengths[dropSection].coerceAtMost(sections[dropSection].beats), dropSection, dropBeat = music.dropBeat)
+        } else if (dropSection > 0 && sections[dropSection].startBeat == music.dropBeat) {
             val before = sections[dropSection - 1]
             val pre = lengths[dropSection - 1].coerceIn(4, 8).coerceAtMost(before.beats)
-            // Le plan de la drop garde le rythme du style même dans une partie rapide : la place de son ralenti.
-            val dropLength = sectionBeats(sections[dropSection], cuts, period, minBeats, scale)
-            val post = dropLength.coerceAtMost(8).coerceAtMost(sections[dropSection].beats)
+            val post = lengths[dropSection].coerceAtMost(8).coerceAtMost(sections[dropSection].beats)
             CutSlot(music.dropBeat - pre, music.dropBeat + post, dropSection, dropBeat = music.dropBeat)
         } else {
             null

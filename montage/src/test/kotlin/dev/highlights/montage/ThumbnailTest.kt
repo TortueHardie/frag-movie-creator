@@ -86,6 +86,11 @@ class ThumbnailTest : FunSpec({
         I18n.withLanguage("en") {
             ThumbnailPicker.label(ThumbnailMoment(Path("a"), 1.seconds, 3), 9) shouldBe "TRIPLE KILL"
         }
+        // Montage des morts : le texte de la mort, jamais « N KILLS ».
+        ThumbnailPicker.label(ThumbnailMoment(Path("a"), 1.seconds, 1, text = "OUPS"), 8) shouldBe "OUPS"
+        val fails = ThumbnailPicker.fromMontage(MontageReport("", "m.mp3", 120.0, "0:00", 30.0, outputs = listOf("v.mp4"),
+            clips = listOf(MontageReportClip("D:/a.mp4", "00:00", "00:10", listOf("00:05"), listOf(1.0), 4, slowMotion = true, failText = "RIP"))))
+        fails.single().text shouldBe "RIP"
     }
 
     test("instant : la plus nette, notification comprise, jamais un écran noir") {

@@ -572,9 +572,10 @@ plan au lieu de tout relancer à l'aveugle.
 
 ## Récap de soirée
 
-Une vidéo highlights de toute une soirée, partie par partie : avant chaque partie, un intercalaire de 1,5 s
+Une vidéo highlights de toute une soirée, partie par partie : avant chaque partie, un intercalaire d'une seconde avec un
+impact sonore (ceux du style story, au volume du reste)
 (« PARTIE 3 – 14 KILLS », le jeu et l'heure, sur une image floutée de la partie), puis ses meilleurs moments ; à la fin,
-le bilan (« SOIRÉE DU 16/11 », « 47 KILLS · MEILLEURE PARTIE : N°3 (14) »). La soirée est celle des statistiques (de 6 h
+le bilan, 2 s sur un souffle (« SOIRÉE DU 16/11 », « 47 KILLS · MEILLEURE PARTIE : N°3 (14) »). La soirée est celle des statistiques (de 6 h
 à 6 h, un jeu à la fois) ; les moments de chaque partie sont recalculés avec une cible de durée partagée sur la soirée
 (moments retouchés à la main gardés), et rendus par l'export habituel (style simple ou story, formats, plateforme). Une
 partie sans moment n'a pas d'intercalaire mais garde son numéro. Dans l'application : « Récap de la soirée » sur chaque
@@ -671,6 +672,10 @@ commande pour `export`, `process` et `montage`) adapte l'export à là où la vi
   boutons à droite). Les textes du montage (DOUBLÉ, TRIPLÉ…, sous-titres et libellés du montage story) sont centrés dans
   la largeur utile et gardés entre les marges du haut et du bas. Les éléments du HUD replacés en 9:16 (`vertical.hud`
   du profil) gardent la place que le profil leur donne.
+- **HUD fixe pendant les zooms** : en 9:16, le HUD recollé (`vertical.hud` : bandeau VALORANT, killfeed WARDOGS) reste
+  fixe par-dessus le punch-in, le zoom d'approche, la secousse et le flou de mouvement ; seule l'image du jeu zoome.
+  Les couleurs du montage, le flash, les textes et le compteur de kills restent par-dessus. Montage kills, montage
+  story et clips.
 - **Durée** : en montage kills, la durée maximale de la plateforme devient un plafond de plus ; un montage highlights
   trop long est refusé avant le rendu, avec la durée à atteindre.
 - Le nom du fichier porte la plateforme : `valorant_2026-09-27_killmontage_tiktok_9x16.mp4`.
@@ -696,12 +701,12 @@ part), ou « Créer la miniature » pour une vidéo exportée avant.
   kill est à l'écran) et moins dans le noir (luminosité moyenne ramenée à 80 ; écran noir écarté). Entre moments de
   même force (sur une soirée de Wardogs, tous les kills sont seuls), c'est l'image la plus lisible qui l'emporte.
 - **L'image** vient de la capture d'origine en pleine résolution : recadrée au format, resserrée sur le réticule.
-- **L'habillage** : `sober` (défaut : couleurs à peine relevées, petit texte blanc), `vivid` (couleurs boostées comme
-  les kill montages de TikTok, texte jaune), `big` (texte aussi large que l'image, lisible en petite vignette). Texte :
+- **L'habillage** : `vivid` (défaut : couleurs boostées comme les kill montages de TikTok, texte jaune), `sober`
+  (couleurs à peine relevées, petit texte blanc), `big` (texte aussi large que l'image, lisible en petite vignette). Texte :
   ACE, CLUTCH, la série (TRIPLÉ…), sinon le nombre de kills de la vidéo, dans la langue de l'interface (`video.*`).
 
 ```powershell
-& $app montage partie.session.json -m D:\Musique\son.mp3 --thumbnail               # miniature sobre à côté du montage
+& $app montage partie.session.json -m D:\Musique\son.mp3 --thumbnail               # miniature (vive) à côté du montage
 & $app export partie.session.json --thumbnail-style vivid                            # habillage au choix
 & $app thumbnail output\wardogs_2026-09-22_killmontage_9x16.mp4 --thumbnail-style big   # vidéo déjà exportée
 ```
@@ -954,9 +959,12 @@ les parties analysées avant sont à mettre à jour.
 parties rapides » de « Réglages avancés », `--no-fast-parts` pour l'éviter) : la drop et ce qui suit, si cette partie est
 intense (`minIntensity` 0,7) et le tempo vif (`minBpm` 120 ; « Rome Is Burning » : 126 BPM, intensité 0,95 après la
 drop). Avant, l'intro et la montée gardent le rythme du style (Cinématique : plans longs, ralentis) ; après, un kill par
-temps, sans ralenti ni rampe, zoom d'approche vers le réticule. Le plan de la drop garde le rythme du style : il part
-de la montée et pose le meilleur kill sur la drop, ralenti compris. Une musique lente (« HEAVENLY JUMPSTYLE (Slowed) »,
-111 BPM) reste entière au rythme du style. Le tempo détecté est parfois le double du vrai : ce n'est qu'un garde-fou.
+temps, sans ralenti ni rampe, zoom d'approche vers le réticule. Le rythme rapide part de la drop elle-même (choix de
+l'utilisateur du 18/11) : le meilleur groupe y tombe, en plan rapide, sans ralenti (un multi-kill s'étend juste avant
+la drop pour y finir). Une musique lente (« HEAVENLY JUMPSTYLE (Slowed) », 111 BPM) reste entière au rythme du style.
+Limite connue : le tempo détecté est parfois le double du vrai (« Lose Yourself » lu 171 BPM pour 86, « life kinda
+sucks » 188) ; une telle musique passe au rythme rapide après sa drop. Aucun indice simple ne trahit le doublement
+(temps pairs et impairs aussi forts que sur une vraie musique rapide) : `--no-fast-parts` ou la case pour l'éviter.
 Le rythme rapide forcé (ci-dessous) rend tout le montage rapide.
 
 Case « Rythme rapide » du dialogue du montage kills, `montage --fast` ou `search --montage … --fast` : un kill sur
@@ -981,8 +989,10 @@ En 21:9, l'ennemi n'est souvent que quelques pixels au fond d'un couloir : il gr
 `montage --fails` (ou la case « Montage des morts » de la fenêtre de montage, réglages avancés) monte les morts du
 joueur au lieu de ses kills, sur la musique, avec le même moteur : un plan par mort, la mort sur un temps.
 
-- Chaque plan montre les 3 secondes qui précèdent la mort, un ralenti qui finit sur elle, une image figée (0,7 s, son
-  du jeu coupé, la musique continue) et un petit texte : OUPS, RIP, AÏE, GAME OVER, BIEN ESSAYÉ, RATÉ (`video.fail.*`,
+- Chaque plan montre les 3 secondes qui précèdent la mort, une image figée (0,7 s, son du jeu coupé, la musique
+  continue) et un petit texte. Le ralenti qui finit sur la mort est réservé aux plus fortes, une sur trois (au moins
+  une) : d'abord les échanges (le joueur venait de tuer), puis la mort sur la drop, puis les morts en plein combat
+  (intensité du moment), puis le plan d'ouverture (`montage.fails.slowShare`, 1 = toutes) : OUPS, RIP, AÏE, GAME OVER, BIEN ESSAYÉ, RATÉ (`video.fail.*`,
   dans la langue de l'interface, ou `montage.fails.labels` du profil). Le texte d'une mort est tiré d'une empreinte de
   la mort (capture et instant) : le même montage garde les mêmes textes, et deux morts voisines n'ont jamais le même.
 - Les morts sont les `death` du killfeed ou d'Outplayed. Dans Wardogs, « à terre » ne compte que si

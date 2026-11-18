@@ -21,7 +21,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
- * Habillage de la miniature. Aucun n'est définitif : les trois sont proposés au joueur, [SOBER] par défaut.
+ * Habillage de la miniature : trois au choix, [VIVID] par défaut ([DEFAULT], choisi par le joueur sur la planche des trois).
  * [zoom] : punch-in sur le centre de l'écran (le réticule) ; [grade] : couleurs ; texte : hauteur relative
  * [textSize] (bornée par la largeur), couleur, hauteur de sa base [textY] (fraction de l'image).
  */
@@ -43,6 +43,9 @@ enum class ThumbnailStyle(val zoom: Double, val grade: GradeSettings, val textSi
     val id: String get() = name.lowercase().let { if (this == BIG_TEXT) "big" else it }
 
     companion object {
+        /** Habillage par défaut, partout (application, ligne de commande, exports) : le vif, choisi par le joueur le 18/11. */
+        val DEFAULT: ThumbnailStyle get() = VIVID
+
         fun parse(text: String): ThumbnailStyle? = entries.firstOrNull { it.id == text.trim().lowercase() }
     }
 }
@@ -57,6 +60,8 @@ data class ThumbnailMoment(
     val headshots: Int = 0,
     /** Kill posé sur la drop de la musique : celui que le montage met déjà en avant. */
     val onDrop: Boolean = false,
+    /** Texte imposé (montage des morts : celui de la mort, OUPS, RIP…) ; null : choisi par [ThumbnailPicker.label]. */
+    val text: String? = null,
 )
 
 /**
@@ -84,7 +89,7 @@ object ThumbnailPicker {
     /** Plans d'un montage kills (hors ouverture vitrine) ; l'instant retenu est le dernier kill, celui qui clôt la série. */
     fun fromMontage(report: MontageReport): List<ThumbnailMoment> = report.clips.filter { !it.showcase && it.kills.isNotEmpty() }.mapNotNull { c ->
         val last = c.kills.mapNotNull { Durations.parseOrNull(it) }.maxOrNull() ?: return@mapNotNull null
-        ThumbnailMoment(Path(c.source), last, c.kills.size, c.ace, c.clutch, c.headshots, c.onDrop)
+        ThumbnailMoment(Path(c.source), last, c.kills.size, c.ace, c.clutch, c.headshots, c.onDrop, text = c.failText)
     }
 
     /** Moments montés d'un export highlights, à leur pic de score ; leurs kills comptent s'ils sont connus. */
@@ -99,6 +104,8 @@ object ThumbnailPicker {
      * de la QA du 18/11 : « ACE » deux fois).
      */
     fun label(m: ThumbnailMoment, totalKills: Int): String = when {
+        // Montage des morts : le texte de la mort choisie ; « 8 KILLS » y comptait des morts.
+        m.text != null -> m.text
         m.ace -> if (totalKills >= 2) I18n.text("video.kills", mapOf("count" to totalKills)) else ""
         m.clutch -> I18n.text("video.clutch")
         m.kills >= 2 -> I18n.text("video.streak.${m.kills.coerceAtMost(5)}")

@@ -148,7 +148,7 @@ interface UiActions {
     /** Envoi manuel : page d'envoi de YouTube dans le navigateur, vidéo montrée dans l'Explorateur pour l'y glisser. */
     fun openYouTubeUpload()
     fun copyToClipboard(text: String)
-    /** Miniature YouTube de la vidéo à publier (habillage sobre), écrite à côté d'elle. */
+    /** Miniature YouTube de la vidéo à publier (habillage par défaut, le vif), écrite à côté d'elle. */
     fun makeThumbnail()
     /** Ouvre app.yaml dans l'éditeur (identifiant YouTube, réglages de publication). */
     fun editConfig()
@@ -645,7 +645,7 @@ class AppController(
         withMemory(title, MEMORY_EXPORT) {
             enqueue(title) { progress ->
                 saveNow(current)
-                val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform, thumbnail = ThumbnailStyle.SOBER), progress)
+                val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform, thumbnail = ThumbnailStyle.DEFAULT), progress)
                 _state.update { it.copy(lastExport = result, lastUpload = null) }
                 result.videos.values.firstOrNull()
             }
@@ -936,8 +936,8 @@ class AppController(
 
     /** Réglages du dialogue pour le pipeline : les mêmes pour la frise et pour le rendu, sinon le plan montré mentirait. */
     private fun montageOptions(montage: MontageUiState, s: UiState) = MontageOptions(
-        // Miniature sobre de chaque vidéo : prête dans la fenêtre de publication.
-        thumbnail = ThumbnailStyle.SOBER,
+        // Miniature (habillage par défaut) de chaque vidéo : prête dans la fenêtre de publication.
+        thumbnail = ThumbnailStyle.DEFAULT,
         formats = OutputFormat.entries.filter { it in montage.formats },
         outputDir = s.settings.outputDir,
         maxDuration = montage.maxDuration,
@@ -1090,7 +1090,7 @@ class AppController(
         updatePublish { it.copy(thumbnailBusy = true) }
         scope.launch {
             try {
-                val made = withContext(Dispatchers.IO) { p.miniature(video, ThumbnailStyle.SOBER) }
+                val made = withContext(Dispatchers.IO) { p.miniature(video, ThumbnailStyle.DEFAULT) }
                 _state.update { s -> s.copy(publish = s.publish?.takeIf { it.video == video }?.copy(thumbnail = made, thumbnailBusy = false)) }
             } catch (e: CancellationException) {
                 throw e
@@ -1363,7 +1363,7 @@ class AppController(
                     platform = s.settings.platform,
                     outputDir = s.settings.outputDir,
                     fromStartMusics = musicPrefs.fromStartMusics(),
-                    thumbnail = ThumbnailStyle.SOBER,
+                    thumbnail = ThumbnailStyle.DEFAULT,
                     style = EveningPlanner.style(watchSettings?.evenings?.style, runCatching { p.montageStyles.default }.getOrNull()),
                 ),
                 progress,

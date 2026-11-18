@@ -70,10 +70,10 @@ private fun PipelineCommand.platformOption() = option(
     help = "Plateforme visée : tiktok, shorts, reels, youtube (ou définie dans app.yaml) — format, volume, débit, textes hors de l'interface de l'appli, durée maximale",
 )
 
-/** `--thumbnail` : miniature YouTube de chaque vidéo ; `--thumbnail-style` choisit son habillage (sobre par défaut). */
+/** `--thumbnail` : miniature YouTube de chaque vidéo ; `--thumbnail-style` choisit son habillage (vif par défaut). */
 private fun PipelineCommand.thumbnailFlag() = option("--thumbnail", help = "Écrit aussi une miniature YouTube (PNG 1280x720, 1080x1920 en vertical) à côté de chaque vidéo").flag()
 
-internal fun PipelineCommand.thumbnailStyleOption() = option("--thumbnail-style", help = "Habillage de la miniature : sober (défaut), vivid ou big (texte aussi large que l'image)")
+internal fun PipelineCommand.thumbnailStyleOption() = option("--thumbnail-style", help = "Habillage de la miniature : vivid (défaut : couleurs vives, texte jaune), sober ou big (texte aussi large que l'image)")
     .choice(*ThumbnailStyle.entries.map { it.id to it }.toTypedArray())
 
 private fun PipelineCommand.styleOption() = option(
@@ -183,7 +183,7 @@ class ExportCommand : PipelineCommand("export") {
     }
 
     /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
-    internal fun exportOptions() = ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.SOBER.takeIf { thumbnail })
+    internal fun exportOptions() = ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail })
 }
 
 class MontageCommand : PipelineCommand("montage") {
@@ -438,7 +438,7 @@ class MontageCommand : PipelineCommand("montage") {
         fastParts = if (noFastParts) false else null,
         style = style.let { if (it == "none") null else it ?: defaultStyle },
         constraints = constraints,
-        thumbnail = thumbnailStyle ?: ThumbnailStyle.SOBER.takeIf { thumbnail },
+        thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail },
     )
 }
 
