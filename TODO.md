@@ -224,7 +224,10 @@ Pistes, de la plus simple à la plus lourde :
   Captures déposées le 18/11 dans `D:\Vidéo` (hors dépôt) :
   - [ ] Apex : « Apex 53 kills octane.mp4 », « Apex 37 kills revenant.mp4 » (atelier `apex`).
   - [ ] CS2 : « CS2- 33 Kills On Dust 2.mp4 » (atelier `cs2`).
-  - [ ] Fortnite : « 81 Elimination Squads Zero Build Fortnite.mp4 » (atelier `fortnite`).
+  - [x] Fortnite : « 81 Elimination Squads Zero Build Fortnite.mp4 » (atelier `fortnite`) : `fortnite.yaml`, détecteur
+    `hud-counter` (compteur d'éliminations), mises à terre `knock` ; 31/31 sur `verite/fortnite/` (le « 81 » du titre
+    compte l'escouade). Reste : capture 1080p, joueur mort qui regarde un coéquipier, décider si les mises à terre
+    font des plans (`montage.anchorEvents: [knock]`).
 - [ ] Assistant « nouveau jeu » : marquer un kill dans une vidéo → modèle du HUD découpé, profil proposé et testé.
 - [ ] Aperçus quasi instantanés : copies basse définition des parties, faites une fois.
 - [ ] Ressenti par musique : 👍/👎 sur le rythme rapide après chaque montage, mémorisé, puis mesure apprise.

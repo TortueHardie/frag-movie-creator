@@ -170,6 +170,9 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `TemplateMatcher.kt` : `GrayImage`, `PreparedTemplate`, `TemplateMatcher.match` (NCC), `BrightTemplate/BrightMatcher`.
 - `WindowsOcr.kt` : lance `resources/.../windows-ocr.ps1` (Windows.Media.Ocr) par lots ; `WindowsOcr.supported`.
 - `AmmoCounterDetector.kt` — type **`ammo-counter`** : compteur de munitions du HUD relu à 60 img/s autour de chaque kill (`ctx.events`, `dependsOn`) via `frames.extractRange` → events `hud-shot` ; `changes` (paliers : affichage stable `minPlateau` qui change, palier sans blanc `minDigits` = compteur absent, ignoré), `refills` (recharge animée du Combat à mort, zone `TEAL`, ignorée), `windows`.
+- `HudCounterDetector.kt` — type **`hud-counter`** : nombre du HUD (éliminations Fortnite) lu par modèles de chiffres (`digit_0..9.png`, chiffre + 1 px de marge, largeur variable)
+  calé à droite (`CounterReader` : unités sur les `slack` dernières colonnes, dizaines juste à gauche), puis `CounterDecoder` (Viterbi : reste, +1..`maxStep`, remise à 0 = nouvelle partie)
+  → un événement `kind` par unité gagnée. Réglé sur une vidéo 480p (31/31). Utilisé par fortnite.yaml (`game-events`).
 - `FrameSampling.kt` : `chooseSampling` (images clés vs fps selon intervalle mesuré).
 
 ### analysis-ml
@@ -393,8 +396,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 
 ## 5. Configuration (`config/`)
 - `app.yaml` → `AppConfig`. Installée : `%APPDATA%\Highlights\config`, sortie `~/Videos/Highlights` (filtre au packaging).
-- `profiles/{default,lol,valorant,wardogs}.yaml` → `GameProfile`. Sections : `id, displayName, match{pathContains, priority}, window{size,hop}, audio{mix,game,mic}, detectors[], selection, edit{style, story, grade, vertical{reference, hud[]}, formats…}, montage{…}`.
-  YAML strict : une clé inconnue = `ConfigException`. Profils : wardogs (ocr-log + icônes + gate hud-template, pose `aim`), valorant (outplayed-events avec offsets −390 ms, killfeed en secours et `kill-confirm` toujours, `matchCut.pose: rest`, weapon ammo_icon, `vertical` : recadrage sous le bandeau du haut + bandeau `topbar` replacé, mesuré en 16:9, test `ValorantVerticalTest`), lol (audio+voix+rires), default.
+- `profiles/{default,lol,valorant,wardogs,fortnite}.yaml` → `GameProfile`. Sections : `id, displayName, match{pathContains, priority}, window{size,hop}, audio{mix,game,mic}, detectors[], selection, edit{style, story, grade, vertical{reference, hud[]}, formats…}, montage{…}`.
+  YAML strict : une clé inconnue = `ConfigException`. Profils : wardogs (ocr-log + icônes + gate hud-template, pose `aim`), valorant (outplayed-events avec offsets −390 ms, killfeed en secours et `kill-confirm` toujours, `matchCut.pose: rest`, weapon ammo_icon, `vertical` : recadrage sous le bandeau du haut + bandeau `topbar` replacé, mesuré en 16:9, test `ValorantVerticalTest`), lol (audio+voix+rires), fortnite (hud-counter des éliminations + hud-template « KNOCKED! » → `knock`, montage par `anchorEvents: [knock]` facultatif), default.
 - `templates/<jeu>/*.png` (modèles HUD), `models/yamnet.onnx` + `yamnet_class_map.csv` ; `models/ggml-*.bin` (whisper) hors dépôt et hors installeur.
 - Chemins relatifs dans les profils → résolus par `LoadedConfig.resolve` (dans `gradedEdit`, `killMontage` pour `matchCut.weapon.template`, et `ctx.configDir` pour les détecteurs).
 

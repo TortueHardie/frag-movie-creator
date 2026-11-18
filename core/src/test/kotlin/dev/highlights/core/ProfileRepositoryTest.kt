@@ -133,6 +133,6 @@ class ProfileRepositoryTest : FunSpec({
 
     test("les profils du dépôt sont valides") {
         val repo = ProfileRepository.loadDirectory(Path("../config/profiles"))
-        repo.all().map { it.id }.toSet() shouldBe setOf("default", "lol", "valorant", "wardogs")
+        repo.all().map { it.id }.toSet() shouldBe setOf("default", "fortnite", "lol", "valorant", "wardogs")
     }
 })
