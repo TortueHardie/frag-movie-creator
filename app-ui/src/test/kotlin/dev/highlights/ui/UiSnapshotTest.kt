@@ -1,8 +1,6 @@
 package dev.highlights.ui
 
 import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.ImageComposeScene
-import androidx.compose.ui.unit.Density
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.model.AudioStream
 import dev.highlights.core.model.Highlight
@@ -54,17 +52,12 @@ class UiSnapshotTest : FunSpec({
         var french: Path? = null
         for ((tag, folder) in languages) {
             I18n.withLanguage(tag) {
-                val scene = ImageComposeScene(width, height, Density(1f)) { App(state.copy(language = tag), NoopActions) }
-                try {
-                    scene.render(0)
-                    val image = scene.render(500.milliseconds.inWholeNanoseconds)
-                    val file = outDir.resolve("$folder$name.png")
-                    file.parent.createDirectories()
-                    file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
-                    if (tag == "fr") french = file
-                } finally {
-                    scene.close()
-                }
+                // Rendue jusqu'au repos avant l'image et la fermeture (voir SceneRendering).
+                val image = SceneRendering.image(width, height) { App(state.copy(language = tag), NoopActions) }
+                val file = outDir.resolve("$folder$name.png")
+                file.parent.createDirectories()
+                file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+                if (tag == "fr") french = file
             }
         }
         return french!!

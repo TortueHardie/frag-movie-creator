@@ -1,8 +1,6 @@
 package dev.highlights.ui
 
 import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.ImageComposeScene
-import androidx.compose.ui.unit.Density
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.VideoStream
@@ -87,20 +85,15 @@ class MontageTimelineTest : FunSpec({
         for ((name, state) in states) {
             for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
                 I18n.withLanguage(tag) {
-                    val scene = ImageComposeScene(1320, 600, Density(1f)) {
+                    val image = SceneRendering.image(1320, 600) {
                         HighlightsTheme {
                             val error = state.error?.let { dev.highlights.core.i18n.Message(it, "kill" to view.left[2].key).text() }
                             MontagePlanContent(constraints, state.copy(error = error), noop)
                         }
                     }
-                    try {
-                        scene.render(0)
-                        val file: Path = out.resolve("$folder$name.png")
-                        file.parent.createDirectories()
-                        file.writeBytes(scene.render(500.milliseconds.inWholeNanoseconds).encodeToData(EncodedImageFormat.PNG)!!.bytes)
-                    } finally {
-                        scene.close()
-                    }
+                    val file: Path = out.resolve("$folder$name.png")
+                    file.parent.createDirectories()
+                    file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
                 }
             }
         }
