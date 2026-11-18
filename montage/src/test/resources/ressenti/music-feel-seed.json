@@ -1,0 +1,100 @@
+{
+    "songs": [
+        {
+            "key": "apashe, worakls & wasiu - rome is burning (official music video).mp3|5659977",
+            "name": "Apashe, Worakls & Wasiu - Rome Is Burning (Official Music Video).mp3",
+            "sizeBytes": 5659977,
+            "feel": "fast",
+            "at": "2026-11-18T22:48:06.908273400Z",
+            "features": {
+                "bpm": 126.07493907528267,
+                "onsets": 4.952800718773801,
+                "lowOnsets": 4.723200685453161,
+                "midOnsets": 5.018400728293984,
+                "highOnsets": 4.264000618811881,
+                "loudnessDb": -10.611939107748645,
+                "percussive": 0.6531376652299375
+            }
+        },
+        {
+            "key": "r2d2.mp3|3272664",
+            "name": "R2D2.mp3",
+            "sizeBytes": 3272664,
+            "feel": "fast",
+            "at": "2026-11-18T22:48:08.460538400Z",
+            "features": {
+                "bpm": 161.39318312072464,
+                "onsets": 3.468435402684564,
+                "lowOnsets": 2.986708263422819,
+                "midOnsets": 3.179399119127517,
+                "highOnsets": 4.6245805369127515,
+                "loudnessDb": -3.504629148668922,
+                "percussive": 0.5390568795945253
+            }
+        },
+        {
+            "key": "go2 - spitfire.mp3|7620238",
+            "name": "GO2 - Spitfire.mp3",
+            "sizeBytes": 7620238,
+            "feel": "fast",
+            "at": "2026-11-18T22:48:10.447145700Z",
+            "features": {
+                "bpm": 157.03883796268028,
+                "onsets": 5.456884627901931,
+                "lowOnsets": 5.344756861575179,
+                "midOnsets": 5.980147537426774,
+                "highOnsets": 5.19525317313951,
+                "loudnessDb": -5.695710018455488,
+                "percussive": 0.5132491883972019
+            }
+        },
+        {
+            "key": "doom eternal ost - the only thing they fear is you (mick gordon) [doom eternal theme].mp3|10030289",
+            "name": "Doom Eternal OST - The Only Thing They Fear Is You (Mick Gordon) [Doom Eternal Theme].mp3",
+            "sizeBytes": 10030289,
+            "feel": "fast",
+            "at": "2026-11-18T22:48:13.059373300Z",
+            "features": {
+                "bpm": 103.01774761103204,
+                "onsets": 4.173581876079448,
+                "lowOnsets": 6.037230812823834,
+                "midOnsets": 5.958717886442142,
+                "highOnsets": 3.326468723013817,
+                "loudnessDb": -7.226518884153664,
+                "percussive": 0.5758272973855034
+            }
+        },
+        {
+            "key": "hanumankind – big dawgs ft. kalmi (official music video) def jam india.mp3|5705792",
+            "name": "Hanumankind – Big Dawgs Ft. Kalmi (Official Music Video) Def Jam India.mp3",
+            "sizeBytes": 5705792,
+            "feel": "fast",
+            "at": "2026-11-18T22:48:15.183762800Z",
+            "features": {
+                "bpm": 90.38454802773877,
+                "onsets": 5.48419592421472,
+                "lowOnsets": 4.37610710670672,
+                "midOnsets": 4.7360953519885065,
+                "highOnsets": 5.478571107882192,
+                "loudnessDb": -6.767314740066966,
+                "percussive": 0.6086917306564122
+            }
+        },
+        {
+            "key": "eminem - lose yourself (lyrics).mp3|7742750",
+            "name": "Eminem - Lose Yourself (Lyrics).mp3",
+            "sizeBytes": 7742750,
+            "feel": "calm",
+            "at": "2026-11-18T22:48:17.635487300Z",
+            "features": {
+                "bpm": 85.6831520606283,
+                "onsets": 3.8007763200892453,
+                "lowOnsets": 3.113608384792211,
+                "midOnsets": 3.8628931955963215,
+                "highOnsets": 3.9327746805417827,
+                "loudnessDb": -6.7407565234251425,
+                "percussive": 0.6345337723835429
+            }
+        }
+    ]
+}

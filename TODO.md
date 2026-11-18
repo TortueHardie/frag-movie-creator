@@ -229,7 +229,9 @@ Pistes, de la plus simple à la plus lourde :
   - [ ] Fortnite : « 81 Elimination Squads Zero Build Fortnite.mp4 » (atelier `fortnite`).
 - [ ] Assistant « nouveau jeu » : marquer un kill dans une vidéo → modèle du HUD découpé, profil proposé et testé.
 - [ ] Aperçus quasi instantanés : copies basse définition des parties, faites une fois.
-- [ ] Ressenti par musique : 👍/👎 sur le rythme rapide après chaque montage, mémorisé, puis mesure apprise.
+- [x] Ressenti par musique : 👍/👎 sur le rythme rapide après chaque montage, mémorisé, puis mesure apprise.
+  Question sous le résultat, `app musique-ressenti`, `music-feel.json` ; modèle appris actif à partir de 8 musiques
+  (3 de chaque sorte) et 80 % en validation croisée. Reste : recueillir les réponses, vérifier que le modèle s'active.
 
 ## Entretien
 - [x] Mettre à jour `CLAUDE.md` et le versionner.

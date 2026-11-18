@@ -79,6 +79,10 @@ data class ExportResult(
     val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
     /** Miniatures écrites à côté des vidéos (une par vidéo), si elles ont été demandées. */
     val thumbnails: List<Path> = emptyList(),
+    /** Montage kills : nombre de plans au rythme rapide (null pour les highlights), pour demander le ressenti de la musique. */
+    val fastShots: Int? = null,
+    /** Montage kills : ressenti appliqué à la musique (dit, appris ou AUTO). */
+    val musicFeel: dev.highlights.core.model.MusicFeel? = null,
 )
 
 class Exporter(

@@ -4,5 +4,5 @@ import com.github.ajalt.clikt.core.main
 import com.github.ajalt.clikt.core.subcommands
 
 fun main(args: Array<String>) = HighlightsCli()
-    .subcommands(ProcessCommand(), AnalyzeCommand(), ExportCommand(), MontageCommand(), ClipCommand(), MusicCommand(), ScoreCommand(), StatsCommand(), EveningCommand(), RecapCommand(), SearchCommand(), PublishCommand(), VeriteCommand(), TasteCommand(), ThumbnailCommand(), PreviewCommand(), ProbeCommand(), EncodersCommand(), DoctorCommand())
+    .subcommands(ProcessCommand(), AnalyzeCommand(), ExportCommand(), MontageCommand(), ClipCommand(), MusicCommand(), ScoreCommand(), StatsCommand(), EveningCommand(), RecapCommand(), SearchCommand(), PublishCommand(), VeriteCommand(), TasteCommand(), MusicFeelCommand(), ThumbnailCommand(), PreviewCommand(), ProbeCommand(), EncodersCommand(), DoctorCommand())
     .main(args)

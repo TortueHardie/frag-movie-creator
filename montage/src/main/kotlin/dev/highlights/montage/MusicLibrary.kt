@@ -5,6 +5,7 @@ import dev.highlights.core.HighlightsException
 import dev.highlights.core.InputException
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.model.MontageSettings
+import dev.highlights.core.model.MusicFeel
 import dev.highlights.core.model.MusicPace
 import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.serialization.SerialInstant
@@ -160,6 +161,7 @@ internal data class StoredMusic(
     val salience: DoubleArray = DoubleArray(0),
     val sections: List<MusicSection> = emptyList(),
     val dropBeat: Int = 0,
+    val features: MusicFeatures? = null,
 ) {
     fun toAnalysis(file: Path): MusicAnalysis? = if (error != null) null else MusicAnalysis(
         file = file,
@@ -173,6 +175,7 @@ internal data class StoredMusic(
         dropBeat = dropBeat,
         halfAccent = halfAccent,
         salience = salience,
+        features = features,
     )
 
     companion object {
@@ -190,6 +193,7 @@ internal data class StoredMusic(
             salience = a.salience,
             sections = a.sections,
             dropBeat = a.dropBeat,
+            features = a.features,
         )
     }
 }
@@ -209,6 +213,8 @@ data class MusicCandidate(
     val error: String? = null,
     val recency: Double = 0.0,
     val pace: Double = 0.0,
+    /** Avance (ou retenue) pour le ressenti de la musique quand le style veut le rythme rapide ([MusicChoice.feel]). */
+    val feel: Double = 0.0,
 )
 
 /**
@@ -284,22 +290,28 @@ object MusicChoice {
         return if (recent.take(RECENT_DEPTH).any { it.toAbsolutePath().normalize() == key }) RECENT_PENALTY else 0.0
     }
 
+    /** Avance d'une musique ressentie rapide (retenue d'une calme) quand le style veut le rythme rapide partout. */
+    const val FEEL_BONUS = 0.03
+
     /**
      * Candidates de la meilleure à la moins bonne ; celles sans plan possible à la fin. [fromStart] : la musique se
      * prend-elle depuis son début (réglage retenu pour chaque musique) ? [recent] : musiques des derniers montages, la
-     * plus récente d'abord.
+     * plus récente d'abord. [feels] : ressenti de chaque musique ([MusicFeels]), appliqué à son plan (calme : jamais de
+     * rythme rapide) ; absente : AUTO.
      */
     fun rank(
         groups: List<KillGroup>,
         musics: List<MusicAnalysis>,
         settings: MontageSettings,
         recent: List<Path> = emptyList(),
+        feels: Map<Path, MusicFeel> = emptyMap(),
         fromStart: (Path) -> Boolean,
     ): List<MusicCandidate> {
         if (musics.isEmpty()) throw HighlightsException(Message("error.music.noneToTry"))
+        fun feelOf(music: MusicAnalysis) = feels[music.file] ?: MusicFeel.AUTO
         // Une planification par musique, indépendantes : sur tous les cœurs (l'ordre des musiques est gardé).
         val tried = musics.parallelStream().map { music ->
-            val own = settingsFor(settings, fromStart(music.file))
+            val own = withFeel(settingsFor(settings, fromStart(music.file)), feelOf(music))
             val prepared = prepare(music, own)
             try {
                 val plan = MontagePlanner.best(groups, prepared, own)
@@ -314,12 +326,13 @@ object MusicChoice {
         val ranked = tried.map { c ->
             val recency = recency(c.music.file, recent)
             val pace = c.plan?.let { pace(it, settings.musicPace) } ?: 0.0
-            c.copy(value = if (c.plan == null) 0.0 else c.score * c.groups / most + pace - recency, recency = recency, pace = pace)
+            val feel = feel(settings, feelOf(c.music))
+            c.copy(value = if (c.plan == null) 0.0 else c.score * c.groups / most + pace + feel - recency, recency = recency, pace = pace, feel = feel)
         }
             .sortedWith(compareBy<MusicCandidate> { it.plan == null }.thenByDescending { it.value }.thenBy { it.music.file.toString().lowercase() })
         log.info {
             "Choix de la musique : " + ranked.joinToString(", ") { c ->
-                "${c.music.file.fileName} " + (c.error?.let { "(aucun plan : $it)" } ?: "%.3f (note %.3f, %d groupe(s)%s)".format(c.value, c.score, c.groups, (if (c.pace > 0) ", rythme +%.3f".format(c.pace) else "") + if (c.recency > 0) ", récente -%.3f".format(c.recency) else ""))
+                "${c.music.file.fileName} " + (c.error?.let { "(aucun plan : $it)" } ?: "%.3f (note %.3f, %d groupe(s)%s)".format(c.value, c.score, c.groups, (if (c.pace > 0) ", rythme +%.3f".format(c.pace) else "") + (if (c.feel != 0.0) ", ressenti %+.3f".format(c.feel) else "") + if (c.recency > 0) ", récente -%.3f".format(c.recency) else ""))
             }
         }
         return ranked
@@ -336,6 +349,22 @@ object MusicChoice {
         val median = lengths[lengths.size / 2]
         return p.weight * (1.0 - ((median - p.fast) / (p.slow - p.fast)).coerceIn(0.0, 1.0))
     }
+
+    /**
+     * Avance pour le ressenti d'une musique : un style qui veut le rythme rapide partout (plans d'un temps, `fast: true`
+     * ou onetaps) préfère les musiques ressenties rapides ([FEEL_BONUS]) et évite les calmes. Les autres styles
+     * n'avancent rien : le ressenti y règle seulement les parties rapides du plan.
+     */
+    fun feel(settings: MontageSettings, feel: MusicFeel): Double = when {
+        !settings.cuts.singleBeat -> 0.0
+        feel == MusicFeel.FAST -> FEEL_BONUS
+        feel == MusicFeel.CALM -> -FEEL_BONUS
+        else -> 0.0
+    }
+
+    /** Réglages du montage avec le ressenti de sa musique (parties rapides). */
+    fun withFeel(settings: MontageSettings, feel: MusicFeel): MontageSettings =
+        if (settings.fastParts.feel == feel) settings else settings.copy(fastParts = settings.fastParts.copy(feel = feel))
 
     /** Réglages du montage pour une musique : prise depuis son début ou non. */
     fun settingsFor(settings: MontageSettings, fromStart: Boolean): MontageSettings =

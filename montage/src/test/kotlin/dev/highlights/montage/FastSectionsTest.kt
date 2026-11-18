@@ -4,6 +4,7 @@ import dev.highlights.core.config.ConfigYaml
 import dev.highlights.core.model.FastParts
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageSettings
+import dev.highlights.core.model.MusicFeel
 import dev.highlights.core.model.ScoredTimeline
 import dev.highlights.core.model.TimelineEvent
 import dev.highlights.core.model.VideoStream
@@ -132,6 +133,17 @@ class FastSectionsTest : FunSpec({
         MontagePlanner.plan(MontagePlanner.groups(listOf(few), settings), music(90.0), settings).clips.map { it.slot } shouldBe p.clips.map { it.slot }
         // Avec assez de kills, le rythme rapide reste.
         plan(bpm = 90.0).clips.any { it.fastPart } shouldBe true
+    }
+
+    test("ressenti de la musique : calme, jamais rapide ; rapide, dès une intensité plus basse") {
+        fun with(feel: MusicFeel) = settings.copy(fastParts = settings.fastParts.copy(feel = feel))
+        FastSections.of(music(126.0), with(MusicFeel.CALM)) shouldBe null
+        plan(s = with(MusicFeel.CALM)).clips.none { it.fastPart } shouldBe true
+        // Une partie moyenne après la drop (0,5) : rapide seulement pour une musique ressentie rapide.
+        val medium = music(126.0).let { m -> m.copy(sections = m.sections.dropLast(1) + MusicSection(64, 160, -9.0, 1.0) + MusicSection(160, m.beats.size, -11.0, 0.5)) }
+        FastSections.of(medium, settings)!!.sections shouldBe setOf(2)
+        FastSections.of(medium, with(MusicFeel.FAST))!!.sections shouldBe setOf(2, 3)
+        FastSections.of(medium, with(MusicFeel.AUTO))!!.sections shouldBe setOf(2)
     }
 
     test("ancienne configuration : minBpm encore accepté, sans effet") {

@@ -328,6 +328,17 @@ data class FastParts(
     val enabled: Boolean = true,
     val minIntensity: Double = 0.7,
     /**
+     * Ressenti de la musique du montage, dit par l'utilisateur (`music-feel.json`) ou appris de ses réponses : posé par
+     * le montage pour sa musique, jamais dans un profil. [MusicFeel.CALM] : jamais de rythme rapide ; [MusicFeel.FAST] :
+     * rapide dès la drop, à partir de [fastIntensity] ; [MusicFeel.AUTO] : la règle par défaut ([minIntensity]).
+     */
+    val feel: MusicFeel = MusicFeel.AUTO,
+    /**
+     * Intensité suffisante pour une musique ressentie rapide : plus bas que [minIntensity], une partie moyenne qui suit la
+     * drop (« Doom Eternal » 1:24, 0,51) passe aussi au rythme rapide, une partie vraiment calme (0,33) non.
+     */
+    val fastIntensity: Double = 0.45,
+    /**
      * Creux d'une partie intense : volume moyen d'une mesure à au moins ce nombre de dB sous le niveau fort du morceau
      * (90e centile des mesures). Mesuré sur 19 musiques : la coupure de basse de « Big Dawgs » (0:20, deux mesures) est
      * à 9,2 dB ; ailleurs, deux mesures de suite d'une partie intense ne descendent jamais à plus de 5,8 dB
@@ -344,9 +355,21 @@ data class FastParts(
 ) {
     init {
         require(minIntensity in 0.0..1.0) { "montage.fastParts.minIntensity doit être entre 0 et 1" }
+        require(fastIntensity in 0.0..1.0) { "montage.fastParts.fastIntensity doit être entre 0 et 1" }
         require(calmDb > 0) { "montage.fastParts.calmDb doit être positif" }
         require(calmBars >= 1) { "montage.fastParts.calmBars doit valoir au moins 1" }
     }
+}
+
+/**
+ * Ressenti d'une musique pour le rythme rapide : [FAST] (rapide après la drop), [CALM] (jamais rapide), [AUTO] (la
+ * règle par défaut, d'après l'intensité de ses parties).
+ */
+@Serializable
+enum class MusicFeel {
+    @SerialName("fast") FAST,
+    @SerialName("calm") CALM,
+    @SerialName("auto") AUTO,
 }
 
 /**
