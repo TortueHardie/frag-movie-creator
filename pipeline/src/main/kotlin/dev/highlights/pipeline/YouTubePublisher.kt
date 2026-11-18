@@ -93,12 +93,16 @@ class YouTubePublisher(
         val media = ffmpeg.probe(video)
         val width = media.video?.width ?: 0
         val height = media.video?.height ?: 0
-        val date = DATE.find(video.name)?.groupValues?.get(1)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        val named = DATE.find(video.name)?.groupValues?.get(1)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
         val report = reportOf(video)
         fun game(id: String?) = id?.let { runCatching { profiles().byId(it).name }.getOrNull() ?: it }
             ?: video.name.substringBefore('_').replaceFirstChar { it.uppercase() }
         val montage = report?.takeIf { "clips" in it }?.let { runCatching { json.decodeFromJsonElement(MontageReport.serializer(), it) }.getOrNull() }
         val highlights = report?.takeIf { "highlights" in it }?.let { runCatching { json.decodeFromJsonElement(ExportReport.serializer(), it) }.getOrNull() }
+        // La partie, pas le rendu : date d'enregistrement de la première capture du rapport. Le nom du fichier n'est
+        // qu'un repli (capture déplacée) ; il portait la date du rendu sur les montages d'avant cette correction.
+        val sources = montage?.clips?.map { it.source } ?: highlights?.let { h -> h.sources.ifEmpty { listOf(h.source) } } ?: emptyList()
+        val date = playedOn(sources) ?: named
         return when {
             montage != null -> VideoFacts(
                 kind = VideoKind.KILL_MONTAGE,
@@ -136,6 +140,12 @@ class YouTubePublisher(
             }
         }
     }
+
+    /** Jour où la première des captures [sources] a été enregistrée ; null si aucune n'est lisible. */
+    private suspend fun playedOn(sources: List<String>): LocalDate? =
+        sources.distinct().map { Path(it) }.filter { it.isRegularFile() }
+            .mapNotNull { runCatching { ffmpeg.probe(it).recordedAt }.getOrNull() }
+            .minOrNull()?.atZone(java.time.ZoneId.systemDefault())?.toLocalDate()
 
     companion object {
         /** Page d'envoi de YouTube (redirige vers YouTube Studio), pour l'envoi manuel. */

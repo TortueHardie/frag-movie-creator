@@ -888,7 +888,7 @@ class HighlightPipeline(
             outputDir = outputDir,
             workDir = workDir,
             gameName = profile.id,
-            date = KillMontageExporter.recordingDate(sessions.first().media.creationTime),
+            date = KillMontageExporter.recordingDate(sessions),
             audioBitrate = config.app.encoder.audioBitrate,
             hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
             audioLayout = profile.audio,
@@ -930,7 +930,7 @@ class HighlightPipeline(
                 .onFailure { log.warn { "Vignette animée impossible pour $video : ${it.message}" } }
                 .getOrDefault(emptyList())
         }
-        val file = OutputNamer.reserve(dir, planned.profile.id, KillMontageExporter.recordingDate(sessions.first().media.creationTime), emptyList(), kind = "${kind}_variantes").report
+        val file = OutputNamer.reserve(dir, planned.profile.id, KillMontageExporter.recordingDate(sessions), emptyList(), kind = "${kind}_variantes").report
         val entries = plans.mapIndexed { i, plan -> MontageVariantEntry.of(i + 1, plan, plans.take(i), results[i].videos.values.first(), results[i].report) }
         MontageVariantsFile.save(
             file,
