@@ -182,6 +182,7 @@ class UiSnapshotTest : FunSpec({
             QueuedJob(3, "Montage kills sur Rome Is Burning.mp3", status = JobStatus.RUNNING, fraction = 0.42, stage = "Rendu > 9:16", elapsed = 83.seconds, eta = 115.seconds),
             QueuedJob(4, "Aperçus de variantes sur Rome Is Burning.mp3"),
             QueuedJob(5, "Export : WARDOGS_09-22-2026_22-55-31-983.mp4"),
+            QueuedJob(6, "Analyse en arrière-plan : WARDOGS_09-23-2026_21-4-12-105.mp4", auto = true),
         )
         val state = UiState(config = ready, sources = listOf(source), settings = settings, session = SessionState(session, Path("D:/Highlights/sessions/x.session.json"), selectedId = "h003"), jobs = jobs)
         render("16_file_des_traitements", state).fileSize() shouldBeGreaterThan 0L
