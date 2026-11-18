@@ -353,6 +353,7 @@ private object NoopActions : UiActions {
     override fun openOutputDir() = Unit
     override fun analyze() = Unit
     override fun export() = Unit
+    override fun clipMoment(key: String) = Unit
     override fun cancelJob() = Unit
     override fun toggleSegment(id: String) = Unit
     override fun setAllSegments(enabled: Boolean) = Unit

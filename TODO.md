@@ -226,7 +226,10 @@ Pistes, de la plus simple à la plus lourde :
 # Nouvelles fonctionnalités
 
 ## Nouveaux types de montage
-- [ ] Clip unique « meilleur moment » : une vidéo 9:16 de 15 à 30 s par moment (accroche, sous-titres, punch-in).
+- [x] Clip unique « meilleur moment » : une vidéo 9:16 de 15 à 30 s par moment (accroche, sous-titres, punch-in).
+  `app clip SESSION [--moment h003] [--platform tiktok]`, bouton « Clip 9:16 » sur le moment sélectionné.
+  - [ ] Capture sans piste micro séparée (VALORANT 480p) : whisper transcrit la voix du jeu, un même sous-titre reste
+    20 s à l'écran. Sous-titres à couper quand la piste n'est pas celle du micro ?
 - [x] Récap de soirée : plusieurs captures, intercalaire par partie (« Partie 3 – 14 kills ») : `app recap`, bouton « Récap de la soirée » des statistiques.
 - [ ] Montage « fails / morts » : morts du killfeed/Outplayed, musique comique, ralenti sur la mort.
 - [ ] Montage « réactions » : segments `laughter`/`shout` de YAMNet, micro en avant, sous-titres whisper.
