@@ -37,7 +37,7 @@ detectors:
     weight: 0
     eventBoosts: { kill: 0.8, knock: 0.3 }
     params:
-      region: { x: 0.819672, y: 0.03125, width: 0.022248, height: 0.022917 }
+      region: { x: 0.819672, y: 0.029167, width: 0.023419, height: 0.025 }
       referenceWidth: 854
       referenceHeight: 480
       anchor: right
@@ -59,7 +59,7 @@ detectors:
         - name: knocked
           kind: knock
           file: templates/fortnite/knocked.png
-          region: { x: 0.439110, y: 0.704167, width: 0.128806, height: 0.083333 }
+          region: { x: 0.437939, y: 0.704167, width: 0.131148, height: 0.083333 }
           anchor: center
           threshold: 0.75
           minConsecutive: 2

@@ -86,10 +86,13 @@ class HudCounterDetector(override val id: String, private val params: HudCounter
             ScreenGeometry.rescale(params.region, it.toDouble() / params.referenceHeight, video.width.toDouble() / video.height, params.anchor)
         } ?: params.region
         val scale = params.referenceHeight.toDouble() / video.height
-        val cx = (region.x * video.width).roundToInt().coerceIn(0, video.width - 1)
-        val cy = (region.y * video.height).roundToInt().coerceIn(0, video.height - 1)
-        val cw = (region.width * video.width).roundToInt().coerceIn(1, video.width - cx)
-        val ch = (region.height * video.height).roundToInt().coerceIn(1, video.height - cy)
+        // Coordonnées et tailles paires : en yuv420, FFmpeg recadre la luminance au pixel près seulement sur une grille de
+        // 2 px. Une zone en y = 15 (19x11) donnait des chiffres rééchantillonnés, écart moyen de 17 niveaux avec ceux des
+        // modèles : 802 images illisibles sur 5 224 et 40 kills au lieu de 31. Sur une grille paire, l'écart est nul.
+        val cx = ((region.x * video.width).roundToInt() and 1.inv()).coerceIn(0, video.width - 2)
+        val cy = ((region.y * video.height).roundToInt() and 1.inv()).coerceIn(0, video.height - 2)
+        val cw = ((region.width * video.width).roundToInt() + 1 and 1.inv()).coerceIn(2, (video.width - cx) and 1.inv())
+        val ch = ((region.height * video.height).roundToInt() + 1 and 1.inv()).coerceIn(2, (video.height - cy) and 1.inv())
         val zone = FrameZone(cx, cy, cw, ch, (cw * scale).roundToInt().coerceAtLeast(1), (ch * scale).roundToInt().coerceAtLeast(1))
         if (zone.height < reader.height) {
             throw ConfigException(Message("error.detector.zoneSmallerThanTemplate", "id" to id, "name" to "digits", "zone" to "${zone.width}x${zone.height}", "template" to "?x${reader.height}"))
