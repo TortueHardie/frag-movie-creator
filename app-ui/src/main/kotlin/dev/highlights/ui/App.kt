@@ -80,7 +80,8 @@ fun App(state: UiState, actions: UiActions) {
             VerticalDivider(color = Palette.outline)
             Column(Modifier.weight(1f).fillMaxHeight().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 state.update?.let { UpdateCard(it, busy = state.job != null, actions) }
-                state.job?.let { JobCard(it, actions) }
+                state.job?.takeIf { it.queueId == null }?.let { JobCard(it, actions) }
+                JobsCard(state.jobs, actions)
                 val session = state.session
                 if (session == null) {
                     if (state.job == null) {
@@ -108,6 +109,7 @@ fun App(state: UiState, actions: UiActions) {
         }
         }
         state.montage?.let { MontageDialog(it, state, actions) }
+        state.quitConfirm?.let { QuitDialog(it, actions) }
         state.variants?.let { VariantsWindow(it, state.job != null, actions) }
         state.montage?.let { m -> m.plan?.let { MontagePlanWindow(m, it, actions) } }
         state.publish?.let { PublishDialog(it, actions) }

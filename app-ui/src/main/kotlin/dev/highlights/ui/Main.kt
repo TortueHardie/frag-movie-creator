@@ -55,7 +55,8 @@ fun main() {
         if (state.exitRequested) LaunchedEffect(Unit) { quit() }
 
         Window(
-            onCloseRequest = quit,
+            // Des traitements en file : confirmation d'abord (« Quitter » passe par exitRequested).
+            onCloseRequest = { if (controller.requestQuit()) quit() },
             title = "Highlights",
             state = rememberWindowState(width = 1440.dp, height = 920.dp, position = WindowPosition.PlatformDefault),
         ) {

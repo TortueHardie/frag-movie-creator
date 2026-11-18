@@ -383,8 +383,8 @@ class MontageRenderBuilderTest : FunSpec({
     }
 
     test("zoom : un par kill, ou seulement sur celui calé sur le temps") {
-        // L'expression du zoom est reprise pour la largeur et pour la hauteur : deux occurrences par kill.
-        fun punches(s: MontageSettings) = Regex("""if\(gte\(t\\,""").findAll(build(plan(s)).filterGraph).count() / 2
+        // L'expression du zoom est reprise pour la largeur, la hauteur et le recadrage centré (x, y) : quatre par kill.
+        fun punches(s: MontageSettings) = Regex("""if\(gte\(t\\,""").findAll(build(plan(s)).filterGraph).count() / 4
         val all = settings.copy(effectDensity = EffectDensity.HEAVY)
         // Trois kills visibles en tout (un doublé et un simple) ; sinon un seul par plan.
         punches(all) shouldBe 3

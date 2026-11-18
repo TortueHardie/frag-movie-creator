@@ -21,6 +21,12 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
   analyse ouverte, ou `--reanalyze`. L'index est `sessions/library.json` dans le dossier de sortie de `app.yaml`.
 - **Analyses enregistrées** : quand aucune analyse n'est ouverte, l'application liste celles déjà faites ; un clic en
   rouvre une, plusieurs cochées s'ouvrent ensemble pour un seul montage (toute une soirée).
+- **File des traitements** : un export, un montage ou des aperçus se lancent pendant qu'un autre tourne ; ils attendent
+  leur tour dans la carte « Traitements » (un seul traitement lourd à la fois : FFmpeg et la mémoire ne supportent pas
+  mieux). On y annule un traitement en attente ou en cours, on change l'ordre de ceux qui attendent, on ouvre le
+  résultat d'un traitement fini ou le détail d'un échec, qui ne bloque pas les suivants. Le dossier surveillé et le
+  montage des soirées passent par la même file. Fermer l'application avec des traitements en file demande
+  confirmation ; ils ne reprennent pas au lancement suivant.
 - **Dossier surveillé** : dans l'application, « Surveiller un dossier… » (celui d'Outplayed, d'OBS…, sous-dossiers
   compris). Chaque nouvelle capture y est analysée en fond une fois son enregistrement terminé (fichier inchangé
   depuis 15 s), puis apparaît dans la liste marquée « nouveau » ; l'export reste à lancer soi-même. Les captures déjà
@@ -646,6 +652,33 @@ commande pour `export`, `process` et `montage`) adapte l'export à là où la vi
 & $app export output\sessions\partie.session.json --platform shorts
 ```
 
+## Miniature YouTube
+
+Chaque export lancé depuis l'application écrit aussi une miniature PNG prête pour YouTube, à côté de la vidéo
+(`<nom>_miniature.png`, `_miniature_2.png`… : jamais d'écrasement) : 1280x720 pour une vidéo en largeur, 1080x1920
+pour une vidéo verticale. La fenêtre de publication la montre, avec « Copier le chemin » (YouTube Studio la demande à
+part), ou « Créer la miniature » pour une vidéo exportée avant.
+
+- **Le moment** : le plus fort de la vidéo d'après son rapport JSON (kills du groupe, +3 pour un ace, +2 pour un clutch,
+  +0,3 par tir à la tête, +0,5 pour le kill posé sur la drop), comme l'accroche du titre.
+- **L'instant** : 10 images par seconde de 0,4 s avant à 1,2 s après le kill, au centre de l'écran, notées par leur
+  netteté (variance du laplacien : une image filée par un flick tombe), un peu plus après le kill (la notification de
+  kill est à l'écran) et moins dans le noir (luminosité moyenne ramenée à 80 ; écran noir écarté). Entre moments de
+  même force (sur une soirée de Wardogs, tous les kills sont seuls), c'est l'image la plus lisible qui l'emporte.
+- **L'image** vient de la capture d'origine en pleine résolution : recadrée au format, resserrée sur le réticule.
+- **L'habillage** : `sober` (défaut : couleurs à peine relevées, petit texte blanc), `vivid` (couleurs boostées comme
+  les kill montages de TikTok, texte jaune), `big` (texte aussi large que l'image, lisible en petite vignette). Texte :
+  ACE, CLUTCH, la série (TRIPLÉ…), sinon le nombre de kills de la vidéo, dans la langue de l'interface (`video.*`).
+
+```powershell
+& $app montage partie.session.json -m D:\Musique\son.mp3 --thumbnail               # miniature sobre à côté du montage
+& $app export partie.session.json --thumbnail-style vivid                            # habillage au choix
+& $app thumbnail output\wardogs_2026-09-22_killmontage_9x16.mp4 --thumbnail-style big   # vidéo déjà exportée
+```
+
+Une vidéo dont les captures ont été déplacées depuis l'export n'a plus d'image : la miniature est refusée avec un
+message qui le dit.
+
 ## Publier sur YouTube
 
 Après un export, le bouton **YouTube** à côté de chaque vidéo prépare la publication : titre, description et tags
@@ -816,7 +849,12 @@ ou le killfeed d'une capture OBS). La balle qui tue est la dernière vue entre 1
   qui repasse au blanc en 0,3 s), qui comptait pour trois balles de plus : aucun one tap n'y était jamais trouvé. La
   zone est aussi relue en turquoise, et les changements pendant une recharge ne comptent pas (2 balles sur 2 au lieu
   de 5, vérifié à l'image). Aucun turquoise autour des kills des parties classées.
-- Zone mesurée en 3440x1440 seulement. Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
+- Lecture en paliers : un changement ne compte que s'il fait passer le compteur d'un affichage stable (0,05 s au moins)
+  à un autre, et un compteur absent ou effacé (presque sans blanc : caché, flash) n'est pas lu. Avant, chaque image
+  était comparée à la précédente : le décor qui change derrière les chiffres (flash rouge des dégâts, mur clair,
+  compteur caché) comptait des balles. Sur une partie en 854x480 (16:9), autour de 5 kills vérifiés à l'image :
+  33 vraies balles sur 33 dans les deux cas, 29 fausses avant, 3 après (`minPlateau`, `minDigits`).
+- Zone mesurée en 3440x1440 et vérifiée en 854x480 (16:9). Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
   est à mettre à jour (**Mettre à jour les analyses**, ou `--reanalyze`).
 - Le gabarit du son headshot livré reconnaît la moitié des headshots (0,72 à 0,78) sans aucun faux (kills au corps à
   0,64 au plus), au seuil 0,7. Un premier réglage, pris dans l'une de ces deux parties : à revoir sur d'autres.
@@ -951,6 +989,29 @@ décodage matériel, dont chaque image pleine taille redescend de la carte graph
 & $app montage output\sessions\WARDOGS_*.session.json --music "D:\Musique\R2D2.mp3" --pick 2
 ```
 
+## Goûts appris : la note du montage s'ajuste aux choix
+
+Chaque fois qu'une version est rendue après les aperçus (`--pick`, « Rendre celle-ci »), le choix est gardé dans
+`<sortie>\sessions\taste-history.json` : les critères de la note de chaque version proposée (sur le temps, accent,
+sobriété, variété, durée, rythme, images gelées, ouverture, trous, action) et celle qui a été rendue. Les corrections de
+l'éditeur de plan (kills écartés, forcés, épinglés) y sont gardées aussi, pour plus tard.
+
+Avec `montage.learnTaste: true` dans un profil, et au moins 10 choix, les poids de ces critères s'ajustent pour que la
+version rendue batte les autres (préférence par paires) : un critère que vous préférez plus que le moteur ne le pensait
+pèse plus, et décide de la version 1, des versions proposées et du montage rendu sans aperçu. Prudent : chaque poids
+reste entre le quart et le quadruple de l'origine, leur somme ne change pas, et un rappel vers l'origine empêche
+quelques choix de tout renverser. Désactivé par défaut.
+
+```powershell
+& $app gouts            # choix gardés, poids appris contre poids d'origine, et ce que ça changerait au dernier choix
+& $app gouts --reset    # oublier : l'historique est mis de côté (taste-history.reset-<date>.json), pas effacé
+```
+
+Démonstration sur données synthétiques (aucun vrai choix encore) : un goût caché qui tient 4 fois plus à l'action et
+3 fois plus à l'ouverture, 4 fois moins à la sobriété, 10 % de choix au hasard. Après 25 choix : action +37 %,
+ouverture +13 %, sobriété −30 % ; sur 2000 choix tenus à l'écart, la version préférée est la mieux notée 83,6 % des fois
+contre 79,5 % avec les poids d'origine. Après 100 choix : action +59 %, ouverture +23 %, sobriété −29 %.
+
 ## Ligne de commande
 
 ```powershell
@@ -962,7 +1023,9 @@ $app = ".\app-cli\build\install\app\bin\app.bat"
 & $app music D:\Musique\son.mp3 --max 60s --clips 12         # tempo, sections, drop et grille de coupes d'un montage
 & $app music D:\Musique\TikTok                         # analyse d'avance chaque musique d'un dossier (bibliothèque)
 & $app publish output\partie_killmontage_9x16.mp4 --dry-run   # titre, description et tags proposés pour YouTube
+& $app thumbnail output\partie_killmontage_9x16.mp4           # miniature YouTube d'une vidéo exportée
 & $app stats --games                                  # statistiques par soirée, partie par partie
+& $app gouts                                         # goûts appris des choix de variantes (voir plus haut)
 & $app search --clutch --montage D:\Musique            # moments cherchés dans toutes les parties, et leur montage
 & $app process "D:\Videos\...\partie.mp4"         # analyse + montage
 & $app process partie.mp4 --profile valorant --duration 5m --format 16:9,9:16

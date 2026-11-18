@@ -1,5 +1,6 @@
 package dev.highlights.editing.story
 
+import dev.highlights.editing.ZoomCrop
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
@@ -274,17 +275,13 @@ object StoryRenderBuilder {
         val shakeExpr = if (shakeEnv.isEmpty()) "0" else shakeEnv.joinToString("+")
         // Marge de la secousse : 2,5 amplitudes, de quoi absorber le déplacement dans les deux sens.
         val zoom = "(${num(shot.zoom)}*(1+${num(punch)}*$punchExpr)*(1+${num(amplitude * 2.5)}*min($shakeExpr\\,1)))"
-        val filters = mutableListOf("scale=w='trunc($w*$zoom/2)*2':h='trunc($h*$zoom/2)*2':eval=frame:flags=bicubic")
-        if (shakes.isEmpty()) {
-            filters += "crop=$w:$h:(iw-$w)/2:(ih-$h)/2"
-        } else {
-            val amp = num(amplitude * h)
-            val f = num(2 * Math.PI * frequency)
-            val dx = "$amp*sin($f*t)*($shakeExpr)"
-            val dy = "$amp*cos(${num(2 * Math.PI * frequency * 1.3)}*t)*($shakeExpr)"
-            filters += "crop=$w:$h:x='clip((iw-$w)/2+$dx\\,0\\,iw-$w)':y='clip((ih-$h)/2+$dy\\,0\\,ih-$h)'"
-        }
-        return filters
+        // Recadrage recentré à chaque image (voir ZoomCrop : `iw` resterait celui de la première image).
+        if (shakes.isEmpty()) return ZoomCrop.filters(w, h, zoom, "bicubic")
+        val amp = num(amplitude * h)
+        val f = num(2 * Math.PI * frequency)
+        val dx = "$amp*sin($f*t)*($shakeExpr)"
+        val dy = "$amp*cos(${num(2 * Math.PI * frequency * 1.3)}*t)*($shakeExpr)"
+        return ZoomCrop.filters(w, h, zoom, "bicubic", dx, dy)
     }
 
     /**

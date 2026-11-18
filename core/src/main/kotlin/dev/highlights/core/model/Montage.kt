@@ -97,10 +97,22 @@ data class MontageSettings(
      * sortait sans un mot. Zéro : jamais d'avertissement.
      */
     val minKills: Int = 3,
+    /**
+     * Apprendre les goûts de l'utilisateur : les poids des critères de la note (`MontageScorer`) sont ajustés d'après
+     * ses choix de variantes après les aperçus (`TasteLearner`, à partir de `TasteLearner.MIN_CHOICES` choix). Désactivé
+     * par défaut : tant qu'il ne l'active pas, les poids d'origine décident seuls. `app gouts` montre ce qui a été appris.
+     */
+    val learnTaste: Boolean = false,
+    /**
+     * Poids des critères de la note qui remplacent ceux d'origine (`MontageScorer.WEIGHTS`), par nom de critère ; null :
+     * ceux d'origine. Posé par le pipeline depuis les goûts appris quand [learnTaste] est vrai, pas à écrire à la main.
+     */
+    val scoreWeights: Map<String, Double>? = null,
 ) {
     init {
         require(minScore in 0.0..1.0) { "montage.minScore doit être entre 0 et 1" }
         require(minKills >= 0) { "montage.minKills ne peut pas être négatif" }
+        require(scoreWeights == null || scoreWeights.values.all { it >= 0.0 }) { "montage.scoreWeights : poids négatif" }
     }
 
     /**

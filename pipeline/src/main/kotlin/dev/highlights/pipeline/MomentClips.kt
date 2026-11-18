@@ -20,6 +20,8 @@ data class ClipOptions(
     /** Plateforme visée : zone sûre, volume, débit, et sa durée maximale abaisse celle du clip. */
     val platform: String? = null,
     val outputDir: Path? = null,
+    /** Miniature YouTube du clip, dans cet habillage ; null : aucune. */
+    val thumbnail: dev.highlights.montage.ThumbnailStyle? = null,
 )
 
 /** Choix du moment d'un clip et de la partie de la capture qu'il montre (sans rendu : la planification ne coûte rien). */

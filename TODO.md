@@ -170,7 +170,11 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Aperçus de variantes : 3 versions du montage en 360p, vite, au même calage que le rendu final, puis la choisie
   rendue en pleine qualité (`--variants` / `--pick`, bouton « Aperçu de 3 versions »). Choix gardés dans `*.choix.json`.
   - [ ] Lecteur vidéo dans l'application (aujourd'hui : vignettes animées et lecteur du système).
-  - [ ] Apprendre des choix : lire les `*.choix.json` (notes de chaque variante, celle préférée) pour régler `MontageScorer`.
+  - [x] Apprendre des choix : historique `taste-history.json` (choix de variantes et corrections de l'éditeur), poids des
+    critères appris par préférence par paires, `montage.learnTaste` (désactivé par défaut), `app gouts`, `--reset`.
+    - [ ] Valider sur de vrais choix de l'utilisateur (démonstration sur données synthétiques seulement).
+    - [ ] Apprendre aussi des corrections de l'éditeur (kills écartés ou forcés : préférence de groupes, pas de critères).
+    - [ ] Afficher les goûts appris dans l'application (aujourd'hui : `app gouts` seulement).
   - [ ] Variantes au-delà du planificateur (ordre chronologique / montée, accroche, densité d'effets) : à décider avec l'utilisateur.
 - [x] Styles nommés (`config/montage-styles.yaml`, `--style`, puces en haut de la fenêtre, cases sous « Réglages
   avancés ») : tiktok, propre, onetaps, cinematique. Une case modifiée à la main passe devant le style.
@@ -199,7 +203,7 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Supprimer / oublier une analyse dans `LibraryView`.
 
 ## Flux de travail
-- [ ] File d'attente de jobs (aujourd'hui un seul job à la fois via `runTask`).
+- [x] File d'attente de jobs (`JobQueue` : un traitement lourd à la fois, ordre modifiable, annulation, échecs lisibles).
 - [x] Dossier surveillé : monter seul chaque soirée finie, notifier (case « Monter chaque soirée finie », `app soiree`).
 - [ ] Préréglages d'export (« TikTok », « YouTube court », « complet »).
 
@@ -275,7 +279,9 @@ Pistes, de la plus simple à la plus lourde :
 - [ ] Webcam en incrustation : seconde source synchronisée, disposition 9:16 webcam au-dessus du jeu.
 - [ ] Compteur de kills à l'écran (« 1… 2… 3… ACE ») et bandeau de score de round.
 - [ ] Intro/outro personnalisées (logo, pseudo, fond) définies dans le profil.
-- [ ] Miniature automatique : image du meilleur kill + punch-in + texte, PNG prêt pour YouTube.
+- [x] Miniature automatique : image du meilleur kill + punch-in + texte, PNG prêt pour YouTube (`--thumbnail`,
+  `app thumbnail`, fenêtre de publication).
+- [ ] Choisir l'habillage de miniature par défaut (sobre, vif, texte gros : planche dans `output/revue/miniature-auto/`).
 
 ## Musique
 - [x] Bibliothèque musicale : analyser un dossier une fois (BPM, drop, sections), choisir automatiquement la musique selon le nombre de kills et la durée visée.

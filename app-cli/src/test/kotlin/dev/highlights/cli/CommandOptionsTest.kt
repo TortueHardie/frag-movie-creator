@@ -16,6 +16,7 @@ import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.montage.KillRef
 import dev.highlights.montage.MontagePin
+import dev.highlights.montage.ThumbnailStyle
 import dev.highlights.pipeline.MomentPick
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
@@ -158,6 +159,19 @@ class CommandOptionsTest : FunSpec({
         options.platform shouldBe "shorts"
         options.outputDir shouldBe out
         options.music shouldBe null
+    }
+
+    test("miniature : --thumbnail seul = sobre, --thumbnail-style choisit l'habillage, rien sans option") {
+        parse(ExportCommand(), "export", session.toString()) { it.exportOptions().thumbnail } shouldBe null
+        parse(ExportCommand(), "export", session.toString(), "--thumbnail") { it.exportOptions().thumbnail } shouldBe ThumbnailStyle.SOBER
+        parse(ExportCommand(), "export", session.toString(), "--thumbnail-style", "big") { it.exportOptions().thumbnail } shouldBe ThumbnailStyle.BIG_TEXT
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--thumbnail") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.SOBER
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--thumbnail-style", "vivid") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.VIVID
+        // Avec --pick (rendu final d'une variante) : la miniature suit ; les aperçus (--variants) n'en font jamais.
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--pick", "2", "--thumbnail") { it.montageOptions().thumbnail } shouldBe ThumbnailStyle.SOBER
+        parse(ThumbnailCommand(), "thumbnail", session.toString()) { it.chosenStyle() } shouldBe ThumbnailStyle.SOBER
+        parse(ThumbnailCommand(), "thumbnail", session.toString(), "--thumbnail-style", "big") { it.chosenStyle() } shouldBe ThumbnailStyle.BIG_TEXT
+        usageError(ExportCommand(), "export", session.toString(), "--thumbnail-style", "fluo").statusCode shouldBe 1
     }
 
     test("export sans option : réglages du profil") {

@@ -13,6 +13,7 @@ import dev.highlights.core.model.WindowGrid
 import dev.highlights.core.session.Session
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldNotBeEmpty
+import io.kotest.matchers.doubles.plusOrMinus
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldNotContain
@@ -96,6 +97,17 @@ class MontageVariantsTest : FunSpec({
         val again = MontageVariants.distinct(groups, m, settings, 3)
         one.map { MontageVariants.signature(it.plan) } shouldBe again.map { MontageVariants.signature(it.plan) }
         if (one.size > 1) MontageVariants.signature(one[0].plan) shouldNotBe MontageVariants.signature(one[1].plan)
+    }
+
+    test("poids appris donnés par les réglages : la note du montage les suit, les critères non") {
+        val plan = MontagePlanner.best(groups, music(), settings)
+        val score = MontageScorer.score(plan)
+        val criteria = score.criteria()
+        val heavy = MontageScorer.WEIGHTS + mapOf("fill" to 1.0)
+        val reweighted = MontageScorer.score(plan.copy(settings = plan.settings.copy(scoreWeights = heavy)))
+        reweighted.criteria() shouldBe criteria
+        reweighted.total shouldBe (MontageScorer.total(criteria, heavy) plusOrMinus 1e-3)
+        score.total shouldBe (MontageScorer.total(criteria) plusOrMinus 1e-3)
     }
 
     test("aperçu : tailles ramenées à 360 pixels sur le petit côté, proportions gardées") {

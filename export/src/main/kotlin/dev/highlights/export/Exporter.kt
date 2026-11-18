@@ -77,6 +77,8 @@ data class ExportResult(
     val music: Path? = null,
     /** Avertissements à montrer à la fin du travail (montage presque vide…), traduits à l'affichage. */
     val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
+    /** Miniatures écrites à côté des vidéos (une par vidéo), si elles ont été demandées. */
+    val thumbnails: List<Path> = emptyList(),
 )
 
 class Exporter(

@@ -39,6 +39,10 @@ data class ReportHighlight(
     val contributions: Map<String, Double>,
     /** Capture d'où vient le moment, quand le montage en réunit plusieurs. */
     val source: String? = null,
+    /** Pic du score en secondes (instant de la miniature) ; null dans les rapports écrits avant. */
+    val peakSeconds: Double? = null,
+    /** Événements du moment par type, ex. {"kill": 2} ; vide dans les rapports écrits avant. */
+    val events: Map<String, Int> = emptyMap(),
 ) {
     companion object {
         fun of(h: Highlight, order: Int?, withSource: Boolean = false) = ReportHighlight(
@@ -53,6 +57,8 @@ data class ReportHighlight(
             score = h.score.roundTo(3),
             contributions = h.contributions.mapValues { it.value.roundTo(3) },
             source = if (withSource) h.source.toString() else null,
+            peakSeconds = h.peak.inWholeMilliseconds / 1000.0,
+            events = h.events,
         )
     }
 }

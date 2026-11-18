@@ -6,6 +6,7 @@ import io.kotest.engine.spec.tempdir
 import io.kotest.matchers.shouldBe
 import java.time.LocalDate
 import kotlin.io.path.name
+import kotlin.io.path.setLastModifiedTime
 import kotlin.io.path.writeText
 
 class OutputNamerTest : FunSpec({
@@ -41,6 +42,30 @@ class OutputNamerTest : FunSpec({
         val target = tempdir().toPath().resolve("lol_2026-09-17_highlights_9x16.mp4")
         OutputNamer.tempFor(target).name shouldBe "lol_2026-09-17_highlights_9x16.part.mp4"
         OutputNamer.tempFor(target).parent shouldBe target.parent
+    }
+
+    test("miniature : à côté de la vidéo, _miniature puis _miniature_2, jamais d'écrasement") {
+        val dir = tempdir().toPath()
+        val video = dir.resolve("wardogs_2026-09-22_killmontage_9x16.mp4")
+        OutputNamer.thumbnailFor(video).name shouldBe "wardogs_2026-09-22_killmontage_9x16_miniature.png"
+        dir.resolve("wardogs_2026-09-22_killmontage_9x16_miniature.png").writeText("première")
+        OutputNamer.thumbnailFor(video).name shouldBe "wardogs_2026-09-22_killmontage_9x16_miniature_2.png"
+        dir.resolve("wardogs_2026-09-22_killmontage_9x16_miniature_2.png").writeText("deuxième")
+        OutputNamer.thumbnailFor(video).name shouldBe "wardogs_2026-09-22_killmontage_9x16_miniature_3.png"
+        OutputNamer.thumbnailFor(video).parent shouldBe dir
+    }
+
+    test("miniature existante : la plus récente des _miniature*.png de la vidéo, pas celles d'une autre") {
+        val dir = tempdir().toPath()
+        val video = dir.resolve("lol_2026-09-17_highlights.mp4")
+        OutputNamer.thumbnailOf(video) shouldBe null
+        dir.resolve("lol_2026-09-17_highlights_9x16_miniature.png").writeText("autre vidéo")
+        OutputNamer.thumbnailOf(video) shouldBe null
+        val first = dir.resolve("lol_2026-09-17_highlights_miniature.png").also { it.writeText("1") }
+        val second = dir.resolve("lol_2026-09-17_highlights_miniature_2.png").also { it.writeText("2") }
+        first.setLastModifiedTime(java.nio.file.attribute.FileTime.fromMillis(1_000))
+        second.setLastModifiedTime(java.nio.file.attribute.FileTime.fromMillis(2_000))
+        OutputNamer.thumbnailOf(video) shouldBe second
     }
 
     test("slug") {
