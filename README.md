@@ -563,6 +563,24 @@ plan au lieu de tout relancer à l'aveugle.
   cèdent leur place). Une correction impossible (kill introuvable, plus de place, pas de drop dans le passage retenu,
   temps hors du montage) arrête le plan avec un message qui nomme le kill : jamais un montage qui l'ignore en silence.
 
+## Récap de soirée
+
+Une vidéo highlights de toute une soirée, partie par partie : avant chaque partie, un intercalaire de 1,5 s
+(« PARTIE 3 – 14 KILLS », le jeu et l'heure, sur une image floutée de la partie), puis ses meilleurs moments ; à la fin,
+le bilan (« SOIRÉE DU 16/11 », « 47 KILLS · MEILLEURE PARTIE : N°3 (14) »). La soirée est celle des statistiques (de 6 h
+à 6 h, un jeu à la fois) ; les moments de chaque partie sont recalculés avec une cible de durée partagée sur la soirée
+(moments retouchés à la main gardés), et rendus par l'export habituel (style simple ou story, formats, plateforme). Une
+partie sans moment n'a pas d'intercalaire mais garde son numéro. Dans l'application : « Récap de la soirée » sur chaque
+soirée des statistiques (passe par la file des traitements). En ligne de commande :
+
+```powershell
+& $app recap --date 2026-09-22 --game wardogs --style story --platform tiktok
+& $app recap output\sessions\a.session.json output\sessions\b.session.json   # ces parties-là, telles quelles
+```
+
+Sortie : `<jeu>_<date>_recap[_9x16].mp4` et un rapport JSON (parties montrées, kills, début de chaque carton). La carte
+ou le mode d'une partie ne sont pas connus des analyses : l'intercalaire dit le jeu et l'heure.
+
 ## Statistiques par soirée
 
 Bouton **Statistiques** au-dessus des analyses enregistrées (ou `app stats`) : les parties analysées, un jeu à la
@@ -830,7 +848,12 @@ ou le killfeed d'une capture OBS). La balle qui tue est la dernière vue entre 1
   qui repasse au blanc en 0,3 s), qui comptait pour trois balles de plus : aucun one tap n'y était jamais trouvé. La
   zone est aussi relue en turquoise, et les changements pendant une recharge ne comptent pas (2 balles sur 2 au lieu
   de 5, vérifié à l'image). Aucun turquoise autour des kills des parties classées.
-- Zone mesurée en 3440x1440 seulement. Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
+- Lecture en paliers : un changement ne compte que s'il fait passer le compteur d'un affichage stable (0,05 s au moins)
+  à un autre, et un compteur absent ou effacé (presque sans blanc : caché, flash) n'est pas lu. Avant, chaque image
+  était comparée à la précédente : le décor qui change derrière les chiffres (flash rouge des dégâts, mur clair,
+  compteur caché) comptait des balles. Sur une partie en 854x480 (16:9), autour de 5 kills vérifiés à l'image :
+  33 vraies balles sur 33 dans les deux cas, 29 fausses avant, 3 après (`minPlateau`, `minDigits`).
+- Zone mesurée en 3440x1440 et vérifiée en 854x480 (16:9). Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
   est à mettre à jour (**Mettre à jour les analyses**, ou `--reanalyze`).
 - Le gabarit du son headshot livré reconnaît la moitié des headshots (0,72 à 0,78) sans aucun faux (kills au corps à
   0,64 au plus), au seuil 0,7. Un premier réglage, pris dans l'une de ces deux parties : à revoir sur d'autres.

@@ -33,6 +33,8 @@ data class Evening(
     val sources: List<Path>,
     val kills: Int,
     val end: Instant,
+    /** Bilan de chaque partie, même ordre que [sessionFiles] (kills, heure : intercalaires du récap). */
+    val games: List<GameStats> = emptyList(),
 )
 
 /** Soirée déjà montée (ou dont le montage a échoué : elle n'est pas retentée d'office). */
@@ -113,6 +115,7 @@ object EveningPlanner {
                 sources = ev.games.map { it.source },
                 kills = ev.kills,
                 end = ev.games.maxOf { it.playedAt!! + it.duration.toJavaDuration() },
+                games = ev.games,
             )
         }
 

@@ -227,7 +227,7 @@ Pistes, de la plus simple à la plus lourde :
 
 ## Nouveaux types de montage
 - [ ] Clip unique « meilleur moment » : une vidéo 9:16 de 15 à 30 s par moment (accroche, sous-titres, punch-in).
-- [ ] Récap de soirée : plusieurs captures, intercalaire par partie (« Partie 3 – 14 kills »).
+- [x] Récap de soirée : plusieurs captures, intercalaire par partie (« Partie 3 – 14 kills ») : `app recap`, bouton « Récap de la soirée » des statistiques.
 - [x] Montage « fails / morts » : morts du killfeed/Outplayed, ralenti sur la mort, image figée, texte (`--fails`).
 - [ ] Morts pendant l'ultime de Phoenix (icône verte dans le killfeed) : les écarter du montage des morts ? À décider.
 - [ ] Montage « réactions » : segments `laughter`/`shout` de YAMNet, micro en avant, sous-titres whisper.

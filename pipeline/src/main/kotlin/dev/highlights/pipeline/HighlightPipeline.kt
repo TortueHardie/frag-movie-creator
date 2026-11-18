@@ -37,6 +37,9 @@ import dev.highlights.core.session.SessionStore
 import dev.highlights.core.serialization.toTimecode
 import dev.highlights.core.video.FrameSampler
 import dev.highlights.export.OutputNamer
+import dev.highlights.export.RecapCard
+import dev.highlights.export.RecapPart
+import dev.highlights.export.RecapRenderer
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
@@ -339,6 +342,29 @@ class HighlightPipeline(
     fun evenings(): List<Evening> = EveningPlanner.of(statistics())
 
     /**
+     * Les parties de [sessionFiles] prises comme une soirée, telles quelles : ni découpage de 6 h à 6 h, ni dédoublonnage
+     * (deux captures sans date d'enregistrement, copiées à la même minute, passent sinon pour la même partie).
+     */
+    fun eveningOf(sessionFiles: List<Path>): Evening {
+        val wanted = sessionFiles.map { it.toAbsolutePath().normalize() }.toSet()
+        val games = statistics().filter { it.sessionFile.toAbsolutePath().normalize() in wanted }.distinctBy { it.sessionFile.toAbsolutePath().normalize() }
+            .sortedBy { it.playedAt }
+        if (games.isEmpty()) throw InputException(Message("error.recap.noMoments"))
+        val zone = java.time.ZoneId.systemDefault()
+        val start = games.firstNotNullOfOrNull { it.playedAt } ?: Instant.now()
+        return Evening(
+            date = start.atZone(zone).minusHours(Statistics.EVENING_END.inWholeHours).toLocalDate(),
+            game = games.first().game,
+            profileId = games.first().profileId,
+            sessionFiles = games.map { it.sessionFile },
+            sources = games.map { it.source },
+            kills = games.sumOf { it.kills },
+            end = games.maxOf { (it.playedAt ?: start) + java.time.Duration.ofMillis(it.duration.inWholeMilliseconds) },
+            games = games,
+        )
+    }
+
+    /**
      * Montage kills d'une soirée entière ([killMontage] de toutes ses parties), retenu dans [eveningHistory] : le
      * montage automatique ne la refera pas. Un échec y est retenu aussi, puis relancé.
      */
@@ -616,6 +642,62 @@ class HighlightPipeline(
                 progress,
             )
         }.let { result -> options.thumbnail?.let { result.copy(thumbnails = thumbnails.makeAll(result.videos.values, it)) } ?: result }
+    }
+
+    /**
+     * Récap d'une soirée, partie par partie : pour chaque partie (dans l'ordre joué), un intercalaire « Partie 3 – 14
+     * kills » puis ses meilleurs moments, rendus par l'export habituel ; un écran de fin avec le bilan. Les moments de
+     * chaque partie sont recalculés avec une cible de durée partagée sur la soirée ([reselectAll] : réglages du profil,
+     * moments retouchés à la main gardés) ; une partie avec des kills garde au moins son meilleur moment. Une partie sans
+     * moment n'a pas d'intercalaire mais garde son numéro.
+     */
+    suspend fun eveningRecap(evening: Evening, options: RecapOptions, progress: ProgressReporter): ExportResult {
+        val loaded = evening.sessionFiles.mapIndexed { i, f -> i to SessionStore.load(f) }.filter { (_, s) -> s.media.path.isRegularFile() }
+        if (loaded.isEmpty()) throw InputException(Message("error.recap.capturesMissing"))
+        // Cible partagée : la soirée garde la durée du profil. Une partie avec des kills qui n'y a rien gardé (une partie
+        // à 46 kills prenait toute la minute, celle à 15 n'avait plus d'intercalaire) garde au moins son meilleur moment.
+        val selected = reselectAll(loaded.map { it.second }, null, null).mapIndexed { k, s ->
+            val kills = evening.games.getOrNull(loaded[k].first)?.kills ?: 0
+            if (kills > 0 && s.highlights.none { it.enabled }) reselect(s, null, dev.highlights.core.model.SelectionTarget(topN = 1)) else s
+        }
+        val games = loaded.map { it.first }.zip(selected).filter { (_, s) -> s.highlights.any { it.enabled } }
+        if (games.isEmpty()) throw InputException(Message("error.recap.noMoments"))
+        val profile = profiles.byId(games.first().second.profileId)
+        val platform = platform(options.platform)
+        val edit = profile.gradedEdit().let { platform?.applyTo(it) ?: it }
+        val formats = platform?.let { listOf(it.format) } ?: options.formats ?: edit.formats
+        val outputDir = options.outputDir ?: config.outputDir
+        return withJobDir { workDir ->
+            // Les moments de chaque partie, rendus comme un export ordinaire (mêmes transitions, même style).
+            val exports = games.mapIndexed { k, (_, session) ->
+                export(listOf(session), ExportOptions(formats, workDir.resolve("part$k"), options.style, platform = options.platform), progress.child(session.media.path.fileName.toString(), 0.7 / games.size))
+            }
+            fun best(session: Session) = session.highlights.filter { it.enabled }.maxBy { it.score }.peak
+            val parts = { format: OutputFormat ->
+                games.mapIndexed { k, (index, session) ->
+                    val stats = evening.games.getOrNull(index)
+                    val title = RecapText.gameTitle(index + 1, stats?.kills ?: 0)
+                    val subtitle = stats?.let(RecapText::gameSubtitle) ?: profile.name
+                    RecapPart(RecapCard(title, subtitle, session.media.path, best(session), RecapRenderer.CARD), exports[k].videos.getValue(format))
+                }
+            }
+            val last = games.maxBy { (_, s) -> s.highlights.filter { it.enabled }.maxOf { it.score } }.second
+            val end = RecapCard(RecapText.endTitle(evening), RecapText.endSubtitle(evening), last.media.path, best(last), RecapRenderer.END_CARD)
+            val names = OutputNamer.reserve(outputDir, profile.id, evening.date, formats, kind = "recap")
+            val renderer = RecapRenderer(ffmpeg, exporter.encoders)
+            var timeline = dev.highlights.export.RecapTimeline(kotlin.time.Duration.ZERO, emptyList())
+            formats.forEach { format ->
+                timeline = renderer.render(
+                    parts(format), end, names.videos.getValue(format), workDir, edit.story.captions.font, edit.safeArea, edit.maxBitrate,
+                    config.app.encoder.audioBitrate, progress.child(tr("progress.render"), 0.3 / formats.size),
+                )
+            }
+            val report = RecapReport(evening.date.toString(), profile.id, evening.kills, games.map { (index, s) ->
+                RecapReport.Game(index + 1, s.media.path.toString(), evening.games.getOrNull(index)?.kills ?: 0, s.highlights.count { it.enabled })
+            }, names.videos.values.map { it.toString() }, timeline.cards.map { it.inWholeMilliseconds / 1000.0 })
+            java.nio.file.Files.writeString(names.report, SessionStore.json.encodeToString(RecapReport.serializer(), report))
+            ExportResult(names.videos, names.report, timeline.duration, exporter.encoders.select().name)
+        }
     }
 
     /** Miniature YouTube de [video] (highlights ou montage kills), d'après le rapport écrit avec elle ([Thumbnails]). */
