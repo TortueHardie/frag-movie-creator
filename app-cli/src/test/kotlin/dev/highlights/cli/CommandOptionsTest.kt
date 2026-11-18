@@ -117,6 +117,11 @@ class CommandOptionsTest : FunSpec({
         options.platform shouldBe "tiktok"
     }
 
+    test("montage des morts : --fails, rien par défaut") {
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString()) { it.montageOptions().fails } shouldBe null
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--fails") { it.montageOptions().fails } shouldBe true
+    }
+
     test("montage : --colors boost allume les couleurs vives") {
         parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--colors", "boost") { it.montageOptions().boostColors } shouldBe true
     }

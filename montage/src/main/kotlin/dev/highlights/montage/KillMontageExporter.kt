@@ -25,6 +25,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.nio.file.Path
+import dev.highlights.core.session.Session
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -153,6 +154,8 @@ data class MontageReportClip(
     val whip: Boolean = false,
     /** Souffle entendu sur ce whip pan : fichier de `whip.sounds` ou variante générée ; null : aucun. */
     val whoosh: String? = null,
+    /** Montage des morts : texte affiché sur la mort (OUPS, RIP…, voir [FailLabels]) ; null ailleurs. */
+    val failText: String? = null,
 )
 
 class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoders: EncoderSelector) {
@@ -253,7 +256,9 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             notices = request.notices,
             signature = signature,
             preview = request.preview,
-            clips = plan.clips.zip(plan.clipOffsets()).mapIndexed { i, (c, offset) ->
+            clips = plan.clips.zip(plan.clipOffsets()).mapIndexed { i, (c, offset) -> c to offset }.let { pairs ->
+                val fails = if (plan.settings.fails.enabled && plan.settings.text.enabled) FailLabels.assign(plan.clips, FailLabels.available(plan.settings.fails)) else plan.clips.map { null }
+                pairs.mapIndexed { i, (c, offset) ->
                 MontageReportClip(
                     c.group.media.path.toString(), c.start.toTimecode(), c.end.toTimecode(), c.kills.map { it.toTimecode() },
                     c.outputKills().map { ((offset + it).inWholeMilliseconds / 1000.0).roundTo(3) }, c.beats,
@@ -270,8 +275,9 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                     showcase = c.showcase,
                     whip = whips[i] != null,
                     whoosh = whooshes[i],
+                    failText = fails[i],
                 )
-            },
+            } },
         )
         paths.report.writeText(json.encodeToString(MontageReport.serializer(), report))
         return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file, notices = request.notices)
@@ -291,6 +297,15 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         /** Mesure du mouvement de caméra : un décodage en tout petit de chaque plan, rapide face au rendu. */
         private const val MOTION_WEIGHT = 0.06
 
-        fun recordingDate(instant: Instant?): LocalDate = (instant ?: Instant.now()).atZone(ZoneId.systemDefault()).toLocalDate()
+        /**
+         * Date de la première partie jouée, qui nomme le montage : la date d'enregistrement de la capture
+         * ([dev.highlights.core.model.MediaInfo.recordedAt] : inscrite dans le fichier, sinon sa date de modification),
+         * sinon celle de l'analyse ; jamais celle du rendu. Même règle que l'export highlights. Une capture VALORANT
+         * sans date inscrite donnait `valorant_2026-11-18_killmontage` pour une partie du 17 rendue le 18.
+         */
+        fun recordingDate(sessions: List<Session>, zone: ZoneId = ZoneId.systemDefault()): LocalDate {
+            val instant = sessions.mapNotNull { it.media.recordedAt }.minOrNull() ?: sessions.minOf { it.createdAt }
+            return instant.atZone(zone).toLocalDate()
+        }
     }
 }

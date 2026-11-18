@@ -93,11 +93,13 @@ object ThumbnailPicker {
     }
 
     /**
-     * Texte de la miniature, dans la langue de l'interface (libellés incrustés dans les montages, `video.*`) : ACE,
-     * CLUTCH, sinon la série du moment (DOUBLÉ, TRIPLÉ…), sinon le nombre de kills de la vidéo ; rien sous deux kills.
+     * Texte de la miniature, dans la langue de l'interface (libellés incrustés dans les montages, `video.*`) : CLUTCH,
+     * sinon la série du moment (DOUBLÉ, TRIPLÉ…), sinon le nombre de kills de la vidéo ; rien sous deux kills. Un ace
+     * prend le nombre de kills de la vidéo : le jeu affiche déjà « ACE » en grand à cet instant (VALORANT, miniature
+     * de la QA du 18/11 : « ACE » deux fois).
      */
     fun label(m: ThumbnailMoment, totalKills: Int): String = when {
-        m.ace -> I18n.text("video.ace")
+        m.ace -> if (totalKills >= 2) I18n.text("video.kills", mapOf("count" to totalKills)) else ""
         m.clutch -> I18n.text("video.clutch")
         m.kills >= 2 -> I18n.text("video.streak.${m.kills.coerceAtMost(5)}")
         totalKills >= 2 -> I18n.text("video.kills", mapOf("count" to totalKills))

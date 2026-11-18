@@ -16,6 +16,11 @@ import kotlin.time.Duration.Companion.seconds
 @Serializable
 data class MontageSettings(
     val killEvent: String = "kill",
+    /**
+     * Autres événements qui ancrent un plan comme [killEvent] (montage des morts : « downed » quand il compte comme une
+     * mort, voir [forFails]). Vide : [killEvent] seul.
+     */
+    val anchorEvents: Set<String> = emptySet(),
     /** Décalage entre la notification et le tir (la notification apparaît après le kill). */
     val killOffset: SerialDuration = (-400).milliseconds,
     /** Kills plus proches que ça : un seul clip (multi-kill). */
@@ -84,6 +89,8 @@ data class MontageSettings(
     val fast: FastMontage = FastMontage(),
     /** Réglages du montage « onetaps », appliqués par [forOneTaps] quand on le demande. */
     val oneTaps: OneTapMontage = OneTapMontage(),
+    /** Réglages du montage des morts (« fails »), appliqués par [forFails] quand on le demande. */
+    val fails: FailMontage = FailMontage(),
     /** Choix automatique de la musique : préférence pour celles qui donnent des plans courts. null : aucune. */
     val musicPace: MusicPace? = null,
     /**
@@ -157,6 +164,75 @@ data class MontageSettings(
             speedRamp = speedRamp.copy(enabled = false),
             musicPace = o.musicPace,
         )
+    }
+
+    /**
+     * Les mêmes réglages, pour le montage des morts du joueur : chaque mort ancre son plan comme un kill (les secondes qui
+     * la précèdent, un ralenti dessus, un arrêt sur image, un petit texte : voir [FailMontage]). Les morts sont celles de
+     * [KillStyle.deathEvent], plus « à terre » quand [KillStyle.downedAsDeath] le veut. Ce qui sert à classer les kills
+     * (rounds, tirs à la tête, one taps, confirmation au killfeed, flick, pose de l'arme) n'a pas de sens ici : coupé.
+     * Une mort juste après un kill (un échange) reste : elle est drôle aussi.
+     */
+    fun forFails(): MontageSettings {
+        val f = fails
+        val style = killStyle
+        val deaths = style.copy(deathEvent = style.deathEvent.ifEmpty { "death" }).deathKinds
+        return copy(
+            killEvent = style.deathEvent.ifEmpty { "death" },
+            anchorEvents = deaths - style.deathEvent.ifEmpty { "death" },
+            fails = f.copy(enabled = true),
+            mergeGap = Duration.ZERO,
+            preRoll = f.preRoll,
+            postRoll = f.postRoll,
+            hook = false,
+            reactions = false,
+            skipDeathWithin = Duration.ZERO,
+            effectDensity = EffectDensity.HEAVY,
+            length = length.copy(perClip = f.perClip, perExtraKill = Duration.ZERO, min = f.min),
+            // Placement de la mort : la place du ralenti et du gel est réservée de part et d'autre (sinon, sur un plan de
+            // trois temps, la mort tombait trop près d'une coupe et 6 morts sur 9 perdaient leur ralenti).
+            cuts = cuts.copy(
+                low = f.perClip, mid = f.perClip, high = f.perClip,
+                minLead = f.minLead + f.slowBefore / f.slowFactor, minTail = f.minTail + f.slowAfter / f.slowFactor + f.freeze,
+                singleBeat = false, offbeatKills = false, jumpCuts = false,
+            ),
+            slowMotion = slowMotion.copy(enabled = true, factor = f.slowFactor, before = f.slowBefore, after = f.slowAfter),
+            speedRamp = speedRamp.copy(enabled = false),
+            matchCut = matchCut.copy(enabled = false),
+            killStyle = style.copy(deathEvent = "", headshotEvent = "", shotEvent = "", hudShotEvent = "", confirmEvent = "", clutchEvent = "", flick = false),
+        )
+    }
+}
+
+/**
+ * Montage des morts (« fails ») : pour chaque mort, les secondes qui la précèdent ([preRoll]), un ralenti qui finit sur
+ * elle, un arrêt sur image de [freeze] et un petit texte (OUPS, RIP… : [labels], sinon les libellés `video.fail.*` de la
+ * langue de l'interface, tirés au hasard mais toujours les mêmes pour un même montage). Calé sur la musique comme le
+ * montage kills : un plan par mort, la mort sur un temps. [enabled] est posé par [MontageSettings.forFails].
+ */
+@Serializable
+data class FailMontage(
+    val enabled: Boolean = false,
+    val preRoll: SerialDuration = 3.seconds,
+    val postRoll: SerialDuration = 800.milliseconds,
+    /** Longueur visée d'un plan : l'avant, le ralenti, l'image figée. */
+    val perClip: SerialDuration = 4500.milliseconds,
+    /** Contexte minimal avant la mort (temps réel, hors ralenti) : de quoi voir venir le drame. */
+    val minLead: SerialDuration = 1500.milliseconds,
+    /** Après la mort : place du ralenti qui suit et de l'image figée. */
+    val minTail: SerialDuration = 300.milliseconds,
+    val min: SerialDuration = 15.seconds,
+    val slowFactor: Double = 0.5,
+    val slowBefore: SerialDuration = 600.milliseconds,
+    val slowAfter: SerialDuration = 300.milliseconds,
+    /** Image figée juste après le ralenti (durée dans le montage) ; zéro : aucune. */
+    val freeze: SerialDuration = 700.milliseconds,
+    /** Textes affichés sur la mort ; null : ceux de la langue de l'interface (`video.fail.*`). Vide : aucun texte. */
+    val labels: List<String>? = null,
+) {
+    init {
+        require(slowFactor in 0.1..1.0) { "montage.fails.slowFactor doit être entre 0,1 et 1" }
+        require(!freeze.isNegative()) { "montage.fails.freeze ne peut pas être négatif" }
     }
 }
 

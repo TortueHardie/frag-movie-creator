@@ -20,6 +20,9 @@ dependencies {
     runtimeOnly(project(":analysis-ml"))
 
     testImplementation(testFixtures(project(":ffmpeg")))
+    // Tests de mise en page (hauteur d'un bouton, nœuds visibles) sans fenêtre : jamais livré dans l'application.
+    @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+    testImplementation(compose.uiTest)
 }
 
 // Ressources livrées avec l'application (dossier « resources » de l'installation) :

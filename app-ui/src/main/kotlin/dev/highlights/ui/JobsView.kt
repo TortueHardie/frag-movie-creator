@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,14 +35,18 @@ import dev.highlights.core.i18n.tr
 /**
  * Carte de la file des traitements : celui en cours (avancement, annuler), ceux qui attendent (ordre modifiable,
  * annuler), les derniers finis (ouvrir le résultat, voir l'erreur). Rien quand la file est vide.
+ *
+ * Hauteur bornée ([MAX_HEIGHT], et la part que lui laisse [modifier]) : l'en-tête et le traitement en cours restent
+ * fixes, l'attente et les finis défilent. Sans borne, une dizaine de traitements finis poussaient « Exporter le
+ * montage » hors de l'écran, à une hauteur de 0.
  */
 @Composable
-fun JobsCard(jobs: List<QueuedJob>, actions: UiActions) {
+fun JobsCard(jobs: List<QueuedJob>, actions: UiActions, modifier: Modifier = Modifier) {
     if (jobs.isEmpty()) return
     val running = jobs.filter { it.status == JobStatus.RUNNING }
     val waiting = jobs.filter { it.status == JobStatus.WAITING }
     val finished = jobs.filter { !it.active }.reversed()
-    Surface(shape = RoundedCornerShape(10.dp), color = Palette.surface, border = BorderStroke(1.dp, Palette.outline)) {
+    Surface(modifier.heightIn(max = MAX_HEIGHT), shape = RoundedCornerShape(10.dp), color = Palette.surface, border = BorderStroke(1.dp, Palette.outline)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(tr("ui.jobs.title"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -47,14 +54,22 @@ fun JobsCard(jobs: List<QueuedJob>, actions: UiActions) {
                 if (finished.isNotEmpty()) TextButton(onClick = actions::clearFinishedJobs) { Text(tr("ui.jobs.clear")) }
             }
             running.forEach { RunningRow(it, actions) }
-            waiting.forEachIndexed { i, job -> WaitingRow(job, i, waiting.size, actions) }
-            if (finished.isNotEmpty()) {
-                HorizontalDivider(color = Palette.outline)
-                finished.forEach { FinishedRow(it, actions) }
+            if (waiting.isNotEmpty() || finished.isNotEmpty()) {
+                // La partie qui grandit : elle prend la place qui reste dans la carte, et défile au-delà.
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    waiting.forEachIndexed { i, job -> WaitingRow(job, i, waiting.size, actions) }
+                    if (finished.isNotEmpty()) {
+                        HorizontalDivider(color = Palette.outline)
+                        finished.forEach { FinishedRow(it, actions) }
+                    }
+                }
             }
         }
     }
 }
+
+/** Hauteur maximale de la carte : en-tête, traitement en cours et trois ou quatre lignes ; le reste défile. */
+private val MAX_HEIGHT = 360.dp
 
 @Composable
 private fun RunningRow(job: QueuedJob, actions: UiActions) {

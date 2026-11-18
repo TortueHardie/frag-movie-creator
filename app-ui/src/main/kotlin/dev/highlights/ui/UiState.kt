@@ -296,7 +296,7 @@ fun formatBytes(bytes: Long): String = when {
 
 /** « 2 kills · 1 assist » : types connus traduits (`event.<type>`, au pluriel), les autres par leur nom brut. */
 fun eventsLabel(events: Map<String, Int>): String = events.entries
-    .sortedBy { listOf("kill", "assist", "revive", "death", "downed", "laughter", "shout").indexOf(it.key).let { i -> if (i < 0) 99 else i } }
+    .sortedBy { listOf("kill", "headshot", "assist", "revive", "death", "downed", "laughter", "shout", "feed-kill", "hud-shot", "shot").indexOf(it.key).let { i -> if (i < 0) 99 else i } }
     .joinToString(" · ") { (kind, n) -> I18n.textOrNull("event.$kind", mapOf("count" to n)) ?: "${I18n.decimal(n.toDouble(), 0)} $kind" }
 
 data class MontageUiState(
@@ -343,6 +343,8 @@ data class MontageUiState(
     val reactions: Boolean = false,
     /** Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun. */
     val oneTaps: Boolean = false,
+    /** Montage des morts du joueur (ralenti, image figée, petit texte) au lieu des kills. */
+    val fails: Boolean = false,
     /** Rythme rapide : un kill par temps de musique, sur chaque coup de basse. */
     val fast: Boolean = false,
     /** Style de montage choisi (voir [chooseStyle]) ; null : réglages du profil seuls. */

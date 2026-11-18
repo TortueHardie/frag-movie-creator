@@ -27,7 +27,7 @@ import kotlin.time.Duration.Companion.seconds
 
 class RecapIT : FunSpec({
     fun game(at: String, kills: Int, profile: String = "lol") = GameStats(
-        sessionFile = Path("s.json"), source = Path("c.mp4"), profileId = profile, game = "League of Legends",
+        sessionFile = Path("s.json"), source = Path("partie_${at.replace(':', '-')}.mp4"), profileId = profile, game = "League of Legends",
         playedAt = Instant.parse(at), duration = 40.minutes, kills = kills, deaths = null, headshots = null,
         multiKills = emptyMap(), aces = 0, clutches = null, bestRound = null, rounds = null,
     )

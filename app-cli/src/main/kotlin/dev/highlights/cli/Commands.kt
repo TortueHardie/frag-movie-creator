@@ -232,6 +232,7 @@ class MontageCommand : PipelineCommand("montage") {
         .choice("full" to GameAudio.FULL, "kills" to GameAudio.KILLS)
     private val fast by option("--fast", help = "Rythme rapide : un kill sur chaque temps de la musique (chaque coup de basse), un plan très court chacun").flag()
     private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
+    private val fails by option("--fails", help = "Montage des morts du joueur : les secondes d'avant, ralenti, image figée et petit texte (OUPS, RIP…), sur la musique").flag()
     private val style by option(
         "--style",
         help = "Style de montage (config/montage-styles.yaml, ex. tiktok, propre, onetaps, cinematique) : un jeu de réglages, " +
@@ -367,7 +368,9 @@ class MontageCommand : PipelineCommand("montage") {
         if (left.isNotEmpty()) {
             echo("  écartés :")
             left.forEach { g ->
-                val excluded = g.kills.all { k -> constraints.excluded.any { it.matches(g.media, k) } }
+                val excluded = g.kills.all { k ->
+                    constraints.excluded.any { r -> dev.highlights.montage.MontageEdits.designated(r, planned.candidates) == (g.media.path to k) }
+                }
                 echo("      %s%s".format(g.kills.joinToString(" ") { KillRef.of(g.media, it).toString() }, if (excluded) "  [exclu]" else ""))
             }
         }
@@ -416,6 +419,7 @@ class MontageCommand : PipelineCommand("montage") {
         gameAudio = gameAudio,
         reactions = if (reactions) true else null,
         oneTaps = if (oneTaps) true else null,
+        fails = if (fails) true else null,
         fast = if (fast) true else null,
         style = style.let { if (it == "none") null else it ?: defaultStyle },
         constraints = constraints,

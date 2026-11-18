@@ -321,6 +321,10 @@ meilleurs moments ne sont plus posés bout à bout : chacun est remonté comme l
   moments ne la refait pas. Il faut le modèle, trop lourd pour le dépôt et l'installeur :
   [`ggml-large-v3-turbo-q5_0.bin`](https://huggingface.co/ggerganov/whisper.cpp) (~574 Mo) dans `config/models/`
   (`story.captions.model`). Sans lui, le montage sort sans sous-titres.
+  Une capture **sans piste micro séparée** (une seule piste « tout le son », comme les vidéos VALORANT téléchargées)
+  n'est pas sous-titrée : whisper y transcrivait l'annonceur du jeu (« REMAINING. - LES », « 1 ENNEMI »).
+  `story.captions.withoutMic: true` force la transcription du son complet (désactivé par défaut). Un sous-titre reste
+  affiché 3 s au plus (ou son temps de lecture) : whisper étirait parfois un mot sur 7 s de silence.
 - Son adouci à chaque coupe, fondu au noir final, normalisation EBU R128.
 
 ```powershell
@@ -605,6 +609,11 @@ le son du jeu et la voix. Bouton **Clip 9:16** sur le moment sélectionné, ou :
 Bouton **Statistiques** au-dessus des analyses enregistrées (ou `app stats`) : les parties analysées, un jeu à la
 fois, soirée par soirée — kills par partie, K/D, part de tirs à la tête, meilleur round, doublés / triplés / aces /
 clutchs, et un graphique des kills par partie d'une soirée à l'autre. Chaque partie se rouvre d'un clic.
+
+Une même partie enregistrée deux fois (Outplayed et OBS en même temps, ou la même capture analysée deux fois) ne
+compte qu'une fois. Deux captures qui se chevauchent ne sont fusionnées que si leurs horaires viennent de
+l'enregistrement (date dans les métadonnées, ou nom daté par Outplayed, OBS ou ShadowPlay) : des captures copiées ou
+téléchargées n'ont que la date du fichier, et deux parties copiées à une minute d'écart restent deux parties.
 
 ```powershell
 & $app stats                     # dix dernières soirées, jeu par jeu, et la tendance
@@ -954,6 +963,25 @@ En 21:9, l'ennemi n'est souvent que quelques pixels au fond d'un couloir : il gr
   0,17 s après le kill et ne montrait que l'écran de mort.
 - Dans un dossier de musiques, celles qui gardent des plans d'un temps passent devant (`fast.musicPace`).
 - `montage.fast.enabled: true` dans le profil pour l'avoir par défaut.
+
+## Montage des morts
+
+`montage --fails` (ou la case « Montage des morts » de la fenêtre de montage, réglages avancés) monte les morts du
+joueur au lieu de ses kills, sur la musique, avec le même moteur : un plan par mort, la mort sur un temps.
+
+- Chaque plan montre les 3 secondes qui précèdent la mort, un ralenti qui finit sur elle, une image figée (0,7 s, son
+  du jeu coupé, la musique continue) et un petit texte : OUPS, RIP, AÏE, GAME OVER, BIEN ESSAYÉ, RATÉ (`video.fail.*`,
+  dans la langue de l'interface, ou `montage.fails.labels` du profil). Le texte d'une mort est tiré d'une empreinte de
+  la mort (capture et instant) : le même montage garde les mêmes textes, et deux morts voisines n'ont jamais le même.
+- Les morts sont les `death` du killfeed ou d'Outplayed. Dans Wardogs, « à terre » ne compte que si
+  `montage.killStyle.downedAsDeath` est activé ; sinon une partie de Wardogs n'a pas de mort, et le montage le dit.
+- Une mort juste après un kill (un échange) reste : elle est drôle aussi. Rounds, tirs à la tête, one taps et raccords
+  sur la pose de l'arme ne servent pas ici.
+- Fichiers : `<jeu>_<date>_fails.mp4`, à côté de son rapport (le texte de chaque mort y est : `failText`).
+
+```powershell
+& $app montage "Valorant- 44 kills.session.json" Valorant_game.session.json -m D:\Musique\R2D2.mp3 --fails -f 9:16
+```
 
 ## Montage onetaps
 

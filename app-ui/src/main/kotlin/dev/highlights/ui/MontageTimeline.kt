@@ -112,9 +112,10 @@ data class PlanGroup(val media: MediaInfo, val kills: List<Duration>, val rank: 
 
     /** Ce que l'utilisateur a demandé pour ce groupe. */
     fun mark(c: MontageConstraints): GroupMark {
-        fun any(refs: Collection<KillRef>) = kills.any { k -> refs.any { it.matches(media, k) } }
-        val excluded = kills.count { k -> c.excluded.any { it.matches(media, k) } }
-        val pin = c.pins.entries.firstOrNull { (ref, _) -> kills.any { ref.matches(media, it) } }?.value
+        // Désignations de la frise : le kill exact (à la milliseconde), jamais son voisin recalé à 0,1 s.
+        fun any(refs: Collection<KillRef>) = kills.any { k -> refs.any { it.exactly(media, k) } }
+        val excluded = kills.count { k -> c.excluded.any { it.exactly(media, k) } }
+        val pin = c.pins.entries.firstOrNull { (ref, _) -> kills.any { ref.exactly(media, it) } }?.value
         return when {
             excluded == kills.size -> GroupMark.EXCLUDED
             pin == MontagePin.Drop -> GroupMark.DROP
@@ -458,9 +459,11 @@ private fun ClipBlock(
             Image(image, contentDescription = group?.key, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().alpha(if (mark == GroupMark.EXCLUDED) 0.3f else 0.85f))
         }
         if (mark == GroupMark.EXCLUDED) Box(Modifier.fillMaxSize().background(Palette.danger.copy(alpha = 0.25f)))
-        Column(Modifier.padding(4.dp)) {
+        // Marges réduites et numéro sur une ligne : en rythme rapide (40 plans), « 12 » passait à la ligne en « 1 / 2 ».
+        Column(Modifier.padding(2.dp)) {
             Text("${index + 1}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Palette.text,
-                modifier = Modifier.background(Palette.background.copy(alpha = 0.7f), RoundedCornerShape(3.dp)).padding(horizontal = 3.dp))
+                maxLines = 1, softWrap = false,
+                modifier = Modifier.background(Palette.background.copy(alpha = 0.7f), RoundedCornerShape(3.dp)).padding(horizontal = 2.dp))
             if (group == null) {
                 Text(tr("ui.montagePlan.showcase"), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
             } else if (group.kills.size > 1) {

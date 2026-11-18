@@ -79,6 +79,30 @@ class MomentClipsTest : FunSpec({
         storyDuration(MomentClips.window(s, MomentClips.pick(s, null), settings, 12.seconds)) shouldBeLessThanOrEqualTo 12.seconds
     }
 
+    test("jamais plus long que le plafond : captures courtes, moments longs, accroche comprise") {
+        // QA finale : sur la vidéo de 60 s d'AppControllerIT, le clip faisait 31 s pour un plafond de 30 s.
+        val failures = mutableListOf<String>()
+        for (length in listOf(20, 25, 30, 35, 40, 45, 50, 60, 75, 90, 120)) {
+            for (peakShare in listOf(0.1, 0.3, 0.5, 0.72, 0.9)) {
+                for (momentLength in listOf(4, 6, 9, 14, 20, 28, 35)) {
+                    for (dead in listOf(false, true)) {
+                        for (cap in listOf(30, 12)) {
+                            val peak = (length * peakShare).seconds
+                            val half = (momentLength / 2.0).seconds
+                            val range = TimeRange((peak - half).coerceAtLeast(Duration.ZERO), (peak + half).coerceAtMost(length.seconds))
+                            val base = session(length = length.seconds) { i -> if (!dead || kotlin.math.abs(i - peak.inWholeSeconds) <= 3) 0.9 else 0.05 }
+                            val moment = base.highlights.first().copy(range = range, peak = peak)
+                            val s = base.copy(highlights = listOf(moment))
+                            val d = storyDuration(MomentClips.window(s, moment, settings, cap.seconds))
+                            if (d > cap.seconds) failures += "capture ${length}s, pic ${peak}, moment ${momentLength}s, attente ${dead}, plafond ${cap}s : $d"
+                        }
+                    }
+                }
+            }
+        }
+        failures shouldBe emptyList()
+    }
+
     test("capture trop courte : le clip reste dans la capture") {
         val s = session(length = 20.seconds).let { it.copy(highlights = listOf(it.highlights.first().copy(range = TimeRange(7.seconds, 13.seconds), peak = 10.seconds))) }
         val range = MomentClips.window(s, s.highlights.single(), settings, 30.seconds).highlights.single().range

@@ -185,6 +185,11 @@ data class MontageOptions(
      * null : celui du style, sinon non.
      */
     val oneTaps: Boolean? = null,
+    /**
+     * Montage des morts du joueur ([MontageSettings.forFails]) : chaque mort ancre un plan, ralenti, image figée, petit
+     * texte. Les morts « à terre » de Wardogs seulement avec `killStyle.downedAsDeath`. null ou false : montage kills.
+     */
+    val fails: Boolean? = null,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
     /** Style de montage ([dev.highlights.core.model.MontageStyle]) : remplit les réglages laissés à null ci-dessus. */
@@ -255,7 +260,7 @@ class PlannedMontage internal constructor(
      * Avertissement quand les parties n'ont presque pas de kills ([MontageSettings.minKills]) : le montage se fait,
      * mais c'est le plus souvent une détection en défaut, à vérifier. Pas pour une sélection faite à la main (recherche).
      */
-    fun fewKills(options: MontageOptions): Message? = fewKillsNotice(killsFound, plan.settings.minKills, options.onlyKills != null)
+    fun fewKills(options: MontageOptions): Message? = fewKillsNotice(killsFound, plan.settings.minKills, options.onlyKills != null || options.fails == true)
 
     companion object {
         /** Avertissement pour [found] kills trouvés quand il en faut [minKills] ; aucun sur une sélection à la main ([picked]). */
@@ -883,7 +888,7 @@ class HighlightPipeline(
             outputDir = outputDir,
             workDir = workDir,
             gameName = profile.id,
-            date = KillMontageExporter.recordingDate(sessions.first().media.creationTime),
+            date = KillMontageExporter.recordingDate(sessions),
             audioBitrate = config.app.encoder.audioBitrate,
             hwaccel = Hwaccel.resolve(config.app.ffmpeg.hwaccelDecode),
             audioLayout = profile.audio,
@@ -895,7 +900,11 @@ class HighlightPipeline(
         )
     }
 
-    private fun montageKind(options: MontageOptions) = if (options.oneTaps == true) "onetaps" else "killmontage"
+    private fun montageKind(options: MontageOptions) = when {
+        options.fails == true -> "fails"
+        options.oneTaps == true -> "onetaps"
+        else -> "killmontage"
+    }
 
     /**
      * Aperçus de [count] variantes du montage ([MontageVariants.distinct]) : basse résolution, rendu rapide, même calage
@@ -921,7 +930,7 @@ class HighlightPipeline(
                 .onFailure { log.warn { "Vignette animée impossible pour $video : ${it.message}" } }
                 .getOrDefault(emptyList())
         }
-        val file = OutputNamer.reserve(dir, planned.profile.id, KillMontageExporter.recordingDate(sessions.first().media.creationTime), emptyList(), kind = "${kind}_variantes").report
+        val file = OutputNamer.reserve(dir, planned.profile.id, KillMontageExporter.recordingDate(sessions), emptyList(), kind = "${kind}_variantes").report
         val entries = plans.mapIndexed { i, plan -> MontageVariantEntry.of(i + 1, plan, plans.take(i), results[i].videos.values.first(), results[i].report) }
         MontageVariantsFile.save(
             file,
@@ -1049,6 +1058,7 @@ class HighlightPipeline(
             ),
         ).let {
             when {
+                options.fails == true -> it.forFails()
                 options.oneTaps == true -> it.forOneTaps()
                 options.fast ?: base.fast.enabled -> it.forFast()
                 else -> it
@@ -1058,6 +1068,7 @@ class HighlightPipeline(
         val musics = if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music))
         musicStep.complete()
         val picked = MontagePlanner.groups(sessions, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: all }
+        if (options.fails == true && picked.isEmpty()) throw InputException(Message("error.montage.noDeaths"))
         if (picked.isEmpty()) throw InputException(Message("error.montage.pickedMissing"))
         // Une capture effacée ou déplacée depuis l'analyse : ses kills ne se rendraient pas, et FFmpeg ferait échouer
         // tout le montage. On monte les autres.
