@@ -25,27 +25,8 @@ detectors:
     normalization: { lowPercentile: 0.8, highPercentile: 0.995, minSpread: 12 }
     params: { role: mic, optional: true }
 
-  # Éliminations du joueur : le compteur personnel en haut à droite (tête de mort, au-dessus de celui de l'escouade),
-  # lu deux fois par seconde et décodé en une suite croissante remise à zéro à chaque partie. Chaque unité gagnée est
-  # un kill. Sur la vidéo de réglage (titre « 81 éliminations » : c'est le total de l'escouade, coéquipiers compris),
-  # le compteur finit les trois parties à 11, 13 et 7 : 31 éliminations du joueur, toutes trouvées, aucune en trop.
-  # L'OCR de Windows ne lit rien à cette définition (journal d'XP et notification « ÉLIMINATION! » de 7 px de haut).
-  # Le compteur monte quand l'adversaire est éliminé (achevé, ou toute son équipe à terre), pas quand il tombe :
-  # une équipe entière éliminée d'un coup donne plusieurs kills au même instant.
-  - id: game-events
-    type: hud-counter
-    weight: 0
-    eventBoosts: { kill: 0.8, knock: 0.3 }
-    params:
-      region: { x: 0.819672, y: 0.029167, width: 0.023419, height: 0.025 }
-      referenceWidth: 854
-      referenceHeight: 480
-      anchor: right
-      digits: templates/fortnite
-      kind: kill
-
-  # Adversaire mis à terre (« KNOCKED! » au centre, 1,5 s) : en escouade, le tir qui compte arrive souvent ici, bien
-  # avant l'élimination. Montré au montage seulement si montage.anchorEvents contient « knock » (voir plus bas).
+  # Adversaire mis à terre (« KNOCKED! » au centre, 1,5 s) : c'est le kill du montage (choix du joueur : « mettre à
+  # terre, c'est le kill, pas achever »). Lu 4 fois par seconde : aucun score entre 0,6 et 0,75 sur la vidéo de réglage.
   - id: knocks
     type: hud-template
     weight: 0
@@ -64,6 +45,28 @@ detectors:
           threshold: 0.75
           minConsecutive: 2
           gap: 2s
+
+  # Éliminations du joueur : le compteur personnel en haut à droite (tête de mort, au-dessus de celui de l'escouade),
+  # lu deux fois par seconde et décodé en une suite croissante remise à zéro à chaque partie. Sur la vidéo de réglage
+  # (titre « 81 éliminations » : c'est le total de l'escouade), le compteur finit les trois parties à 11, 13 et 7 :
+  # 31 éliminations du joueur (« elimination »), toutes trouvées, aucune en trop. L'OCR de Windows ne lit rien à cette
+  # définition (journal d'XP et notification « ÉLIMINATION! » de 7 px de haut).
+  # Le kill (« kill ») est la mise à terre que l'élimination achève (rattachement sur 30 s, voir KnockPairing) ; une
+  # élimination sans mise à terre avant reste un kill à son instant ; une équipe entière éliminée d'un coup reste un
+  # multi-kill à l'instant du compteur ; une mise à terre jamais créditée reste un kill. Mesuré : 33 kills.
+  - id: game-events
+    type: hud-counter
+    dependsOn: [knocks]
+    weight: 0
+    eventBoosts: { kill: 0.8 }
+    params:
+      region: { x: 0.819672, y: 0.029167, width: 0.023419, height: 0.025 }
+      referenceWidth: 854
+      referenceHeight: 480
+      anchor: right
+      digits: templates/fortnite
+      kind: kill
+      knocks: { kind: knock, window: 30s }
 
   - id: voice
     type: voice-activity
@@ -118,9 +121,6 @@ edit:
         target: { x: 0.77, y: 0.06, width: 0.21 }
 
 montage:
-  # Le compteur monte au plus 0,5 s après la notification d'élimination, qui suit elle-même le tir : le tir qui tue est
+  # Le kill est la notification « KNOCKED! » (ou le compteur, sans mise à terre), vue juste après le tir : le tir est
   # recherché autour (son des tirs), comme pour les autres jeux.
   killOffset: -400ms
-  # Mises à terre montrées comme des kills : décommenter. En escouade, chaque adversaire est d'abord mis à terre, puis
-  # achevé (ou éliminé avec toute son équipe) : les deux instants sont des tirs, souvent à plusieurs secondes d'écart.
-  # anchorEvents: [knock]

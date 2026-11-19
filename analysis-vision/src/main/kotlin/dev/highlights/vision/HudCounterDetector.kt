@@ -20,7 +20,9 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 private val log = KotlinLogging.logger {}
 
@@ -55,11 +57,35 @@ data class HudCounterParams(
     val hwaccel: String? = Hwaccel.AUTO,
     val fps: Double = 2.0,
     val maxKeyframeInterval: SerialDuration = 1500.milliseconds,
+    /**
+     * Mises à terre qui font le kill (Fortnite en escouade) : chaque unité du compteur est rattachée à une mise à terre
+     * d'avant (événements du détecteur nommé dans `dependsOn`), et le [kind] est émis à l'instant de la mise à terre.
+     * null : le [kind] est émis quand le compteur monte. Voir [KnockPairing].
+     */
+    val knocks: KnockSettings? = null,
 ) {
     init {
         require(referenceHeight > 0 && fps > 0 && threshold in 0.0..1.0) { "paramètres invalides : $this" }
         require(slack >= 0 && maxStep >= 1 && maxValue in 1..999) { "paramètres invalides : $this" }
         require(stepCost >= 0 && resetCost >= 0 && missCost >= 0) { "coûts négatifs : $this" }
+    }
+}
+
+@Serializable
+data class KnockSettings(
+    /** Événement de mise à terre, lu dans les événements des détecteurs de `dependsOn`. */
+    val kind: String = "knock",
+    /** Une mise à terre est rattachée à une élimination qui la suit de moins que ça. */
+    val window: SerialDuration = 30.seconds,
+    /** … ou qui la précède d'au plus ça (la notification de mise à terre est vue sur un échantillonnage plus fin). */
+    val after: SerialDuration = 1.seconds,
+    /** Événement émis à chaque unité du compteur, à l'instant où il monte (vérité terrain, statistiques). */
+    val eliminationKind: String = "elimination",
+    /** Une mise à terre jamais créditée au joueur (achevée par un coéquipier, fin de partie) reste un kill. */
+    val unpaired: Boolean = true,
+) {
+    init {
+        require(window.isPositive() && !after.isNegative()) { "fenêtre de rattachement invalide : $this" }
     }
 }
 
@@ -126,17 +152,75 @@ class HudCounterDetector(override val id: String, private val params: HudCounter
         if (values.isEmpty()) return SignalTrack.missing(id, ctx.grid.count, Message("notice.noFrames"))
         val decoder = CounterDecoder(params.maxValue, params.maxStep, params.stepCost, params.resetCost, params.missCost)
         val path = decoder.decode(values)
-        val events = mutableListOf<SignalEvent>()
-        for (i in 1 until path.size) {
-            val gained = path[i] - path[i - 1]
-            repeat(gained.coerceAtLeast(0)) { events += SignalEvent(times[i], params.kind, 1.0) }
-        }
+        val increments = (1 until path.size).filter { path[it] > path[it - 1] }.map { times[it] to path[it] - path[it - 1] }
         val unread = values.count { it == null }
         log.info {
-            "$id : ${events.size} ${params.kind} (lu sur ${values.size - unread}/${values.size} images) à " +
+            "$id : ${increments.sumOf { it.second }} unité(s) (lu sur ${values.size - unread}/${values.size} images) à " +
                 CounterDecoder.changes(path).joinToString { (i, from, to) -> "${Durations.format(times[i])} $from→$to" }
         }
-        return SignalTrack(id, DoubleArray(ctx.grid.count) { Double.NaN }, events)
+        val knocks = params.knocks
+        val events = if (knocks == null) {
+            increments.flatMap { (t, k) -> List(k) { SignalEvent(t, params.kind, 1.0) } }
+        } else {
+            val knocked = ctx.events.filter { it.kind == knocks.kind }.map { it.at }.sorted()
+            val pairing = KnockPairing.pair(increments, knocked, knocks.window, knocks.after, knocks.unpaired)
+            log.info { "$id : ${pairing.kills.size} ${params.kind} sur ${knocked.size} mise(s) à terre ; ${pairing.summary()}" }
+            pairing.kills.map { SignalEvent(it, params.kind, 1.0) } +
+                increments.flatMap { (t, k) -> List(k) { SignalEvent(t, knocks.eliminationKind, 1.0) } }
+        }
+        return SignalTrack(id, DoubleArray(ctx.grid.count) { Double.NaN }, events.sortedBy { it.at })
+    }
+}
+
+/**
+ * Kills d'une partie en escouade où « mettre à terre, c'est le kill » (choix du joueur, 19/11) : en Fortnite, un
+ * adversaire est d'abord mis à terre (« KNOCKED! »), puis éliminé quand on l'achève ou que toute son équipe tombe, et
+ * c'est seulement là que le compteur monte, 0,5 à 30 s plus tard. Le tir qui compte est celui de la mise à terre.
+ *
+ * - +1 du compteur : rattaché à la plus ancienne mise à terre libre de [window] avant (jusqu'à [after] après) ; le kill
+ *   est à l'instant de la mise à terre. Sans mise à terre (dernier de son équipe, éliminé d'un coup), il reste à
+ *   l'instant du compteur. Une élimination qui achève un adversaire déjà à terre ne fait donc pas un second kill.
+ * - +k d'un coup (équipe entière éliminée) : k kills au même instant, un seul plan « QUADRUPLÉ » comme avant ; les
+ *   mises à terre de cette équipe ([window] avant) sont absorbées.
+ * - Mise à terre jamais suivie d'une élimination du joueur (achevée par un coéquipier, partie gagnée sur ce tir) : un
+ *   kill si [unpaired].
+ *
+ * Mesuré sur la vidéo de réglage (31 éliminations, 27 mises à terre), fenêtre de 30 s : 15 éliminations ramenées à
+ * leur mise à terre (0,5 à 16 s avant), 5 équipes éliminées d'un coup (12 kills, 10 mises à terre absorbées), 4
+ * éliminations sans mise à terre (aucune notification manquée avant, vérifié à l'œil), 2 mises à terre libres (11:33,
+ * et la dernière avant « Victory Royale » à 27:22) : 33 kills. À 20 s, deux mises à terre d'une équipe éliminée 23 et
+ * 27 s plus tard (12:31, 12:35) restaient libres et doublaient ce doublé.
+ */
+data class KnockPairing(val kills: List<Duration>, val paired: Int, val wipes: Int, val lone: Int, val free: Int) {
+    fun summary() = "$paired rattachée(s), $wipes équipe(s) éliminée(s) d'un coup, $lone élimination(s) sans mise à terre, $free mise(s) à terre libre(s)"
+
+    companion object {
+        fun pair(
+            increments: List<Pair<Duration, Int>>,
+            knocks: List<Duration>,
+            window: Duration,
+            after: Duration,
+            unpaired: Boolean,
+        ): KnockPairing {
+            val sorted = knocks.sorted()
+            val used = BooleanArray(sorted.size)
+            val kills = mutableListOf<Duration>()
+            var paired = 0
+            var wipes = 0
+            var lone = 0
+            for ((t, k) in increments.sortedBy { it.first }) {
+                val free = sorted.indices.filter { !used[it] && sorted[it] >= t - window && sorted[it] <= t + after }
+                free.take(k).forEach { used[it] = true }
+                when {
+                    k == 1 && free.isNotEmpty() -> { kills += sorted[free.first()]; paired++ }
+                    k == 1 -> { kills += t; lone++ }
+                    else -> { repeat(k) { kills += t }; wipes++ }
+                }
+            }
+            val left = sorted.indices.filter { !used[it] }.map { sorted[it] }
+            if (unpaired) kills += left
+            return KnockPairing(kills.sorted(), paired, wipes, lone, left.size)
+        }
     }
 }
 

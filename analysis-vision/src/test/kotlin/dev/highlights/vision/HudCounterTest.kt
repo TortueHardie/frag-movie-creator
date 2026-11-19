@@ -5,6 +5,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import java.nio.file.Path
 import kotlin.io.path.exists
+import kotlin.time.Duration.Companion.seconds
 
 class HudCounterTest : FunSpec({
     val decoder = CounterDecoder(maxValue = 60, maxStep = 5, stepCost = 3.0, resetCost = 25.0, missCost = 1.0)
@@ -89,5 +90,35 @@ class HudCounterTest : FunSpec({
                 read!!.value shouldBe d
             }
         }
+    }
+
+    test("mises à terre : le kill est à la mise à terre, l'élimination qui achève ne compte pas une seconde fois") {
+        val s = { x: Double -> x.seconds }
+        // 366 et 370 à terre, achevés à 382,5 et 388 : deux kills, à 366 et 370 (la plus ancienne d'abord).
+        // 578,5 sans mise à terre avant : kill à 578,5. 693 à terre jamais crédité : kill quand même.
+        val pairing = KnockPairing.pair(
+            increments = listOf(s(382.5) to 1, s(388.0) to 1, s(578.5) to 1),
+            knocks = listOf(s(370.0), s(366.0), s(693.0)),
+            window = 30.seconds, after = 1.seconds, unpaired = true,
+        )
+        pairing.kills shouldBe listOf(s(366.0), s(370.0), s(578.5), s(693.0))
+        pairing.paired shouldBe 2
+        pairing.lone shouldBe 1
+        pairing.free shouldBe 1
+        KnockPairing.pair(listOf(s(382.5) to 1), listOf(s(366.0), s(693.0)), 30.seconds, 1.seconds, unpaired = false).kills shouldBe listOf(s(366.0))
+    }
+
+    test("mises à terre : une équipe éliminée d'un coup reste un quadruplé à l'instant du compteur, ses mises à terre absorbées") {
+        val s = { x: Double -> x.seconds }
+        val pairing = KnockPairing.pair(listOf(s(39.5) to 4), listOf(s(23.0), s(27.0), s(32.0)), 30.seconds, 1.seconds, unpaired = true)
+        pairing.kills shouldBe List(4) { s(39.5) }
+        pairing.free shouldBe 0
+        pairing.wipes shouldBe 1
+    }
+
+    test("mises à terre : hors fenêtre, rien n'est rattaché ; la notification vue juste après le compteur l'est") {
+        val s = { x: Double -> x.seconds }
+        KnockPairing.pair(listOf(s(100.0) to 1), listOf(s(60.0)), 30.seconds, 1.seconds, unpaired = false).kills shouldBe listOf(s(100.0))
+        KnockPairing.pair(listOf(s(1172.5) to 1), listOf(s(1173.0)), 30.seconds, 1.seconds, unpaired = false).kills shouldBe listOf(s(1173.0))
     }
 })

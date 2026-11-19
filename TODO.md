@@ -238,8 +238,9 @@ Pistes, de la plus simple à la plus lourde :
     Reste : distinguer assistance et kill (le texte de la ligne), une seule capture 480p mesurée.
   - [x] Fortnite : « 81 Elimination Squads Zero Build Fortnite.mp4 » (atelier `fortnite`) : `fortnite.yaml`, détecteur
     `hud-counter` (compteur d'éliminations), mises à terre `knock` ; 31/31 sur `verite/fortnite/` (le « 81 » du titre
-    compte l'escouade). Reste : capture 1080p, joueur mort qui regarde un coéquipier, décider si les mises à terre
-    font des plans (`montage.anchorEvents: [knock]`).
+    compte l'escouade). Reste : capture 1080p, joueur mort qui regarde un coéquipier.
+  - [x] Fortnite : mettre à terre, c'est le kill (choix du joueur, 19/11) : `hud-counter` `knocks` rattache chaque
+    élimination à sa mise à terre (`KnockPairing`) ; 33 kills, sans second plan à l'achèvement.
 - [x] Assistant « nouveau jeu » : marquer un kill dans une vidéo → modèle du HUD découpé, profil proposé et testé
   (`app nouveau-jeu`, bouton « Nouveau jeu… » de l'application ; module `assistant`). Mesuré : CS2 refait aussi bien
   que le profil fait main (32/33), Fortnite non (23/31 contre 31/31 : le compteur est comparé, pas lu).
