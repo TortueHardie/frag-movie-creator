@@ -77,7 +77,8 @@ data class PlayerUiState(
 @Composable
 fun VideoPlayerWindow(player: PlayerUiState, engine: VideoPlayer, actions: UiActions) {
     val view by engine.view.collectAsState()
-    val dialog = rememberDialogState(size = DpSize(960.dp, 640.dp))
+    // Taille reprise de la vidéo déjà ouverte : la fenêtre est recréée à chaque changement de langue.
+    val dialog = rememberDialogState(size = view.size?.let(::windowSize) ?: DpSize(960.dp, 640.dp))
     // Taille de la fenêtre ajustée à la vidéo dès qu'elle est connue : un montage 9:16 en hauteur, une capture en largeur.
     LaunchedEffect(view.size) {
         val s = view.size ?: return@LaunchedEffect

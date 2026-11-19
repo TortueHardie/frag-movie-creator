@@ -179,6 +179,7 @@ class VideoPlayer(
         data object EndScrub : Command
         data object Stop : Command
         class Ended(val session: Session) : Command
+        class Lagging(val session: Session) : Command
         class Failed(val session: Session, val error: Exception) : Command
     }
 
@@ -217,7 +218,7 @@ class VideoPlayer(
                 val video = info.video ?: throw HighlightsException(Message("error.player.noVideo", "file" to command.file.fileName.toString()))
                 media = info
                 size = DecodeSize.fit(video.width, video.height, maxWidth, maxHeight)
-                fps = video.fps.takeIf { it.isFinite() && it > 0 }?.coerceAtMost(MAX_FPS) ?: DEFAULT_FPS
+                fps = playbackFps(video.fps, size)
                 if (bitmaps.size != size) bitmaps = BitmapRing(size)
                 position = clamp(command.at)
                 _view.update { it.copy(loading = false, duration = info.duration, position = position, hasAudio = info.audio.isNotEmpty(), size = size) }
@@ -225,19 +226,20 @@ class VideoPlayer(
             }
             Command.Play -> play(fromEnd = true)
             Command.Pause -> session?.let { s ->
+                s.userPaused = true
                 s.clock.pause()
                 _view.update { it.copy(playing = false) }
             }
-            Command.Toggle -> if (session?.clock?.paused == false) handle(Command.Pause) else play(fromEnd = true)
+            Command.Toggle -> if (session?.userPaused == false) handle(Command.Pause) else play(fromEnd = true)
             is Command.Seek -> {
-                val playing = session?.clock?.paused == false
+                val playing = session?.userPaused == false
                 stopAll()
                 position = clamp(command.at)
                 _view.update { it.copy(position = position, ended = false) }
                 if (playing) startSession(position) else showStill(position)
             }
             is Command.Scrub -> {
-                if (!scrubbing) resumeAfterScrub = session?.clock?.paused == false
+                if (!scrubbing) resumeAfterScrub = session?.userPaused == false
                 scrubbing = true
                 stopAll()
                 position = clamp(command.at)
@@ -261,6 +263,14 @@ class VideoPlayer(
                 _view.update { it.copy(playing = false, ended = true, position = position, sync = meter.snapshot()) }
                 log.info { "Lecture finie : synchro ${meter.snapshot()}" }
             }
+            is Command.Lagging -> if (session === command.session && fps > MIN_FPS) {
+                val at = clamp(command.session.clock.position())
+                fps = (fps / 2).coerceAtLeast(MIN_FPS)
+                log.warn { "Lecteur : l'image ne suit pas le son, reprise à $at en $fps img/s" }
+                stopSession()
+                position = at
+                startSession(at)
+            }
             is Command.Failed -> if (session === command.session) {
                 val at = clamp(command.session.clock.position())
                 session = null
@@ -278,8 +288,9 @@ class VideoPlayer(
     private fun play(fromEnd: Boolean) {
         if (media == null) return
         session?.let { s ->
-            if (s.clock.paused) {
-                s.clock.resume()
+            if (s.userPaused) {
+                s.userPaused = false
+                if (s.started) s.clock.resume()
                 _view.update { it.copy(playing = true) }
             }
             return
@@ -311,6 +322,9 @@ class VideoPlayer(
         val s = Session(m.path, at, size, fps, sink, bitmaps)
         session = s
         _view.update { it.copy(playing = true, ended = false, error = null, position = at) }
+        // Son retenu jusqu'à la première image : FFmpeg sort le son avant l'image (décodeur vidéo plus long à ouvrir),
+        // et la première image arrivait 210 ms après son heure sur un montage 1080×1920.
+        s.clock.pause()
         s.job = scope.launch { s.run() }
     }
 
@@ -357,6 +371,13 @@ class VideoPlayer(
         val ring: BitmapRing,
     ) {
         val clock = PlaybackClock(start, sink, now)
+
+        /** Pause demandée par l'utilisateur (l'horloge est aussi arrêtée avant la première image, sans elle). */
+        @Volatile var userPaused = false
+
+        /** Première image arrivée : l'horloge peut partir. */
+        @Volatile var started = false
+        private var lagging = false
         lateinit var job: Job
 
         fun stop() {
@@ -423,7 +444,10 @@ class VideoPlayer(
 
         private suspend fun present(frames: ReceiveChannel<RawFrame>) {
             val frameTime = (1.0 / fps).seconds
-            var current = frames.receiveCatching().getOrNull() ?: return
+            val first = frames.receiveCatching().getOrNull()
+            started = true
+            if (!userPaused) clock.resume()
+            var current = first ?: return
             var lastPosition: Duration? = null
             while (true) {
                 while (true) {
@@ -443,6 +467,11 @@ class VideoPlayer(
                 if (session !== this) return
                 _frame.value = ring.publish(current.bytes, current.pts, current.index)
                 meter.record(late)
+                // Retard qui ne se rattrape pas (machine trop lente pour cette taille) : une seule alerte par lecture.
+                if (late > LAG_LIMIT && !lagging) {
+                    lagging = true
+                    commands.send(Command.Lagging(this))
+                }
                 if (lastPosition == null || (current.pts - lastPosition).absoluteValue >= POSITION_STEP) {
                     lastPosition = current.pts
                     _view.update { it.copy(position = current.pts, sync = meter.snapshot()) }
@@ -459,6 +488,23 @@ class VideoPlayer(
 
         /** Au-delà, FFmpeg retire des images ([videoCommand], filtre fps) : l'écran n'en montre pas plus. */
         const val MAX_FPS = 60.0
+        private const val MIN_FPS = 15.0
+
+        /**
+         * Pixels par seconde que l'interface affiche sans prendre de retard. Mesuré : un montage 404×720 à 60 img/s
+         * (17 Mpx/s) coûte un demi-cœur à la JVM ; une capture 21:9 réduite à 1280×534 à 60 img/s (41 Mpx/s) en
+         * coûtait 1,3 et l'image finissait 3,5 s derrière le son, alors que FFmpeg seul la décode trois fois plus vite
+         * que le temps réel : la copie et le dessin de 2,7 Mo par image sont le goulot.
+         */
+        private const val PIXEL_BUDGET = 24_000_000.0
+        private val LAG_LIMIT = 1.seconds
+
+        /** Cadence de lecture : celle de la source, au plus 60, divisée par deux tant que [PIXEL_BUDGET] est dépassé. */
+        fun playbackFps(source: Double, size: DecodeSize): Double {
+            var fps = source.takeIf { it.isFinite() && it > 0 }?.coerceAtMost(MAX_FPS) ?: DEFAULT_FPS
+            while (fps > MIN_FPS && size.width.toDouble() * size.height * fps > PIXEL_BUDGET) fps /= 2
+            return fps
+        }
         private const val QUEUE = 3
 
         /** 20 ms de son par écriture. */

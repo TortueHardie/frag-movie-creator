@@ -52,8 +52,9 @@ class JavaSoundSink private constructor(private val line: SourceDataLine) : Audi
         var offset = 0
         while (offset < length && line.isOpen) {
             val written = line.write(bytes, offset, length - offset)
-            if (written <= 0) return
-            offset += written
+            // Ligne arrêtée (pause) : DirectSound rend 0 au lieu de bloquer. Attendre la reprise, sans quoi tout le son
+            // de la pause était jeté (vu : 47 s de PCM avalées en 1,3 s, la reprise repartait muette).
+            if (written <= 0) Thread.sleep(PAUSED_WAIT_MS) else offset += written
         }
     }
 
@@ -75,6 +76,7 @@ class JavaSoundSink private constructor(private val line: SourceDataLine) : Audi
 
     companion object {
         private const val BUFFER_SECONDS = 0.2
+        private const val PAUSED_WAIT_MS = 10L
 
         /** Null s'il n'y a pas de sortie son (machine sans carte son, sortie prise) : la vidéo se lit alors muette. */
         fun create(): AudioSink? = try {

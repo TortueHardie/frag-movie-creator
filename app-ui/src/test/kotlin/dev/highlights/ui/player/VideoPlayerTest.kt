@@ -80,6 +80,14 @@ class VideoPlayerTest : FunSpec({
         DecodeSize.fit(640, 360, 1280, 720) shouldBe DecodeSize(640, 360)
     }
 
+    test("cadence : 60 img/s pour un montage 9:16, 30 pour une capture 21:9 réduite (budget de pixels)") {
+        VideoPlayer.playbackFps(60.0, DecodeSize(404, 720)) shouldBe 60.0
+        VideoPlayer.playbackFps(60.0, DecodeSize(1280, 534)) shouldBe 30.0
+        VideoPlayer.playbackFps(30.0, DecodeSize(640, 360)) shouldBe 30.0
+        VideoPlayer.playbackFps(0.0, DecodeSize(640, 360)) shouldBe VideoPlayer.DEFAULT_FPS
+        VideoPlayer.playbackFps(240.0, DecodeSize(404, 720)) shouldBe 60.0
+    }
+
     test("commande vidéo : recherche avant l'entrée, cadence fixe puis réduction, image seule sur demande") {
         val args = VideoPlayer.videoCommand(Path.of("a.mp4"), 12.5.seconds, DecodeSize(404, 720), 60.0, "auto", single = true).args
         args.shouldContainInOrder("-hwaccel", "auto", "-ss", "12.500", "-i", "a.mp4", "-vf", "fps=60.000,scale=404:720:flags=bilinear", "-frames:v", "1", "-pix_fmt", "rgba")
