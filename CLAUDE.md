@@ -462,6 +462,17 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `MontagePlanEntry` (une ligne dans `MontageDialog`), `MontagePlanWindow` (fenêtre à part, ouverte depuis App.kt quand `montage.plan` != null), `MontagePlanContent`) ;
   `MontageUiState.constraints/plan` ; actions `openMontagePlan/closeMontagePlan/replanMontage/editMontageKill(kills, KillEdit)/pinMontageKill(kills, musicSeconds)` (épingle + replanifie ; glisser sur un temps, ou le pont)`/resetMontagePlan`
   (`AppController.montageOptions` : mêmes options pour la frise et le rendu) ; test `MontageTimelineTest` (captures `build/ui-snapshots/montage_plan*.png`, `montage_plan_pin_{avant,glisser,apres}` ; `MontagePlanContent(previewDrag)` fige un glisser).
+- Calage d'un kill à l'image (branche `kill-calage-image`) : `MontageConstraints.anchors` (instant choisi dans la capture) / `beatShifts` (kill ± son temps,
+  `MontageEdits.MAX_ANCHOR` 1 s, `MAX_BEAT_SHIFT` 250 ms) → `MontageEdits.apply` (`anchored` : kill remplacé, `KillGroup.retimed` garde l'instant détecté = désignation,
+  `detectedOf`), `KillGroup.beatShift` → `MontagePlanner.clipFor` (`anchorTime` = temps + décalage, coupes sur les temps ; `MontageClip.beatShift`, `anchorOutput`),
+  `check` (`error.montage.edit.beatShiftMissed`). `KillTraits.source` (détecteur + recalage, posé par `groups`, hors clé d'`InspectionCache`).
+  Apprentissage `montage/KillTiming.kt` : `TimingHistory` (`<sortie>/sessions/kill-timing.json`, une correction par kill), `KillTimingLearner` (`sourceOf`, `learn` :
+  source par profil `MIN_SOURCE` 5 / `MAX_SOURCE_SPREAD` 40 ms / ±`MAX_SOURCE_OFFSET` 200 ms, morceau `MIN_SONG` 2 / 30 ms / ±120 ms, `MIN_OFFSET` 10 ms ;
+  `applyTo` jamais sur un kill calé à la main ; `record`) → `LearnedTiming` ; `MusicAnalysis.killShift` (posé par `planMontage`). `KillFrames.around` (images JPEG
+  ±0,5 s, instants `-copyts`+`showinfo`, cache `<workDir>/cache/kill-frames`) ← `HighlightPipeline.killFrames`. Pipeline : `timingHistory`, `recordTaste` enregistre les calages,
+  `TasteState.timing`. CLI `--anchor`, `--beat-shift`, `gouts --reset-timing`. UI `KillTimingView.kt` (`KillTimingUi` dans `MontagePlanState.timing`, `KillTimingController`,
+  `KillTimingPanel` : focus clavier sur le panneau, `TimingTasteCard` dans `TasteView`) ; clic sur un trait de kill = calage (`PlanKill.source/retimed/byHand`, `PlanClip.beatShift`) ;
+  actions `openKillTiming/stepKillFrame/pickKillFrame/shiftKillBeat/applyKillTiming/clearKillTiming/excludeTimedKill/closeKillTiming/resetTiming`. Tests `KillTimingTest`, capture `montage_kill_timing`.
 - Montage des soirées : `WatchPrefs.evenings: EveningAuto(enabled=false, delay 60 min, minKills 5, arrived)` ; `WatchState.evenings/eveningDelayText/montaging/montageFraction/lastEvening/eveningProblem` ;
   `AppController.checkEvenings` (appelé par la boucle du dossier surveillé, relit la bibliothèque seulement à `eveningCheckAt`) → `montageEvening` (musique = `MusicPrefs.library`,
   formats/plateforme des réglages) → `Platform.notify` (DesktopPlatform : `TrayIcon.displayMessage`, clic = ouvre la vidéo) ; `EveningView.kt` (`EveningAutoSection`, une ligne dans `WatchCard`) ;

@@ -23,8 +23,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
@@ -274,18 +272,6 @@ fun MontagePlanWindow(montage: MontageUiState, plan: MontagePlanState, actions: 
         onCloseRequest = actions::closeMontagePlan,
         state = rememberDialogState(size = DpSize(1320.dp, 900.dp)),
         title = tr("ui.montagePlan.title"),
-        // Calage ouvert : ← → avancent d'une image, Entrée applique, Échap ferme le panneau.
-        onKeyEvent = { e ->
-            val timing = plan.timing
-            if (timing == null || e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@DialogWindow false
-            when (e.key) {
-                androidx.compose.ui.input.key.Key.DirectionLeft -> { actions.stepKillFrame(-1); true }
-                androidx.compose.ui.input.key.Key.DirectionRight -> { actions.stepKillFrame(1); true }
-                androidx.compose.ui.input.key.Key.Enter -> { actions.applyKillTiming(); true }
-                androidx.compose.ui.input.key.Key.Escape -> { actions.closeKillTiming(); true }
-                else -> false
-            }
-        },
     ) {
         HighlightsTheme {
             MontagePlanContent(montage.constraints, plan, actions, Modifier.fillMaxSize())

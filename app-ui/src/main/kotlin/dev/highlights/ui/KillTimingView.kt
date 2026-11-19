@@ -28,6 +28,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -205,7 +214,21 @@ internal class KillTimingController(
  */
 @Composable
 fun KillTimingPanel(t: KillTimingUi, actions: UiActions, modifier: Modifier = Modifier) {
-    Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), color = Palette.surface, border = BorderStroke(1.dp, Palette.accent)) {
+    // Le clavier va au panneau, qui prend le focus à l'ouverture : sans élément focalisé, la fenêtre ne voyait pas les
+    // flèches (vérifié en pilotant l'application). ← → : une image ; Entrée : appliquer ; Échap : fermer le panneau.
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(t.ref) { runCatching { focus.requestFocus() } }
+    val keys = Modifier.focusRequester(focus).focusable().onPreviewKeyEvent { e ->
+        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        when (e.key) {
+            Key.DirectionLeft -> { actions.stepKillFrame(-1); true }
+            Key.DirectionRight -> { actions.stepKillFrame(1); true }
+            Key.Enter -> { actions.applyKillTiming(); true }
+            Key.Escape -> { actions.closeKillTiming(); true }
+            else -> false
+        }
+    }
+    Surface(modifier.fillMaxWidth().then(keys), shape = RoundedCornerShape(10.dp), color = Palette.surface, border = BorderStroke(1.dp, Palette.accent)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Column(Modifier.weight(1f)) {
