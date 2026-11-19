@@ -242,8 +242,9 @@ Pistes, de la plus simple à la plus lourde :
     font des plans (`montage.anchorEvents: [knock]`).
 - [x] Assistant « nouveau jeu » : marquer un kill dans une vidéo → modèle du HUD découpé, profil proposé et testé
   (`app nouveau-jeu`, bouton « Nouveau jeu… » de l'application ; module `assistant`). Mesuré : CS2 refait aussi bien
-  que le profil fait main (32/33), Fortnite non (23/31 contre 31/31 : le compteur est comparé, pas lu).
-  - [ ] Compteur : apprendre les chiffres (modèles `hud-counter`) au lieu de comparer des images.
+  que le profil fait main (32/33) ; Fortnite aussi depuis que l'assistant apprend les chiffres (31/31).
+  - [x] Compteur : apprendre les chiffres (modèles `hud-counter`) au lieu de comparer des images (`DigitLearner`) :
+    Fortnite refait depuis 3 kills = 31/31, 0 faux, comme le profil fait main.
   - [ ] Assistances CS2 : les distinguer des kills.
 - [ ] Aperçus quasi instantanés : copies basse définition des parties, faites une fois.
 - [x] Ressenti par musique : 👍/👎 sur le rythme rapide après chaque montage, mémorisé, puis mesure apprise.

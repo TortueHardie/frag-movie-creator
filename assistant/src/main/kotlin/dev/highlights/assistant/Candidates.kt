@@ -19,7 +19,7 @@ enum class CueMethod(val type: String) {
     /** Ligne du killfeed encadrée ou remplie de la couleur du joueur (CS2) : `killfeed` en mode `outline`. */
     COLOR_LINE("killfeed"),
 
-    /** Compteur du HUD dont chaque nouvelle valeur est un kill : `hud-change`. */
+    /** Compteur du HUD : `hud-counter` avec les chiffres appris sur la vidéo ([DigitLearner]), sinon `hud-change`. */
     COUNTER("hud-change"),
 
     /** Texte du repère lu par l'OCR de Windows (« ELIMINATED ») : `ocr-log`. */
@@ -39,7 +39,10 @@ data class Candidate(
     val minScore: Double? = null,
     /** Ce que la méthode a trouvé sur les kills marqués (couleur, mot lu…), pour le rapport. */
     val detail: String = "",
-)
+) {
+    /** Type du détecteur écrit dans [yaml] : le compteur est `hud-counter` quand ses chiffres ont été appris, sinon `hud-change`. */
+    val detectorType: String get() = Regex("""type: (\S+)""").find(yaml)?.groupValues?.get(1) ?: method.type
+}
 
 internal fun Double.f(digits: Int = 6): String = String.format(Locale.ROOT, "%.${digits}f", this).trimEnd('0').trimEnd('.').ifEmpty { "0" }
 

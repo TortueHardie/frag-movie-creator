@@ -90,4 +90,18 @@ class HudCounterTest : FunSpec({
             }
         }
     }
+
+    test("lecture : un chiffre absent du dossier (jamais vu par l'assistant) est illisible, les autres se lisent") {
+        val src = Path.of("../config/templates/fortnite")
+        if (src.exists()) {
+            val dir = java.nio.file.Files.createTempDirectory("chiffres")
+            (0..9).filter { it != 6 }.forEach { java.nio.file.Files.copy(src.resolve("digit_$it.png"), dir.resolve("digit_$it.png")) }
+            val reader = CounterReader.load(dir, 0.75, 4)
+            val g = GrayImage.load(src.resolve("digit_3.png"))
+            val px = ByteArray(19 * 11) { g[0, 0].toByte() }
+            val x0 = 19 - 1 - g.width
+            for (y in 0 until g.height) for (x in 0 until g.width) px[(y + 1) * 19 + x0 + x] = g.pixels[y * g.width + x]
+            reader.read(GrayImage(19, 11, px))?.value shouldBe 3
+        }
+    }
 })

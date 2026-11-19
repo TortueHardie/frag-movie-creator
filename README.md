@@ -808,8 +808,11 @@ marqués. Dans l'application : « Nouveau jeu… » dans la liste des analyses. 
      d'après les scores des kills marqués ;
    - **ligne de couleur** (`killfeed`, mode `outline`) : la teinte qui apparaît dans le cadre au kill et la hauteur de
      la ligne, mesurée sur ses traits, fixent couleur et tailles ;
-   - **compteur** (`hud-change`, nouveau) : chaque nouvelle valeur stable du compteur est un kill, sans lire les chiffres
-     (seule la colonne des unités est comparée, le fond d'un HUD transparent change sans cesse) ;
+   - **compteur** (`hud-counter`) : les chiffres du compteur sont **appris sur la vidéo**, sans OCR. Les formes exactes
+     du chiffre des unités, regroupées (deux formes d'un même chiffre alternent dans une même valeur), sont nommées par
+     l'ordre du compteur (il monte de 1, revient à 0 à chaque partie, « 10 » a un 1 devant) ancré par leur ressemblance
+     à des chiffres de polices grasses, puis redécoupées sur les images où la valeur est sûre. Si rien n'est appris (pas
+     de compteur dans le cadre), chaque nouvelle valeur stable de la zone est un kill (`hud-change`, sans lire) ;
    - **texte** (`ocr-log`) : le mot lu par l'OCR de Windows sur les kills marqués et jamais ailleurs.
 3. Une planche par méthode (12 détections) : on décoche celles qui ne sont pas des kills. La méthode retenue garde le
    plus de vrais kills moins de faux, et doit retrouver au moins un kill marqué. Le profil est écrit (son, le
@@ -820,11 +823,11 @@ Mesuré (18-19/11, `app verite`, CS2 et Fortnite refaits depuis 3 kills chacun) 
 | Jeu | Méthode retenue | Profil de l'assistant | Profil fait main |
 |---|---|---|---|
 | CS2 (33 kills, 14 morts) | ligne de couleur | 32 kills (8 faux), 14 morts (1 fausse) | 32 kills (10 faux), 13 morts |
-| Fortnite (31 kills) | compteur | 23 kills (19 faux) | 31 kills (0 faux) |
+| Fortnite (31 kills) | compteur, chiffres appris | 31 kills (0 faux) ; 23 kills (19 faux) avant l'apprentissage | 31 kills (0 faux) |
 
-Fortnite échoue face au profil fait main : celui-ci lit les chiffres (modèles découpés à la main, décodage d'une suite
-qui ne fait que monter) ; l'assistant ne fait que comparer des images de 6x6 px sur un fond qui bouge, et une équipe
-entière éliminée d'un coup (0 → 4) ne compte qu'un kill. Apprendre les chiffres reste à faire (TODO).
+Fortnite : l'assistant apprend maintenant les 10 chiffres du compteur tout seul (3 kills marqués, environ 1 s de
+calcul après la lecture de la zone) et fait aussi bien que les modèles découpés à la main (31/31, 0 faux,
+`output/revue/assistant-chiffres/`). Avant, il comparait des images de 6x6 px sur un fond qui bouge (23 kills, 19 faux).
 
 ## Killfeed (sans Outplayed)
 
