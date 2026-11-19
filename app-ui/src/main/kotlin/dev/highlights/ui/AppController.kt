@@ -59,7 +59,8 @@ import kotlin.time.Duration.Companion.seconds
 private val log = KotlinLogging.logger {}
 
 /** Pipeline prêt à l'emploi et fichier de config dont il provient. */
-class Backend(val pipeline: HighlightPipeline, val configFile: Path)
+/** [ffmpeg] : celui du pipeline, pour le lecteur intégré ; null dans les tests sans FFmpeg (lecteur du système). */
+class Backend(val pipeline: HighlightPipeline, val configFile: Path, val ffmpeg: dev.highlights.core.ffmpeg.FfmpegService? = null)
 
 interface UiActions {
     fun chooseSource()
@@ -244,6 +245,19 @@ interface UiActions {
     fun retryMemoryCheck()
     fun startDespiteMemory()
     fun dismissMemoryWarning()
+
+    // Lecteur intégré (dev.highlights.ui.player) : lit une vidéo dans l'application ; sans FFmpeg, le lecteur du système.
+    /** Moteur du lecteur, dont la fenêtre lit les images ; null tant qu'aucune vidéo n'a été ouverte. */
+    val videoPlayer: dev.highlights.ui.player.VideoPlayer? get() = null
+    fun playVideo(path: Path) {}
+    /** Glissement sur la frise de la capture [entry] : son image à [at], lecteur en pause. */
+    fun scrubSource(entry: Int, at: Duration) {}
+    fun scrubSourceEnd() {}
+    fun playerToggle() {}
+    fun playerSeek(at: Duration) {}
+    fun playerScrub(at: Duration) {}
+    fun playerScrubEnd() {}
+    fun closePlayer() {}
 }
 
 /**
@@ -308,11 +322,13 @@ class AppController(
     private val backendFactory: () -> Backend = {
         val file = ConfigLocator.locate()
         val config = ConfigYaml.load(file)
-        Backend(Pipelines.create(config), config.source ?: file)
+        val ffmpeg = Pipelines.ffmpeg(config)
+        Backend(Pipelines.create(config, ffmpeg), config.source ?: file, ffmpeg)
     },
 ) : UiActions {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+    private val player = dev.highlights.ui.player.PlayerController(scope, _state, { platform.open(it) })
 
     @Volatile
     private var backend: Backend? = null
@@ -711,6 +727,7 @@ class AppController(
 
     /** Annule les traitements en cours avant de quitter (tue les process FFmpeg). */
     fun shutdown() {
+        player.dispose()
         queue.cancelAll()
         val jobs = listOfNotNull(mainJob, thumbnailJob, saveJob, watchJob)
         jobs.forEach { it.cancel() }
@@ -808,7 +825,7 @@ class AppController(
         scope.launch {
             try {
                 val clip = withContext(Dispatchers.IO) { p.clipPreview(current.entries[segment.entry].session, segment.highlight) }
-                platform.open(clip)
+                playVideo(clip)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1767,6 +1784,38 @@ class AppController(
     }
 
     override fun open(path: Path) = platform.open(path)
+
+    // ---------------------------------------------------------------- lecteur intégré
+
+    override val videoPlayer get() = player.current
+    override fun playVideo(path: Path) = player.open(backend?.ffmpeg, path)
+
+    override fun scrubSource(entry: Int, at: Duration) {
+        val file = state.value.session?.entries?.getOrNull(entry)?.session?.media?.path ?: return
+        player.scrub(backend?.ffmpeg, file, entry, at)
+    }
+
+    override fun scrubSourceEnd() {
+        player.endScrub()
+    }
+
+    override fun playerToggle() {
+        player.toggle()
+    }
+
+    override fun playerSeek(at: Duration) {
+        player.seek(at)
+    }
+
+    override fun playerScrub(at: Duration) {
+        player.scrub(at)
+    }
+
+    override fun playerScrubEnd() {
+        player.endScrub()
+    }
+
+    override fun closePlayer() = player.close()
     override fun reveal(path: Path) = platform.reveal(path)
     override fun dismissError() = _state.update { it.copy(error = null) }
     override fun dismissImagePreview() = _state.update { it.copy(imagePreview = null) }

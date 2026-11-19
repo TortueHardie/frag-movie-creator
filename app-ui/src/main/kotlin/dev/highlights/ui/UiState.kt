@@ -86,6 +86,8 @@ data class UiState(
     val memoryWarning: MemoryWarning? = null,
     /** Aperçus des variantes du montage kills, à regarder avant d'en rendre une (null = fermé). */
     val variants: VariantsUiState? = null,
+    /** Lecteur intégré ouvert (null = fermé). */
+    val player: dev.highlights.ui.player.PlayerUiState? = null,
 ) {
     /** Première capture : celle qui décide du profil détecté et du ratio d'origine. */
     val source: SourceInfo? get() = sources.firstOrNull()
