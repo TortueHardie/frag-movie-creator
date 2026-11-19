@@ -7,7 +7,6 @@ import dev.highlights.core.analysis.SignalDetector
 import dev.highlights.core.analysis.SignalDetectorFactory
 import dev.highlights.core.analysis.SignalEvent
 import dev.highlights.core.analysis.SignalTrack
-import dev.highlights.core.ffmpeg.Hwaccel
 import dev.highlights.core.i18n.Message
 import dev.highlights.core.model.CropRegion
 import dev.highlights.core.model.RegionAnchor
@@ -41,12 +40,14 @@ data class KillfeedTeamsParams(
     val referenceHeight: Int = 1440,
     val referenceWidth: Int? = null,
     val anchor: RegionAnchor = RegionAnchor.RIGHT,
-    /**
-     * Images lues par seconde. 5 comme le détecteur `killfeed` : en basse définition, qui le lit en entier à cette
-     * cadence, les deux lectures partagent la même passe de décodage. Une ligne reste 5 s : vue 25 fois.
-     */
+    /** Images lues par seconde : une ligne reste 5 s, vue 25 fois. */
     val fps: Double = 5.0,
-    val hwaccel: String? = Hwaccel.AUTO,
+    /**
+     * Décodage logiciel par défaut : le décodage matériel (d3d11va) rend les arcs du cercle de Phoenix (1 px en 480p)
+     * plus ternes, et 2 de ses 4 morts n'étaient plus reconnues. Coût : une passe à part, 480p décodé en 1 min 30 pour
+     * 30 min de partie. « auto » pour le matériel.
+     */
+    val hwaccel: String? = null,
     /** Pixels lus par pixel de référence, sans jamais agrandir (480p : lue telle quelle). */
     val scale: Double = 0.5,
     /**
@@ -99,14 +100,22 @@ data class KillfeedTeamsParams(
     /**
      * Le cercle déborde de la ligne en haut et en bas (2 px en 480p, rien d'autre ne dépasse) : arcs blancs cherchés
      * dans cette hauteur au-dessus et au-dessous, en pixels de référence. Vu sur au moins [ringShare] des images d'une
-     * ligne et pendant [ringSeen] : 21 à 60 % pour les 4 morts de Phoenix, 4 à 17 % au plus pour les autres (icône de
-     * tir à la tête, plus petite, et décor clair qui passe).
+     * ligne et pendant [ringSeen] : 6 à 9 images (12 à 37 %) pour les 4 morts de Phoenix, 4 au plus pour les autres
+     * lignes du joueur et des alliés (2 sur 47 : 4 %) (icône de tir à la tête, plus petite, et décor clair qui passe). Le décodage matériel en perdait la
+     * moitié : voir [hwaccel].
      */
     val ringMargin: Int = 6,
-    val ringShare: Double = 0.2,
-    val ringSeen: SerialDuration = 800.milliseconds,
+    val ringShare: Double = 0.12,
+    val ringSeen: SerialDuration = 1.seconds,
     /** Décalage ajouté à l'instant d'apparition, le même que celui du détecteur `killfeed` (kills et morts du joueur). */
     val offset: SerialDuration = (-150).milliseconds,
+    /**
+     * Barres de vie des alliés, en haut de l'écran (sous leurs portraits, à gauche du score), mesurées en 854x480 : à
+     * chaque début de round, les cinq reviennent pleines. C'est ce qui sépare les rounds quand un silence ne suffit pas :
+     * dans une vidéo montée (phases d'achat coupées), le round suivant commence 10 s après le précédent. Mesuré sur
+     * deux parties : 22 débuts trouvés pour 23 rounds au score (13-10), 23 pour 25 (12-13). null : pas de lecture.
+     */
+    val roundBar: RoundBarParams? = RoundBarParams(),
 ) {
     init {
         require(fps > 0 && scale > 0 && scale <= 1) { "fps > 0 et scale dans ]0, 1]" }
@@ -133,6 +142,55 @@ data class KillfeedTeamsParams(
         /** Un octet par pixel : 255 allié, 191 adversaire, 127 blanc, 63 clair, 0 sinon (voir [PixelClass]). */
         fun classes(ally: String, enemy: String) = "if($ally,255,if($enemy,191,if($WHITE,127,if($LIGHT,63,0))))"
     }
+}
+
+/** Lecture des barres de vie alliées pour dater les débuts de round ([KillfeedTeamsParams.roundBar]). */
+@Serializable
+data class RoundBarParams(
+    val region: CropRegion = CropRegion(0.2108, 0.0688, 0.1932, 0.0083),
+    val referenceWidth: Int = 854,
+    val referenceHeight: Int = 480,
+    val anchor: RegionAnchor = RegionAnchor.CENTER,
+    /** Pixel de barre de vie : les trois composantes au-dessus de ce niveau (blanc). */
+    val white: Int = 170,
+    /** Barres pleines : part des colonnes de la zone où passe une barre (cinq barres : 90 colonnes sur 165 mesurées). */
+    val fullShare: Double = 0.48,
+    /** Pleines aussi longtemps, après au moins [before] sans l'être : un nouveau round. */
+    val held: SerialDuration = 3.seconds,
+    val before: SerialDuration = 10.seconds,
+    val kind: String = "round-start",
+) {
+    init {
+        require(white in 1..255 && fullShare in 0.0..1.0) { "roundBar : white entre 1 et 255, fullShare entre 0 et 1" }
+    }
+}
+
+/**
+ * Débuts de round d'après les barres de vie alliées : pleines pendant [held] après au moins [before] sans l'être. Le
+ * début est daté de leur retour.
+ */
+internal fun roundStarts(times: List<Duration>, full: List<Boolean>, held: Duration, before: Duration): List<Duration> {
+    val out = mutableListOf<Duration>()
+    var since: Duration? = null
+    var lastEmpty: Duration? = null
+    var emptyFrom: Duration? = times.firstOrNull()
+    for (i in times.indices) {
+        val t = times[i]
+        if (full[i]) {
+            if (since == null) since = t
+            val from = emptyFrom
+            val last = lastEmpty
+            if (t - since >= held && from != null && last != null && last - from >= before) {
+                out += since
+                emptyFrom = null
+            }
+        } else {
+            since = null
+            if (emptyFrom == null) emptyFrom = t
+            lastEmpty = t
+        }
+    }
+    return out
 }
 
 /** Équipe de la victime d'une ligne du killfeed. */
@@ -244,7 +302,7 @@ internal class TeamRowReader(
 
     /**
      * Cercle de Phoenix sur la ligne [a, b[ : un arc blanc dépasse au-dessus et au-dessous d'elle, sur les mêmes
-     * colonnes (au moins 0,3 hauteur de ligne). Un décor clair derrière l'écart entre deux lignes (ciel) en allume bien
+     * colonnes (au moins un quart de hauteur de ligne). Un décor clair derrière l'écart entre deux lignes (ciel) en allume bien
      * plus : au-delà de 2,5 hauteurs de ligne de colonnes blanches, ce n'en est pas un.
      */
     private fun ring(cls: Array<Array<PixelClass>>, a: Int, b: Int, x0: Int): Boolean {
@@ -260,7 +318,7 @@ internal class TeamRowReader(
             if (down) bottom++
             if (up && down) both++
         }
-        return top + bottom <= 2.5 * height && both >= 0.3 * height
+        return top + bottom <= 2.5 * height && both >= 0.25 * height
     }
 }
 
@@ -279,7 +337,7 @@ internal class TeamTracker(
     private val minSightings: Int = 3,
     /** Images où le cercle de Phoenix doit être vu, et leur part parmi celles de la ligne. */
     private val ringSightings: Int = 4,
-    private val ringShare: Double = 0.2,
+    private val ringShare: Double = 0.12,
 ) {
     private class Track(val team: FeedTeam, var center: Double, val first: Duration, var last: Duration, var sightings: Int, var rings: Int)
 
@@ -311,6 +369,9 @@ internal class TeamTracker(
     fun deaths(): List<TeamDeath> = tracks.filter { it.confirmed() }.sortedBy { it.first }.map {
         TeamDeath(it.team, it.first, it.rings >= ringSightings && it.rings >= ringShare * it.sightings)
     }
+
+    /** Lignes où le cercle de Phoenix a été vu au moins une fois : (instant, images avec cercle, images), pour le journal. */
+    fun rings(): List<Triple<Duration, Int, Int>> = tracks.filter { it.confirmed() && it.rings > 0 }.sortedBy { it.first }.map { Triple(it.first, it.rings, it.sightings) }
 }
 
 /**
@@ -320,7 +381,13 @@ internal class TeamTracker(
  * du détecteur `killfeed` (ou d'Outplayed).
  */
 class KillfeedTeamsDetector(override val id: String, private val params: KillfeedTeamsParams) : SignalDetector {
-    private class Prepared(val subscription: FrameSampler.Subscription, val rows: MutableList<List<TeamRow>>, val tolerance: Int)
+    private class Prepared(
+        val subscription: FrameSampler.Subscription,
+        val rows: MutableList<List<TeamRow>>,
+        val tolerance: Int,
+        /** Par image lue : barres de vie alliées pleines (début de round), si elles sont lues. */
+        val bars: MutableMap<Int, Boolean>,
+    )
 
     private fun kindOf(death: TeamDeath): String {
         val revived = if (death.team == FeedTeam.ALLY) params.allyRevivedKind else params.enemyRevivedKind
@@ -355,16 +422,34 @@ class KillfeedTeamsDetector(override val id: String, private val params: Killfee
             params.minKillerShare, px(params.ringMargin),
         )
         val rows = mutableListOf<List<TeamRow>>()
+        val bar = params.roundBar
+        val barZone = bar?.let { b ->
+            val r = ScreenGeometry.rescale(b.region, b.referenceWidth.toDouble() / b.referenceHeight, video.width.toDouble() / video.height, b.anchor)
+            val bx = (r.x * video.width).roundToInt().coerceIn(0, video.width - 1)
+            val by = (r.y * video.height).roundToInt().coerceIn(0, video.height - 1)
+            val bw = (r.width * video.width).roundToInt().coerceIn(1, video.width - bx)
+            val bh = (r.height * video.height).roundToInt().coerceIn(1, video.height - by)
+            // Lue à la définition de référence (480p) : une barre y fait 2 px de haut.
+            val shrink = (b.referenceHeight.toDouble() / video.height).coerceAtMost(1.0)
+            FrameZone(bx, by, bw, bh, (bw * shrink).roundToInt().coerceAtLeast(1), (bh * shrink).roundToInt().coerceAtLeast(1), "gt(min(min(r(X,Y),g(X,Y)),b(X,Y)),${b.white})*255")
+        }
+        val bars = java.util.concurrent.ConcurrentHashMap<Int, Boolean>()
         log.info { "$id : équipes du killfeed ${cw}x$ch à ($cx, $cy), lu en ${zone.width}x${zone.height}, ${params.fps} img/s" }
         val subscription = ctx.frames.subscribe(
             spec = FrameSpec.fps(params.fps, params.hwaccel),
-            zones = listOf(zone),
+            zones = listOfNotNull(zone, barZone),
             label = id,
             progress = ctx.progress,
-            onReset = { rows.clear() },
-            onFrame = { _, frames -> rows += reader.rows(frames[0]) },
+            onReset = {
+                rows.clear()
+                bars.clear()
+            },
+            onFrame = { index, frames ->
+                rows += reader.rows(frames[0])
+                if (bar != null && frames.size > 1) bars[index] = fullBar(frames[1], bar.fullShare)
+            },
         )
-        prepared = Prepared(subscription, rows, px(params.matchTolerance))
+        prepared = Prepared(subscription, rows, px(params.matchTolerance), bars)
     }
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
@@ -380,10 +465,25 @@ class KillfeedTeamsDetector(override val id: String, private val params: Killfee
         )
         for (i in 0 until count) tracker.add(times[i], state.rows[i])
         val end = ctx.media.duration
-        val events = tracker.deaths().map { SignalEvent((it.at + params.offset).coerceIn(Duration.ZERO, end), kindOf(it), 1.0) }
+        log.info { "$id : cercle de Phoenix (images avec / vues) : " + tracker.rings().joinToString { (at, r, n) -> "${Durations.format(at)} $r/$n" } }
+        val deaths = tracker.deaths().map { SignalEvent((it.at + params.offset).coerceIn(Duration.ZERO, end), kindOf(it), 1.0) }
+        val bar = params.roundBar
+        val starts = if (bar == null || state.bars.isEmpty()) emptyList() else {
+            roundStarts(times.take(count), (0 until count).map { state.bars[it] ?: false }, bar.held, bar.before).map { SignalEvent(it, bar.kind, 1.0) }
+        }
+        val events = (deaths + starts).sortedBy { it.at }
         log.info { "$id : ${events.groupingBy { it.kind }.eachCount()} : " + events.joinToString { "${it.kind} ${Durations.format(it.at)}" } }
         return SignalTrack(id, DoubleArray(ctx.grid.count) { Double.NaN }, events)
     }
+}
+
+/** Barres de vie alliées pleines : assez de colonnes de la zone où passe une barre (pixel allumé). */
+internal fun fullBar(frame: ZoneFrame, share: Double): Boolean {
+    var columns = 0
+    for (x in 0 until frame.width) {
+        if ((0 until frame.height).any { y -> (frame.pixels[y * frame.width + x].toInt() and 0xFF) >= 128 }) columns++
+    }
+    return columns >= share * frame.width
 }
 
 class KillfeedTeamsDetectorFactory : SignalDetectorFactory {

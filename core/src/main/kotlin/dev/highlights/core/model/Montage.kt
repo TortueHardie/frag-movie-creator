@@ -630,6 +630,11 @@ data class KillStyle(
      * (rounds, clutchs, morts aussitôt payées, montage des morts, statistiques). Vide : gardée.
      */
     val revivedEvent: String = "ally-run-it-back",
+    /**
+     * Début de round lu à l'image (VALORANT : barres de vie des alliés revenues pleines, détecteur `killfeed-teams`).
+     * Sépare les rounds du clutch réel même sans silence entre eux (vidéo montée, phases d'achat coupées).
+     */
+    val roundStartEvent: String = "round-start",
 ) {
     init {
         require(flickTo > flickFrom) { "montage.killStyle.flickTo doit dépasser flickFrom" }

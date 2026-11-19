@@ -62,15 +62,16 @@ object TeamRounds {
         val allies = events.filter { it.kind == style.allyDeathEvent }.map { it.at + offset }
         if (allies.isEmpty()) return null
         val enemies = if (style.enemyDeathEvent.isEmpty()) emptyList() else events.filter { it.kind == style.enemyDeathEvent }.map { it.at + offset }
-        return clutches(allies, enemies, playerDeaths, style.roundGap, style.teamSize, style.clutchMinEnemies).map { it.won + AFTER_LAST }
+        val starts = if (style.roundStartEvent.isEmpty()) emptyList() else events.filter { it.kind == style.roundStartEvent }.map { it.at + offset }
+        return clutches(allies, enemies, playerDeaths, style.roundGap, style.teamSize, style.clutchMinEnemies, starts).map { it.won + AFTER_LAST }
     }
 
     private enum class Kind { ALLY, ENEMY, PLAYER }
 
     /**
-     * Rejoue les morts dans l'ordre, round par round. Un round finit quand une équipe est éliminée ([teamSize] morts), ou
-     * après un silence de plus de [gap] (phase d'achat : un round perdu ou gagné au spike n'élimine personne). Une mort
-     * alliée proche d'une mort du joueur ([SAME_DEATH]) est la sienne.
+     * Rejoue les morts dans l'ordre, round par round. Un round finit quand une équipe est éliminée ([teamSize] morts),
+     * après un silence de plus de [gap] (phase d'achat : un round perdu ou gagné au spike n'élimine personne), ou à un
+     * début de round lu à l'image ([roundStarts]). Une mort alliée proche d'une mort du joueur ([SAME_DEATH]) est la sienne.
      */
     fun clutches(
         allyDeaths: List<Duration>,
@@ -79,7 +80,9 @@ object TeamRounds {
         gap: Duration,
         teamSize: Int,
         minEnemies: Int,
+        roundStarts: List<Duration> = emptyList(),
     ): List<Clutch> {
+        val starts = roundStarts.sorted()
         val players = playerDeaths.sorted()
         val events = mutableListOf<Pair<Duration, Kind>>()
         val matched = HashSet<Int>()
@@ -107,7 +110,8 @@ object TeamRounds {
         for ((at, kind) in events) {
             val last = previous
             // Équipe éliminée au round précédent, ou silence de la phase d'achat : nouveau round.
-            if (last != null && (at - last > gap || foes >= teamSize || allies + (if (dead) 1 else 0) >= teamSize)) reset()
+            val started = last != null && starts.any { it > last && it <= at }
+            if (last != null && (started || at - last > gap || foes >= teamSize || allies + (if (dead) 1 else 0) >= teamSize)) reset()
             previous = at
             when (kind) {
                 Kind.ALLY -> allies++

@@ -52,6 +52,16 @@ class TeamRoundsTest : FunSpec({
         clutches(allies, enemies).shouldBeEmpty()
     }
 
+    test("un début de round lu à l'image sépare deux rounds sans silence (vidéo montée)") {
+        // Round 1 : deux adversaires puis deux alliés tombent, fini au spike ; la vidéo coupe la phase d'achat, le round 2
+        // commence 10 s après (115 s). Deux alliés y tombent, puis l'équipe adverse : le joueur n'a jamais été seul.
+        val allies = s(100, 105, 125, 128)
+        val enemies = s(90, 91, 130, 131, 132, 133, 134)
+        TeamRounds.clutches(allies, enemies, emptyList(), gap, 5, 1, roundStarts = s(115)).shouldBeEmpty()
+        // Sans le début de round, les quatre lignes alliées le faisaient croire seul : faux clutch.
+        TeamRounds.clutches(allies, enemies, emptyList(), gap, 5, 1).size shouldBe 1
+    }
+
     test("une mort pendant l'ultime de Phoenix n'en est pas une, partout") {
         val style = KillStyle()
         val events = listOf(

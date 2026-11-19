@@ -95,4 +95,17 @@ class KillfeedTeamsTest : FunSpec({
         for (i in 0 until 20) tracker.add((i * 200).milliseconds, listOf(TeamRow(FeedTeam.ALLY, 14.0, ring = i % 3 == 0 && i < 18), TeamRow(FeedTeam.ENEMY, 31.0, ring = i == 5)))
         tracker.deaths() shouldBe listOf(TeamDeath(FeedTeam.ALLY, 0.seconds, revived = true), TeamDeath(FeedTeam.ENEMY, 0.seconds))
     }
+
+    test("début de round : barres de vie alliées pleines 3 s après au moins 10 s sans l'être") {
+        val times = (0 until 200).map { (it * 500).milliseconds }
+        // Pleines au début (premier round, pas compté), vides de 5 à 40 s, pleines de 40 à 60 s, un éclair plein à 70 s.
+        val full = times.map { it < 5.seconds || it in 40.seconds..60.seconds || it in 70.seconds..71.seconds }
+        roundStarts(times, full, held = 3.seconds, before = 10.seconds) shouldBe listOf(40.seconds)
+    }
+
+    test("barres pleines : assez de colonnes allumées") {
+        val f = ZoneFrame(10, 2, ByteArray(20).also { for (x in 0 until 6) it[x] = 255.toByte() })
+        fullBar(f, 0.5) shouldBe true
+        fullBar(f, 0.7) shouldBe false
+    }
 })
