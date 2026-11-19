@@ -139,6 +139,7 @@ fun WebcamPreviewWindow(preview: WebcamPreviewState, busy: Boolean, actions: UiA
                 Text(
                     preview.file?.let { tr("ui.webcam.found", "file" to it.name) } ?: tr("ui.webcam.notFound"),
                     style = MaterialTheme.typography.titleSmall,
+                    color = if (preview.file != null) Palette.text else Palette.danger,
                 )
                 if (preview.file != null && preview.sync != null) {
                     Text(

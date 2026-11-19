@@ -116,9 +116,9 @@ class WebcamsTest : FunSpec({
         feed.sync shouldBe WebcamSync.AUDIO
         feed.offset.inWholeMilliseconds shouldBeInRange (-2340L..-2260L)
         setup.edit.webcam.enabled shouldBe true
-        // Décalage réglé à la main : ajouté avant le calage au son, qui le corrige (il reste dans la fenêtre cherchée).
+        // Décalage réglé à la main : ajouté au calage au son (le son ne l'efface pas).
         val manual = Webcams(ffmpeg).find(media, WebcamChoice.File(cam), WebcamSettings(offset = 1.seconds))!!
-        manual.offset.inWholeMilliseconds shouldBeInRange (-2340L..-2260L)
+        manual.offset.inWholeMilliseconds shouldBeInRange (-1340L..-1260L)
         // Sans calage au son : seulement le décalage réglé (pas d'heure fiable).
         Webcams(ffmpeg).find(media, WebcamChoice.File(cam), WebcamSettings(offset = 1.seconds, audioSync = false))!!.offset shouldBe 1.seconds
     }

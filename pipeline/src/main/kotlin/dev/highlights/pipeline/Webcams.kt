@@ -88,8 +88,10 @@ class Webcams(private val ffmpeg: FfmpegService) {
             is WebcamChoice.File -> fromFile(media, choice.path, settings)
             WebcamChoice.Auto -> secondStream(media, settings) ?: candidates(media).let { pick(media, it, settings) }
         } ?: return null
-        if (!settings.audioSync || feed.sync == WebcamSync.SAME_FILE) return feed
-        return refine(media, feed, layout)
+        if (feed.sync == WebcamSync.SAME_FILE) return feed
+        // Le décalage réglé à la main s'ajoute après le calage au son : sinon le son le corrigeait et il ne servait à rien.
+        val synced = if (settings.audioSync) refine(media, feed, layout) else feed
+        return synced.copy(offset = synced.offset + settings.offset)
     }
 
     /** Second flux vidéo de la capture (hors pochettes) : même horloge, seul le décalage réglé s'applique. */
@@ -105,7 +107,7 @@ class Webcams(private val ffmpeg: FfmpegService) {
         val cam = ffmpeg.probe(file)
         val video = cam.video ?: return null
         val (offset, sync) = timeOffset(media, cam)
-        return WebcamFeed(cam.path, 0, offset + settings.offset, cam.duration, video.width, video.height, sync)
+        return WebcamFeed(cam.path, 0, offset, cam.duration, video.width, video.height, sync)
     }
 
     /** Vidéos rangées avec la capture dont le nom parle de webcam, de la plus proche par le nom à la plus lointaine. */
@@ -135,7 +137,7 @@ class Webcams(private val ffmpeg: FfmpegService) {
             ?: return null
         val video = best.video ?: return null
         val (offset, sync) = timeOffset(media, best)
-        return WebcamFeed(best.path, 0, offset + settings.offset, best.duration, video.width, video.height, sync)
+        return WebcamFeed(best.path, 0, offset, best.duration, video.width, video.height, sync)
     }
 
     /** Recouvrement des deux enregistrements dans le temps (heures de début et durées). */

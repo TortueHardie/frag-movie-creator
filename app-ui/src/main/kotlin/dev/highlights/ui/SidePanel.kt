@@ -359,6 +359,8 @@ fun SettingsSection(state: UiState, actions: UiActions) {
             color = Palette.textMuted,
         )
 
+        WebcamSection(state, actions)
+
         // Sortie
         Spacer(Modifier.height(2.dp))
         Text(tr("ui.settings.outputDir"), style = MaterialTheme.typography.labelLarge)
