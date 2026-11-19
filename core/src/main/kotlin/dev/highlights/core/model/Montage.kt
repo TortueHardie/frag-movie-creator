@@ -93,6 +93,8 @@ data class MontageSettings(
     val oneTaps: OneTapMontage = OneTapMontage(),
     /** Réglages du montage des morts (« fails »), appliqués par [forFails] quand on le demande. */
     val fails: FailMontage = FailMontage(),
+    /** Réglages du montage des réactions au micro, appliqués par [forReactions] quand on le demande. */
+    val reactionMontage: ReactionMontage = ReactionMontage(),
     /** Choix automatique de la musique : préférence pour celles qui donnent des plans courts. null : aucune. */
     val musicPace: MusicPace? = null,
     /**

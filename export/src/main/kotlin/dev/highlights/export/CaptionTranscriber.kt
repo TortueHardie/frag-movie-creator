@@ -50,6 +50,27 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         layout: AudioLayout,
         workDir: Path,
         cacheDir: Path?,
+    ): List<Caption> = transcribe(
+        media, range,
+        timeline?.segments.orEmpty().filter { it.kind in voiceKinds }.map { it.range },
+        timeline?.segments.orEmpty().filter { it.kind == "shout" }.map { it.range },
+        settings, model, layout, workDir, cacheDir,
+    )
+
+    /**
+     * Même transcription, à partir des prises de parole ([voice]) et des cris ([shouts]) déjà connus : le montage des
+     * réactions y ajoute les éclats de voix trouvés sur le micro, que l'analyse ne connaît pas.
+     */
+    suspend fun transcribe(
+        media: MediaInfo,
+        range: TimeRange,
+        voice: List<TimeRange>,
+        shouts: List<TimeRange>,
+        settings: CaptionSettings,
+        model: Path,
+        layout: AudioLayout,
+        workDir: Path,
+        cacheDir: Path?,
     ): List<Caption> {
         val tracks = AudioTracks.of(media.audio, layout)
         // Pas de piste de la voix du joueur : le son complet mêle l'annonceur et les voix du jeu, que whisper transcrit
@@ -60,7 +81,7 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
             return emptyList()
         }
         val audio = own ?: tracks.indexOf(AudioRole.MIX) ?: tracks.mixIndices().firstOrNull() ?: return emptyList()
-        val segments = timeline?.segments.orEmpty().filter { it.kind in voiceKinds }.map { it.range }
+        val segments = voice
         // L'analyse a cherché la voix et n'en a pas trouvé ici : rien à transcrire (et rien à inventer pour whisper).
         if (segments.isNotEmpty() && segments.none { it.isWithin(range) }) return emptyList()
 
@@ -74,7 +95,6 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
             return emptyList()
         }
         // Une phrase criée (elle recouvre un cri détecté) s'affiche plus grosse, en couleur.
-        val shouts = timeline?.segments.orEmpty().filter { it.kind == "shout" }.map { it.range }
         return Captions.readable(Captions.clean(Captions.parse(raw, padded.start), segments)).map { c ->
             if (shouts.any { it.isWithin(c.range) }) c.copy(loud = true) else c
         }

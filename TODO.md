@@ -281,7 +281,8 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Morts pendant l'ultime de Phoenix (cercle de « Run it Back » dans le killfeed) : écartées partout (montage des
   morts, rounds, clutchs, statistiques ; `killfeed-teams` → `ally-run-it-back`, `TeamRounds.withoutRevived`). Décidé
   par l'utilisateur le 19/11. Sans Outplayed seulement (avec Outplayed : non vérifié, pas de capture).
-- [ ] Montage « réactions » : segments `laughter`/`shout` de YAMNet, micro en avant, sous-titres whisper.
+- [x] Montage « réactions » : éclats de voix du micro + rires et cris de YAMNet, micro en avant, sous-titres whisper
+  (`--reaction-montage`, case « Réactions »). À valider à l'oreille : seuil `rise`, gain du micro, longueur des plans.
 - [ ] Montage « onetaps » : que des kills en un seul tir à la tête, enchaînés très vite comme les edits TikTok. Toutes
   les armes comptent : un tir, un headshot, un kill.
   - Deux choses à savoir par kill : le headshot et le nombre de tirs. Aucune ne doit dépendre d'Outplayed seul, sinon

@@ -260,6 +260,7 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                         MontageToggle(tr("ui.montage.oneTaps"), montage.oneTaps) { v ->
                             actions.updateMontage { it.copy(oneTaps = v) }
                         }
+                        MontageToggle(tr("ui.montage.reactionMontage"), montage.reactionMontage) { v -> actions.updateMontage { it.copy(reactionMontage = v) } }
                         MontageToggle(tr("ui.montage.fast"), montage.fast) { v ->
                             actions.updateMontage { it.copy(fast = v) }
                         }

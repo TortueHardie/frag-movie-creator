@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.export.CaptionTranscriber
 import dev.highlights.core.i18n.tr
 import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
@@ -63,6 +64,10 @@ data class MontageExportRequest(
     val preview: Boolean = false,
     /** Aperçu : passages réduits à lire à la place des captures ([PreviewProxies]) ; aucun : les captures elles-mêmes. */
     val proxies: ProxySources = ProxySources.NONE,
+    /** Montage des réactions : réactions trouvées par session (rapport, phrases criées des sous-titres). */
+    val reactions: List<SessionReactions> = emptyList(),
+    /** Transcriptions gardées d'un rendu à l'autre (sous-titres du montage des réactions) ; null : aucun cache. */
+    val captionCache: Path? = null,
 )
 
 @Serializable
@@ -91,7 +96,13 @@ data class MontageReport(
     val signature: String? = null,
     /** Aperçu basse résolution ([MontagePreview]) plutôt que rendu final. */
     val preview: Boolean = false,
+    /** Montage des réactions : toutes les réactions trouvées, montées ou non ; vide ailleurs. */
+    val reactions: List<MontageReportReaction> = emptyList(),
 )
+
+/** Réaction trouvée au micro ([Reaction]) dans [media] ; [used] : elle ancre un plan du montage. */
+@Serializable
+data class MontageReportReaction(val media: String, val reaction: Reaction, val used: Boolean)
 
 /** Musique d'une bibliothèque essayée pour le montage ; [error] : aucun plan possible sur elle. */
 @Serializable
@@ -207,6 +218,9 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             (ready?.also { cutStep.complete() } ?: SourceCutter.prepare(ffmpeg, MontageRenderBuilder.sourceCuts(plan, request.edit.fps), request.workDir.resolve("cuts"), cutStep)) to motion.await()
         }
 
+        // Montage des réactions : ce qui est dit, transcrit une fois pour tous les formats (pas en aperçu : proxies sans micro).
+        val captions = if (request.preview || !plan.settings.reactionMontage.enabled) emptyList()
+        else ReactionRender.transcribe(CaptionTranscriber(ffmpeg), plan, request.reactions, request.edit, request.audioLayout, request.workDir, request.captionCache, progress.child(tr("progress.captions"), CAPTION_WEIGHT))
         val whooshFiles = whooshFiles(plan)
         val filterScriptOption = ffmpeg.filterScriptOption()
         for (format in request.formats) {
@@ -219,6 +233,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                     plan, format, request.edit, encoder, temp, script,
                     request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption, motion,
                     whooshFiles, if (request.preview) MontagePreview.DECODE else emptyList(),
+                    captions = captions,
                 ),
             )
             script.writeText(render.filterGraph)
@@ -268,6 +283,11 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             notices = request.notices,
             signature = signature,
             preview = request.preview,
+            reactions = request.reactions.flatMap { found ->
+                found.reactions.map { r ->
+                    MontageReportReaction(found.session.media.path.toString(), r, plan.clips.any { c -> c.group.media.path == found.session.media.path && Reactions.of(c.group, listOf(found)) == r })
+                }
+            },
             clips = plan.clips.zip(plan.clipOffsets()).mapIndexed { i, (c, offset) -> c to offset }.let { pairs ->
                 val fails = if (plan.settings.fails.enabled && plan.settings.text.enabled) FailLabels.assign(plan.clips, FailLabels.available(plan.settings.fails)) else plan.clips.map { null }
                 pairs.mapIndexed { i, (c, offset) ->
@@ -309,6 +329,8 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         private const val CUT_WEIGHT = 0.08
         /** Mesure du mouvement de caméra : un décodage en tout petit de chaque plan, rapide face au rendu. */
         private const val MOTION_WEIGHT = 0.06
+        /** Transcription des plans du montage des réactions (whisper, quelques secondes par plan). */
+        private const val CAPTION_WEIGHT = 0.1
 
         /**
          * Date de la première partie jouée, qui nomme le montage : la date d'enregistrement de la capture

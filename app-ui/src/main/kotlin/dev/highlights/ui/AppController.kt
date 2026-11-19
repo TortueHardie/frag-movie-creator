@@ -994,6 +994,7 @@ class AppController(
         platform = montage.platform,
         onlyKills = montage.pick,
         oneTaps = montage.oneTaps,
+        reactionMontage = montage.reactionMontage,
         fast = montage.fast,
         fastParts = montage.fastParts,
         skipAbilityKills = montage.skipAbilityKills,

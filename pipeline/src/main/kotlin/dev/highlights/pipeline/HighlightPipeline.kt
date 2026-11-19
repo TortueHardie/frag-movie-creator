@@ -14,6 +14,7 @@ import dev.highlights.core.config.LoadedConfig
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.Hwaccel
 import dev.highlights.core.model.MontageSettings
+import dev.highlights.core.model.forReactions
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.ClipOrder
 import dev.highlights.core.model.EditSettings
@@ -48,6 +49,10 @@ import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
 import dev.highlights.montage.FeelEntry
+import dev.highlights.montage.MicLevels
+import dev.highlights.montage.ReactionFinder
+import dev.highlights.montage.Reactions
+import dev.highlights.montage.SessionReactions
 import dev.highlights.montage.FeelSource
 import dev.highlights.montage.FeelVote
 import dev.highlights.montage.LearnedFeel
@@ -205,6 +210,11 @@ data class MontageOptions(
      * texte. Les morts « à terre » de Wardogs seulement avec `killStyle.downedAsDeath`. null ou false : montage kills.
      */
     val fails: Boolean? = null,
+    /**
+     * Montage des réactions du joueur au micro ([forReactions] : rires, cris, éclats de voix, quelle qu'en soit la cause),
+     * micro devant, sous-titres. Demande une piste micro séparée. null ou false : montage kills.
+     */
+    val reactionMontage: Boolean? = null,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
     /** Kills à la capacité écartés ([MontageSettings.skipAbilityKills]) ; null : réglage du profil. */
@@ -278,6 +288,8 @@ class PlannedMontage internal constructor(
     internal val variantsFile: MontageVariantsFile? = null,
     /** Kills trouvés dans les parties (avant le tri des one taps et les corrections), pour l'avertissement [fewKills]. */
     val killsFound: Int = candidates.sumOf { it.kills.size },
+    /** Montage des réactions : réactions trouvées par session ; vide ailleurs. */
+    internal val reactions: List<SessionReactions> = emptyList(),
 ) {
     /**
      * Avertissement quand les parties n'ont presque pas de kills ([MontageSettings.minKills]) : le montage se fait,
@@ -958,10 +970,13 @@ class HighlightPipeline(
             kind = kind ?: montageKind(options),
             preview = preview,
             notices = notices,
+            reactions = planned.reactions,
+            captionCache = config.workDir.resolve("cache").resolve("captions"),
         )
     }
 
     private fun montageKind(options: MontageOptions) = when {
+        options.reactionMontage == true -> "reactions"
         options.fails == true -> "fails"
         options.oneTaps == true -> "onetaps"
         else -> "killmontage"
@@ -1107,6 +1122,31 @@ class HighlightPipeline(
      * Plan du montage kills de [killMontage], sans le rendre : la musique, les kills inspectés (repris du cache
      * d'inspection d'un plan à l'autre), le plan. Sert à la frise de l'application, qui le recalcule à chaque correction.
      */
+    /**
+     * Réactions au micro de chaque session ([ReactionFinder]), la session annotée de leurs ancres ([Reactions.annotate]).
+     * Les causes sont les événements du jeu du profil : kills, morts (et « à terre »), aides. Une session sans piste micro
+     * séparée n'en donne aucune ; aucune session avec micro : refus, plutôt qu'un montage de réactions inventées.
+     */
+    private suspend fun findReactions(sessions: List<Session>, base: MontageSettings, profile: GameProfile, progress: ProgressReporter): List<SessionReactions> {
+        val r = base.reactionMontage
+        val causes = setOf(base.killEvent, "downed", "assist") + base.anchorEvents + base.killStyle.copy(deathEvent = base.killStyle.deathEvent.ifEmpty { "death" }).deathKinds
+        val found = sessions.mapIndexedNotNull { i, session ->
+            progress.update(i.toDouble() / sessions.size)
+            if (!session.media.path.isRegularFile()) return@mapIndexedNotNull null
+            val levels = MicLevels.measure(ffmpeg, session.media, profile.audio)
+            if (levels == null) {
+                log.info { "Pas de piste micro séparée dans ${session.media.path.fileName} : aucune réaction cherchée" }
+                return@mapIndexedNotNull null
+            }
+            val reactions = ReactionFinder.find(levels, session.timeline, r, causes)
+            reactions.forEach { log.info { "Réaction ${session.media.path.fileName} : ${Reactions.describe(it)}" } }
+            SessionReactions(Reactions.annotate(session, reactions, r), reactions)
+        }
+        progress.complete()
+        if (found.isEmpty()) throw InputException(Message("error.montage.noMicTrack"))
+        return found
+    }
+
     suspend fun planKillMontage(sessions: List<Session>, music: Path, requested: MontageOptions, progress: ProgressReporter): PlannedMontage =
         planMontage(sessions, music, requested.copy(pick = null), progress, count = null)
 
@@ -1170,6 +1210,7 @@ class HighlightPipeline(
             ),
         ).let {
             when {
+                options.reactionMontage == true -> it.forReactions()
                 options.fails == true -> it.forFails()
                 options.oneTaps == true -> it.forOneTaps()
                 options.fast ?: base.fast.enabled -> it.forFast()
@@ -1183,7 +1224,12 @@ class HighlightPipeline(
         val feels = MusicFeels(musicFeelStore).let { f -> musics.associate { it.file to f.resolve(it) } }
         feels.forEach { (file, r) -> if (r.source != FeelSource.DEFAULT) log.info { "Ressenti de ${file.fileName} : ${r.feel} (${r.source}${r.probability?.let { p -> ", %.2f".format(p) } ?: ""})" } }
         fun feelOf(file: Path) = feels[file]?.feel ?: MusicFeel.AUTO
-        val picked = MontagePlanner.groups(sessions, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: withoutAbilityKills(all, sessions, settings, options) }
+        // Montage des réactions : les réactions au micro deviennent les ancres des plans, classées par leur force.
+        val reactions = if (settings.reactionMontage.enabled) findReactions(sessions, base, profile, progress.child(tr("progress.reactions"), 0.04)) else emptyList()
+        val anchored = if (settings.reactionMontage.enabled) reactions.map { it.session } else sessions
+        val picked = MontagePlanner.groups(anchored, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: withoutAbilityKills(all, sessions, settings, options) }
+            .let { if (settings.reactionMontage.enabled) Reactions.rescore(it, reactions) else it }
+        if (settings.reactionMontage.enabled && picked.isEmpty()) throw InputException(Message("error.montage.noReactions"))
         if (options.fails == true && picked.isEmpty()) throw InputException(Message("error.montage.noDeaths"))
         if (picked.isEmpty()) throw InputException(Message("error.montage.pickedMissing"))
         // Une capture effacée ou déplacée depuis l'analyse : ses kills ne se rendraient pas, et FFmpeg ferait échouer
@@ -1237,7 +1283,7 @@ class HighlightPipeline(
                 ?: throw InputException(Message("error.montage.variantMissing", "index" to pick.index, "total" to finished.size))
         }
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(plan.music.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
-        return PlannedMontage(plan, inspected, choice, profile, platform, finished, variants, killsFound = available.sumOf { it.kills.size })
+        return PlannedMontage(plan, inspected, choice, profile, platform, finished, variants, killsFound = available.sumOf { it.kills.size }, reactions = reactions)
     }
 
     /** [analyzeAll] puis un seul montage de toutes les captures. */
