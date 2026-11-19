@@ -237,6 +237,13 @@ interface UiActions {
     fun dismissError()
     fun dismissImagePreview()
 
+    /** Webcam en incrustation ([WebcamSection]). */
+    fun setWebcamMode(mode: WebcamMode) {}
+    fun chooseWebcamFile() {}
+    fun setWebcamOffset(text: String) {}
+    fun previewWebcam() {}
+    fun dismissWebcamPreview() {}
+
     /** Télécharge la nouvelle version, ferme l'application et l'installe par-dessus. */
     fun installUpdate()
     fun dismissUpdate()
@@ -720,6 +727,7 @@ class AppController(
                     ExportOptions(
                         s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform,
                         thumbnail = ThumbnailStyle.DEFAULT.takeIf { s.settings.thumbnail }, intro = introOn, introSettings = introCards,
+                        webcam = s.settings.webcam.choice, webcamOffset = s.settings.webcam.offset,
                     ),
                     progress,
                 )
@@ -1033,6 +1041,8 @@ class AppController(
     private fun montageOptions(montage: MontageUiState, s: UiState) = MontageOptions(
         // Miniature (habillage par défaut) de chaque vidéo : prête dans la fenêtre de publication ; le préréglage peut l'ôter.
         thumbnail = ThumbnailStyle.DEFAULT.takeIf { montage.thumbnail },
+        webcam = s.settings.webcam.choice,
+        webcamOffset = s.settings.webcam.offset,
         formats = OutputFormat.entries.filter { it in montage.formats },
         outputDir = s.settings.outputDir,
         maxDuration = montage.maxDuration,
@@ -1866,6 +1876,55 @@ class AppController(
     override fun reveal(path: Path) = platform.reveal(path)
     override fun dismissError() = _state.update { it.copy(error = null) }
     override fun dismissImagePreview() = _state.update { it.copy(imagePreview = null) }
+
+    override fun setWebcamMode(mode: WebcamMode) {
+        // Fichier demandé sans fichier choisi : le sélecteur s'ouvre tout de suite.
+        _state.update { s -> s.copy(settings = s.settings.copy(webcam = s.settings.webcam.copy(mode = mode))) }
+        if (mode == WebcamMode.FILE && state.value.settings.webcam.file == null) chooseWebcamFile()
+    }
+
+    override fun chooseWebcamFile() {
+        val current = state.value.settings.webcam.file
+        val file = platform.chooseVideos(current?.parent ?: state.value.source?.path?.parent).firstOrNull() ?: return
+        _state.update { s -> s.copy(settings = s.settings.copy(webcam = s.settings.webcam.copy(mode = WebcamMode.FILE, file = file))) }
+    }
+
+    override fun setWebcamOffset(text: String) =
+        _state.update { s -> s.copy(settings = s.settings.copy(webcam = s.settings.webcam.copy(offsetText = text))) }
+
+    override fun previewWebcam() {
+        val s = state.value
+        val source = s.source ?: return
+        val choice = s.settings.webcam.choice ?: return
+        val p = backend?.pipeline ?: return
+        if (s.busyWebcamPreview) return
+        // Au pic du premier moment retenu s'il y en a un, sinon au milieu de la capture.
+        val at = s.session?.entries?.firstOrNull { it.session.media.path == source.path }?.session?.highlights
+            ?.firstOrNull { it.enabled }?.peak ?: (source.media.duration / 2)
+        _state.update { it.copy(busyWebcamPreview = true) }
+        scope.launch {
+            try {
+                val preview = withContext(Dispatchers.IO) {
+                    p.reloadProfiles()
+                    val feed = p.webcamFor(source.path, s.settings.profileId, choice, s.settings.webcam.offset)
+                    val images = if (feed == null) emptyList() else p.preview(
+                        source.path, at, s.settings.profileId, listOf(OutputFormat.VERTICAL, OutputFormat.LANDSCAPE), p.previewDir,
+                        dev.highlights.core.model.WebcamChoice.Resolved(feed),
+                    )
+                    WebcamPreviewState(images, feed?.file, feed?.sync, feed?.offset)
+                }
+                _state.update { it.copy(webcamPreview = preview) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                reportFailure(tr("ui.error.webcamPreview"), e)
+            } finally {
+                _state.update { it.copy(busyWebcamPreview = false) }
+            }
+        }
+    }
+
+    override fun dismissWebcamPreview() = _state.update { it.copy(webcamPreview = null) }
 
     // ---------------------------------------------------------------- interne
 

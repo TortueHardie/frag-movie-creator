@@ -1,6 +1,8 @@
 package dev.highlights.editing.story
 
 import dev.highlights.editing.HudPin
+import dev.highlights.editing.WebcamLayout
+import dev.highlights.core.model.WebcamFeed
 import dev.highlights.editing.ZoomCrop
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.FfmpegCommand
@@ -38,6 +40,8 @@ data class StoryRenderRequest(
     val filterScriptOption: String = FfmpegService.FILTER_COMPLEX_FROM_FILE,
     /** Bruitages pris dans les dossiers du profil ; vide = fichier unique du profil, ou variantes générées. */
     val sfxBank: SfxBank = SfxBank(),
+    /** Webcam de chaque capture (clé : chemin de la capture), voir [WebcamLayout]. */
+    val webcams: Map<Path, WebcamFeed> = emptyMap(),
 )
 
 /** Fichiers de bruitages disponibles, dans l'ordre où ils serviront. */
@@ -110,6 +114,7 @@ object StoryRenderBuilder {
 
         val frames = frameCounts(plan)
         val (w, h) = RenderCommandBuilder.outputSize(request.format, shots.first().media, edit)
+        val camBox = if (request.webcams.isEmpty()) null else WebcamLayout.target(request.format, w, h, edit, shots.first().media)
         val graph = mutableListOf<String>()
         // Instants des effets passés à l'écran (ralenti compris) : le reste du graphe ne connaît que le temps de sortie.
         val screen = shots.map(::onScreen)
@@ -118,14 +123,16 @@ object StoryRenderBuilder {
             val fits = RenderCommandBuilder.outputSize(request.format, shot.media, edit) == w to h
             // HUD recollé en 9:16 : empilé sous l'image, recollé fixe après le punch-in et la secousse (HudPin).
             val targets = if (fits) RenderCommandBuilder.hudTargets(request.format, shot.media, edit) else emptyList()
-            graph += RenderCommandBuilder.videoChain(i, shot.media, request.format, edit, "g$i", pinHud = targets.isNotEmpty())
+            val cam = if (fits) WebcamLayout.input(args, request.webcams, source.media, source.range.start, source.length, edit, camBox) else null
+            graph += RenderCommandBuilder.videoChain(i, shot.media, request.format, edit, "g$i", pinHud = targets.isNotEmpty() || cam != null, webcam = cam)
             val sized = if (fits) {
                 "g$i"
             } else {
                 graph += "[g$i]scale=$w:$h:force_original_aspect_ratio=decrease:flags=lanczos,pad=$w:$h:(ow-iw)/2:(oh-ih)/2,setsar=1[z$i]"
                 "z$i"
             }
-            val base = slowVideo(graph, i, sized, source, edit.fps)
+            // Webcam sortie de la trame avant punch-in et secousse, reposée sur la vidéo finie (WebcamLayout).
+            val (base, camLabel) = WebcamLayout.detach(graph, slowVideo(graph, i, sized, source, edit.fps), cam, camBox, targets.sumOf { it.h }, w, h, "wd$i")
             val effects = mutableListOf<String>()
             val motion = framing(shot, w, h, story.punchIn.amount, story.punchIn.ramp, story.shake.amplitude, story.shake.duration, story.shake.frequency)
             // Sous-titres et libellés par-dessus le HUD recollé.
@@ -158,12 +165,14 @@ object StoryRenderBuilder {
             effects += "format=yuv420p"
             effects += "settb=AVTB"
             graph += "[$start]${effects.joinToString(",")}[v$i]"
+            camBox?.let { WebcamLayout.finish(graph, camLabel, it, emptyList(), frames[i], edit.fps, "wc$i") }
             graph += audioChain(graph, i, source, edit.audioIndices(AudioTracks.of(shot.media.audio, request.audioLayout)), story.transition.audioFade)
         }
         graph += shots.indices.joinToString("") { "[v$it][a$it]" } + "concat=n=${shots.size}:v=1:a=1[vcat][acat]"
 
         val fadeOut = minOf(story.fadeOut, total / 4)
-        graph += "[vcat]" + (if (fadeOut.isPositive()) "fade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)}," else "") + "format=yuv420p[vstory]"
+        val video = WebcamLayout.overlay(graph, "vcat", if (camBox != null) shots.indices.map { "wc$it" } else emptyList(), camBox)
+        graph += "[$video]" + (if (fadeOut.isPositive()) "fade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)}," else "") + "format=yuv420p[vstory]"
 
         // --- bruitages : whoosh sur chaque changement de moment, impact sous chaque secousse
         val mixInputs = mutableListOf("[acat]")

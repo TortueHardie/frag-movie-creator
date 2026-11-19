@@ -822,6 +822,41 @@ en ajouter ou en retirer.
 & $app search --min-kills 2 --montage D:\Musique --preset shorts
 ```
 
+## Webcam en incrustation
+
+La vidéo du joueur, enregistrée à côté de la partie, posée sur le montage : highlights simples, montage story et montage
+kills.
+
+- **9:16** : bandeau de webcam en haut, sur toute la largeur (30 % de la hauteur) ; le jeu, recadré plus large, occupe
+  le reste dessous. Le HUD recollé, le point visé par les zooms et la zone sûre des textes (DOUBLÉ, sous-titres,
+  compteur de kills) descendent avec lui : rien ne passe sous la webcam.
+- **16:9 et format source** : incrustation dans un coin (bas gauche par défaut, 24 % de la largeur), le jeu reste entier.
+- **Les effets ne touchent que le jeu** : zoom, punch-in, secousse, flous, whip pan, flash, couleurs boostées et
+  étalonnage. La webcam suit la chronologie du plan (au ralenti avec lui, figée avec lui) mais reste fixe et nette.
+- **Trouver la webcam** : un fichier choisi, ou « auto » : second flux vidéo de la capture (OBS peut enregistrer jeu et
+  webcam dans le même fichier), sinon une vidéo du même dossier dont le nom parle de webcam (`webcam`, `facecam`,
+  `cam`…) et dont l'enregistrement recouvre le plus la partie. Plusieurs captures : chacune la sienne ; un même long
+  fichier de webcam peut servir à toute la soirée.
+- **Synchronisation** : l'heure de début des deux enregistrements (métadonnées ou nom daté), puis le son : les attaques
+  du son de la webcam sont comparées à celles du micro de la capture sur une minute, ± 5 s autour du calage par l'heure
+  (un clap au début de l'enregistrement aide). Le décalage n'est retenu que si la ressemblance est nette ; sinon l'heure
+  seule, ou début contre début. Le **décalage** réglé à la main (`--webcam-offset`, champ de l'application) s'ajoute,
+  positif si la webcam est en retard sur le jeu.
+- Une capture sans webcam trouvée : l'emplacement reste vide sur ses plans, et le résultat le signale.
+- Application : section **Webcam** du panneau des réglages (pas de webcam / la trouver automatiquement / choisir une
+  vidéo, décalage) et bouton **Aperçu de la disposition** (9:16 et 16:9 côte à côte, avec le calage trouvé). Le choix
+  vaut pour l'export et le montage kills.
+- Profil (`edit.webcam`) : `band` (hauteur du bandeau), `corner` (`top-left`, `top-right`, `bottom-left`,
+  `bottom-right`), `size`, `margin`, `aspect` (rapport de l'incrustation du coin), `crop` (partie de l'image de la
+  webcam à garder, ex. le visage), `border` / `borderColor` (liseré, aucun par défaut), `offset`, `audioSync`.
+- Vérifié sur des vidéos synthétiques seulement (aucune vraie webcam enregistrée au 19/11/2026).
+
+```powershell
+& $app montage output\sessions\partie.session.json --music D:\Musique --webcam auto --platform tiktok
+& $app export output\sessions\partie.session.json -f 16:9 --webcam D:\Vidéo\facecam.mp4 --webcam-offset -0.4s
+& $app preview D:\Vidéo\partie.mp4 --at 21:00 -f 9:16,16:9 --webcam auto   # régler la disposition
+```
+
 ## Miniature YouTube
 
 Chaque export lancé depuis l'application écrit aussi une miniature PNG prête pour YouTube, à côté de la vidéo

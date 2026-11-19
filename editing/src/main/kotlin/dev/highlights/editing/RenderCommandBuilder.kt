@@ -14,6 +14,7 @@ import dev.highlights.core.model.HudOverlay
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.ScreenGeometry
+import dev.highlights.core.model.WebcamFeed
 import dev.highlights.core.serialization.Durations
 import java.nio.file.Path
 import java.util.Locale
@@ -44,6 +45,8 @@ data class RenderRequest(
     val audioLayout: AudioLayout = AudioLayout(),
     /** Option de lecture du graphe depuis un fichier, selon la version de FFmpeg (voir [FfmpegService.filterScriptOption]). */
     val filterScriptOption: String = FfmpegService.FILTER_COMPLEX_FROM_FILE,
+    /** Webcam de chaque capture (clé : chemin de la capture), si l'incrustation est active. Voir [WebcamLayout]. */
+    val webcams: Map<Path, WebcamFeed> = emptyMap(),
 )
 
 /**
@@ -63,6 +66,7 @@ object RenderCommandBuilder {
             val input = request.cuts.input(clip.media, clip.range)
             args += inputArgs(request.hwaccel, input.start, clip.range.length, input.path)
         }
+        val cams = clips.map { WebcamLayout.input(args, request.webcams, it.media, it.range.start, it.range.length, settings) }
 
         // Taille commune, prise sur le premier clip : les captures d'une autre taille ou d'un autre ratio (1440p, ultrawide)
         // y sont ramenées avec des bandes noires, sinon la concaténation échouerait.
@@ -70,9 +74,9 @@ object RenderCommandBuilder {
         val graph = mutableListOf<String>()
         clips.forEachIndexed { i, clip ->
             if (outputSize(request.format, clip.media, settings) == w to h) {
-                graph += videoChain(i, clip.media, request.format, settings, "v$i")
+                graph += videoChain(i, clip.media, request.format, settings, "v$i", webcam = cams[i])
             } else {
-                graph += videoChain(i, clip.media, request.format, settings, "g$i")
+                graph += videoChain(i, clip.media, request.format, settings, "g$i", webcam = cams[i])
                 graph += "[g$i]scale=$w:$h:force_original_aspect_ratio=decrease:flags=lanczos,pad=$w:$h:(ow-iw)/2:(oh-ih)/2,setsar=1[v$i]"
             }
             graph += audioChain(i, clip, settings, request.audioLayout)
@@ -136,9 +140,11 @@ object RenderCommandBuilder {
         filterScript: Path,
         output: Path,
         filterScriptOption: String = FfmpegService.FILTER_COMPLEX_FROM_FILE,
+        webcam: WebcamFeed? = null,
     ): RenderCommand {
         val args = inputArgs(null, at, 1.seconds, media.path).toMutableList()
-        val graph = videoChain(0, media, format, settings, "vout")
+        val cam = webcam?.let { WebcamLayout.input(args, mapOf(media.path to it), media, at, 1.seconds, settings) }
+        val graph = videoChain(0, media, format, settings, "vout", webcam = cam)
         args += listOf(filterScriptOption, filterScript.toString(), "-map", "[vout]", "-frames:v", "1", "-update", "1", "-y", output.toString())
         return RenderCommand(FfmpegCommand(args, "aperçu ${format.label} à ${Durations.format(at)}"), graph.joinToString(";\n") + "\n", Duration.ZERO)
     }
@@ -158,23 +164,42 @@ object RenderCommandBuilder {
      * ralentis et gels que l'image, et [HudPin] le recolle fixe après le zoom. Collé avant, le zoom l'agrandissait :
      * le bloc du bas de VALORANT apparaissait en double sous sa copie fixe.
      */
-    fun videoChain(input: Int, media: MediaInfo, format: OutputFormat, settings: EditSettings, out: String, pinHud: Boolean = false): List<String> {
+    fun videoChain(
+        input: Int,
+        media: MediaInfo,
+        format: OutputFormat,
+        settings: EditSettings,
+        out: String,
+        pinHud: Boolean = false,
+        webcam: WebcamLayout.Input? = null,
+    ): List<String> {
         val video = media.video ?: throw HighlightsException(Message("error.input.noVideo", "file" to media.path))
         val head = "[$input:v:0]setpts=PTS-STARTPTS,fps=${settings.fps}"
         // L'étalonnage vient après le recadrage et le HUD : il s'applique à l'image finale, avant les effets du montage.
         val tail = "${grade(settings.grade)}format=yuv420p,settb=AVTB[$out]"
 
         val overlays = if (format == OutputFormat.VERTICAL) settings.vertical.hud.filter { it.enabled } else emptyList()
-        if (overlays.isEmpty()) {
+        val (width, height) = outputSize(format, media, settings)
+        // Webcam : posée à sa place (rendu simple) ou empilée sous le HUD (pinHud, voir WebcamLayout). Jamais étalonnée :
+        // la teinte du jeu n'a rien à faire sur un visage.
+        val camBox = webcam?.let { it.box ?: WebcamLayout.target(format, width, height, settings, media) }
+        val cam = if (webcam != null && camBox != null) WebcamLayout.piece(webcam, camBox, format, settings) else null
+        if (overlays.isEmpty() && cam == null) {
             return listOf("$head,${geometry(format, video.width, video.height, settings)},$tail")
         }
 
         val p = "c$input"
         val statements = mutableListOf<String>()
-        statements += "$head,split=${overlays.size + 1}[${p}base]" + overlays.indices.joinToString("") { "[${p}hud$it]" }
-        statements += "[${p}base]${geometry(format, video.width, video.height, settings)}[${p}l0]"
+        if (overlays.isEmpty()) {
+            statements += "$head,${geometry(format, video.width, video.height, settings)}[${p}l0]"
+        } else {
+            statements += "$head,split=${overlays.size + 1}[${p}base]" + overlays.indices.joinToString("") { "[${p}hud$it]" }
+            statements += "[${p}base]${geometry(format, video.width, video.height, settings)}[${p}l0]"
+        }
         val boxes = hudBoxes(video.width, video.height, settings, overlays)
-        val width = settings.vertical.size.width
+        if (cam != null && camBox != null) {
+            statements += if (pinHud) "$cam,pad=$width:${camBox.h}:0:0[${p}cam]" else "$cam[${p}cam]"
+        }
         boxes.forEachIndexed { k, (src, dst) ->
             val piece = "[${p}hud$k]crop=${src.w}:${src.h}:${src.x}:${src.y},scale=${dst.w}:${dst.h}:flags=lanczos,setsar=1"
             if (pinHud) {
@@ -184,10 +209,23 @@ object RenderCommandBuilder {
                 statements += "[${p}l$k][${p}o$k]overlay=x=${dst.x}:y=${dst.y}:shortest=1[${p}l${k + 1}]"
             }
         }
-        statements += if (pinHud) {
-            "[${p}l0]" + boxes.indices.joinToString("") { "[${p}o$it]" } + "vstack=inputs=${boxes.size + 1}:shortest=1,$tail"
-        } else {
-            "[${p}l${overlays.size}]$tail"
+        val graded = "${p}gr"
+        statements += when {
+            pinHud && boxes.isNotEmpty() && cam == null ->
+                "[${p}l0]" + boxes.indices.joinToString("") { "[${p}o$it]" } + "vstack=inputs=${boxes.size + 1}:shortest=1,$tail"
+            pinHud && boxes.isNotEmpty() ->
+                "[${p}l0]" + boxes.indices.joinToString("") { "[${p}o$it]" } + "vstack=inputs=${boxes.size + 1}:shortest=1,${grade(settings.grade)}null[$graded]"
+            pinHud -> "[${p}l0]${grade(settings.grade)}null[$graded]"
+            cam == null -> "[${p}l${overlays.size}]$tail"
+            else -> "[${p}l${overlays.size}]${grade(settings.grade)}null[$graded]"
+        }
+        if (cam != null && camBox != null) {
+            // Webcam sous la trame (empilée) ou à sa place (collée), après l'étalonnage du jeu.
+            statements += if (pinHud) {
+                "[$graded][${p}cam]vstack=inputs=2:shortest=1,format=yuv420p,settb=AVTB[$out]"
+            } else {
+                "[$graded][${p}cam]overlay=x=${camBox.x}:y=${camBox.y}:shortest=1,format=yuv420p,settb=AVTB[$out]"
+            }
         }
         return statements
     }
@@ -205,13 +243,16 @@ object RenderCommandBuilder {
     /** Pour chaque élément du HUD : zone lue dans la capture, et zone où il est collé dans l'image 9:16. */
     private fun hudBoxes(srcWidth: Int, srcHeight: Int, settings: EditSettings, overlays: List<HudOverlay>): List<Pair<CropBox, CropBox>> {
         val size = settings.vertical.size
+        // Sous un bandeau de webcam, le HUD garde sa place relative dans la partie du jeu (le bas de l'image).
+        val band = settings.webcam.bandHeight(OutputFormat.VERTICAL, size.height)
+        val gameHeight = size.height - band
         return overlays.map { hud ->
             val region = ScreenGeometry.forVideo(hud.source, settings.vertical.reference, srcWidth, srcHeight, hud.anchor)
             val src = pixelBox(srcWidth, srcHeight, region)
             val w = even(hud.target.width * size.width)
             val h = even(w.toDouble() * src.h / src.w).coerceAtLeast(2)
             val x = (hud.target.x * size.width).roundToInt().coerceIn(0, size.width - w)
-            val y = (hud.target.y * size.height).roundToInt().coerceIn(0, (size.height - h).coerceAtLeast(0))
+            val y = (band + hud.target.y * gameHeight).roundToInt().coerceIn(band, (size.height - h).coerceAtLeast(band))
             src to CropBox(x, y, w, h)
         }
     }
@@ -245,9 +286,21 @@ object RenderCommandBuilder {
             val size = settings.vertical.size
             val region = settings.vertical.cropRegion
                 ?.let { ScreenGeometry.forVideo(it, settings.vertical.reference, srcWidth, srcHeight) }
-            val crop = cropBox(srcWidth, srcHeight, size.width.toDouble() / size.height, region)
-            "crop=${crop.w}:${crop.h}:${crop.x}:${crop.y},scale=${size.width}:${size.height}:flags=lanczos,setsar=1"
+            // Bandeau de webcam : le jeu prend la hauteur restante, recadré plus large, et descend sous le bandeau.
+            val band = settings.webcam.bandHeight(format, size.height)
+            val gameHeight = size.height - band
+            val crop = cropBox(srcWidth, srcHeight, size.width.toDouble() / gameHeight, region)
+            "crop=${crop.w}:${crop.h}:${crop.x}:${crop.y},scale=${size.width}:$gameHeight:flags=lanczos,setsar=1" +
+                (if (band > 0) ",pad=${size.width}:${size.height}:0:$band" else "")
         }
+    }
+
+    /** Recadrage 9:16 dans la capture : au rapport de l'image, ou de la place laissée par le bandeau de la webcam. */
+    private fun verticalCrop(srcWidth: Int, srcHeight: Int, settings: EditSettings): CropBox {
+        val size = settings.vertical.size
+        val region = settings.vertical.cropRegion?.let { ScreenGeometry.forVideo(it, settings.vertical.reference, srcWidth, srcHeight) }
+        val gameHeight = size.height - settings.webcam.bandHeight(OutputFormat.VERTICAL, size.height)
+        return cropBox(srcWidth, srcHeight, size.width.toDouble() / gameHeight, region)
     }
 
     /**
@@ -261,9 +314,8 @@ object RenderCommandBuilder {
             OutputFormat.LANDSCAPE -> minOf(settings.landscape.width.toDouble() / video.width, settings.landscape.height.toDouble() / video.height)
             OutputFormat.VERTICAL -> {
                 val size = settings.vertical.size
-                val region = settings.vertical.cropRegion
-                    ?.let { ScreenGeometry.forVideo(it, settings.vertical.reference, video.width, video.height) }
-                size.height.toDouble() / cropBox(video.width, video.height, size.width.toDouble() / size.height, region).h
+                val gameHeight = size.height - settings.webcam.bandHeight(format, size.height)
+                gameHeight.toDouble() / verticalCrop(video.width, video.height, settings).h
             }
         }
     }
@@ -300,11 +352,12 @@ object RenderCommandBuilder {
         val video = media.video ?: return 0.5 to 0.5
         if (format != OutputFormat.VERTICAL) return 0.5 to 0.5
         val size = settings.vertical.size
-        val region = settings.vertical.cropRegion?.let { ScreenGeometry.forVideo(it, settings.vertical.reference, video.width, video.height) }
-        val box = cropBox(video.width, video.height, size.width.toDouble() / size.height, region)
+        val box = verticalCrop(video.width, video.height, settings)
         val x = ((video.width / 2.0 - box.x) / box.w).coerceIn(0.0, 1.0)
         val y = ((video.height * sourceY - box.y) / box.h).coerceIn(0.0, 1.0)
-        return x to y
+        // Sous un bandeau de webcam, le jeu n'occupe que le bas de l'image.
+        val band = settings.webcam.bandHeight(format, size.height)
+        return x to (band + y * (size.height - band)) / size.height
     }
 
     internal fun cropBox(srcWidth: Int, srcHeight: Int, aspect: Double, region: CropRegion?): CropBox {

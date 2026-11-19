@@ -26,6 +26,7 @@ import dev.highlights.editing.EditPlan
 import dev.highlights.editing.EditPlanner
 import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
+import dev.highlights.editing.WebcamLayout
 import dev.highlights.editing.RenderRequest
 import dev.highlights.editing.SourceCutter
 import dev.highlights.editing.story.Caption
@@ -66,6 +67,8 @@ data class ExportRequest(
     val maxDuration: Duration? = null,
     /** Genre de vidéo, dans le nom des fichiers : highlights, clip. */
     val kind: String = "highlights",
+    /** Webcam de chaque capture (clé : chemin de la capture) ; vide : pas d'incrustation. */
+    val webcams: Map<Path, dev.highlights.core.model.WebcamFeed> = emptyMap(),
 )
 
 data class ExportResult(
@@ -158,7 +161,8 @@ class Exporter(
             val render = if (story != null) {
                 StoryRenderBuilder.build(
                     StoryRenderRequest(
-                        plan = story,
+                        plan = story.copy(settings = WebcamLayout.settingsFor(story.settings, format)),
+                        webcams = request.webcams,
                         format = format,
                         encoder = encoder,
                         output = temp,
@@ -174,7 +178,8 @@ class Exporter(
             } else {
                 RenderCommandBuilder.build(
                     RenderRequest(
-                        plan = plan,
+                        plan = plan.copy(settings = WebcamLayout.settingsFor(plan.settings, format)),
+                        webcams = request.webcams,
                         format = format,
                         encoder = encoder,
                         output = temp,
@@ -269,6 +274,8 @@ class Exporter(
         settings: EditSettings,
         outputDir: Path,
         workDir: Path,
+        /** Webcam de la capture : l'aperçu montre alors la disposition (bandeau du 9:16, coin du 16:9). */
+        webcam: dev.highlights.core.model.WebcamFeed? = null,
     ): List<Path> {
         outputDir.createDirectories()
         workDir.createDirectories()
@@ -277,7 +284,7 @@ class Exporter(
             val output = outputDir.resolve("${media.path.nameWithoutExtension}_${stamp}${format.fileSuffix.ifEmpty { "_source" }}.png")
             ensureNotSource(output, setOf(media.path))
             val script = workDir.resolve("preview_${format.name.lowercase()}.txt")
-            val render = RenderCommandBuilder.buildPreview(media, at, format, settings, script, output, ffmpeg.filterScriptOption())
+            val render = RenderCommandBuilder.buildPreview(media, at, format, settings, script, output, ffmpeg.filterScriptOption(), webcam)
             script.writeText(render.filterGraph)
             ffmpeg.run(render.command)
             output

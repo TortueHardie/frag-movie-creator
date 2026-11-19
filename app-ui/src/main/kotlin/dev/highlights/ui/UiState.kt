@@ -49,6 +49,9 @@ data class UiState(
     /** Segments dont l'extrait d'aperçu est en cours de génération. */
     val busyClips: Set<String> = emptySet(),
     val busyVerticalPreview: String? = null,
+    /** Aperçu de la disposition de la webcam (null = fermé), et son calcul en cours. */
+    val webcamPreview: WebcamPreviewState? = null,
+    val busyWebcamPreview: Boolean = false,
     /** Fenêtre de réglage du montage kills (null = fermée). */
     val montage: MontageUiState? = null,
     /** Cartes d'ouverture et de fin (logo, pseudo, fond) ; [introCustom] : réglées dans l'application. */
@@ -207,6 +210,8 @@ data class SettingsState(
     val presetTouched: Set<String> = emptySet(),
     /** Miniature YouTube écrite à côté de chaque vidéo. */
     val thumbnail: Boolean = true,
+    /** Webcam en incrustation, pour l'export et le montage kills ([WebcamSection]). */
+    val webcam: WebcamUiState = WebcamUiState(),
 ) {
     val targetDuration: Duration? get() = I18n.parseDuration(durationText)?.takeIf { it.isPositive() }
     val topN: Int? get() = topNText.trim().toIntOrNull()?.takeIf { it > 0 }

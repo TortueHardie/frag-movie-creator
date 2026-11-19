@@ -70,6 +70,8 @@ data class MontageExportRequest(
     val captionCache: Path? = null,
     /** Score des rounds de chaque capture, pour le bandeau de score ([RoundScoreBanner]). */
     val roundScores: RoundScores = RoundScores.NONE,
+    /** Webcam de chaque capture (clé : chemin de la capture) ; vide : pas d'incrustation. */
+    val webcams: Map<Path, dev.highlights.core.model.WebcamFeed> = emptyMap(),
 )
 
 @Serializable
@@ -232,11 +234,12 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             val script = request.workDir.resolve("montage_${format.name.lowercase()}.txt")
             val render = MontageRenderBuilder.build(
                 MontageRenderRequest(
-                    plan, format, request.edit, encoder, temp, script,
+                    plan, format, dev.highlights.editing.WebcamLayout.settingsFor(request.edit, format), encoder, temp, script,
                     request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption, motion,
                     whooshFiles, if (request.preview) MontagePreview.DECODE else emptyList(),
                     captions = captions,
                     roundScores = request.roundScores,
+                    webcams = request.webcams,
                 ),
             )
             script.writeText(render.filterGraph)

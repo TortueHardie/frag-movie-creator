@@ -22,6 +22,7 @@ import dev.highlights.editing.IntroOutroCards
 import dev.highlights.editing.MusicLeadIn
 import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.HudPin
+import dev.highlights.editing.WebcamLayout
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.ZoomCrop
 import dev.highlights.editing.SourceCut
@@ -61,6 +62,8 @@ data class MontageRenderRequest(
     val captions: List<List<dev.highlights.editing.story.Caption>> = emptyList(),
     /** Score des rounds de chaque capture, pour le bandeau de score ([RoundScoreBanner]) ; vide : pas de bandeau. */
     val roundScores: RoundScores = RoundScores.NONE,
+    /** Webcam de chaque capture (clé : chemin de la capture), voir [WebcamLayout]. */
+    val webcams: Map<java.nio.file.Path, dev.highlights.core.model.WebcamFeed> = emptyMap(),
 )
 
 /**
@@ -127,6 +130,7 @@ object MontageRenderBuilder {
         // bandes noires si leur format diffère. Sans cela, un montage mélangeant du 1080p et du 1440p (ou du 16:9 et
         // de l'ultrawide) échouerait au moment de concaténer des images de tailles différentes.
         val (w, h) = RenderCommandBuilder.outputSize(request.format, clips.first().group.media, edit)
+        val camBox = if (request.webcams.isEmpty()) null else WebcamLayout.target(request.format, w, h, edit, clips.first().group.media)
         val colors = RenderCommandBuilder.grade(settings.colors.grade()).removeSuffix(",")
         val blend = settings.motionBlur.blendFrames(fps)
         val cutFrames = settings.motionBlur.cutFrames(fps)
@@ -145,7 +149,8 @@ object MontageRenderBuilder {
             // HUD recollé en 9:16 (bandeau, killfeed, bloc du bas) : empilé sous l'image, recollé fixe après zoom et
             // flous, sous couleurs, textes et compteur (HudPin). Seulement quand le plan a déjà la taille du montage.
             val targets = if (own == w to h) RenderCommandBuilder.hudTargets(request.format, media, edit) else emptyList()
-            graph += RenderCommandBuilder.videoChain(i, media, request.format, edit, "g$i", pinHud = targets.isNotEmpty())
+            val cam = if (own == w to h) sourceRange(clip, bleeds[i], leads[i]).let { WebcamLayout.input(args, request.webcams, media, it.start, it.length, edit, camBox) } else null
+            graph += RenderCommandBuilder.videoChain(i, media, request.format, edit, "g$i", pinHud = targets.isNotEmpty() || cam != null, webcam = cam)
             val sized = if (own == w to h) {
                 "g$i"
             } else {
@@ -213,10 +218,13 @@ object MontageRenderBuilder {
                 motion += VectorBlur.filters("vb$i", VectorBlur.sigmas(clip, track, lead, frames, fps, pixelsPerWidth, w, settings.motionBlur, outKills), fps)
             }
             val effects = mutableListOf<String>()
-            val start = HudPin.statements(base, pre, motion, targets, w, h, "hp$i")?.let { (lines, out) ->
+            // Webcam sortie de la trame avant zoom, flous, flash et couleurs ; reposée sur la vidéo finie (WebcamLayout).
+            val (game, camLabel) = WebcamLayout.detach(graph, base, cam, camBox, targets.sumOf { it.h }, w, h, "wd$i")
+            camBox?.let { WebcamLayout.finish(graph, camLabel, it, pre, frames, fps, "wc$i") }
+            val start = HudPin.statements(game, pre, motion, targets, w, h, "hp$i")?.let { (lines, out) ->
                 graph += lines
                 out
-            } ?: base.also { effects += pre + motion }
+            } ?: game.also { effects += pre + motion }
             // Couleurs boostées après le zoom (le vignettage reste fixe dans le cadre), avant flash et textes (leur
             // blanc reste blanc).
             if (colors.isNotEmpty()) effects += colors
@@ -343,7 +351,8 @@ object MontageRenderBuilder {
         graph += clips.indices.joinToString("") { "[v$it]" } + "concat=n=${clips.size}:v=1:a=0[vcat]"
         // Format imposé juste avant l'encodeur : concat et xfade peuvent sinon négocier du 4:4:4 (selon la version
         // de FFmpeg), que le profil « high » de x264 refuse.
-        graph += "[vcat]fade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},format=yuv420p[vmontage]"
+        val video = WebcamLayout.overlay(graph, "vcat", if (camBox != null) clips.indices.map { "wc$it" } else emptyList(), camBox)
+        graph += "[$video]fade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},format=yuv420p[vmontage]"
         graph += clips.indices.joinToString("") { "[a$it]" } +
             "amix=inputs=${clips.size}:normalize=0:duration=longest,apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[game]"
 
