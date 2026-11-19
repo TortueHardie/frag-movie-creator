@@ -41,14 +41,16 @@ object MontagePreview {
     )
 
     /**
-     * Plan ramené à l'aperçu : sans flou par vecteurs ni images calculées au ralenti (même nombre d'images, rendu bien
-     * plus court). Le flou radial des coupes reste : il coûte cher (chacune de ses images passe par un `scale` recalculé
-     * à chaque image ; aperçu WARDOGS de 19 plans sur proxies : 10,7 s avec, 7,0 s sans), mais il se voit, même en 360p :
-     * dans un montage rapide, il couvre une bonne part des images (5 sur 6 prises au hasard sur WARDOGS 22-55-31).
+     * Plan ramené à l'aperçu : sans flou par vecteurs, sans flou radial des coupes, ni images calculées au ralenti (même
+     * nombre d'images, mêmes coupes, rendu bien plus court). Le flou radial ne couvre que 3 images de part et d'autre
+     * d'une coupe (8,5 % d'un montage WARDOGS), mais chacune passe par un `scale` recalculé à chaque image : un tiers du
+     * temps d'un aperçu (WARDOGS 22-55-31 sur proxies : 10,7 s avec, 7,0 s sans). Retiré des aperçus seulement, à la
+     * demande de l'utilisateur (19/11) ; le rendu final le garde. L'empreinte ([MontageVariants.signature]) ne voit pas
+     * les effets : la variante choisie se rend toujours.
      */
     fun plan(plan: MontagePlan): MontagePlan = plan.copy(
         settings = plan.settings.copy(
-            motionBlur = plan.settings.motionBlur.copy(vectors = false),
+            motionBlur = plan.settings.motionBlur.copy(vectors = false, cuts = false),
             slowMotion = plan.settings.slowMotion.copy(interpolate = false),
         ),
     )

@@ -132,7 +132,10 @@ class PreviewProxiesTest : FunSpec({
         val all = ProxySources.of(mapOf(wardogs.path.toAbsolutePath().normalize() to Proxy(proxy, segments + LiveSegment(Path("p0.mp4"), cuts.first().range, Duration.ZERO))), cuts)
         MontagePreview.parallelism(listOf(plan), all, 60) shouldBe MontagePreview.PARALLELISM
         MontagePreview.parallelism(listOf(plan), ProxySources.NONE, 60) shouldBe 1
-        MontagePreview.plan(plan).settings.motionBlur.cuts shouldBe plan.settings.motionBlur.cuts
+        // Aperçu sans flou radial des coupes (le rendu final le garde) ; même empreinte, donc la variante choisie se rend.
+        plan.settings.motionBlur.cuts shouldBe true
+        MontagePreview.plan(plan).settings.motionBlur.cuts shouldBe false
+        MontageVariants.signature(MontagePreview.plan(plan)) shouldBe MontageVariants.signature(plan)
     }
 
     test("passages proches regroupés, éloignés gardés à part") {
