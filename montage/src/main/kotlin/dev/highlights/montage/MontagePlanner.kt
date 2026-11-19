@@ -329,7 +329,8 @@ object MontagePlanner {
 
     /** Regroupe les kills de chaque session (multi-kills) avec leurs segments de réaction. */
     fun groups(sessions: List<Session>, settings: MontageSettings): List<KillGroup> = sessions.flatMap { session ->
-        val timeline = session.timeline
+        // Morts de Phoenix pendant son ultime (« Run it Back ») retirées : le joueur revient, ce n'en sont pas.
+        val timeline = session.timeline.let { it.copy(events = TeamRounds.withoutRevived(it.events, settings.killStyle)) }
         val bounds = session.media.bounds
         val allKills = timeline.events.filter { it.kind == settings.killEvent || it.kind in settings.anchorEvents }.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
         // Rythme rapide : un kill aussitôt suivi de la mort du joueur ne montrerait que l'écran de mort.
@@ -356,6 +357,8 @@ object MontagePlanner {
         val rounds = rounds(kills, deaths, style.roundGap)
         val clutches = if (style.clutchEvent.isEmpty()) null
         else timeline.events.filter { it.kind == style.clutchEvent }.map { it.at + settings.killOffset }.sorted()
+        // Sans clutch annoncé par le jeu dans la partie : le clutch réel, compté sur les morts des deux équipes du killfeed.
+        val known = clutches?.takeIf { it.isNotEmpty() } ?: TeamRounds.clutchTimes(timeline.events, deaths, style, settings.killOffset) ?: clutches
         val roundOf = rounds.flatMapIndexed { i, r -> r.kills.map { it to i } }.toMap()
         // Un groupe ne déborde jamais sur le round suivant : une mort entre deux kills les sépare.
         val grouped = mutableListOf<MutableList<Duration>>()
@@ -367,7 +370,7 @@ object MontagePlanner {
         // Un clutch annoncé par le jeu, lui, vaut même sans mort.
         val outcomes = grouped.map { g ->
             val base = if (deaths.isEmpty()) RoundOutcome.NONE else outcome(g, deaths, rounds, style)
-            if (clutches == null) base else base.copy(clutch = announcedClutch(g, clutches, kills, deaths, style.roundGap))
+            if (known == null) base else base.copy(clutch = announcedClutch(g, known, kills, deaths, style.roundGap))
         }
         if (outcomes.any { it != RoundOutcome.NONE }) {
             log.info {

@@ -96,8 +96,16 @@ class StatisticsTest : FunSpec({
         // Capture OBS : kills du killfeed, qui n'annonce pas les clutchs.
         val obs = session("2026-09-27T21:00:00Z", events = events.map { it.copy(detectorId = "killfeed") })
         Statistics.game(obs, announced, Path("d"), "VALORANT", clutchSources = sources).clutches shouldBe null
+        // La même, avec les morts des deux équipes lues dans le killfeed : clutchs réels, connus (ici aucun).
+        val teams = session("2026-09-27T21:00:00Z", events = (obs.timeline.events + ev(50, "ally-death").copy(detectorId = "teams")).sortedBy { it.at })
+        Statistics.game(teams, announced, Path("d2"), "VALORANT", clutchSources = sources).clutches shouldBe 0
         // Clutchs déduits (profil sans clutchEvent) : toujours connus, même d'une analyse ancienne (ici, le triplé d'un round survécu).
         Statistics.game(obs, settings, Path("e"), "VALORANT", outdated = true, clutchSources = emptySet()).clutches shouldBe 1
+    }
+
+    test("une mort pendant l'ultime de Phoenix ne compte pas dans le K/D") {
+        val evs = listOf(ev(100, "kill", "killfeed"), ev(200, "death", "killfeed"), ev(300, "death", "killfeed"), ev(300, "ally-run-it-back", "teams"))
+        Statistics.game(session("2026-09-27T21:00:00Z", events = evs), settings, Path("p"), "VALORANT", setOf("killfeed")).deaths shouldBe 1
     }
 
     test("soirées : une partie après minuit compte pour la veille, un jeu par soirée") {

@@ -1,0 +1,90 @@
+# Vérité terrain relevée à l'image (19/11/2026) sur la vidéo « Valorant- 44 kills » (854x480, YouTube, phases d'achat
+# coupées au montage) : chaque ligne du killfeed dont la victime est de l'équipe du joueur (moitié droite de la ligne
+# sarcelle), lue sur des planches agrandies (output/revue/clutch-reel/). Candidats : les lignes suivies par un prototype
+# (même règle que killfeed-teams, décodage logiciel) et chaque baisse du nombre d'alliés en vie de la barre du haut sans
+# ligne à moins de 3 s ; 113 candidats regardés un à un. Instants : apparition de la ligne, à 0,5 s près.
+# Contrôle : 14 morts du joueur, comme le tableau de fin (44/14/6), une fois retirées les 4 lignes « Run it Back »
+# (cercle de l'ultime de Phoenix : le joueur revient aussitôt, vérifié à l'image à 4:26, 15:13 et 23:36).
+# Clutchs (le joueur seul en vie, round gagné), relevés sur la barre du haut et les bandeaux de fin de round : aucun
+# à 1 contre 2 ou plus ; un 1 contre 1 gagné à 19:07 (bandeau « WON », pas « CLUTCH »). Le bandeau « CLUTCH » de 5:18
+# est celui d'un coéquipier (le joueur était mort à 4:57).
+capture: { name: Valorant- 44 kills.mp4, sizeBytes: 271139128, duration: 1871.969s }
+profile: valorant
+tolerance: 3s
+validated: null
+note: "Morts alliées seulement (le joueur compris) ; les morts adverses ne sont pas relevées. Planches : output/revue/clutch-reel/."
+kinds: [ally-death, ally-run-it-back]
+events:
+  - { at: "27.6s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "1m1.4s", kind: ally-death }
+  - { at: "1m2.6s", kind: ally-death }
+  - { at: "1m16.6s", kind: ally-death }
+  - { at: "1m18.8s", kind: ally-death }
+  - { at: "2m8.4s", kind: ally-death }
+  - { at: "2m16.0s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "2m38.0s", kind: ally-death }
+  - { at: "2m42.6s", kind: ally-death }
+  - { at: "2m46.8s", kind: ally-death }
+  - { at: "4m20.0s", kind: ally-death }
+  - { at: "4m26.4s", kind: ally-run-it-back, note: "le joueur revient (ultime de Phoenix)" }
+  - { at: "4m47.8s", kind: ally-death }
+  - { at: "4m48.8s", kind: ally-death }
+  - { at: "4m57.6s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "5m15.2s", kind: ally-death }
+  - { at: "5m49.6s", kind: ally-death }
+  - { at: "6m16.2s", kind: ally-death }
+  - { at: "7m8.2s", kind: ally-death }
+  - { at: "7m9.4s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "7m45.2s", kind: ally-death }
+  - { at: "8m10.6s", kind: ally-death }
+  - { at: "9m7.8s", kind: ally-death }
+  - { at: "9m13.8s", kind: ally-death }
+  - { at: "9m30.8s", kind: ally-run-it-back, note: "le joueur revient (ultime de Phoenix)" }
+  - { at: "9m39.0s", kind: ally-death }
+  - { at: "9m43.8s", kind: ally-death, note: "le joueur, ligne masquée par un éclat rouge (vue à 9:43.9), trouvée par la baisse de la barre" }
+  - { at: "9m59.0s", kind: ally-death }
+  - { at: "10m48.6s", kind: ally-death }
+  - { at: "10m59.4s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "11m38.0s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "11m48.2s", kind: ally-death }
+  - { at: "12m38.2s", kind: ally-death }
+  - { at: "12m48.4s", kind: ally-death }
+  - { at: "13m9.2s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "13m12.2s", kind: ally-death }
+  - { at: "14m6.6s", kind: ally-death }
+  - { at: "14m49.6s", kind: ally-death }
+  - { at: "15m1.0s", kind: ally-death }
+  - { at: "15m1.6s", kind: ally-death }
+  - { at: "15m14.2s", kind: ally-run-it-back, note: "le joueur revient (ultime de Phoenix)" }
+  - { at: "15m20.4s", kind: ally-death, note: "nier (Killjoy → nier), trouvée par la baisse de la barre" }
+  - { at: "16m3.4s", kind: ally-death }
+  - { at: "16m3.8s", kind: ally-death }
+  - { at: "16m20.0s", kind: ally-death }
+  - { at: "16m40.2s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "17m32.8s", kind: ally-death }
+  - { at: "17m35.4s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "17m36.6s", kind: ally-death }
+  - { at: "18m3.4s", kind: ally-death }
+  - { at: "18m11.6s", kind: ally-death }
+  - { at: "18m14.2s", kind: ally-death }
+  - { at: "19m5.2s", kind: ally-death }
+  - { at: "19m32.2s", kind: ally-death }
+  - { at: "20m0.2s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "20m57.2s", kind: ally-death }
+  - { at: "21m19.0s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "21m33.0s", kind: ally-death }
+  - { at: "22m20.0s", kind: ally-death }
+  - { at: "22m23.6s", kind: ally-death }
+  - { at: "22m38.6s", kind: ally-death }
+  - { at: "22m50.0s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "23m37.0s", kind: ally-run-it-back, note: "le joueur revient (ultime de Phoenix)" }
+  - { at: "23m55.0s", kind: ally-death }
+  - { at: "25m4.6s", kind: ally-death }
+  - { at: "25m17.4s", kind: ally-death }
+  - { at: "25m21.8s", kind: ally-death }
+  - { at: "28m22.8s", kind: ally-death }
+  - { at: "28m24.4s", kind: ally-death }
+  - { at: "28m25.0s", kind: ally-death }
+  - { at: "28m27.0s", kind: ally-death }
+  - { at: "29m22.8s", kind: ally-death, note: "le joueur (AquaPlaid)" }
+  - { at: "30m32.2s", kind: ally-death }

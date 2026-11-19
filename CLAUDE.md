@@ -175,6 +175,13 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `KillfeedPlayer.kt` — kill ou assistance (`OutlineParams.player: PlayerParams`) : `PlayerName` (pseudo du joueur appris = premier mot le plus fréquent
   en tête des lignes encadrées, canal le plus clair `BRIGHTEST` ; `score` calé sur le début du premier mot), `RewardLines` (lignes « +$ » vertes du chat,
   `RewardParams`), `LineSample`, `lineImage` ; `KillfeedDetector.assists` → `KillfeedRole.ASSIST` (kind `assist`).
+- `KillfeedTeams.kt` — type **`killfeed-teams`** : morts des alliés (`ally-death`, le joueur compris) et des adversaires (`enemy-death`) à la couleur de la victime
+  (colonne juste avant son portrait : sarcelle = équipe du joueur, rouge = adversaire ; classes en un octet par `geq`) ; `TeamRowReader` (bandes coupées au pas des lignes,
+  côté tueur de l'autre couleur exigé : écarte menu d'achat et résumé de combat ; nom de la victime neutre ; cercle de Phoenix « Run it Back »
+  → `ally-run-it-back`/`enemy-run-it-back` au lieu d'une mort), `TeamTracker`. `TeamRounds.withoutRevived` (`killStyle.revivedEvent`) retire la mort du joueur
+  correspondante, appelé en tête de `MontagePlanner.groups` et de `Statistics.game`. `round-start` (`RoundBarParams` : barres de vie alliées pleines, `roundStarts`),
+  `clutch-banner` (`BannerParams` : mot « CLUTCH » du bandeau de fin de round, gabarit `templates/valorant/banner_clutch.png`, `bannerAppearances`) →
+  `KillStyle.roundStartEvent/clutchBannerEvent`, utilisés par `TeamRounds.clutchTimes` (bandeau = clutch annoncé de plus). valorant.yaml : `teams`, `fallbackFor: game-events`, 5 img/s. Mesuré en 480p seulement.
 - `RewardsLog.kt` : `RewardsLog.classify/fuzzyDistance/rows`, `LogTracker` (suivi de lignes, minSightings, `maxDrop` : lignes poussées vers le bas), `LogCredits.apply`, `LogFinishes.apply`, `EventFusion.fuse`, `NoticeRead`, `NoticeLabels.relabel` (libellé le plus proche dans [before, after] : son type, "" = icône écartée, rien = icône inchangée).
 - `TemplateMatcher.kt` : `GrayImage`, `PreparedTemplate`, `TemplateMatcher.match` (NCC), `BrightTemplate/BrightMatcher`.
 - `WindowsOcr.kt` : lance `resources/.../windows-ocr.ps1` (Windows.Media.Ocr) par lots ; `WindowsOcr.supported`.
@@ -248,6 +255,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `window` (fenêtres notées puis la mieux notée qu'`accept` retient ; pénalité `DROP_LEAD_WEIGHT` si moins de `cuts.dropLead` avant la drop).
 - `MontagePlanner.kt` : `KillGroup(media, kills, score, protectedSegments, voiceSegments, traits, outcome, style, aim)` (`rank = kills + score/10 + style`), `KillTraits(headshot, flick, shift, direction)`,
   `FlickDirection`, `Aim`, `RoundOutcome`, `SpeedSegment/SpeedKind`, `MontageClip` (`toOutput`, `outputKills`, `slow`, `ramps`), `PlanVariant`, `MontagePlan` (slots contigus obligatoires).
+  Clutch réel sans Outplayed : `TeamRounds.clutchTimes/clutches` (morts `killStyle.allyDeathEvent/enemyDeathEvent`, `teamSize`, `clutchMinEnemies` 1 ; seul face à ≥ 1, équipe adverse éliminée) → mêmes instants qu'un clutch annoncé ; `Statistics` les dit connus dès qu'une partie a des `ally-death`.
   Clutch : `killStyle.clutchEvent` (valorant : « clutch » d'Outplayed) → `announcedClutch` (groupe dont le dernier kill précède l'annonce, sans kill ni mort entre, ≤ roundGap) remplace la déduction.
   `MontagePlanner.groups / rounds / outcome / style / targetDuration / placeable / best / plan / layout / arbitrate / aimFit / assign / pairUp / clipFor / slowCurve / isStrong / allowsSlow`.
   `assign` : un multi-kill ne prend sur la cellule voisine que les temps qui lui manquent (`share` : sur la suivante puis la précédente ; `keeps`/`spare` : le reste garde la moitié de sa longueur), sinon la cellule entière (`grow`).

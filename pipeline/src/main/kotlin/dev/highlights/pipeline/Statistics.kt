@@ -3,6 +3,7 @@ package dev.highlights.pipeline
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.session.Session
 import dev.highlights.montage.MontagePlanner
+import dev.highlights.montage.TeamRounds
 import java.nio.file.Path
 import java.time.Instant
 import java.time.LocalDate
@@ -104,7 +105,8 @@ object Statistics {
         clutchSources: Set<String>? = null,
     ): GameStats {
         val style = settings.killStyle
-        val events = session.timeline.events
+        // Morts de Phoenix pendant son ultime (« Run it Back ») retirées, comme au montage : le joueur revient.
+        val events = TeamRounds.withoutRevived(session.timeline.events, style)
         val killEvents = events.filter { it.kind == settings.killEvent }
         val kills = killEvents.map { it.at }.sorted()
         val killSources = killEvents.map { it.detectorId }.toSet()
@@ -132,8 +134,13 @@ object Statistics {
             multiKills = groups.map { it.kills.size }.filter { it > 1 }.groupingBy { it }.eachCount(),
             aces = groups.count { it.outcome.ace },
             // Clutchs annoncés par le jeu : connus seulement d'une analyse à jour dont les kills viennent d'un détecteur
-            // qui les annonce ; sinon inconnus plutôt que 0. Clutchs déduits : toujours connus.
-            clutches = if (style.clutchEvent.isEmpty() || (!outdated && known(clutchSources))) groups.count { it.outcome.clutch } else null,
+            // qui les annonce ; sinon inconnus plutôt que 0. Clutchs déduits : toujours connus. Clutchs réels, comptés sur les
+            // morts des deux équipes lues dans le killfeed : connus dès que la partie en a.
+            clutches = if (style.clutchEvent.isEmpty() || (!outdated && (known(clutchSources) || events.any { it.kind.isNotEmpty() && (it.kind == style.allyDeathEvent || it.kind == style.clutchBannerEvent) }))) {
+                groups.count { it.outcome.clutch }
+            } else {
+                null
+            },
             bestRound = if (deaths != null) rounds.maxOfOrNull { it.kills.size } ?: 0 else null,
             rounds = if (deaths != null) rounds.size else null,
             outdated = outdated,

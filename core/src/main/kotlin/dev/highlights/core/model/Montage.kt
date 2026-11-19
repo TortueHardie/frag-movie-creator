@@ -211,7 +211,7 @@ data class MontageSettings(
             slowMotion = slowMotion.copy(enabled = true, factor = f.slowFactor, before = f.slowBefore, after = f.slowAfter),
             speedRamp = speedRamp.copy(enabled = false),
             matchCut = matchCut.copy(enabled = false),
-            killStyle = style.copy(deathEvent = "", headshotEvent = "", shotEvent = "", hudShotEvent = "", confirmEvent = "", clutchEvent = "", flick = false),
+            killStyle = style.copy(deathEvent = "", headshotEvent = "", shotEvent = "", hudShotEvent = "", confirmEvent = "", clutchEvent = "", allyDeathEvent = "", clutchBannerEvent = "", flick = false),
         )
     }
 }
@@ -618,6 +618,38 @@ data class KillStyle(
      * dont le dernier kill le précède, sans kill ni mort entre les deux, à moins de [roundGap].
      */
     val clutchEvent: String = "",
+    /**
+     * Mort d'un allié lue dans le killfeed (VALORANT : détecteur `killfeed-teams`, le joueur compris) et mort d'un
+     * adversaire. Quand une partie en a, le clutch est réel : le joueur, dernier de son équipe en vie face à au moins
+     * [clutchMinEnemies] adversaires, gagne le round en éliminant les autres (voir `TeamRounds`). Un clutch annoncé par
+     * le jeu ([clutchEvent]) reste prioritaire. Vide : pas de recherche.
+     */
+    val allyDeathEvent: String = "ally-death",
+    val enemyDeathEvent: String = "enemy-death",
+    /** Joueurs par équipe (5 dans VALORANT). */
+    val teamSize: Int = 5,
+    /**
+     * Adversaires encore en vie quand le joueur se retrouve seul : à partir de combien c'est un clutch. 1 : un 1 contre
+     * 1 gagné en est un (choix de l'utilisateur, 19/11), bien que le jeu n'affiche « CLUTCH » qu'à partir d'un 1 contre 2
+     * (un 1 contre 1 gagné y reste « WON », vu sur deux parties). 2 pour suivre le jeu.
+     */
+    val clutchMinEnemies: Int = 1,
+    /**
+     * Ligne du killfeed où le joueur (ou un allié) meurt pendant l'ultime de Phoenix (« Run it Back ») : il revient
+     * aussitôt, ce n'est pas une mort. Une mort du joueur lue à moins de 1,5 s de cet événement est retirée partout
+     * (rounds, clutchs, morts aussitôt payées, montage des morts, statistiques). Vide : gardée.
+     */
+    val revivedEvent: String = "ally-run-it-back",
+    /**
+     * Début de round lu à l'image (VALORANT : barres de vie des alliés revenues pleines, détecteur `killfeed-teams`).
+     * Sépare les rounds du clutch réel même sans silence entre eux (vidéo montée, phases d'achat coupées).
+     */
+    val roundStartEvent: String = "round-start",
+    /**
+     * Bandeau « CLUTCH » de fin de round lu à l'image (détecteur `killfeed-teams`) : un clutch annoncé de plus, qui
+     * attrape ceux gagnés au spike. Le jeu ne l'affiche qu'à partir d'un 1 contre 2, et pour les deux équipes.
+     */
+    val clutchBannerEvent: String = "clutch-banner",
 ) {
     init {
         require(flickTo > flickFrom) { "montage.killStyle.flickTo doit dépasser flickFrom" }
@@ -625,6 +657,7 @@ data class KillStyle(
         require(roundGap.isPositive()) { "montage.killStyle.roundGap doit être positif" }
         require(aceKills >= 2) { "montage.killStyle.aceKills doit valoir au moins 2" }
         require(clutchKills >= 1) { "montage.killStyle.clutchKills doit valoir au moins 1" }
+        require(teamSize >= 2 && clutchMinEnemies in 1..teamSize) { "montage.killStyle : teamSize ≥ 2, clutchMinEnemies entre 1 et teamSize" }
         require(oneTapWindow.isPositive()) { "montage.killStyle.oneTapWindow doit être positif" }
     }
 

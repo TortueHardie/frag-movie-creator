@@ -504,7 +504,22 @@ détecte les kills). En ligne de commande :
   recule (`deathPenalty`) ; le groupe qui finit un round de 5 kills monte nettement (**ace**, `aceBonus`) ; celui qui
   finit un round survécu sur au moins deux kills monte aussi (**clutch**, `clutchBonus`). Le jeu ne donne ni les rounds
   ni le nombre d'alliés en vie : une mort clôt le round du joueur, un silence de plus de 40 s aussi (`roundGap`, plus
-  court que la phase d'achat), et le clutch reste une approximation. Une mort sépare toujours deux kills rapprochés en
+  court que la phase d'achat), et le clutch reste une approximation. En VALORANT, le clutch est celui que le jeu annonce
+  (Outplayed) ; sans Outplayed, il est **réel** : les morts des deux équipes sont lues dans le killfeed (détecteur
+  `killfeed-teams` : la moitié droite de chaque ligne a la couleur de l'équipe de la victime, sarcelle pour celle du
+  joueur, rouge pour l'adversaire). Le joueur, resté seul de son équipe face à au moins un adversaire, gagne le round
+  en les éliminant (`TeamRounds`) : un 1 contre 1 gagné compte (`clutchMinEnemies: 2` pour suivre le bandeau « CLUTCH »
+  du jeu, qui n'apparaît qu'à partir d'un 1 contre 2). Un round
+  gagné au spike (désamorcé, explosé) ne se voit pas dans le killfeed : le bandeau « CLUTCH » de fin de round, lu au
+  centre de l'écran (gabarit du mot, `templates/valorant/banner_clutch.png`), le rattrape. Gris pour les deux équipes,
+  il est rattaché comme un clutch annoncé : au groupe du joueur dont le dernier kill le précède sans mort entre les
+  deux (le clutch d'un coéquipier, joueur mort, n'est pas le sien). Un 1 contre 1 gagné au spike reste manqué (pas de
+  bandeau). Les rounds sont séparés
+  par l'élimination d'une équipe, un silence de 40 s, et surtout le retour des cinq barres de vie alliées pleines en haut
+  de l'écran (`round-start`) : dans une vidéo montée, phases d'achat coupées, deux rounds se suivent à 10 s. Mesuré sur
+  deux parties en 854x480 (`output/revue/clutch-reel/`, vérité `verite/valorant/`) : morts alliées précision 0,92,
+  rappel 0,97 (67 sur 69, le joueur compris) ; clutchs : 2 trouvés pour 2 réels (deux 1 contre 1, aucun 1 contre 2
+  dans ces parties), aucun inventé, ni à partir des clutchs de coéquipiers. Pas vérifié en 1080p ni 1440p, faute de capture. Une mort sépare toujours deux kills rapprochés en
   deux clips. Sans aucune mort annoncée (`deathEvent` vide, ou jeu sans Outplayed ni killfeed lu), rien de tout ça ne
   s'applique.
   Désactivable par une case de la fenêtre de montage ou `--no-rounds`.
@@ -649,7 +664,8 @@ téléchargées n'ont que la date du fichier, et deux parties copiées à une mi
   du montage kills (les chiffres concordent avec ce qu'il monte).
 - **Clutchs** : en VALORANT, ceux que le jeu annonce (via Outplayed), et non plus déduits (la déduction en comptait 3
   pour 1 réel). Une partie analysée avant ce réglage a ses clutchs « inconnus » : **Mettre à jour les analyses** (ou
-  `app stats --refresh`) la réanalyse, en quelques secondes. Une capture OBS, lue dans le killfeed, n'en a jamais.
+  `app stats --refresh`) la réanalyse, en quelques secondes. Une capture OBS, lue dans le killfeed, a ses clutchs réels,
+  comptés sur les morts des deux équipes (voir « Kills dans leur round ») ; analysée avant, elle les a inconnus.
 - Une **soirée** va jusqu'à 6 h du matin : la partie de 1 h compte pour la veille. Deux jeux ne se mélangent pas.
 - Une **partie** dure au moins 5 minutes : les clips d'Outplayed (1 min 30) n'en sont pas. La même partie enregistrée
   deux fois (deux captures qui se chevauchent de plus de moitié) ne compte qu'une, la plus riche en kills.
@@ -879,7 +895,11 @@ ligne est un événement.
   droit de l'écran (bordure dorée de certaines capacités). Une ligne doit y rester visible 2 s (`fillMinSeen`, une
   ligne en reste 5) et toute la vidéo est décodée (480p coûte peu). Sur la partie dont le tableau de fin dit 44 kills /
   14 morts : 46 kills et 18 morts lus (1 et 0 avant) ; 4 des morts portent l'icône de l'ultime de Phoenix, qui ramène le
-  joueur sans compter de mort (hypothèse, non traitée). La géométrie 16:9 n'était pas en cause : la zone mesurée en
+  joueur sans compter de mort (vérifié à l'image : il revient aussitôt). Ces morts sont écartées partout (montage des
+  morts, rounds, clutchs, K/D) : le détecteur `killfeed-teams` reconnaît le grand cercle blanc de « Run it Back » sur
+  la ligne (il déborde en haut et en bas, l'icône de tir à la tête non) et émet `ally-run-it-back` ; la mort du joueur
+  lue à moins de 1,5 s est retirée (`killStyle.revivedEvent`). Sans Outplayed seulement, et mesuré en 480p seulement.
+  La géométrie 16:9 n'était pas en cause : la zone mesurée en
   21:9 tombe juste sur le killfeed en 16:9.
 
 ### Counter-Strike 2 : lignes encadrées (`outline`)
