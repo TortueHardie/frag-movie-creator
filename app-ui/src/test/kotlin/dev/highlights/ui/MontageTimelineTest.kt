@@ -45,6 +45,75 @@ class MontageTimelineTest : FunSpec({
         KillRef.parse(g.key) shouldBe g.refs.last()
     }
 
+    test("épingler sur un temps : par le dernier kill, instant du morceau, autres corrections retirées, une seule place") {
+        val g = group(100.0, 101.5)
+        val forced = MontageConstraints.NONE.edit(g.refs, KillEdit.FORCE)
+        val pinned = forced.pinAt(g.refs, 72.5.seconds)
+        pinned.forced shouldBe emptySet()
+        pinned.pins shouldBe mapOf(g.refs.last() to MontagePin.At(72.5.seconds))
+        g.mark(pinned) shouldBe GroupMark.PINNED
+        // Épinglé ailleurs : la nouvelle place remplace l'ancienne ; la drop d'un autre groupe reste.
+        val other = group(300.0)
+        val both = pinned.edit(other.refs, KillEdit.DROP).pinAt(g.refs, 80.seconds)
+        both.pins shouldBe mapOf(other.refs.last() to MontagePin.Drop, g.refs.last() to MontagePin.At(80.seconds))
+        // Désépingler (clic sur le plan ou sur l'épingle) : plus rien.
+        both.edit(g.refs, KillEdit.CLEAR).pins shouldBe mapOf(other.refs.last() to MontagePin.Drop)
+        MontageConstraints.NONE.pinAt(emptyList(), 1.seconds) shouldBe MontageConstraints.NONE
+    }
+
+    test("temps visé : le plus proche dans la frise, rendu en instant du morceau, épingles replacées sur leur temps") {
+        val beats = (0 until 20).map { (it * 500).milliseconds }
+        val view = PlanView("m.mp3", 120.0, 55.seconds, 10.seconds, beats, beats.map { 0.5 }, emptyList(), null, emptyList(), emptyList())
+        view.beatNear(3.2.seconds) shouldBe 6
+        view.beatNear(30.seconds) shouldBe 19
+        view.musicAt(6) shouldBe 58.seconds
+        val g = group(100.0)
+        val h = group(200.0)
+        val c = MontageConstraints.NONE.pinAt(g.refs, 58.1.seconds).pinAt(h.refs, 120.seconds).edit(group(300.0).refs, KillEdit.DROP)
+        // Dans le passage : arrondie au temps (3,0 s du montage) ; dehors : gardée avec son instant du morceau ; la drop n'y est pas.
+        view.pinMarks(c) shouldBe listOf(PinMark(g.refs.last(), 58.1.seconds, 3.seconds), PinMark(h.refs.last(), 120.seconds, null))
+    }
+
+    test("frise du plan : épingler sur un temps, avant/pendant/après (build/ui-snapshots/montage_plan_pin*.png)") {
+        val out = Path("build", "ui-snapshots").createDirectories()
+        val duration = 24.seconds
+        val beats = (0 until 48).map { (it * 500).milliseconds }
+        val placed = listOf(group(312.0) to (0.0 to 6.0), group(905.0, 906.2) to (6.0 to 12.0), group(1500.0) to (12.0 to 18.0), group(2100.0) to (18.0 to 24.0))
+        fun view(order: List<Int>) = PlanView(
+            music = "Rome Is Burning.mp3", bpm = 120.0, musicStart = 55.seconds, duration = duration, beats = beats,
+            energy = beats.map { t -> 0.5 + 0.4 * sin(t.inWholeMilliseconds / 1000.0 * 3.1) },
+            sections = listOf(PlanSection(0.seconds, 8.seconds, SectionKind.BUILD_UP, 0.5), PlanSection(8.seconds, duration, SectionKind.DROP, 1.0)),
+            dropAt = 8.seconds,
+            clips = order.mapIndexed { slot, i ->
+                val g = placed[i].first
+                val (a, b) = placed[slot].second
+                PlanClip(g, a.seconds, b.seconds, listOf(PlanKill((b - 1.0).seconds, g.refs.last())), a == 6.0)
+            },
+            left = listOf(group(400.0), group(1000.0)),
+        )
+        val pinnedGroup = placed[0].first
+        // Après : le groupe 1 épinglé au temps de 17,0 s du montage (72,0 s du morceau), le plan l'y a mis.
+        val pinned = MontageConstraints.NONE.pinAt(pinnedGroup.refs, 72.seconds)
+        val shots = listOf(
+            Triple("montage_plan_pin_avant", MontagePlanState(loading = false, view = view(listOf(0, 1, 2, 3))) to MontageConstraints.NONE, null),
+            Triple("montage_plan_pin_glisser", MontagePlanState(loading = false, view = view(listOf(0, 1, 2, 3))) to MontageConstraints.NONE, pinnedGroup to 34),
+            Triple("montage_plan_pin_apres", MontagePlanState(loading = false, view = view(listOf(1, 2, 0, 3)), planned = pinned) to pinned, null),
+        )
+        for ((name, stateAndConstraints, drag) in shots) {
+            val (state, constraints) = stateAndConstraints
+            for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/")) {
+                I18n.withLanguage(tag) {
+                    val image = SceneRendering.image(1320, 600) {
+                        HighlightsTheme { MontagePlanContent(constraints, state, noop, previewDrag = drag) }
+                    }
+                    val file: Path = out.resolve("$folder$name.png")
+                    file.parent.createDirectories()
+                    file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+                }
+            }
+        }
+    }
+
     test("frise du plan : rendu hors écran (build/ui-snapshots/montage_plan*.png)") {
         val out = Path("build", "ui-snapshots").createDirectories()
         val duration = 42.seconds

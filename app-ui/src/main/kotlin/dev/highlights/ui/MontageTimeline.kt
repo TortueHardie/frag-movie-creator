@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +67,7 @@ import dev.highlights.pipeline.PlannedMontage
 import java.nio.file.Path
 import kotlin.math.roundToInt
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -102,6 +104,19 @@ fun MontageConstraints.edit(kills: List<KillRef>, edit: KillEdit): MontageConstr
         KillEdit.CLEAR -> cleared
     }
 }
+
+/**
+ * Épingle le groupe [kills] (désigné par son dernier kill, celui qui tombe sur le temps) sur le temps du morceau le plus
+ * proche de [music] ([MontagePin.At] : instant dans le morceau, pas dans le montage, pour qu'un plan recalculé sur un
+ * autre passage le garde au même endroit de la musique). Ses autres corrections sont retirées.
+ */
+fun MontageConstraints.pinAt(kills: List<KillRef>, music: Duration): MontageConstraints {
+    if (kills.isEmpty()) return this
+    return kills.fold(this) { c, k -> c.clear(k) }.pin(kills.last(), MontagePin.At(music))
+}
+
+/** Épingle sur un temps posée par l'utilisateur : [music] dans le morceau ; [at] dans le montage, null hors du passage retenu. */
+data class PinMark(val ref: KillRef, val music: Duration, val at: Duration?)
 
 /** Un groupe de kills tel que la frise le montre : capture, kills (désignations), ce qu'il vaut. */
 data class PlanGroup(val media: MediaInfo, val kills: List<Duration>, val rank: Double) {
@@ -157,7 +172,27 @@ data class PlanView(
     val clips: List<PlanClip>,
     val left: List<PlanGroup>,
 ) {
+    /** Temps de la frise le plus proche de [t] (instant du montage) ; null sans temps. */
+    fun beatNear(t: Duration): Int? = beats.indices.minByOrNull { (beats[it] - t).absoluteValue }
+
+    /** Instant dans le morceau du temps [beat] de la frise : ce que [MontagePin.At] attend. */
+    fun musicAt(beat: Int): Duration = musicStart + beats[beat]
+
+    /**
+     * Les épingles sur un temps de [c], placées sur le temps le plus proche de la frise (le planificateur arrondit de
+     * même) ; une épingle hors du passage retenu (plan pas encore recalculé, ou impossible) garde son instant du morceau.
+     */
+    fun pinMarks(c: MontageConstraints): List<PinMark> = c.pins.mapNotNull { (ref, pin) ->
+        val music = (pin as? MontagePin.At)?.music ?: return@mapNotNull null
+        val t = music - musicStart
+        val inside = beats.isNotEmpty() && t >= beats.first() - HALF_BEAT_MARGIN && t <= duration
+        PinMark(ref, music, if (inside) beatNear(t)?.let { beats[it] } else null)
+    }.sortedBy { it.music }
+
     companion object {
+        /** Marge avant le premier temps : une épingle arrondie à lui reste dans la frise. */
+        private val HALF_BEAT_MARGIN = 250.milliseconds
+
         fun of(planned: PlannedMontage): PlanView {
             val plan = planned.plan
             val music = plan.music
@@ -252,19 +287,41 @@ private fun clock(d: Duration) = KillRef.clock(d).substringBefore('.')
 /**
  * Contenu de la frise (sans fenêtre, pour les captures de test) : en-tête et boutons, la frise, les groupes écartés.
  * Clic sur un plan : l'écarter (ou annuler la correction) ; clic sur un trait de kill : écarter ce kill seul ; clic sur
- * un groupe écarté : le forcer ; glisser un groupe sur la drop : l'y épingler.
+ * un groupe écarté : le forcer ; glisser un groupe sur la drop : l'y épingler ; sur un autre temps : l'y épingler
+ * ([pinAt]) et replanifier aussitôt. [previewDrag] : un glisser figé (groupe, temps visé), pour les captures de test.
  */
 @Composable
-fun MontagePlanContent(constraints: MontageConstraints, plan: MontagePlanState, actions: UiActions, modifier: Modifier = Modifier) {
-    var dragged by remember { mutableStateOf<PlanGroup?>(null) }
+fun MontagePlanContent(
+    constraints: MontageConstraints,
+    plan: MontagePlanState,
+    actions: UiActions,
+    modifier: Modifier = Modifier,
+    previewDrag: Pair<PlanGroup, Int>? = null,
+) {
+    var dragged by remember { mutableStateOf(previewDrag?.first) }
     var pointer by remember { mutableStateOf(Offset.Zero) }
     var dropZone by remember { mutableStateOf(Rect.Zero) }
+    // La frise entière (sections, volume, plans, repères) : son abscisse donne le temps visé.
+    var lane by remember { mutableStateOf(Rect.Zero) }
+    // pointerInput n'est relancé qu'au changement de groupe : le plan, lui, change à chaque replanification.
+    val currentView by rememberUpdatedState(plan.view)
+    fun target(): Int? {
+        previewDrag?.let { return it.second }
+        val view = currentView ?: return null
+        if (dragged == null || dropZone.contains(pointer) || !lane.contains(pointer) || lane.width <= 0f) return null
+        return view.beatNear(view.duration * ((pointer.x - lane.left) / lane.width).toDouble())
+    }
     fun dragHandlers(group: PlanGroup, origin: () -> Offset) = Modifier.pointerInput(group.key) {
         detectDragGestures(
             onDragStart = { at -> dragged = group; pointer = origin() + at },
             onDrag = { change, amount -> change.consume(); pointer += amount },
             onDragEnd = {
-                if (dropZone.contains(pointer)) actions.editMontageKill(group.refs.map { it.toString() }, KillEdit.DROP)
+                val beat = target()
+                val view = currentView
+                when {
+                    dropZone.contains(pointer) -> actions.editMontageKill(group.refs.map { it.toString() }, KillEdit.DROP)
+                    beat != null && view != null -> actions.pinMontageKill(group.refs.map { it.toString() }, view.musicAt(beat).inWholeMicroseconds / 1e6)
+                }
                 dragged = null
             },
             onDragCancel = { dragged = null },
@@ -306,8 +363,30 @@ fun MontagePlanContent(constraints: MontageConstraints, plan: MontagePlanState, 
                 if (!plan.loading) Text(tr("ui.montagePlan.empty"), color = Palette.textMuted)
                 return@Column
             }
-            Box(Modifier.alpha(if (plan.loading) 0.55f else 1f)) {
-                Timeline(view, constraints, plan.thumbnails, dragged != null, actions, ::dragHandlers) { dropZone = it }
+            val pins = view.pinMarks(constraints)
+            Box(Modifier.alpha(if (plan.loading) 0.55f else 1f).onGloballyPositioned { lane = it.boundsInRoot() }) {
+                Timeline(view, constraints, plan.thumbnails, dragged != null, target(), pins, actions, ::dragHandlers) { dropZone = it }
+            }
+            // Les épingles sur un temps, chacune retirable d'un clic (le plan est recalculé sans elle).
+            if (pins.isNotEmpty()) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    pins.forEach { p ->
+                        Text(
+                            if (p.at != null) tr("ui.montagePlan.pinChip", "kill" to p.ref.toString(), "time" to KillRef.clock(p.at))
+                            else tr("ui.montagePlan.pinChipTrack", "kill" to p.ref.toString(), "time" to KillRef.clock(p.music)),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Palette.accent,
+                            maxLines = 1,
+                            modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                                .border(BorderStroke(1.dp, Palette.accent), RoundedCornerShape(12.dp))
+                                .clickable {
+                                    actions.editMontageKill(listOf(p.ref.toString()), KillEdit.CLEAR)
+                                    actions.replanMontage()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
+                }
             }
             Text(tr("ui.montagePlan.left", "count" to view.left.size).uppercase(), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
             if (view.left.isEmpty()) {
@@ -319,10 +398,14 @@ fun MontagePlanContent(constraints: MontageConstraints, plan: MontagePlanState, 
             }
         }
         // Le groupe qu'on glisse suit le pointeur.
-        dragged?.let { g ->
+        // Glisser figé des captures : pas de pointeur, le temps visé est dit sur la frise ([TargetBeat]).
+        dragged?.takeIf { previewDrag == null }?.let { g ->
             val density = LocalDensity.current
+            val beat = target()
+            val view = plan.view
             Text(
-                tr("ui.montagePlan.dragging", "kill" to g.key),
+                if (beat != null && view != null) tr("ui.montagePlan.pinTo", "kill" to g.key, "time" to KillRef.clock(view.beats[beat]))
+                else tr("ui.montagePlan.dragging", "kill" to g.key),
                 color = Palette.background,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.offset { IntOffset(pointer.x.roundToInt() + with(density) { 12.dp.roundToPx() }, pointer.y.roundToInt()) }
@@ -339,6 +422,8 @@ private fun Timeline(
     constraints: MontageConstraints,
     thumbnails: Map<String, Path>,
     dragging: Boolean,
+    target: Int?,
+    pins: List<PinMark>,
     actions: UiActions,
     drag: (PlanGroup, () -> Offset) -> Modifier,
     onDropZone: (Rect) -> Unit,
@@ -399,12 +484,22 @@ private fun Timeline(
                         modifier = Modifier.offset(x = x(drop) + 4.dp).background(Palette.accent, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp),
                     )
                 }
+                // Épingles : une tête ronde au-dessus d'un trait, sur leur temps.
+                pins.mapNotNull { it.at }.forEach { at ->
+                    Box(Modifier.offset(x = x(at) - 1.dp).width(2.dp).fillMaxSize().background(Palette.accent.copy(alpha = 0.8f)))
+                    Box(Modifier.offset(x = x(at) - 5.dp).size(10.dp).background(Palette.accent, RoundedCornerShape(5.dp)).border(BorderStroke(1.5.dp, Palette.text), RoundedCornerShape(5.dp)))
+                }
+                target?.let { TargetBeat(x(view.beats[it]), KillRef.clock(view.beats[it])) }
             }
             // Les plans, une vignette chacun, les kills en traits.
             Box(Modifier.fillMaxWidth().height(104.dp)) {
                 view.clips.forEachIndexed { i, clip ->
                     ClipBlock(i, clip, x(clip.start), x(clip.end) - x(clip.start), clip.group?.mark(constraints) ?: GroupMark.NONE, clip.group?.let { thumbnails[it.key] }, actions, drag, ::x)
                 }
+                pins.mapNotNull { it.at }.forEach { at ->
+                    Box(Modifier.offset(x = x(at) - 1.dp).width(2.dp).fillMaxSize().background(Palette.accent.copy(alpha = 0.8f)))
+                }
+                target?.let { TargetBeat(x(view.beats[it]), null) }
             }
             // Repères de temps.
             Box(Modifier.fillMaxWidth().height(14.dp)) {
@@ -421,6 +516,16 @@ private fun Timeline(
                 }
             }
         }
+    }
+}
+
+/** Le temps visé pendant un glisser : un trait clair large, bien distinct des épingles et de la drop, et son instant [time]. */
+@Composable
+private fun TargetBeat(left: androidx.compose.ui.unit.Dp, time: String?) {
+    Box(Modifier.offset(x = left - 2.dp).width(4.dp).fillMaxSize().background(Palette.text, RoundedCornerShape(2.dp)))
+    time?.let {
+        Text(it, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Palette.background, maxLines = 1,
+            modifier = Modifier.offset(x = left + 4.dp).background(Palette.text, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
     }
 }
 
