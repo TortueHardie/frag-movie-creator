@@ -48,6 +48,8 @@ data class OutlineParams(
      * pas vue (1 kill sur 33 mesurés).
      */
     val newLineGrowth: Int = 45,
+    /** Kill ou assistance, d'après le pseudo du joueur en tête de ligne ; null = toute ligne encadrée est un kill. */
+    val player: PlayerParams? = null,
 ) {
     init {
         require(minHeight in 2..maxHeight && minWidth in 1..maxWidth && lineHeight >= minHeight) { "tailles de la ligne : min ≤ max" }
@@ -79,7 +81,7 @@ internal class OutlineReader(
     private class Band(val top: Int, var bottom: Int, var left: Int, var right: Int)
 
     /** Paire de traits : haut du trait supérieur, ligne du trait inférieur, bord gauche du trait supérieur, bord droit. */
-    private class Bars(val top: Int, val bottom: Int, val left: Int, val right: Int)
+    private class Bars(val top: Int, val bottom: Int, val left: Int, val right: Int, val edge: Int)
 
     override fun rows(frame: ZoneFrame): List<FeedRow> {
         val w = frame.width
@@ -106,7 +108,7 @@ internal class OutlineReader(
                     val right = maxOf(a.end, b.end)
                     if (right - minOf(a.start, b.start) + 1 !in shape.minWidth..shape.maxWidth) continue
                     if (fill(on, w, y + 2, y2 - 2, maxOf(a.start, b.start), minOf(a.end, b.end)) > shape.maxInnerFill) continue
-                    pairs += Bars(y, y2, a.start, right)
+                    pairs += Bars(y, y2, a.start, right, minOf(a.start, b.start))
                 }
             }
         }
@@ -117,7 +119,7 @@ internal class OutlineReader(
         fun close() {
             if (group.isEmpty()) return
             val best = group.minWith(compareBy({ abs(it.bottom - it.top - (shape.lineHeight - 1)) }, { it.left }))
-            out += FeedRow(KillfeedRole.KILL, group[0].top, group[0].top + shape.lineHeight, best.left, group.maxOf { it.right })
+            out += FeedRow(KillfeedRole.KILL, group[0].top, group[0].top + shape.lineHeight, best.left, group.maxOf { it.right }, best.edge)
             group = mutableListOf()
         }
         for (p in pairs.sortedBy { it.top }) {
@@ -196,4 +198,12 @@ internal class OutlineReader(
         for (y in top..bottom) for (x in left..right) if (on[y * w + x]) count++
         return count.toDouble() / ((bottom - top + 1) * (right - left + 1))
     }
+}
+
+/** Image d'une ligne (lignes de pixels [top − margin, bottom + margin[, colonnes jusqu'à son bord droit). */
+internal fun lineImage(frame: GrayImage, row: FeedRow, margin: Int): GrayImage {
+    val y0 = (row.top - margin).coerceAtLeast(0)
+    val y1 = (row.bottom + margin).coerceAtMost(frame.height)
+    val w = (row.right - 1).coerceIn(1, frame.width)
+    return frame.crop(0, y0, w, y1 - y0)
 }

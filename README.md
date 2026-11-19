@@ -813,7 +813,8 @@ marqués. Dans l'application : « Nouveau jeu… » dans la liste des analyses. 
    - **compteur** (`hud-change`, nouveau) : chaque nouvelle valeur stable du compteur est un kill, sans lire les chiffres
      (seule la colonne des unités est comparée, le fond d'un HUD transparent change sans cesse) ;
    - **texte** (`ocr-log`) : le mot lu par l'OCR de Windows sur les kills marqués et jamais ailleurs.
-3. Une planche par méthode (12 détections) : on décoche celles qui ne sont pas des kills. La méthode retenue garde le
+3. Une planche par méthode (12 détections), toutes décochées : on coche celles qui sont de vrais kills (en ligne de
+   commande, on donne leurs numéros). La méthode retenue garde le
    plus de vrais kills moins de faux, et doit retrouver au moins un kill marqué. Le profil est écrit (son, le
    détecteur choisi, puis sélection et montage du profil par défaut), jamais par-dessus un profil existant.
 
@@ -821,7 +822,7 @@ Mesuré (18-19/11, `app verite`, CS2 et Fortnite refaits depuis 3 kills chacun) 
 
 | Jeu | Méthode retenue | Profil de l'assistant | Profil fait main |
 |---|---|---|---|
-| CS2 (33 kills, 14 morts) | ligne de couleur | 32 kills (8 faux), 14 morts (1 fausse) | 32 kills (10 faux), 13 morts |
+| CS2 (33 kills, 14 morts) | ligne de couleur | 32 kills (8 faux), 14 morts (1 fausse) | 32 kills (10 faux), 13 morts ; depuis le tri des assistances : 30 kills (4 faux) |
 | Fortnite (31 kills) | compteur | 23 kills (19 faux) | 31 kills (0 faux) |
 
 Fortnite échoue face au profil fait main : celui-ci lit les chiffres (modèles découpés à la main, décodage d'une suite
@@ -886,14 +887,21 @@ contour rouge quand il tue (ou aide), sur fond rouge plein quand il meurt. Avec 
 - Suivi : le bord gauche d'une ligne n'étant pas sûr, une ligne est rapprochée du suivi le plus proche en hauteur ; une
   ligne qui dépasse à gauche de 45 px (`newLineGrowth`) le suivi qu'elle rejoint en est une nouvelle (une ligne plus
   longue prend la place de la plus ancienne). Une ligne doit être vue 1 s (`minSightings: 10` à 10 img/s).
-- Mesuré sur « CS2- 33 Kills On Dust 2 » (854x480, 28 min, `verite/cs2/`) : **32 kills sur 33**, 13 morts sur 14, aucune
-  mort en trop ; 10 kills en trop : 6 assistances et 4 doublons d'une ligne qui monte. Manqués : un kill dont la ligne,
-  plus courte, remplace au même endroit celle du kill d'avant ; une mort sur un écran déjà rouge. Analyse : 40 s.
-- Limite : le contour marque aussi les assistances (« coéquipier + joueur ») ; rien dans la forme ne les distingue
-  d'un kill (seul le texte le ferait, illisible pour l'OCR de Windows en 480p, essayé sur le message « +$300 for
-  neutralizing an enemy » du chat). Elles sortent donc en kills.
-- 9:16 : bandeau du haut, killfeed et ligne du bas (vie, munitions) sont replacés (`vertical.hud`), la mini-carte
-  non.
+- **Assistances** (`outline.player`) : le contour marque aussi les lignes « coéquipier + joueur ». Ce qui les sépare
+  d'un kill, c'est le premier nom de la ligne. Le pseudo du joueur n'est pas donné : il est appris sur la vidéo, comme
+  le premier mot qui revient le plus souvent en tête des lignes encadrées (21x10 px en 480p), lu dans le canal le plus
+  clair de la même zone. Une ligne est un kill si son premier mot lui ressemble (corrélation ≥ 0,86, posée sur le début
+  du mot : posée n'importe où, « Adamant » ressemblait à « Kryptek ») ; sinon une assistance (événement `assist`), sauf
+  si elle lui ressemble un peu (≥ 0,3) et que le chat affiche au même moment une récompense « +$… for neutralizing an
+  enemy » (le « +$ » vert en début de ligne, `reward`), donnée pour les kills seuls. L'OCR de Windows ne lit pas ce
+  message en 480p, d'où sa couleur.
+- Mesuré sur « CS2- 33 Kills On Dust 2 » (854x480, 28 min, `verite/cs2/`) : **30 kills sur 33**, 4 en trop ; 13 morts
+  sur 14, aucune en trop. Des 6 assistances vues par le contour, 4 sont écartées ; celles de 9:26 et 16:43 restent
+  (une récompense du chat tombe au même moment). Avant ce tri : 32 kills sur 33 et 10 en trop, dont les 6 assistances.
+  Manqués : 10:44 et 16:29 (premier mot mal lu sur un fond clair, sans récompense lue) ; 18:50 (ligne plus courte qui
+  remplace celle du kill d'avant). Une mort manquée sur un écran déjà rouge. Analyse : 1 min 40 (trois zones lues).
+- 9:16 : bandeau du haut, killfeed, mini-carte (en haut à gauche, face au killfeed) et ligne du bas (vie, munitions)
+  sont replacés (`vertical.hud`).
 
 ## Journal des gains (Wardogs)
 

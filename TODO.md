@@ -247,7 +247,8 @@ Pistes, de la plus simple à la plus lourde :
   (`app nouveau-jeu`, bouton « Nouveau jeu… » de l'application ; module `assistant`). Mesuré : CS2 refait aussi bien
   que le profil fait main (32/33), Fortnite non (23/31 contre 31/31 : le compteur est comparé, pas lu).
   - [ ] Compteur : apprendre les chiffres (modèles `hud-counter`) au lieu de comparer des images.
-  - [ ] Assistances CS2 : les distinguer des kills.
+  - [x] Assistances CS2 : séparées des kills par le pseudo du joueur en tête de ligne et la récompense du chat
+    (`outline.player`) ; 4 sur 6 écartées, 30 kills sur 33. Restent 9:26 et 16:43 (récompense du chat au même moment).
 - [ ] Aperçus quasi instantanés : copies basse définition des parties, faites une fois.
 - [x] Ressenti par musique : 👍/👎 sur le rythme rapide après chaque montage, mémorisé, puis mesure apprise.
   Question sous le résultat, `app musique-ressenti`, `music-feel.json` ; modèle appris actif à partir de 8 musiques

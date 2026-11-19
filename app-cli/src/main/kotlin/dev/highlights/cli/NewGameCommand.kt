@@ -96,11 +96,11 @@ class NewGameCommand : PipelineCommand("nouveau-jeu") {
         }
         echo("")
         echo("${method.name.lowercase()} : ${r.kills.size} kills. Planche : ${r.sheet}")
-        echo("Numéros des vignettes qui ne sont PAS des kills (ex. 2,5), vide = toutes bonnes, « * » = aucune bonne :")
+        echo("Numéros des vignettes qui SONT des kills (ex. 1,3,4), vide = aucune, « * » = toutes :")
         val answer = readlnOrNull()?.trim().orEmpty()
-        if (answer == "*") return r.sample.map { false }
-        val wrong = answer.split(',', ' ').mapNotNull { it.trim().toIntOrNull() }.toSet()
-        return r.sample.indices.map { (it + 1) !in wrong }
+        if (answer == "*") return r.sample.map { true }
+        val good = answer.split(',', ' ').mapNotNull { it.trim().toIntOrNull() }.toSet()
+        return r.sample.indices.map { (it + 1) in good }
     }
 
     private fun parseMark(text: String): KillMark {
