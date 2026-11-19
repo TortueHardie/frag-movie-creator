@@ -1073,6 +1073,34 @@ montage au rythme rapide dure moins que `montage.length.min` (12 s), il est refa
 Au-dessus, le rythme rapide reste, même s'il raccourcit le montage : 10 kills WARDOGS en font 17 à 26 s, et c'est la
 version préférée (18/11).
 
+### Ressenti de chaque musique
+
+Aucune mesure du contenu ne sépare seule les musiques qu'on ressent rapides des calmes (mesuré sur 19 musiques). Le
+montage apprend donc de vos réponses. Sous le résultat d'un montage kills, une question : « Rythme rapide sur
+<musique> ? » **👍 Bien**, **👎 Trop rapide** ou **👎 Pas assez rapide**. En ligne de commande : `app musique-ressenti
+MUSIQUE fast|calm|auto` (`auto` efface), et `app musique-ressenti` seul liste les ressentis et ce que le modèle en a
+appris. La fin d'un `app montage` rappelle la commande.
+
+- **calm** : jamais de rythme rapide sur cette musique.
+- **fast** : rapide dès la drop, aussi dans les parties moyennes qui suivent (intensité à partir de
+  `montage.fastParts.fastIntensity`, 0,45 au lieu de 0,7).
+- **auto** : la règle par défaut.
+- « Bien » confirme ce que le montage a fait : rapide s'il avait des plans rapides, calme sinon.
+
+Les ressentis sont gardés dans `<sortie>\sessions\music-feel.json`, par nom de fichier et taille : une musique copiée
+ailleurs garde le sien, une autre version (autre taille) non. Chaque réponse garde aussi les mesures de la musique
+(attaques par seconde, toutes bandes puis basses, médiums, aigus ; volume ; part percussive ; tempo), d'où un modèle
+appris (régression logistique) qui devine le ressenti des musiques sans réponse. Il ne sert qu'à partir de 8 musiques,
+dont 3 de chaque sorte, et seulement s'il classe bien au moins 80 % des musiques qu'il n'a pas vues (validation croisée
+« une de côté »). Sinon, la règle par défaut. Le jeu de départ connu le 18/11 (rapides : « Rome Is Burning » après la
+drop, « R2D2 », « Spitfire », « Doom Eternal », « Big Dawgs » ; calme : « Lose Yourself ») n'est pas versé dans vos
+réponses. Il sert de données de test : avec 6 musiques dont une seule calme, le modèle en classe 4 sur 6 en validation
+croisée et reste inactif.
+
+Dans une bibliothèque de musiques, un style au rythme rapide partout (`fast: true`, plans d'un temps) préfère les
+musiques ressenties rapides (+0,03 sur la note du choix) et évite les calmes (−0,03). Les autres styles n'avancent
+rien : le ressenti y règle seulement les parties rapides.
+
 Plus de seuil de tempo (choix de l'utilisateur du 18/11, après des montages côte à côte avec et sans lui) : le seuil des
 120 BPM gardait au rythme du style des musiques lentes mais intenses (« Doom Eternal » 103 BPM, « Big Dawgs » 90).
 Aucune mesure du contenu (attaques par seconde, part percussive, volume) ne séparait mieux les musiques ressenties

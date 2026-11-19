@@ -615,6 +615,12 @@ internal fun PipelineCommand.printExport(result: ExportResult) {
     echo("  rapport ${result.report}")
     // Avertissements (montage presque vide…) : visibles même quand on ne lit que la fin de la sortie.
     result.notices.forEach { echo("  ! ${it.text()}") }
+    // Montage kills : la question du ressenti, comme dans l'application.
+    val music = result.music
+    if (result.fastShots != null && music != null) {
+        echo("  rythme rapide : ${result.fastShots} plan(s) (ressenti de la musique : ${result.musicFeel?.name?.lowercase() ?: "auto"})")
+        echo("  trop rapide ou pas assez ? app musique-ressenti \"$music\" calm|fast")
+    }
 }
 
 private val reportJson = Json { ignoreUnknownKeys = true }

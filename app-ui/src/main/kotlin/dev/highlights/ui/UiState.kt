@@ -39,6 +39,11 @@ data class UiState(
     val quitConfirm: Int? = null,
     val session: SessionState? = null,
     val lastExport: ExportResult? = null,
+    /**
+     * Ressenti retenu pour la musique d'un montage kills, par rapport du rendu : la réponse à la question du rythme
+     * rapide sous le résultat ([MusicFeelQuestion]).
+     */
+    val musicFeels: Map<Path, dev.highlights.core.model.MusicFeel> = emptyMap(),
     val error: ErrorInfo? = null,
     val imagePreview: ImagePreview? = null,
     /** Segments dont l'extrait d'aperçu est en cours de génération. */

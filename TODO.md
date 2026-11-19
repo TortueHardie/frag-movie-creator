@@ -245,7 +245,9 @@ Pistes, de la plus simple à la plus lourde :
   - [ ] Compteur : apprendre les chiffres (modèles `hud-counter`) au lieu de comparer des images.
   - [ ] Assistances CS2 : les distinguer des kills.
 - [ ] Aperçus quasi instantanés : copies basse définition des parties, faites une fois.
-- [ ] Ressenti par musique : 👍/👎 sur le rythme rapide après chaque montage, mémorisé, puis mesure apprise.
+- [x] Ressenti par musique : 👍/👎 sur le rythme rapide après chaque montage, mémorisé, puis mesure apprise.
+  Question sous le résultat, `app musique-ressenti`, `music-feel.json` ; modèle appris actif à partir de 8 musiques
+  (3 de chaque sorte) et 80 % en validation croisée. Reste : recueillir les réponses, vérifier que le modèle s'active.
 
 ## Entretien
 - [x] Mettre à jour `CLAUDE.md` et le versionner.

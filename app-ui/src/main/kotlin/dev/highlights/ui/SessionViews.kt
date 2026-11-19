@@ -567,6 +567,8 @@ fun ExportBar(state: UiState, session: SessionState, actions: UiActions) {
                     result.music?.let { music ->
                         Text(tr("ui.export.music", "name" to music.fileName.toString()), style = MaterialTheme.typography.bodyMedium, color = Palette.textMuted)
                     }
+                    // Montage kills : le rythme rapide convient-il à cette musique ? La réponse règle les prochains.
+                    if (result.fastShots != null && result.music != null) MusicFeelQuestion(result, state.musicFeels[result.report], actions)
                     // Avertissements du travail (montage presque vide…) : à lire avant de publier.
                     result.notices.forEach { notice ->
                         Text(notice.text(), style = MaterialTheme.typography.bodyMedium, color = Palette.accent)
@@ -590,6 +592,33 @@ fun ExportBar(state: UiState, session: SessionState, actions: UiActions) {
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Question sous le résultat d'un montage kills : le rythme rapide sur cette musique, bien, trop rapide ou pas assez ?
+ * Une fois répondu, ce qui est retenu pour les prochains montages sur elle ([saved]).
+ */
+@Composable
+fun MusicFeelQuestion(result: dev.highlights.export.ExportResult, saved: dev.highlights.core.model.MusicFeel?, actions: UiActions) {
+    val name = result.music?.fileName?.toString() ?: return
+    if (saved != null) {
+        val key = if (saved == dev.highlights.core.model.MusicFeel.FAST) "ui.feel.saved.fast" else "ui.feel.saved.calm"
+        Text(tr(key, "name" to name), style = MaterialTheme.typography.bodyMedium, color = Palette.success)
+        return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            tr("ui.feel.question", "name" to name),
+            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+        listOf(
+            dev.highlights.montage.FeelVote.GOOD to "ui.feel.good",
+            dev.highlights.montage.FeelVote.TOO_FAST to "ui.feel.tooFast",
+            dev.highlights.montage.FeelVote.NOT_FAST_ENOUGH to "ui.feel.notFastEnough",
+        ).forEach { (vote, key) ->
+            TextButton(onClick = { actions.rateMusicFeel(vote) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 8.dp)) { Text(tr(key)) }
         }
     }
 }
