@@ -15,6 +15,10 @@ import dev.highlights.core.model.SlowAudio
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.model.WhipPanEffect
 import dev.highlights.core.serialization.Durations
+import dev.highlights.editing.CardRequest
+import dev.highlights.editing.CardStill
+import dev.highlights.editing.IntroOutroCards
+import dev.highlights.editing.MusicLeadIn
 import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.SourceCut
@@ -295,7 +299,7 @@ object MontageRenderBuilder {
         graph += clips.indices.joinToString("") { "[v$it]" } + "concat=n=${clips.size}:v=1:a=0[vcat]"
         // Format imposé juste avant l'encodeur : concat et xfade peuvent sinon négocier du 4:4:4 (selon la version
         // de FFmpeg), que le profil « high » de x264 refuse.
-        graph += "[vcat]fade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},format=yuv420p[vout]"
+        graph += "[vcat]fade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},format=yuv420p[vmontage]"
         graph += clips.indices.joinToString("") { "[a$it]" } +
             "amix=inputs=${clips.size}:normalize=0:duration=longest,apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[game]"
 
@@ -318,7 +322,10 @@ object MontageRenderBuilder {
         }
         val sfx = StoryRenderBuilder.placeSfx(graph, "wh", whooshes, settings.whip.whoosh, StoryRenderBuilder.WHOOSHES, StoryRenderBuilder.WHOOSH_LENGTH)
         val mix = listOf("[game]", "[music]") + sfx
-        graph += mix.joinToString("") + "amix=inputs=${mix.size}:normalize=0:duration=first,loudnorm=I=${num(audio.loudnessLufs)}:TP=-1.5:LRA=11,aresample=48000[aout]"
+        graph += mix.joinToString("") + "amix=inputs=${mix.size}:normalize=0:duration=first[amontage]"
+        val cards = cards(args, graph, plan, request.edit, w, h, music)
+        graph += "[${cards.video}]format=yuv420p[vout]"
+        graph += "[${cards.audio}]loudnorm=I=${num(audio.loudnessLufs)}:TP=-1.5:LRA=11,aresample=48000[aout]"
 
         args += listOf(request.filterScriptOption, request.filterScript.toString(), "-map", "[vout]", "-map", "[aout]")
         args += request.encoder.videoArgs
@@ -326,8 +333,27 @@ object MontageRenderBuilder {
         return RenderCommand(
             FfmpegCommand(args, "montage kills ${request.format.label} (${clips.size} clips, ${"%.0f".format(plan.music.bpm)} BPM)"),
             graph.joinToString(";\n") + "\n",
-            total,
+            total + cards.added,
         )
+    }
+
+    /**
+     * Cartes d'ouverture et de fin autour du montage (voir [IntroOutroCards]) : l'ouverture dure un nombre entier de
+     * temps et joue l'amorce de la musique, au volume qu'elle a dans le montage ; la vidéo et le son reculent ensemble
+     * d'autant, chaque kill reste sur son temps. Fonds floutés : le meilleur groupe en ouverture, le dernier plan en fin.
+     */
+    private fun cards(args: MutableList<String>, graph: MutableList<String>, plan: MontagePlan, edit: EditSettings, w: Int, h: Int, music: Double): IntroOutroCards.Appended {
+        val intro = edit.intro ?: return IntroOutroCards.append(args, graph, "vmontage", "amontage", null)
+        fun still(clip: MontageClip) = CardStill(clip.group.media.path, clip.group.kills.firstOrNull() ?: clip.start)
+        val best = plan.clips.filterNot { it.showcase }.maxByOrNull { it.group.rank } ?: plan.clips.first()
+        val request = CardRequest.of(
+            edit, w, h,
+            introStill = still(best),
+            outroStill = still(plan.clips.last()),
+            leadIn = MusicLeadIn(plan.music.file, plan.musicStart, music),
+            introLength = IntroOutroCards.beatLength(intro.introLength, plan.period),
+        )
+        return IntroOutroCards.append(args, graph, "vmontage", "amontage", request)
     }
 
     /** Extraits lus par le rendu de [plan] : ce que [SourceCutter] doit pré-découper. */

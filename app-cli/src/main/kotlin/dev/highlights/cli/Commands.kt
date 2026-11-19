@@ -8,6 +8,7 @@ import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.groups.mutuallyExclusiveOptions
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.options.nullableFlag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.split
@@ -60,6 +61,11 @@ private fun PipelineCommand.platformOption() = option(
     help = "Plateforme visée : tiktok, shorts, reels, youtube (ou définie dans app.yaml) — format, volume, débit, textes hors de l'interface de l'appli, durée maximale",
 )
 
+private fun PipelineCommand.introOption() = option(
+    "--intro",
+    help = "Cartes d'ouverture et de fin (logo, pseudo, fond : section intro du profil ou d'app.yaml) ; --no-intro : sans elles. Défaut : intro.enabled",
+).nullableFlag("--no-intro")
+
 private fun PipelineCommand.styleOption() = option(
     "--style",
     help = "Montage : simple (moments bout à bout) ou story (façon YouTube : jump cuts, accroche, punch-in, secousses, bruitages)",
@@ -88,6 +94,7 @@ class ProcessCommand : PipelineCommand("process") {
     private val platform by platformOption()
     private val style by styleOption()
     private val music by musicOption()
+    private val intro by introOption()
     private val out by option("-o", "--out", help = "Dossier de sortie").path(canBeFile = false)
 
     override fun help(context: Context) =
@@ -102,7 +109,7 @@ class ProcessCommand : PipelineCommand("process") {
                 pipeline.processAll(
                     files,
                     AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, reuse = !reanalyze),
-                    ExportOptions(formats, out, style, music, platform),
+                    ExportOptions(formats, out, style, music, platform, intro = intro),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -147,6 +154,7 @@ class ExportCommand : PipelineCommand("export") {
     private val platform by platformOption()
     private val style by styleOption()
     private val music by musicOption()
+    private val intro by introOption()
     private val out by option("-o", "--out").path(canBeFile = false)
 
     override fun help(context: Context) = "Exporte le montage à partir d'une session (segments enabled uniquement), sans réanalyser."
@@ -156,7 +164,7 @@ class ExportCommand : PipelineCommand("export") {
         val result = execute {
             val sessions = sessionFiles.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).export(sessions, ExportOptions(formats, out, style, music, platform), ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).export(sessions, ExportOptions(formats, out, style, music, platform, intro = intro), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
@@ -207,6 +215,7 @@ class MontageCommand : PipelineCommand("montage") {
         .choice("full" to GameAudio.FULL, "kills" to GameAudio.KILLS)
     private val fast by option("--fast", help = "Rythme rapide : un kill sur chaque temps de la musique (chaque coup de basse), un plan très court chacun").flag()
     private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
+    private val intro by introOption()
     private val out by option("-o", "--out").path(canBeFile = false)
 
     override fun help(context: Context) =
@@ -248,6 +257,7 @@ class MontageCommand : PipelineCommand("montage") {
                         reactions = if (reactions) true else null,
                         oneTaps = oneTaps,
                         fast = if (fast) true else null,
+                        intro = intro,
                     ),
                     ProgressTracker(listener = progress).root,
                 )

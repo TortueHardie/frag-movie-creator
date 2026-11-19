@@ -3,6 +3,7 @@ package dev.highlights.core.model
 import dev.highlights.core.serialization.SerialDuration
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -77,6 +78,11 @@ data class EditSettings(
     val safeArea: SafeArea = SafeArea.NONE,
     /** Plafond du débit vidéo (ex. 16M) ; null : celui de l'encodeur. */
     val maxBitrate: String? = null,
+    /**
+     * Cartes d'ouverture et de fin, chemins déjà résolus : posées par le pipeline (profil `intro:` ou app.yaml), jamais
+     * lues dans `edit:` d'un profil.
+     */
+    @Transient val intro: IntroOutroSettings? = null,
 ) {
     init {
         require(sourceHeight > 0 && sourceHeight % 2 == 0) { "sourceHeight doit être pair et > 0" }

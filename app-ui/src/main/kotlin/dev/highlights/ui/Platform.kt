@@ -31,6 +31,8 @@ interface Platform {
     fun copy(text: String) = Unit
     /** Où enregistrer un fichier ([fileName] proposé dans [initialDir]) ; null si annulé. */
     fun chooseSaveFile(initialDir: Path?, fileName: String, title: String): Path? = null
+    /** Une image (logo, fond des cartes d'ouverture et de fin) ; null si annulé. */
+    fun chooseImage(initialDir: Path?): Path? = null
 }
 
 class DesktopPlatform(private val owner: () -> Frame?) : Platform {
@@ -46,6 +48,11 @@ class DesktopPlatform(private val owner: () -> Frame?) : Platform {
     override fun chooseAudio(initialDir: Path?): Path? =
         fileDialog(tr("ui.dialog.chooseTrack"), initialDir) { name ->
             name.lowercase().substringAfterLast('.', "") in MusicLibrary.AUDIO_EXTENSIONS
+        }
+
+    override fun chooseImage(initialDir: Path?): Path? =
+        fileDialog(tr("ui.dialog.chooseImage"), initialDir) { name ->
+            name.lowercase().substringAfterLast('.', "") in IMAGE_EXTENSIONS
         }
 
     override fun chooseSessions(initialDir: Path?): List<Path> =
@@ -121,3 +128,6 @@ class DesktopPlatform(private val owner: () -> Frame?) : Platform {
         return dialog.files.map { it.toPath() }
     }
 }
+
+/** Images acceptées pour le logo et le fond des cartes (lues par FFmpeg et, pour leur taille, par Java). */
+private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "bmp")

@@ -96,6 +96,16 @@ interface UiActions {
     /** Dossier de musiques où le montage choisit la sienne. */
     fun chooseMusicLibrary()
     fun updateMontage(change: (MontageUiState) -> MontageUiState)
+
+    // Cartes d'ouverture et de fin (logo, pseudo, fond).
+    fun setIntroEnabled(enabled: Boolean)
+    fun openIntro()
+    fun closeIntro()
+    fun updateIntro(change: (dev.highlights.core.model.IntroOutroSettings) -> dev.highlights.core.model.IntroOutroSettings)
+    fun chooseIntroLogo()
+    fun chooseIntroImage()
+    /** Carte montrée en aperçu : l'ouverture ou la fin ([outro]), dans [format]. */
+    fun setIntroPreview(format: OutputFormat, outro: Boolean)
     fun createMontage()
 
     /** Fenêtre de publication d'une vidéo exportée sur YouTube, champs proposés d'après la vidéo. */
@@ -220,6 +230,7 @@ class AppController(
     private val watchPrefs: WatchPrefsStore = WatchPrefsStore(WatchPrefsStore.DEFAULT_FILE),
     private val musicPrefs: MusicPrefsStore = MusicPrefsStore(MusicPrefsStore.DEFAULT_FILE),
     private val languagePrefs: LanguagePrefsStore = LanguagePrefsStore(LanguagePrefsStore.DEFAULT_FILE),
+    private val introPrefs: IntroPrefsStore = IntroPrefsStore(IntroPrefsStore.DEFAULT_FILE),
     /** Intervalle entre deux passages sur le dossier surveillé, et temps sans écriture avant qu'une capture soit prise. */
     private val watchInterval: Duration = 5.seconds,
     private val watchSettle: Duration = 15.seconds,
@@ -236,6 +247,7 @@ class AppController(
 
     @Volatile
     private var backend: Backend? = null
+    private val intro = IntroController(scope, platform, introPrefs, _state) { backend?.pipeline }
     private var mainJob: Job? = null
     private var thumbnailJob: Job? = null
     private var saveJob: Job? = null
@@ -273,6 +285,7 @@ class AppController(
                     )
                 }
                 refreshLibrary()
+                intro.load()
                 if (watchJob == null) watchPrefs.load()?.let { startWatching(it) }
             } catch (e: CancellationException) {
                 throw e
@@ -495,7 +508,12 @@ class AppController(
         withMemory(tr("ui.job.export"), MEMORY_EXPORT) {
             runTask(tr("ui.job.export")) { progress ->
                 saveNow(current)
-                val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform), progress)
+                val (introOn, introCards) = intro.exportChoice()
+                val result = p.export(
+                    current.sessions,
+                    ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform, intro = introOn, introSettings = introCards),
+                    progress,
+                )
                 _state.update { it.copy(lastExport = result, lastUpload = null) }
             }
         }
@@ -682,6 +700,14 @@ class AppController(
     override fun updateMontage(change: (MontageUiState) -> MontageUiState) =
         _state.update { s -> s.copy(montage = s.montage?.let(change)) }
 
+    override fun setIntroEnabled(enabled: Boolean) = intro.setEnabled(enabled)
+    override fun openIntro() = intro.open()
+    override fun closeIntro() = intro.close()
+    override fun updateIntro(change: (dev.highlights.core.model.IntroOutroSettings) -> dev.highlights.core.model.IntroOutroSettings) = intro.update(change)
+    override fun chooseIntroLogo() = intro.chooseLogo()
+    override fun chooseIntroImage() = intro.chooseImage()
+    override fun setIntroPreview(format: OutputFormat, outro: Boolean) = intro.setPreview(format, outro)
+
     override fun createMontage() {
         val s = state.value
         val montage = s.montage ?: return
@@ -725,6 +751,8 @@ class AppController(
                         onlyKills = montage.pick,
                         oneTaps = montage.oneTaps,
                         fast = montage.fast,
+                        intro = intro.exportChoice().first,
+                        introSettings = intro.exportChoice().second,
                     ),
                     progress,
                 )

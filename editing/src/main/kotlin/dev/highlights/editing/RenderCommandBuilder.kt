@@ -97,11 +97,14 @@ object RenderCommandBuilder {
             "vcat" to "acat"
         }
 
+        // Cartes d'ouverture et de fin, avant la normalisation : le volume se juge sur la vidéo entière.
+        val (introStill, outroStill) = IntroOutroCards.stills(clips)
+        val cards = IntroOutroCards.append(args, graph, videoOut, audioOut, CardRequest.of(settings, w, h, introStill, outroStill))
         val loudness = settings.loudnessLufs?.let { "loudnorm=I=${fmt(it)}:TP=-1.5:LRA=11," } ?: ""
-        graph += "[$audioOut]${loudness}aresample=48000[aout]"
+        graph += "[${cards.audio}]${loudness}aresample=48000[aout]"
         // Format imposé juste avant l'encodeur : xfade et concat peuvent sinon négocier du 4:4:4 (selon la version de
         // FFmpeg), que le profil « high » de x264 refuse.
-        graph += "[$videoOut]format=yuv420p[vout]"
+        graph += "[${cards.video}]format=yuv420p[vout]"
 
         args += listOf(request.filterScriptOption, request.filterScript.toString())
         args += listOf("-map", "[vout]", "-map", "[aout]")
@@ -116,7 +119,7 @@ object RenderCommandBuilder {
         return RenderCommand(
             command = FfmpegCommand(args, "rendu ${request.format.label} (${clips.size} clips, ${request.encoder.name})"),
             filterGraph = graph.joinToString(";\n") + "\n",
-            expectedDuration = plan.outputDuration,
+            expectedDuration = plan.outputDuration + cards.added,
         )
     }
 

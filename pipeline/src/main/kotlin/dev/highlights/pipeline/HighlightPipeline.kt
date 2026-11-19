@@ -18,6 +18,7 @@ import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
+import dev.highlights.core.model.IntroOutroSettings
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.OutputFormat
@@ -32,6 +33,7 @@ import dev.highlights.core.session.Session
 import dev.highlights.core.session.SessionStore
 import dev.highlights.core.serialization.toTimecode
 import dev.highlights.core.video.FrameSampler
+import dev.highlights.editing.CardStill
 import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
@@ -96,6 +98,10 @@ data class ExportOptions(
     val music: Path? = null,
     /** Plateforme visée (tiktok, shorts, reels, youtube…) : format, volume, débit, zone sûre et durée maximale. */
     val platform: String? = null,
+    /** Cartes d'ouverture et de fin (`--intro` / `--no-intro`) ; null : réglage `intro.enabled`. */
+    val intro: Boolean? = null,
+    /** Réglages des cartes choisis dans l'application, à la place de ceux du profil et d'app.yaml. */
+    val introSettings: IntroOutroSettings? = null,
 )
 
 /** Surcharges ponctuelles des réglages de montage du profil (null = valeur du profil). */
@@ -148,6 +154,10 @@ data class MontageOptions(
     val oneTaps: Boolean = false,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
+    /** Cartes d'ouverture et de fin (`--intro` / `--no-intro`) ; null : réglage `intro.enabled`. */
+    val intro: Boolean? = null,
+    /** Réglages des cartes choisis dans l'application, à la place de ceux du profil et d'app.yaml. */
+    val introSettings: IntroOutroSettings? = null,
 )
 
 /** [reused] : analyse reprise de la mémoire, sans recalcul. */
@@ -440,6 +450,7 @@ class HighlightPipeline(
             formats = options.formats ?: edit.formats,
             style = options.style ?: edit.style,
             story = options.music?.let { edit.story.copy(music = edit.story.music.copy(file = it.toAbsolutePath().toString())) } ?: edit.story,
+            intro = IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings),
         ).let { platform?.applyTo(it) ?: it }
         return withJobDir { workDir ->
             exporter.export(
@@ -454,12 +465,25 @@ class HighlightPipeline(
                     audioLayout = profile.audio,
                     captionCache = config.workDir.resolve("cache").resolve("captions"),
                     platform = options.platform,
-                    maxDuration = platform?.maxDuration,
+                    maxDuration = platform?.maxDuration?.let { it - IntroOutroSupport.reserved(settings.intro) },
                 ),
                 progress,
             )
         }
     }
+
+    /**
+     * Aperçu PNG d'une carte d'ouverture ([intro]) ou de fin, avec les réglages [settings] (chemins relatifs résolus
+     * comme dans un export) ; fond flouté pris sur [still] s'il y en a un.
+     */
+    suspend fun introPreview(settings: IntroOutroSettings, format: OutputFormat, intro: Boolean, output: Path, still: CardStill? = null): Path {
+        val resolved = IntroOutroSupport.resolve(config, null, true, settings) ?: throw InputException(Message("error.intro.empty"))
+        return withJobDir { workDir -> IntroOutroSupport.preview(ffmpeg, resolved, format, intro, output, workDir, still) }
+    }
+
+    /** Réglages des cartes d'ouverture et de fin d'app.yaml, ou du profil [profileId] s'il en a ; null : aucun. */
+    fun introSettings(profileId: String? = null): IntroOutroSettings? =
+        profileId?.let { runCatching { profiles.byId(it) }.getOrNull()?.intro } ?: config.app.intro
 
     /** Aperçu PNG des formats de sortie à un instant donné, sans analyse. */
     suspend fun preview(file: Path, at: Duration, profileId: String?, formats: List<OutputFormat>?, outputDir: Path?): List<Path> {
@@ -532,7 +556,9 @@ class HighlightPipeline(
         val profile = profiles.byId(sessions.first().profileId)
         val base = profile.montage
         val platform = platform(options.platform)
-        val maxDuration = (options.maxDuration ?: base.maxDuration).let { d -> platform?.maxDuration?.let { minOf(it, d) } ?: d }
+        val intro = IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings)
+        // Les cartes comptent dans la durée maximale de la plateforme : le montage se planifie dans ce qui reste.
+        val maxDuration = (options.maxDuration ?: base.maxDuration).let { d -> platform?.maxDuration?.let { minOf(it - IntroOutroSupport.reserved(intro, montage = true), d) } ?: d }
         val settings = base.copy(
             formats = platform?.let { listOf(it.format) } ?: options.formats ?: base.formats,
             maxDuration = maxDuration,
@@ -618,7 +644,7 @@ class HighlightPipeline(
                 plan,
                 MontageExportRequest(
                     formats = settings.formats,
-                    edit = profile.gradedEdit().let { platform?.applyTo(it) ?: it },
+                    edit = profile.gradedEdit().let { platform?.applyTo(it) ?: it }.copy(intro = intro),
                     outputDir = options.outputDir ?: config.outputDir,
                     workDir = workDir,
                     gameName = profile.id,

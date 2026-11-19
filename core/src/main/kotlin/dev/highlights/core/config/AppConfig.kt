@@ -6,6 +6,7 @@ import com.charleskorn.kaml.YamlConfiguration
 import com.charleskorn.kaml.YamlException
 import dev.highlights.core.ConfigException
 import dev.highlights.core.ffmpeg.Hwaccel
+import dev.highlights.core.model.IntroOutroSettings
 import dev.highlights.core.model.PlatformProfile
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationException
@@ -28,6 +29,8 @@ data class AppConfig(
     val publish: PublishSettings = PublishSettings(),
     /** Plateformes : ajoutées à celles connues ([PlatformProfile.DEFAULTS]) ou les remplaçant, par identifiant. */
     val platforms: Map<String, PlatformProfile> = emptyMap(),
+    /** Cartes d'ouverture et de fin de tous les jeux ; un profil qui a les siennes (`intro:`) les remplace. */
+    val intro: IntroOutroSettings? = null,
 )
 
 @Serializable

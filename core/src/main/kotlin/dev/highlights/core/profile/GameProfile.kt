@@ -5,6 +5,7 @@ import dev.highlights.core.analysis.DetectorParams
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.model.AudioLayout
 import dev.highlights.core.model.EditSettings
+import dev.highlights.core.model.IntroOutroSettings
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.SelectionPolicy
 import dev.highlights.core.serialization.SerialDuration
@@ -27,6 +28,8 @@ data class GameProfile(
     val selection: SelectionPolicy = SelectionPolicy(),
     val edit: EditSettings = EditSettings(),
     val montage: MontageSettings = MontageSettings(),
+    /** Cartes d'ouverture et de fin (logo, pseudo, fond) ; null : celles d'app.yaml. */
+    val intro: IntroOutroSettings? = null,
 ) {
     /**
      * Nom à montrer à l'utilisateur (interface, titres YouTube) : la traduction `profile.<id>` si les bundles en ont
