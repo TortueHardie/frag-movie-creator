@@ -152,7 +152,7 @@ private fun VariantCardView(card: VariantCard, busy: Boolean, actions: UiActions
             color = Palette.textMuted,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { actions.open(card.video) }) { Text(tr("ui.variants.play")) }
+            OutlinedButton(onClick = { actions.playVideo(card.video) }) { Text(tr("ui.variants.play")) }
             Button(onClick = { actions.renderVariant(card.index) }, enabled = !busy) { Text(tr("ui.variants.render")) }
         }
     }

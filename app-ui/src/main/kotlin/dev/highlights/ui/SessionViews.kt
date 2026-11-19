@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -191,7 +192,7 @@ fun SessionHeader(state: UiState, session: SessionState, actions: UiActions) {
 }
 
 @Composable
-fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
+fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions, playhead: Duration? = null) {
     // Avec plusieurs captures, la courbe est celle de la capture du segment sélectionné.
     val entry = session.shownEntry
     val timeline = session.entries[entry].session.timeline
@@ -232,6 +233,16 @@ fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
                     }
                     val tolerance = total * (8.0 / size.width)
                     if (hit != null && t >= hit.highlight.range.start - tolerance && t <= hit.highlight.range.end + tolerance) actions.selectSegment(hit.key)
+                }
+            }.pointerInput(total, entry) {
+                // Glisser sur la frise parcourt la capture dans le lecteur intégré (image par image, en pause).
+                fun at(x: Float) = total * (x / size.width).toDouble().coerceIn(0.0, 1.0)
+                detectHorizontalDragGestures(
+                    onDragStart = { offset -> if (total.isPositive() && size.width > 0) actions.scrubSource(entry, at(offset.x)) },
+                    onDragEnd = actions::scrubSourceEnd,
+                    onDragCancel = actions::scrubSourceEnd,
+                ) { change, _ ->
+                    if (total.isPositive() && size.width > 0) actions.scrubSource(entry, at(change.position.x))
                 }
             },
         ) {
@@ -298,6 +309,12 @@ fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
                 }
             }
 
+            // Tête du lecteur intégré, quand il montre cette capture
+            playhead?.let { p ->
+                val px = x(p)
+                drawLine(Palette.text, Offset(px, 0f), Offset(px, plotBottom), strokeWidth = 2f)
+            }
+
             // Seuil
             val ty = plotBottom - threshold.toFloat() / scale * plotHeight
             drawLine(Palette.accent, Offset(0f, ty), Offset(size.width, ty), strokeWidth = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 5f)))
@@ -318,7 +335,7 @@ fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions) {
             }
         }
         Text(
-            tr("ui.session.addHint"),
+            tr("ui.session.addHint") + " " + tr("ui.session.scrubHint"),
             style = MaterialTheme.typography.bodySmall,
             color = Palette.textMuted,
             modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
@@ -585,6 +602,7 @@ fun ExportBar(state: UiState, session: SessionState, actions: UiActions) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(file.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (file != result.report) {
+                                TextButton(onClick = { actions.playVideo(file) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.player.play")) }
                                 TextButton(onClick = { actions.openPublish(file) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text("YouTube") }
                             }
                             TextButton(onClick = { actions.open(file) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.common.open")) }

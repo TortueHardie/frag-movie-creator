@@ -96,7 +96,7 @@ fun App(state: UiState, actions: UiActions) {
                     }
                 } else {
                     SessionHeader(state, session, actions)
-                    TimelineCard(session, state.settings.threshold, actions)
+                    TimelineCard(session, state.settings.threshold, actions, playhead = state.player?.takeIf { it.entry == session.shownEntry }?.position)
                     SegmentList(session, state, actions, Modifier.weight(1f))
                     ExportBar(state, session, actions)
                 }
@@ -114,6 +114,7 @@ fun App(state: UiState, actions: UiActions) {
         state.montage?.let { MontageDialog(it, state, actions) }
         state.quitConfirm?.let { QuitDialog(it, actions) }
         state.variants?.let { VariantsWindow(it, state.job != null, actions) }
+        state.player?.let { p -> actions.videoPlayer?.let { dev.highlights.ui.player.VideoPlayerWindow(p, it, actions) } }
         state.montage?.let { m -> m.plan?.let { MontagePlanWindow(m, it, actions) } }
         state.publish?.let { PublishDialog(it, actions) }
         state.error?.let { ErrorDialog(it, actions) }

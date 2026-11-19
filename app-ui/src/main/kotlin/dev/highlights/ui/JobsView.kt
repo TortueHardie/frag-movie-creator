@@ -149,6 +149,9 @@ private fun FinishedRow(job: QueuedJob, actions: UiActions) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        job.result?.takeIf { it.toString().endsWith(".mp4", ignoreCase = true) }?.let { video ->
+            TextButton(onClick = { actions.playVideo(video) }) { Text(tr("ui.player.play")) }
+        }
         if (job.result != null) TextButton(onClick = { actions.openJobResult(job.id) }) { Text(tr("ui.jobs.open")) }
         if (job.status == JobStatus.FAILED) TextButton(onClick = { actions.showJobError(job.id) }) { Text(tr("ui.jobs.details")) }
     }
