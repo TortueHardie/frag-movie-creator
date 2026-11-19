@@ -297,7 +297,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - Aperçus de variantes (branche `montage-apercu-variantes`) : `MontageVariants.kt` (`distinct` : variantes de `best` classées comme lui, la 1 = celle
   de `best`, suivantes à `distance` ≥ `MIN_DISTANCE` 0,25 de toutes les retenues, choix glouton donc liste pour n = début de celle pour n+1 ;
   `ranked`, `distance` = max(clips (plus longue sous-suite commune), coupes à un temps près, passage de la musique), `signature` = empreinte du montage fini) ;
-  `MontagePreview.kt` (`edit` : petit côté 360 px, `plan` : sans flou par vecteurs ni minterpolate, `ENCODER` x264 ultrafast, `format` vertical d'abord,
+  `MontagePreview.kt` (`edit` : petit côté 360 px, `plan` : sans flou par vecteurs, flou radial des coupes (`cuts = false`, le final le garde) ni minterpolate, `ENCODER` x264 ultrafast, `format` vertical d'abord,
   `frames` : images de vignette animée) ; `MontageChoice.kt` (`MontageVariantsFile` `*_variantes.json` et `MontageChoiceRecord` `*.choix.json`, versionnés,
   formats documentés en KDoc). `MontagePlanner.SCALES/DROP_SHIFTS/MIN_CLIP_SHARE/MIN_GAIN` sont `internal` pour `MontageVariants`.
 - `PreviewProxies.kt` (branche `apercus-proxies`) : copies réduites des passages lus par les aperçus (`<workDir>/cache/proxies/<capture>_<hauteur>/`,

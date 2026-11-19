@@ -1234,7 +1234,8 @@ La drop garde son plan d'élan, le premier plan en fait deux. Fichiers `…_onet
 
 Un rendu pleine qualité du montage kills prend plusieurs minutes : le juger à l'aveugle coûte cher. Bouton « Aperçu de
 3 versions » du dialogue du montage, ou `montage … --variants 3` : trois versions du même montage sont rendues en petit
-(360 pixels sur le petit côté, vertical d'abord), vite (x264 `ultrafast`, sans flou par vecteurs), dans
+(360 pixels sur le petit côté, vertical d'abord), vite (x264 `ultrafast`, sans flou par vecteurs ni flou radial des
+coupes, que le rendu final garde), dans
 `<sortie>\apercus\`. Chaque plan y garde exactement son nombre d'images : coupes, kills sur les temps et son sont ceux
 du rendu final. L'aperçu décode en logiciel, sans filtre de boucle H.264 (plus rapide ici que le décodage matériel,
 dont chaque image pleine taille redescend de la carte graphique).
@@ -1260,9 +1261,10 @@ Mesuré (3 versions, « GO2 - Spitfire », sous le verrou de rendu ; détail dan
 | VALORANT « 44 kills » 480p (3 versions, ~50 plans) | 143,8 s | 71,0 s | 64,3 s |
 | VALORANT « game » 480p (2 versions) | 32,7 s | 21,7 s | 21,6 s |
 
-Ce qui reste cher : le graphe lui-même, surtout le flou radial des coupes (un `scale` recalculé à chaque image ; sans
-lui, 10,3 s au lieu de 15,0 s sur WARDOGS 22-55-31, 34 s au lieu de 64 s sur « 44 kills »), gardé dans l'aperçu parce
-qu'il s'y voit.
+Depuis, le flou radial des coupes n'est plus rendu dans les aperçus (un `scale` recalculé à chaque image, un tiers du
+temps d'un aperçu) : il ne couvre que 3 images de part et d'autre d'une coupe, et le rendu final le garde. Mesuré
+ensuite (copies déjà faites, détail dans `output\revue\apercu-sans-flou\`) : WARDOGS 22-55-31 14,8 s → 9,5 s,
+VALORANT « 44 kills » 52,1 s → 28,4 s. La version choisie se rend toujours : l'empreinte ne voit pas les effets.
 
 - **Les versions** : celles que le planificateur note déjà (échelle de la grille de coupes × place de la drop) et le
   plan de base, classées comme il les classe : la version 1 est celle qu'un montage sans aperçu aurait rendue. Les
