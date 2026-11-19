@@ -33,8 +33,17 @@ data class UiState(
     val sources: List<SourceInfo> = emptyList(),
     val settings: SettingsState = SettingsState(),
     val job: JobState? = null,
+    /** File des traitements lourds : en cours, en attente, finis (voir [JobQueue]). */
+    val jobs: List<QueuedJob> = emptyList(),
+    /** Fermeture demandée avec ce nombre de traitements en cours ou en attente : confirmation affichée. */
+    val quitConfirm: Int? = null,
     val session: SessionState? = null,
     val lastExport: ExportResult? = null,
+    /**
+     * Ressenti retenu pour la musique d'un montage kills, par rapport du rendu : la réponse à la question du rythme
+     * rapide sous le résultat ([MusicFeelQuestion]).
+     */
+    val musicFeels: Map<Path, dev.highlights.core.model.MusicFeel> = emptyMap(),
     val error: ErrorInfo? = null,
     val imagePreview: ImagePreview? = null,
     /** Segments dont l'extrait d'aperçu est en cours de génération. */
@@ -55,12 +64,18 @@ data class UiState(
     val lastMusic: Path? = null,
     /** Vue des statistiques, à la place des analyses enregistrées (null = fermée). */
     val stats: StatsState? = null,
+    /** Écran des goûts appris (TasteView) ; null : fermé. */
+    val taste: TasteUiState? = null,
+    /** Écran « Nouveau jeu » ouvert (remplace la liste des analyses). */
+    val newGame: NewGameState? = null,
     /** Vue de recherche de moments, à la place des analyses enregistrées (null = fermée). */
     val search: SearchState? = null,
     /** Analyses déjà faites, la plus récente d'abord. */
     val library: List<LibraryItem> = emptyList(),
     /** Analyses cochées dans la liste, à ouvrir ensemble pour un seul montage (fichiers de session). */
     val librarySelection: Set<Path> = emptySet(),
+    /** Analyse à oublier, en attente de confirmation (null = pas de question). */
+    val forget: LibraryItem? = null,
     val watch: WatchState = WatchState(),
     /** Nouvelle version proposée (null : à jour, ou pas encore vérifié). */
     val update: UpdateState? = null,
@@ -74,6 +89,8 @@ data class UiState(
     val crash: CrashNotice? = null,
     /** Traitement retenu faute de mémoire disponible, en attente de la décision de l'utilisateur. */
     val memoryWarning: MemoryWarning? = null,
+    /** Aperçus des variantes du montage kills, à regarder avant d'en rendre une (null = fermé). */
+    val variants: VariantsUiState? = null,
 ) {
     /** Première capture : celle qui décide du profil détecté et du ratio d'origine. */
     val source: SourceInfo? get() = sources.firstOrNull()
@@ -83,11 +100,19 @@ data class UiState(
 
     /** Plateformes proposées (config chargée). */
     val platforms: List<PlatformInfo> get() = (config as? ConfigStatus.Ready)?.platforms.orEmpty()
+    /** Préréglages d'export (`config/export-presets.yaml`), proposés en puces dans la barre d'export et la fenêtre de montage. */
+    val presets: List<dev.highlights.core.model.ExportPreset> get() = (config as? ConfigStatus.Ready)?.presets.orEmpty()
 }
 
 sealed interface ConfigStatus {
     data object Loading : ConfigStatus
-    data class Ready(val configFile: Path, val profilesDir: Path, val profiles: List<ProfileInfo>, val platforms: List<PlatformInfo> = emptyList()) : ConfigStatus
+    data class Ready(
+        val configFile: Path,
+        val profilesDir: Path,
+        val profiles: List<ProfileInfo>,
+        val platforms: List<PlatformInfo> = emptyList(),
+        val presets: List<dev.highlights.core.model.ExportPreset> = emptyList(),
+    ) : ConfigStatus
     data class Failed(val message: String) : ConfigStatus
 }
 
@@ -139,7 +164,21 @@ data class WatchState(
     /** Analyses faites en fond et pas encore ouvertes (fichiers de session). */
     val fresh: Set<Path> = emptySet(),
     val lastError: String? = null,
+    /** Montage automatique des soirées finies (voir [EveningAuto]) et texte du champ de délai. */
+    val evenings: EveningAuto = EveningAuto(),
+    val eveningDelayText: String = I18n.duration(EveningAuto.DEFAULT_DELAY),
+    /** Soirée en cours de montage (« Soirée du 16/11 ») et avancement. */
+    val montaging: String? = null,
+    val montageFraction: Double = 0.0,
+    /** Dernier montage de soirée fait : ce que dit la notification, et la vidéo. */
+    val lastEvening: EveningReady? = null,
+    /** Montage de soirée impossible (pas de dossier de musiques, échec) : dit dans la carte du dossier surveillé. */
+    val eveningProblem: String? = null,
+    /** Styles proposés pour le montage de soirée ([dev.highlights.core.model.MontageStyles]), et celui par défaut du fichier. */
+    val eveningStyles: dev.highlights.core.model.MontageStyles = dev.highlights.core.model.MontageStyles.NONE,
 )
+
+data class EveningReady(val text: String, val video: Path?)
 
 enum class TargetMode { DURATION, TOP_N, ALL }
 
@@ -160,6 +199,12 @@ data class SettingsState(
     val outputDir: Path? = null,
     /** Plateforme visée (id) : impose le format et adapte volume, débit, textes ; null : les formats cochés. */
     val platform: String? = null,
+    /** Préréglage d'export choisi (voir [choosePreset]) ; null : « Personnalisé ». */
+    val preset: String? = null,
+    /** Réglages changés à la main sous le préréglage ([PresetKnob]) : un changement de préréglage ne les touche plus. */
+    val presetTouched: Set<String> = emptySet(),
+    /** Miniature YouTube écrite à côté de chaque vidéo. */
+    val thumbnail: Boolean = true,
 ) {
     val targetDuration: Duration? get() = I18n.parseDuration(durationText)?.takeIf { it.isPositive() }
     val topN: Int? get() = topNText.trim().toIntOrNull()?.takeIf { it > 0 }
@@ -183,6 +228,8 @@ data class JobState(
     val elapsed: Duration = Duration.ZERO,
     val eta: Duration? = null,
     val cancellable: Boolean = true,
+    /** Traitement bloquant de la file qu'il représente (null : traitement immédiat, hors file). */
+    val queueId: Long? = null,
 )
 
 /** Analyse d'une capture et fichier où elle est enregistrée. */
@@ -277,7 +324,7 @@ fun formatBytes(bytes: Long): String = when {
 
 /** « 2 kills · 1 assist » : types connus traduits (`event.<type>`, au pluriel), les autres par leur nom brut. */
 fun eventsLabel(events: Map<String, Int>): String = events.entries
-    .sortedBy { listOf("kill", "assist", "revive", "death", "laughter", "shout").indexOf(it.key).let { i -> if (i < 0) 99 else i } }
+    .sortedBy { listOf("kill", "headshot", "assist", "revive", "death", "downed", "laughter", "shout", "feed-kill", "hud-shot", "shot").indexOf(it.key).let { i -> if (i < 0) 99 else i } }
     .joinToString(" · ") { (kind, n) -> I18n.textOrNull("event.$kind", mapOf("count" to n)) ?: "${I18n.decimal(n.toDouble(), 0)} $kind" }
 
 data class MontageUiState(
@@ -295,16 +342,24 @@ data class MontageUiState(
     val formats: Set<OutputFormat> = setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
     /** Plateforme visée : impose le format, et sa durée maximale devient un plafond. */
     val platform: String? = null,
+    /** Préréglage d'export choisi (voir [choosePreset]) ; null : « Personnalisé ». */
+    val preset: String? = null,
+    /** Réglages changés à la main sous le préréglage ([PresetKnob]). */
+    val presetTouched: Set<String> = emptySet(),
+    /** Miniature YouTube écrite à côté de chaque vidéo du rendu final. */
+    val thumbnail: Boolean = true,
     /** Seulement ces moments (choisis dans la recherche) ; null : tous les kills des parties ouvertes. */
     val pick: dev.highlights.pipeline.MomentPick? = null,
     val density: EffectDensity = EffectDensity.BALANCED,
     val zoom: Boolean = true,
     val flash: Boolean = true,
     val whip: Boolean = true,
+    /** Souffle sur les whip pans (sans whip pan, rien à faire sonner). */
+    val whoosh: Boolean = false,
     /** Ouverture vitrine : passages calmes avant le premier kill. */
-    val showcase: Boolean = false,
+    val showcase: Boolean = true,
     /** Couleurs boostées (vibrance, saturation, contraste), comme les kill montages de TikTok. */
-    val boostColors: Boolean = false,
+    val boostColors: Boolean = true,
     /** Flou de mouvement : traînées sur les mouvements rapides, flou radial sur les coupes. */
     val motionBlur: Boolean = true,
     /** Coupes déplacées de quelques images pour raccorder sur une animation qui revient (rechargement, sort…). */
@@ -313,6 +368,8 @@ data class MontageUiState(
     val rounds: Boolean = true,
     val slowMotion: Boolean = true,
     val text: Boolean = true,
+    /** Compteur de kills à l'écran : aucun, par plan ou cumulé (voir [dev.highlights.core.model.KillCounterMode]). */
+    val killCounter: dev.highlights.core.model.KillCounterMode = dev.highlights.core.model.KillCounterMode.OFF,
     /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */
     val balance: Double = 0.0,
     val gameAudio: GameAudio = GameAudio.FULL,
@@ -320,8 +377,30 @@ data class MontageUiState(
     val reactions: Boolean = false,
     /** Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun. */
     val oneTaps: Boolean = false,
+    /** Montage des réactions au micro (rires, cris), micro devant, sous-titres, à la place des kills. */
+    val reactionMontage: Boolean = false,
     /** Rythme rapide : un kill par temps de musique, sur chaque coup de basse. */
     val fast: Boolean = false,
+    /** Rythme rapide sur les seules parties rapides et intenses de la musique (drop et après). */
+    val fastParts: Boolean = true,
+    /** Kills à la capacité écartés (aucune balle au compteur de munitions), réglage du profil au départ. */
+    val skipAbilityKills: Boolean = false,
+    /** Le profil lit le compteur de munitions : sans lui, la case [skipAbilityKills] ne ferait rien et n'est pas montrée. */
+    val abilityKillsKnown: Boolean = false,
+    /** Style de montage choisi (voir [chooseStyle]) ; null : réglages du profil seuls. */
+    val style: String? = null,
+    /** Styles proposés (`config/montage-styles.yaml`). */
+    val styles: List<dev.highlights.core.model.MontageStyle> = emptyList(),
+    /** Cases telles que le profil les règle, sur lesquelles un style se pose. */
+    val profileKnobs: StyleKnobs = StyleKnobs(),
+    /** Cases modifiées à la main ([StyleKnobs]) : un changement de style ne les touche plus. */
+    val touched: Set<String> = emptySet(),
+    /** Réglages détaillés dépliés (« Avancé »). */
+    val advanced: Boolean = false,
+    /** Corrections de l'utilisateur sur le plan (kills écartés, groupes forcés ou épinglés), posées dans la frise. */
+    val constraints: dev.highlights.montage.MontageConstraints = dev.highlights.montage.MontageConstraints.NONE,
+    /** Frise du plan ouverte (voir [MontagePlanState]) ; null : fermée. */
+    val plan: MontagePlanState? = null,
 ) {
     val maxDuration: Duration? get() = I18n.parseDuration(maxDurationText)?.takeIf { it.isPositive() }
     /** Musique ou dossier de musiques passé au montage, selon le mode. */
@@ -352,6 +431,10 @@ data class PublishUiState(
     val publishAtText: String = "",
     /** Texte proposé, pour y revenir. */
     val suggested: YouTubeMetadata? = null,
+    /** Miniature écrite à côté de la vidéo (`<nom>_miniature.png`) ; null : pas encore faite. */
+    val thumbnail: Path? = null,
+    /** Miniature en cours de création. */
+    val thumbnailBusy: Boolean = false,
 ) {
     val tags: List<String> get() = tagsText.split(',').map { it.trim() }.filter { it.isNotEmpty() }
     val publishAt: Instant? get() = publishAtText.takeIf { it.isNotBlank() }?.let(YouTubeText::parseSchedule)

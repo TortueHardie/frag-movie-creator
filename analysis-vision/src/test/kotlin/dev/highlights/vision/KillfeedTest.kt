@@ -74,6 +74,26 @@ class KillfeedTest : FunSpec({
         reader.rows(frame(100 to 20, 250 to 20)).map { it.role } shouldBe listOf(KillfeedRole.DEATH)
     }
 
+    test("basse définition : l'aplat plein du portrait est la ligne, le décor collé au bord droit n'en est pas une") {
+        // Réglages 480p : ligne de 16 px, aplat de 10x8 mesuré (rempli à 80 %), colonne de la victime de 40 px.
+        val solid = FeedReader(
+            threshold = 60, victimWidth = 40, bridge = 0,
+            shape = FrameShape(6, 18, 4, 26, minFill = 0.45, maxFill = 1.0, minTopEdge = 0.0, deathEdge = 13, selfShare = 0.1, solid = true),
+        )
+        val w = 334
+        val pixels = ByteArray(w * 118)
+        fun block(x0: Int, y0: Int, width: Int, height: Int) {
+            for (y in y0 until y0 + height) for (x in x0 until x0 + width) pixels[y * w + x] = yellow
+        }
+        block(151, 41, 8, 10) // aplat d'un kill (partie du 22/09 en 854x480, 903,5 s)
+        block(318, 7, 10, 13) // aplat d'une mort, fini 6 px avant le bord
+        block(328, 60, 6, 14) // bordure dorée d'une capacité, collée au bord
+        val rows = solid.rows(ZoneFrame(w, 118, pixels))
+        rows.map { it.role to it.left } shouldBe listOf(KillfeedRole.KILL to 151, KillfeedRole.DEATH to 318)
+        // Le lecteur de pleine définition ne prend pas ces aplats pleins pour des cadres (remplissage au-dessus de maxFill).
+        reader.rows(ZoneFrame(w, 118, pixels.copyOf())).shouldBeEmpty()
+    }
+
     fun tracker() = FeedTracker(tolerance = 6, minSightings = 3, maxGap = 1200.milliseconds, deathSpacing = 10.seconds)
     fun at(i: Int): Duration = 200.milliseconds * i
     fun kill(x: Int, y: Int) = FeedRow(KillfeedRole.KILL, y, y + 22, x, x + 37)
@@ -102,6 +122,23 @@ class KillfeedTest : FunSpec({
         t.add(at(20), listOf(kill(30, 60)))
         t.add(at(21), listOf(kill(30, 60)))
         t.appearances() shouldBe listOf(KillfeedRole.KILL to at(0))
+    }
+
+    test("basse définition : une tache vue un instant n'absorbe pas la vraie ligne apparue plus haut") {
+        // Partie du 22/09 en 480p à 30 img/s, 4,57 s : tache en bas de la zone ; 5,37 s, premier kill ; 7,53 s, second
+        // kill sous lui, encore au-dessus de la tache disparue.
+        fun pending(gap: Duration) = FeedTracker(tolerance = 4, minSightings = 3, maxGap = 3.seconds, deathSpacing = 10.seconds, pendingGap = gap)
+        val noise = FeedRow(KillfeedRole.KILL, 110, 117, 133, 139)
+        val first = FeedRow(KillfeedRole.KILL, 42, 52, 144, 152)
+        val second = FeedRow(KillfeedRole.KILL, 77, 87, 137, 144)
+        fun feed(t: FeedTracker) {
+            t.add(at(0), listOf(noise))
+            repeat(10) { t.add(at(4 + it), listOf(first)) }
+            repeat(10) { t.add(at(14 + it), listOf(first, second)) }
+        }
+        pending(500.milliseconds).also(::feed).appearances() shouldBe listOf(KillfeedRole.KILL to at(4), KillfeedRole.KILL to at(14))
+        // Sans délai propre aux lignes en attente (pleine définition) : le second kill prend la date de la tache.
+        pending(3.seconds).also(::feed).appearances() shouldBe listOf(KillfeedRole.KILL to at(0), KillfeedRole.KILL to at(4))
     }
 
     test("une seule mort par round : la ligne réapparue après l'écran de mort est ignorée") {

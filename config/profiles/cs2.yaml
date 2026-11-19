@@ -1,0 +1,128 @@
+id: cs2
+displayName: Counter-Strike 2
+
+match:
+  pathContains: ["CS2", "Counter-Strike", "Counter Strike", "counterstrike"]
+  priority: 10
+
+# Kills brefs : fenêtres courtes pour localiser précisément le pic.
+window: { size: 1s, hop: 500ms }
+
+# Les pistes sont désignées par leur rôle : une capture d'une seule piste (OBS, vidéo YouTube) sert de son du jeu.
+detectors:
+  - id: game-audio
+    type: audio-loudness
+    weight: 0.7
+    normalization: { lowPercentile: 0.5, highPercentile: 0.98, minSpread: 10 }
+    params: { role: game, localBaseline: 20s }
+
+  - id: mic-audio
+    type: audio-loudness
+    weight: 0.3
+    normalization: { lowPercentile: 0.8, highPercentile: 0.99, minSpread: 12 }
+    params: { role: mic, optional: true }
+
+  # Kills et morts lus dans le killfeed (en haut à droite) : la ligne où le joueur tue est entourée d'un contour rouge,
+  # celle où il meurt est sur fond rouge plein, quels que soient l'équipe, l'arme ou le pseudo (outline, voir le README).
+  # Le contour marque aussi les lignes où le joueur n'a qu'aidé (« coéquipier + joueur ») : elles sont écartées d'après
+  # le premier nom de la ligne (outline.player). Mesuré sur « CS2- 33 Kills On Dust 2 » (854x480, 30 img/s,
+  # verite/cs2/) : 30 kills sur 33, 4 en trop (2 assistances sur 6 restent), 13 morts sur 14, aucune en trop. Sans ce
+  # tri : 32 kills sur 33, 10 en trop. Analyse : 1 min 40.
+  # Rouge du joueur : rouge nettement au-dessus du vert et du bleu, eux égaux (contour 163/92/100 sur un mur clair,
+  # fond 96/23/21) ; le sable et les murs au soleil (180/135/97) ont un vert bien au-dessus du bleu et restent à 0.
+  - id: killfeed
+    type: killfeed
+    weight: 0
+    eventBoosts: { kill: 0.8 }
+    params:
+      # Sous le bandeau du haut (la première ligne commence à y 33 en 480p), assez bas pour huit lignes.
+      region: { x: 0.6487, y: 0.054, width: 0.3513, height: 0.2793 }
+      referenceWidth: 854
+      referenceHeight: 480
+      anchor: right
+      scale: 1.0
+      fps: 10
+      color: "max(r(X,Y)-max(g(X,Y),b(X,Y))-2*abs(g(X,Y)-b(X,Y)),0)"
+      threshold: 25
+      # Trous de 8 à 14 px dans un trait, sous les lettres ou sur un fond clair.
+      bridge: 16
+      # Une ligne du joueur reste 3 à 7 s ; le voile rouge des dégâts et le décor passent en moins d'une seconde.
+      minSightings: 10
+      # Images clés espacées de 1,5 à 5 s : une ligne du joueur (2 à 7 s) n'y tombe pas toujours. Toute la vidéo est lue
+      # (480p coûte peu).
+      keyframeScan: null
+      outline:
+        # Kill ou assistance : le contour marque aussi les lignes « coéquipier + joueur ». Le pseudo du joueur est appris
+        # en tête des lignes encadrées (le premier mot le plus fréquent) ; une ligne est un kill si elle commence par lui,
+        # ou presque et que le chat affiche « +$… for neutralizing an enemy » (jamais pour une assistance).
+        player:
+          reward:
+            # Début des lignes du chat, en bas à gauche (le « +$ » vert), mesuré en 854x480.
+            region: { x: 0.0094, y: 0.604, width: 0.0258, height: 0.375 }
+
+  # Tirs du joueur dans le son du jeu : les attaques les plus fortes de la partie (kills d'une seule balle).
+  - id: game-shots
+    type: game-sounds
+    weight: 0
+    params:
+      shots: { minRiseDb: 9, percentile: 0.9, belowDb: 10 }
+
+  - id: voice
+    type: voice-activity
+    weight: 0
+    params: { role: mic, optional: true, silenceDb: -50 }
+
+selection:
+  keepWhole: [speech]
+  maxExtension: 8s
+  threshold: 0.6
+  mergeGap: 3s
+  preRoll: 3s
+  postRoll: 1500ms
+  minClip: 4s
+  maxClip: 15s
+  target: { totalDuration: 60s }
+
+edit:
+  style: story
+  story:
+    # Rounds courts et denses comme VALORANT : les kills d'un même round forment une scène.
+    scenes: { gap: 20s, maxLength: 45s }
+    jumpCuts: { minGap: 2500ms, breath: 300ms, deadScore: 0.3, alternateZoom: 1.08 }
+    coldOpen: { enabled: true, length: 3s }
+    shake: { amplitude: 0.012, events: [kill] }
+    sfx: { enabled: true, whooshVolume: 0.35, impactVolume: 0.5 }
+    labels: { enabled: true }
+    slowMo: { enabled: true, factor: 0.5, onlyStrong: true }
+  order: chronological
+  transition: { type: fade, duration: 250ms }
+  loudnessLufs: -14
+  audio: mix
+  formats: ["source"]
+  # Vertical 9:16 : le recadrage au centre ne gardait ni le killfeed (bord droit) ni le bandeau entier. Mesuré sur
+  # « CS2- 33 Kills On Dust 2 » (16:9). Le recadrage s'arrête sous le bandeau du haut (minuteur, score, avatars) et
+  # au-dessus de la ligne du bas (argent, vie, munitions) ; les trois sont replacés : bandeau en haut, killfeed dessous
+  # à droite (les lignes encadrées de rouge disent qui a tué), vie et munitions en bas dans la zone sûre de TikTok
+  # (marges de 5 % à gauche, 14 % à droite, 22 % en bas). La mini-carte est replacée en haut à gauche, face au killfeed.
+  vertical:
+    size: { width: 1080, height: 1920 }
+    reference: { width: 854, height: 480 }
+    cropRegion: { x: 0.0, y: 0.09, width: 1.0, height: 0.82 }
+    hud:
+      - name: topbar
+        source: { x: 0.345, y: 0.0, width: 0.335, height: 0.09 }
+        target: { x: 0.1, y: 0.0, width: 0.8 }
+        anchor: center
+      - name: killfeed
+        source: { x: 0.70, y: 0.06, width: 0.30, height: 0.17 }
+        target: { x: 0.36, y: 0.075, width: 0.62 }
+        anchor: right
+      # Mini-carte (en haut à gauche dans le jeu, cercle de 110 px en 480p), sous le bandeau, à gauche du killfeed.
+      - name: radar
+        source: { x: 0.0, y: 0.0, width: 0.16, height: 0.28 }
+        target: { x: 0.02, y: 0.075, width: 0.30 }
+        anchor: left
+      - name: status
+        source: { x: 0.27, y: 0.915, width: 0.46, height: 0.075 }
+        target: { x: 0.05, y: 0.72, width: 0.81 }
+        anchor: center

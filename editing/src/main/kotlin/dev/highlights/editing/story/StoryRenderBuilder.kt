@@ -1,5 +1,7 @@
 package dev.highlights.editing.story
 
+import dev.highlights.editing.HudPin
+import dev.highlights.editing.ZoomCrop
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
@@ -113,8 +115,11 @@ object StoryRenderBuilder {
         val screen = shots.map(::onScreen)
         shots.forEachIndexed { i, source ->
             val shot = screen[i]
-            graph += RenderCommandBuilder.videoChain(i, shot.media, request.format, edit, "g$i")
-            val sized = if (RenderCommandBuilder.outputSize(request.format, shot.media, edit) == w to h) {
+            val fits = RenderCommandBuilder.outputSize(request.format, shot.media, edit) == w to h
+            // HUD recollé en 9:16 : empilé sous l'image, recollé fixe après le punch-in et la secousse (HudPin).
+            val targets = if (fits) RenderCommandBuilder.hudTargets(request.format, shot.media, edit) else emptyList()
+            graph += RenderCommandBuilder.videoChain(i, shot.media, request.format, edit, "g$i", pinHud = targets.isNotEmpty())
+            val sized = if (fits) {
                 "g$i"
             } else {
                 graph += "[g$i]scale=$w:$h:force_original_aspect_ratio=decrease:flags=lanczos,pad=$w:$h:(ow-iw)/2:(oh-ih)/2,setsar=1[z$i]"
@@ -122,7 +127,12 @@ object StoryRenderBuilder {
             }
             val base = slowVideo(graph, i, sized, source, edit.fps)
             val effects = mutableListOf<String>()
-            effects += framing(shot, w, h, story.punchIn.amount, story.punchIn.ramp, story.shake.amplitude, story.shake.duration, story.shake.frequency)
+            val motion = framing(shot, w, h, story.punchIn.amount, story.punchIn.ramp, story.shake.amplitude, story.shake.duration, story.shake.frequency)
+            // Sous-titres et libellés par-dessus le HUD recollé.
+            val start = HudPin.statements(base, emptyList(), motion, targets, w, h, "hp$i")?.let { (lines, out) ->
+                graph += lines
+                out
+            } ?: base.also { effects += motion }
             // Après le cadrage : le texte ne suit ni le zoom ni la secousse.
             val captionY = if (request.format == OutputFormat.VERTICAL) story.captions.verticalY else story.captions.y
             shot.captions.forEach { effects += Captions.drawText(it, story.captions, w, h, captionY, edit.safeArea) }
@@ -147,7 +157,7 @@ object StoryRenderBuilder {
             effects += "setsar=1"
             effects += "format=yuv420p"
             effects += "settb=AVTB"
-            graph += "[$base]${effects.joinToString(",")}[v$i]"
+            graph += "[$start]${effects.joinToString(",")}[v$i]"
             graph += audioChain(graph, i, source, edit.audioIndices(AudioTracks.of(shot.media.audio, request.audioLayout)), story.transition.audioFade)
         }
         graph += shots.indices.joinToString("") { "[v$it][a$it]" } + "concat=n=${shots.size}:v=1:a=1[vcat][acat]"
@@ -220,7 +230,7 @@ object StoryRenderBuilder {
         "anoisesrc=d=0.40:c=pink:r=48000:a=0.8,bandpass=f=2200:t=q:w=0.9,afade=t=in:d=0.28:curve=exp,afade=t=out:st=0.28:d=0.12",
         "anoisesrc=d=0.50:c=brown:r=48000:a=0.9,bandpass=f=900:t=q:w=0.6,afade=t=in:d=0.32:curve=exp,afade=t=out:st=0.32:d=0.18",
     )
-    internal val IMPACTS = listOf(
+    val IMPACTS = listOf(
         IMPACT_SOURCE_1,
         "aevalsrc=exprs='sin(2*PI*(38+70*exp(-t*22))*t)*exp(-t*6)':s=48000:d=0.6",
         "aevalsrc=exprs='sin(2*PI*(55+120*exp(-t*35))*t)*exp(-t*9)':s=48000:d=0.6",
@@ -280,17 +290,13 @@ object StoryRenderBuilder {
         val shakeExpr = if (shakeEnv.isEmpty()) "0" else shakeEnv.joinToString("+")
         // Marge de la secousse : 2,5 amplitudes, de quoi absorber le déplacement dans les deux sens.
         val zoom = "(${num(shot.zoom)}*(1+${num(punch)}*$punchExpr)*(1+${num(amplitude * 2.5)}*min($shakeExpr\\,1)))"
-        val filters = mutableListOf("scale=w='trunc($w*$zoom/2)*2':h='trunc($h*$zoom/2)*2':eval=frame:flags=bicubic")
-        if (shakes.isEmpty()) {
-            filters += "crop=$w:$h:(iw-$w)/2:(ih-$h)/2"
-        } else {
-            val amp = num(amplitude * h)
-            val f = num(2 * Math.PI * frequency)
-            val dx = "$amp*sin($f*t)*($shakeExpr)"
-            val dy = "$amp*cos(${num(2 * Math.PI * frequency * 1.3)}*t)*($shakeExpr)"
-            filters += "crop=$w:$h:x='clip((iw-$w)/2+$dx\\,0\\,iw-$w)':y='clip((ih-$h)/2+$dy\\,0\\,ih-$h)'"
-        }
-        return filters
+        // Recadrage recentré à chaque image (voir ZoomCrop : `iw` resterait celui de la première image).
+        if (shakes.isEmpty()) return ZoomCrop.filters(w, h, zoom, "bicubic")
+        val amp = num(amplitude * h)
+        val f = num(2 * Math.PI * frequency)
+        val dx = "$amp*sin($f*t)*($shakeExpr)"
+        val dy = "$amp*cos(${num(2 * Math.PI * frequency * 1.3)}*t)*($shakeExpr)"
+        return ZoomCrop.filters(w, h, zoom, "bicubic", dx, dy)
     }
 
     /**

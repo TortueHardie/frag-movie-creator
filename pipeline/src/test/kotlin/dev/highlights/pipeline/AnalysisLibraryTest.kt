@@ -13,6 +13,7 @@ import io.kotest.matchers.shouldNotBe
 import java.nio.file.Files
 import java.nio.file.attribute.FileTime
 import java.time.Instant
+import kotlin.io.path.exists
 import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.minutes
 
@@ -80,6 +81,55 @@ class AnalysisLibraryTest : FunSpec({
         Files.delete(session)
         library.entries().shouldBeEmpty()
         library.find(video, "lol", "abc").shouldBeNull()
+    }
+
+    test("oublier une analyse retire l'entrée et la session, jamais la capture") {
+        val root = tempdir().toPath()
+        val video = root.resolve("partie.mp4").also { it.writeText("vidéo") }
+        val session = root.resolve("partie.session.json").also { it.writeText("{}") }
+        val other = root.resolve("autre.session.json").also { it.writeText("{}") }
+        val library = AnalysisLibrary(root.resolve("library.json"))
+        val (size, modified) = AnalysisLibrary.stamp(video).shouldNotBeNull()
+        library.record(LibraryEntry(video, size, modified, "lol", "abc", session, Instant.now(), 30.minutes))
+        library.record(LibraryEntry(video, size, modified, "valorant", "abc", other, Instant.now(), 30.minutes))
+
+        library.forget(session) shouldHaveSize 1
+        session.exists() shouldBe false
+        video.exists() shouldBe true
+        Files.readString(video) shouldBe "vidéo"
+        library.entries().map { it.profileId } shouldBe listOf("valorant")
+
+        // Une capture passée par erreur à la place d'une session n'est jamais effacée.
+        library.forget(video).shouldBeEmpty()
+        video.exists() shouldBe true
+    }
+
+    test("bibliothèque : les kills de la partie telle que sa session la décrit, même réanalysée depuis (46, pas 1)") {
+        val dir = tempdir().toPath()
+        val video = dir.resolve("Valorant- 44 kills.mp4").also { it.writeText("vidéo") }
+        val sessionFile = dir.resolve("sessions/Valorant- 44 kills.session.json")
+        fun save(kills: Int, deaths: Int) {
+            val media = dev.highlights.core.model.MediaInfo(video, 5, 30.minutes)
+            val grid = dev.highlights.core.model.WindowGrid(kotlin.time.Duration.parse("1s"), kotlin.time.Duration.parse("1s"), media.duration)
+            val events = (1..kills).map { dev.highlights.core.model.TimelineEvent((it * 10).let { s -> kotlin.time.Duration.parse("${s}s") }, "kill", 1.0, "killfeed") } +
+                (1..deaths).map { dev.highlights.core.model.TimelineEvent((it * 10 + 5).let { s -> kotlin.time.Duration.parse("${s}s") }, "death", 1.0, "killfeed") }
+            dev.highlights.core.session.SessionStore.save(
+                dev.highlights.core.session.Session(createdAt = Instant.now(), media = media, profileId = "valorant",
+                    timeline = dev.highlights.core.model.ScoredTimeline(grid, List(grid.count) { 0.0 }, emptyMap(), events = events), highlights = emptyList()),
+                sessionFile,
+            )
+        }
+        save(kills = 1, deaths = 0)
+        val library = AnalysisLibrary(dir.resolve("sessions/library.json"))
+        val analyzed = Instant.now()
+        library.record(LibraryEntry(video, 5, 0, "valorant", "abc", sessionFile, analyzed, 30.minutes, events = mapOf("kill" to 1)))
+        library.entries().single().events shouldBe mapOf("kill" to 1)
+        // Réanalyse écrite dans la même session, sans passer par cette bibliothèque (killfeed corrigé).
+        save(kills = 46, deaths = 18)
+        Files.setLastModifiedTime(sessionFile, FileTime.from(analyzed.plusSeconds(60)))
+        library.entries().single().events shouldBe mapOf("kill" to 46, "death" to 18)
+        // Recompté une fois : l'index garde le nouveau compte.
+        AnalysisLibrary(dir.resolve("sessions/library.json")).entries().single().eventsCountedAt shouldBe analyzed.plusSeconds(60).let { FileTime.from(it).toInstant() }
     }
 
     test("un index illisible est ignoré") {

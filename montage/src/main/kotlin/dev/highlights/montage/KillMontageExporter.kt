@@ -1,8 +1,10 @@
 package dev.highlights.montage
 
+import dev.highlights.export.CaptionTranscriber
 import dev.highlights.core.i18n.tr
 import dev.highlights.core.i18n.Message
 import dev.highlights.core.HighlightsException
+import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.EncoderSelector
 import dev.highlights.core.ffmpeg.FfmpegException
 import dev.highlights.core.ffmpeg.FfmpegProgressParser
@@ -15,6 +17,8 @@ import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.core.serialization.roundTo
 import dev.highlights.core.serialization.toTimecode
 import dev.highlights.editing.SourceCutter
+import dev.highlights.editing.SourceCuts
+import dev.highlights.editing.story.SfxBank
 import dev.highlights.export.ExportResult
 import dev.highlights.export.OutputNamer
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -23,6 +27,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.nio.file.Path
+import dev.highlights.core.session.Session
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -50,6 +55,19 @@ data class MontageExportRequest(
     val platform: String? = null,
     /** Genre de montage, dans le nom des fichiers : killmontage, onetaps. */
     val kind: String = "killmontage",
+    /** Avertissements du montage, repris dans le rapport et le résultat (voir [ExportResult.notices]). */
+    val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
+    /**
+     * Aperçu ([MontagePreview]) : petite taille, encodage rapide, sans flou par vecteurs ; même calage, image pour image.
+     * Un seul format, celui de [MontagePreview.format].
+     */
+    val preview: Boolean = false,
+    /** Aperçu : passages réduits à lire à la place des captures ([PreviewProxies]) ; aucun : les captures elles-mêmes. */
+    val proxies: ProxySources = ProxySources.NONE,
+    /** Montage des réactions : réactions trouvées par session (rapport, phrases criées des sous-titres). */
+    val reactions: List<SessionReactions> = emptyList(),
+    /** Transcriptions gardées d'un rendu à l'autre (sous-titres du montage des réactions) ; null : aucun cache. */
+    val captionCache: Path? = null,
 )
 
 @Serializable
@@ -72,7 +90,19 @@ data class MontageReport(
     val musicCandidates: List<MontageReportMusic> = emptyList(),
     /** Profil (jeu) du montage ; null dans les rapports écrits avant. */
     val profile: String? = null,
+    /** Avertissements du montage (peu de kills trouvés…) ; vide dans les rapports écrits avant. */
+    val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
+    /** Empreinte du montage ([MontageVariants.signature]) : la même pour un aperçu et le rendu final de sa variante. */
+    val signature: String? = null,
+    /** Aperçu basse résolution ([MontagePreview]) plutôt que rendu final. */
+    val preview: Boolean = false,
+    /** Montage des réactions : toutes les réactions trouvées, montées ou non ; vide ailleurs. */
+    val reactions: List<MontageReportReaction> = emptyList(),
 )
+
+/** Réaction trouvée au micro ([Reaction]) dans [media] ; [used] : elle ancre un plan du montage. */
+@Serializable
+data class MontageReportReaction(val media: String, val reaction: Reaction, val used: Boolean)
 
 /** Musique d'une bibliothèque essayée pour le montage ; [error] : aucun plan possible sur elle. */
 @Serializable
@@ -134,6 +164,14 @@ data class MontageReportClip(
     val jumpCut: Boolean = false,
     /** Plan de l'ouverture vitrine, sans kill (voir [MontagePlanner.showcase]). */
     val showcase: Boolean = false,
+    /** La coupe qui ouvre le plan est un whip pan (voir [MontageRenderBuilder.whips]). */
+    val whip: Boolean = false,
+    /** Souffle entendu sur ce whip pan : fichier de `whip.sounds` ou variante générée ; null : aucun. */
+    val whoosh: String? = null,
+    /** Montage des morts : texte affiché sur la mort (OUPS, RIP…, voir [FailLabels]) ; null ailleurs. */
+    val failText: String? = null,
+    /** Plan d'une partie rapide de la musique, au rythme rapide (voir [FastSections]). */
+    val fastPart: Boolean = false,
 )
 
 class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoders: EncoderSelector) {
@@ -141,7 +179,26 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
 
     suspend fun export(plan: MontagePlan, request: MontageExportRequest, progress: ProgressReporter): ExportResult {
         if (request.formats.isEmpty()) throw HighlightsException(Message("error.export.noFormat"))
-        val encoder = encoders.select().withMaxBitrate(request.edit.maxBitrate)
+        // Aperçu : même plan (même empreinte, mêmes images), réglages de rendu ramenés à l'aperçu.
+        val signature = MontageVariants.signature(plan)
+        if (request.preview) {
+            val edit = MontagePreview.edit(request.edit)
+            // Proxies : les mêmes plans, lus dans les passages réduits (géométrie à leur taille) ; le rapport garde le plan d'origine.
+            val (proxied, cuts) = request.proxies.apply(MontagePreview.plan(plan), edit.fps)
+            return render(
+                proxied,
+                request.copy(formats = listOf(MontagePreview.format(request.formats)), edit = edit, audioBitrate = MontagePreview.AUDIO_BITRATE, hwaccel = null),
+                MontagePreview.ENCODER, signature, progress, cuts.takeUnless { it.isEmpty },
+            )
+        }
+        return render(plan, request, encoders.select().withMaxBitrate(request.edit.maxBitrate), signature, progress)
+    }
+
+    private suspend fun render(
+        plan: MontagePlan, request: MontageExportRequest, encoder: EncoderProfile, signature: String, progress: ProgressReporter,
+        /** Entrées déjà prêtes (proxies d'aperçu) : pas de pré-découpe, les passages sont déjà petits. */
+        ready: SourceCuts? = null,
+    ): ExportResult {
         request.outputDir.createDirectories()
         request.workDir.createDirectories()
         val kind = request.platform?.let { "${request.kind}_${OutputNamer.slug(it)}" } ?: request.kind
@@ -158,9 +215,13 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         val motionStep = progress.child(tr("progress.cameraMotion"), MOTION_WEIGHT)
         val (cuts, motion) = coroutineScope {
             val motion = async { if (plan.settings.motionBlur.usesVectors) CameraMotion(ffmpeg).measure(plan, motionStep) else emptyList() }
-            SourceCutter.prepare(ffmpeg, MontageRenderBuilder.sourceCuts(plan, request.edit.fps), request.workDir.resolve("cuts"), cutStep) to motion.await()
+            (ready?.also { cutStep.complete() } ?: SourceCutter.prepare(ffmpeg, MontageRenderBuilder.sourceCuts(plan, request.edit.fps), request.workDir.resolve("cuts"), cutStep)) to motion.await()
         }
 
+        // Montage des réactions : ce qui est dit, transcrit une fois pour tous les formats (pas en aperçu : proxies sans micro).
+        val captions = if (request.preview || !plan.settings.reactionMontage.enabled) emptyList()
+        else ReactionRender.transcribe(CaptionTranscriber(ffmpeg), plan, request.reactions, request.edit, request.audioLayout, request.workDir, request.captionCache, progress.child(tr("progress.captions"), CAPTION_WEIGHT))
+        val whooshFiles = whooshFiles(plan)
         val filterScriptOption = ffmpeg.filterScriptOption()
         for (format in request.formats) {
             val target = paths.videos.getValue(format)
@@ -171,6 +232,8 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                 MontageRenderRequest(
                     plan, format, request.edit, encoder, temp, script,
                     request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption, motion,
+                    whooshFiles, if (request.preview) MontagePreview.DECODE else emptyList(),
+                    captions = captions,
                 ),
             )
             script.writeText(render.filterGraph)
@@ -198,6 +261,8 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             step.complete()
         }
 
+        val whooshes = MontageRenderBuilder.whooshes(plan, whooshFiles)
+        val whips = MontageRenderBuilder.whips(plan)
         val report = MontageReport(
             generatedAt = Instant.now().toString(),
             music = plan.music.file.toString(),
@@ -215,7 +280,17 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
             variant = plan.variant.toString(),
             musicCandidates = request.musicChoice,
             profile = request.gameName,
-            clips = plan.clips.zip(plan.clipOffsets()).map { (c, offset) ->
+            notices = request.notices,
+            signature = signature,
+            preview = request.preview,
+            reactions = request.reactions.flatMap { found ->
+                found.reactions.map { r ->
+                    MontageReportReaction(found.session.media.path.toString(), r, plan.clips.any { c -> c.group.media.path == found.session.media.path && Reactions.of(c.group, listOf(found)) == r })
+                }
+            },
+            clips = plan.clips.zip(plan.clipOffsets()).mapIndexed { i, (c, offset) -> c to offset }.let { pairs ->
+                val fails = if (plan.settings.fails.enabled && plan.settings.text.enabled) FailLabels.assign(plan.clips, FailLabels.available(plan.settings.fails)) else plan.clips.map { null }
+                pairs.mapIndexed { i, (c, offset) ->
                 MontageReportClip(
                     c.group.media.path.toString(), c.start.toTimecode(), c.end.toTimecode(), c.kills.map { it.toTimecode() },
                     c.outputKills().map { ((offset + it).inWholeMilliseconds / 1000.0).roundTo(3) }, c.beats,
@@ -230,11 +305,23 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                     offbeat = c.anchorHalf,
                     jumpCut = c.jumps.isNotEmpty(),
                     showcase = c.showcase,
+                    whip = whips[i] != null,
+                    whoosh = whooshes[i],
+                    fastPart = c.fastPart,
+                    failText = fails[i],
                 )
-            },
+            } },
         )
         paths.report.writeText(json.encodeToString(MontageReport.serializer(), report))
-        return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file)
+        return ExportResult(paths.videos, paths.report, plan.duration, encoder.name, music = plan.music.file, notices = request.notices)
+    }
+
+    /** Souffles du dossier `whip.sounds` ; un dossier absent ou sans son est signalé, les souffles générés le remplacent. */
+    private fun whooshFiles(plan: MontagePlan): List<String> {
+        val dir = plan.settings.whip.sounds ?: return emptyList()
+        return SfxBank.list(Path.of(dir)).also {
+            if (it.isEmpty()) log.warn { "Aucun son dans $dir (whip.sounds) : souffles générés à la place" }
+        }
     }
 
     companion object {
@@ -242,7 +329,18 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
         private const val CUT_WEIGHT = 0.08
         /** Mesure du mouvement de caméra : un décodage en tout petit de chaque plan, rapide face au rendu. */
         private const val MOTION_WEIGHT = 0.06
+        /** Transcription des plans du montage des réactions (whisper, quelques secondes par plan). */
+        private const val CAPTION_WEIGHT = 0.1
 
-        fun recordingDate(instant: Instant?): LocalDate = (instant ?: Instant.now()).atZone(ZoneId.systemDefault()).toLocalDate()
+        /**
+         * Date de la première partie jouée, qui nomme le montage : la date d'enregistrement de la capture
+         * ([dev.highlights.core.model.MediaInfo.recordedAt] : inscrite dans le fichier, sinon sa date de modification),
+         * sinon celle de l'analyse ; jamais celle du rendu. Même règle que l'export highlights. Une capture VALORANT
+         * sans date inscrite donnait `valorant_2026-11-18_killmontage` pour une partie du 17 rendue le 18.
+         */
+        fun recordingDate(sessions: List<Session>, zone: ZoneId = ZoneId.systemDefault()): LocalDate {
+            val instant = sessions.mapNotNull { it.media.recordedAt }.minOrNull() ?: sessions.minOf { it.createdAt }
+            return instant.atZone(zone).toLocalDate()
+        }
     }
 }

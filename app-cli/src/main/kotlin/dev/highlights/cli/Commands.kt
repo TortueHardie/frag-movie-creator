@@ -2,6 +2,7 @@ package dev.highlights.cli
 
 import com.github.ajalt.clikt.core.BadParameterValue
 import com.github.ajalt.clikt.core.Context
+import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.multiple
 import com.github.ajalt.clikt.parameters.arguments.optional
@@ -9,7 +10,9 @@ import com.github.ajalt.clikt.parameters.groups.mutuallyExclusiveOptions
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.nullableFlag
+import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.options.nullableFlag
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.split
 import com.github.ajalt.clikt.parameters.types.choice
@@ -21,6 +24,7 @@ import dev.highlights.core.model.AudioRole
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.EffectDensity
+import dev.highlights.core.model.KillCounterMode
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
 import dev.highlights.core.model.MediaInfo
@@ -35,10 +39,19 @@ import dev.highlights.core.session.SessionStore
 import dev.highlights.export.ExportResult
 import dev.highlights.ffmpeg.FfmpegEncoderSelector
 import dev.highlights.montage.CutGrid
+import dev.highlights.montage.MontageChoiceRecord
+import dev.highlights.montage.KillRef
+import dev.highlights.montage.MontageConstraints
+import dev.highlights.montage.MontagePin
 import dev.highlights.montage.MontageReport
 import dev.highlights.montage.MontageScore
 import dev.highlights.montage.MusicAnalyzer
 import dev.highlights.montage.MusicLibrary
+import dev.highlights.montage.ThumbnailStyle
+import dev.highlights.core.model.ExportPreset
+import dev.highlights.core.config.LoadedConfig
+import dev.highlights.pipeline.ExportPresetRules
+import dev.highlights.pipeline.withPreset
 import dev.highlights.core.profile.ProfileRepository
 import dev.highlights.pipeline.AnalysisOutcome
 import dev.highlights.pipeline.AnalyzeOptions
@@ -46,6 +59,8 @@ import dev.highlights.pipeline.Diagnostics
 import dev.highlights.pipeline.ExportOptions
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
+import dev.highlights.pipeline.VariantPick
+import dev.highlights.pipeline.PlannedMontage
 import dev.highlights.pipeline.render
 import java.nio.file.Path
 import kotlin.io.path.isDirectory
@@ -65,6 +80,22 @@ private fun PipelineCommand.introOption() = option(
     "--intro",
     help = "Cartes d'ouverture et de fin (logo, pseudo, fond : section intro du profil ou d'app.yaml) ; --no-intro : sans elles. Défaut : intro.enabled",
 ).nullableFlag("--no-intro")
+/** `--preset <id>` : préréglage d'export de `config/export-presets.yaml` (voir [presetNamed]). */
+internal fun PipelineCommand.presetOption() = option(
+    "--preset",
+    help = "Préréglage d'export (config/export-presets.yaml : tiktok, shorts, complet) : plateforme ou format, durée, style et miniature d'un coup ; " +
+        "les autres options passent devant",
+)
+
+/** Préréglage [id], vérifié contre les plateformes et les styles de la configuration ; erreur lisible s'il n'existe pas. */
+internal fun presetNamed(config: LoadedConfig, id: String): ExportPreset =
+    ExportPresetRules.resolve(id, config.loadExportPresets(), config.platforms, config.loadMontageStyles())
+
+/** `--thumbnail` : miniature YouTube de chaque vidéo ; `--thumbnail-style` choisit son habillage (vif par défaut). */
+private fun PipelineCommand.thumbnailFlag() = option("--thumbnail", help = "Écrit aussi une miniature YouTube (PNG 1280x720, 1080x1920 en vertical) à côté de chaque vidéo").flag()
+
+internal fun PipelineCommand.thumbnailStyleOption() = option("--thumbnail-style", help = "Habillage de la miniature : vivid (défaut : couleurs vives, texte jaune), sober ou big (texte aussi large que l'image)")
+    .choice(*ThumbnailStyle.entries.map { it.id to it }.toTypedArray())
 
 private fun PipelineCommand.styleOption() = option(
     "--style",
@@ -96,6 +127,7 @@ class ProcessCommand : PipelineCommand("process") {
     private val music by musicOption()
     private val intro by introOption()
     private val out by option("-o", "--out", help = "Dossier de sortie").path(canBeFile = false)
+    private val preset by presetOption()
 
     override fun help(context: Context) =
         "Analyse une ou plusieurs vidéos puis exporte le montage des meilleurs moments. Avec plusieurs vidéos, la cible " +
@@ -105,11 +137,14 @@ class ProcessCommand : PipelineCommand("process") {
         val progress = ConsoleProgress()
         val outcome = execute {
             val pipeline = Pipelines.create(env.config)
+            val chosen = preset?.let { presetNamed(env.config, it) }
+            val analyze = AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, reuse = !reanalyze)
+            val export = ExportOptions(formats, out, style, music, platform, intro = intro)
             try {
                 pipeline.processAll(
                     files,
-                    AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, reuse = !reanalyze),
-                    ExportOptions(formats, out, style, music, platform, intro = intro),
+                    chosen?.let(analyze::withPreset) ?: analyze,
+                    chosen?.let(export::withPreset) ?: export,
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -156,21 +191,30 @@ class ExportCommand : PipelineCommand("export") {
     private val music by musicOption()
     private val intro by introOption()
     private val out by option("-o", "--out").path(canBeFile = false)
+    private val thumbnail by thumbnailFlag()
+    private val thumbnailStyle by thumbnailStyleOption()
+    private val preset by presetOption()
 
-    override fun help(context: Context) = "Exporte le montage à partir d'une session (segments enabled uniquement), sans réanalyser."
+    override fun help(context: Context) =
+        "Exporte le montage à partir d'une session (segments enabled uniquement), sans réanalyser. Avec --preset, la durée " +
+            "du préréglage ne change pas les moments déjà choisis dans la session (elle vaut pour process, montage et search)."
 
     override fun run() {
         val progress = ConsoleProgress()
         val result = execute {
             val sessions = sessionFiles.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).export(sessions, ExportOptions(formats, out, style, music, platform, intro = intro), ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).export(sessions, exportOptions(preset?.let { presetNamed(env.config, it) }), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
         }
         printExport(result)
     }
+
+    /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
+    internal fun exportOptions(preset: ExportPreset? = null) =
+        ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail }, intro = intro).let { o -> preset?.let(o::withPreset) ?: o }
 }
 
 class MontageCommand : PipelineCommand("montage") {
@@ -196,16 +240,23 @@ class MontageCommand : PipelineCommand("montage") {
     private val noFlash by option("--no-flash", help = "Sans flash aux coupes").flag()
     private val flashEveryCut by option("--flash-every-cut", help = "Flash à chaque coupe, pas seulement aux coupes fortes").flag()
     private val noWhip by option("--no-whip", help = "Sans whip pan dans le sens du flick").flag()
-    private val showcase by option("--showcase", help = "Ouverture vitrine : passages calmes des parties, sans kill, avant le premier kill").flag()
-    private val noWhoosh by option("--no-whoosh", help = "Whip pans muets, sans souffle sur la coupe").flag()
+    private val showcase by option("--showcase", help = "Ouverture vitrine : passages calmes des parties, sans kill, avant le premier kill (par défaut)").flag()
+    private val noShowcase by option("--no-showcase", help = "Sans ouverture vitrine : le montage commence sur un kill").flag()
+    private val noWhoosh by option("--no-whoosh", help = "Whip pans muets, sans souffle sur la coupe (par défaut)").flag()
+    private val whoosh by option("--whoosh", help = "Souffle (whoosh) sur les whip pans, muets par défaut").flag()
+    private val whooshDir by option("--whoosh-dir", help = "Dossier de souffles (wav, mp3…) pour les whip pans, chacun à son tour, à la place des souffles générés")
+        .path(mustExist = true, canBeFile = false)
     private val noMotionBlur by option("--no-motion-blur", help = "Sans flou de mouvement (traînées sur les mouvements rapides, flou radial sur les coupes)").flag()
     private val colors by option("--colors", help = "Couleurs : boost (vives, noirs francs, comme les kill montages de TikTok) ou natural (celles du jeu) ; défaut : celui du profil")
         .choice("boost" to true, "natural" to false)
     private val noMatchCut by option("--no-match-cut", help = "Sans raccord sur la pose de l'arme (visée ou arme au repos, qui reste en place par-dessus la coupe)").flag()
     private val noRounds by option("--no-rounds", help = "Sans classement selon le round (mort juste après, ace, clutch)").flag()
+    private val abilityKills by option("--ability-kills", help = "Garder les kills à la capacité (molly, flèche, drone…), que le profil VALORANT écarte").nullableFlag("--skip-ability-kills")
     private val noSlowmo by option("--no-slowmo", help = "Sans ralenti").flag()
     private val noRamp by option("--no-ramp", help = "Sans rampe de vitesse entre les kills d'un multi-kill").flag()
     private val noText by option("--no-text", help = "Sans textes (DOUBLÉ, TRIPLÉ…)").flag()
+    private val killCounter by option("--kill-counter", help = "Compteur de kills à l'écran (« 1… 2… 3… », puis ACE) : clip (compté dans chaque plan), montage (cumulé), off")
+        .choice("off" to KillCounterMode.OFF, "clip" to KillCounterMode.CLIP, "montage" to KillCounterMode.MONTAGE)
     private val balance by option("--balance", help = "Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant) ; ±6 dB par cran")
         .convert { text ->
             text.replace(',', '.').toDoubleOrNull()?.takeIf { it in -1.0..1.0 } ?: throw BadParameterValue("équilibre invalide '$text' (entre -1 et 1)")
@@ -214,51 +265,87 @@ class MontageCommand : PipelineCommand("montage") {
     private val gameAudio by option("--game-audio", help = "Son du jeu : full (défaut) ou kills (le son du kill seul, musique baissée dessous)")
         .choice("full" to GameAudio.FULL, "kills" to GameAudio.KILLS)
     private val fast by option("--fast", help = "Rythme rapide : un kill sur chaque temps de la musique (chaque coup de basse), un plan très court chacun").flag()
+    private val noFastParts by option(
+        "--no-fast-parts",
+        help = "Pas de rythme rapide sur les parties rapides et intenses de la musique (drop et après) : tout le montage au rythme du style",
+    ).flag()
     private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
     private val intro by introOption()
+    private val reactionMontage by option(
+        "--reaction-montage",
+        help = "Montage des réactions du joueur au micro (rires, cris, coups de gueule), quelle qu'en soit la cause : micro devant, sous-titres. Demande une piste micro séparée",
+    ).flag()
+    private val fails by option("--fails", help = "Montage des morts du joueur : les secondes d'avant, ralenti, image figée et petit texte (OUPS, RIP…), sur la musique").flag()
+    private val style by option(
+        "--style",
+        help = "Style de montage (config/montage-styles.yaml, ex. tiktok, propre, onetaps, cinematique) : un jeu de réglages, " +
+            "les options ci-dessus passant devant ; « none » : réglages du profil seuls. Défaut : celui du fichier de styles",
+    )
+    private val exclude by option("--exclude", help = "Kill à écarter, « capture@instant » (ex. partie.mp4@3:12.4, voir --plan) ; répétable")
+        .convert { killRef(it) }.multiple()
+    private val force by option("--force", help = "Groupe à garder même si le plan l'écarte, désigné par un de ses kills (« capture@instant ») ; répétable")
+        .convert { killRef(it) }.multiple()
+    private val drop by option("--drop", help = "Groupe à poser sur la drop, désigné par un de ses kills (« capture@instant »)").convert { killRef(it) }
+    private val pin by option("--pin", help = "Groupe dont le dernier kill tombe sur un instant du morceau : « capture@instant=0:42 » ; répétable")
+        .convert { text ->
+            val (kill, at) = text.substringBeforeLast('=') to text.substringAfterLast('=', "")
+            val pin = MontagePin.parse(at) ?: throw BadParameterValue("instant du morceau invalide dans '$text' (attendu « capture@instant=0:42 »)")
+            killRef(kill) to pin
+        }.multiple()
+    private val planOnly by option("--plan", help = "Affiche le plan sans rendre : la place de chaque kill et sa désignation pour --exclude, --force, --drop, --pin").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
+    private val thumbnail by thumbnailFlag()
+    private val thumbnailStyle by thumbnailStyleOption()
+    private val variants by option(
+        "--variants",
+        help = "Aperçus de N variantes du montage (défaut 3), en 360p et vite, dans <sortie>/apercus avec un fichier *_variantes.json ; " +
+            "puis la même commande avec --pick <n> rend la variante choisie en pleine qualité",
+    ).int().restrictTo(min = 1, max = 6)
+    private val pick by option("--pick", help = "Rendre la variante n (1 = la mieux notée) proposée par --variants, en pleine qualité ; le choix est enregistré (*.choix.json)")
+        .int().restrictTo(min = 1)
+    private val preset by presetOption()
+    private val variantsFile by option("--variants-file", help = "Fichier *_variantes.json des aperçus pour --pick (défaut : le plus récent pour ces sessions et cette musique)")
+        .path(mustExist = true, canBeDir = false)
 
     override fun help(context: Context) =
-        "Montage de tous les kills calé sur une musique : coupes sur le beat, chaque kill sur un temps, zoom, flash, ralenti, textes (--reactions pour mettre en avant voix et rires, --onetaps pour ne garder que les one taps)."
+        "Montage de tous les kills calé sur une musique : coupes sur le beat, chaque kill sur un temps, zoom, flash, ralenti, textes (--reactions pour mettre en avant voix et rires, --onetaps pour ne garder que les one taps). " +
+            "--plan montre le plan, --exclude, --force, --drop et --pin le corrigent."
+
+    private fun killRef(text: String): KillRef =
+        runCatching { KillRef.parse(text) }.getOrElse { throw BadParameterValue("kill invalide '$text' (attendu « capture@instant », ex. partie.mp4@3:12.4)") }
 
     override fun run() {
+        if (variants != null && pick != null) throw UsageError("--variants et --pick vont chacun dans leur commande : d'abord les aperçus, puis le choix")
+        if (variantsFile != null && pick == null) throw UsageError("--variants-file ne sert qu'avec --pick")
         val progress = ConsoleProgress()
+        val constraints = constraints()
+        if (planOnly) {
+            val planned = execute {
+                val loaded = sessions.map { SessionStore.load(it) }
+                try {
+                    Pipelines.create(env.config).planKillMontage(loaded, music, montageOptions(constraints, defaultStyle(), preset?.let { presetNamed(env.config, it) }), ProgressTracker(listener = progress).root)
+                } finally {
+                    progress.finish()
+                }
+            }
+            printPlan(planned, constraints)
+            return
+        }
+        variants?.let { return previews(it, progress, constraints) }
         val result = execute {
             val loaded = sessions.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).killMontage(
+                val pipeline = Pipelines.create(env.config)
+                val picked = pick?.let { n ->
+                    val file = variantsFile ?: pipeline.latestVariantsFile(loaded, music, out)
+                    if (file == null) echo("  aucun fichier de variantes trouvé : variante $n recalculée sans vérifier qu'elle est celle de l'aperçu", err = true)
+                    else echo("  variante $n de ${file.fileName}")
+                    VariantPick(n, file)
+                }
+                pipeline.killMontage(
                     loaded,
                     music,
-                    MontageOptions(
-                        formats = formats,
-                        platform = platform,
-                        outputDir = out,
-                        maxDuration = max,
-                        fitKills = if (fill) false else null,
-                        order = if (chronological) MontageOrder.CHRONOLOGICAL else null,
-                        hook = if (noHook) false else null,
-                        musicFromStart = if (fromStart) true else null,
-                        effectDensity = effects,
-                        zoom = if (noZoom) false else null,
-                        flash = if (noFlash) false else null,
-                        flashEveryCut = if (flashEveryCut) true else null,
-                        whip = if (noWhip) false else null,
-                        showcase = if (showcase) true else null,
-                        whoosh = if (noWhoosh) false else null,
-                        boostColors = colors,
-                        motionBlur = if (noMotionBlur) false else null,
-                        matchCut = if (noMatchCut) false else null,
-                        rounds = if (noRounds) false else null,
-                        slowMotion = if (noSlowmo) false else null,
-                        speedRamp = if (noRamp) false else null,
-                        text = if (noText) false else null,
-                        audioBalance = balance,
-                        gameAudio = gameAudio,
-                        reactions = if (reactions) true else null,
-                        oneTaps = oneTaps,
-                        fast = if (fast) true else null,
-                        intro = intro,
-                    ),
+                    montageOptions(constraints, defaultStyle(), preset?.let { presetNamed(env.config, it) }).copy(pick = picked),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -281,6 +368,130 @@ class MontageCommand : PipelineCommand("montage") {
             val parts = criteria(s).joinToString(", ") { (n, v) -> if (v == null) "$n -" else "%s %.2f".format(n, v) }
             echo("  note %.3f  ($parts)".format(s.total))
         }
+        if (pick != null) echo("  choix enregistré : ${MontageChoiceRecord.fileFor(result.report)}")
+    }
+
+    /** Aperçus des variantes, leurs notes, et la commande pour rendre l'une d'elles. */
+    private fun previews(count: Int, progress: ConsoleProgress, constraints: MontageConstraints) {
+        val started = System.nanoTime()
+        var firstReady: Long? = null
+        lateinit var proxies: String
+        val result = execute {
+            val loaded = sessions.map { SessionStore.load(it) }
+            try {
+                val pipeline = Pipelines.create(env.config)
+                pipeline.montagePreviews(loaded, music, montageOptions(constraints, defaultStyle(), preset?.let { presetNamed(env.config, it) }), count, ProgressTracker(listener = progress).root) { _, _ ->
+                    if (firstReady == null) firstReady = System.nanoTime()
+                }.also { proxies = pipeline.previewProxies.usage().toString() }
+            } finally {
+                progress.finish()
+            }
+        }
+        val first = firstReady?.let { ", la première prête en %.0f s".format((it - started) / 1e9) } ?: ""
+        echo("${result.previews.size} aperçu(s) en %.0f s%s (%s) :".format((System.nanoTime() - started) / 1e9, first, result.variantsFile))
+        echo("  proxies d'aperçu : $proxies")
+        if (result.previews.size < count) echo("  seulement ${result.previews.size} variante(s) assez différentes sur les $count demandées")
+        result.previews.forEach { p ->
+            val e = p.entry
+            val distance = e.distance?.let { ", écart %.2f".format(it) } ?: ""
+            echo("  %d. note %.3f  %s, %d clips, %d kills, %.1f s, musique dès %s%s".format(e.index, e.score.total, e.label, e.clips, e.kills, e.durationSeconds, e.musicStart, distance))
+            echo("     ${p.video}")
+        }
+        result.notices.forEach { echo("  ! ${it.text()}") }
+        echo("Rendre la variante choisie : la même commande avec --pick <n> à la place de --variants")
+    }
+
+    /** Plan lisible : chaque plan dans l'ordre, puis les groupes écartés, chaque kill avec sa désignation. */
+    private fun printPlan(planned: PlannedMontage, constraints: MontageConstraints) {
+        val plan = planned.plan
+        val music = plan.music
+        echo("Plan sur ${music.file.fileName} : ${plan.clips.size} plans, ${KillRef.clock(plan.duration)} depuis ${KillRef.clock(plan.musicStart)} du morceau")
+        val placed = plan.clips.mapNotNull { c -> c.group.takeIf { !c.showcase } }
+        plan.clips.zip(plan.clipOffsets()).forEachIndexed { i, (c, offset) ->
+            if (c.showcase) return@forEachIndexed
+            val marks = listOfNotNull("DROP".takeIf { c.slot.dropBeat != null }, "forcé".takeIf { c.group.forced }, "épinglé".takeIf { c.group.pin != null })
+            echo("  %2d. %s  %d temps  %s%s".format(
+                i + 1, KillRef.clock(offset), c.beats, c.group.kills.joinToString(" ") { KillRef.of(c.group.media, it).toString() },
+                if (marks.isEmpty()) "" else "  [${marks.joinToString()}]",
+            ))
+        }
+        val left = planned.candidates.filter { g -> placed.none { p -> p.media.path == g.media.path && p.kills.any { it in g.kills } } }
+        if (left.isNotEmpty()) {
+            echo("  écartés :")
+            left.forEach { g ->
+                val excluded = g.kills.all { k ->
+                    constraints.excluded.any { r -> dev.highlights.montage.MontageEdits.designated(r, planned.candidates) == (g.media.path to k) }
+                }
+                echo("      %s%s".format(g.kills.joinToString(" ") { KillRef.of(g.media, it).toString() }, if (excluded) "  [exclu]" else ""))
+            }
+        }
+    }
+
+    /** Corrections du plan lues sur la ligne de commande (--exclude, --force, --pin, --drop). */
+    internal fun constraints() = MontageConstraints(
+        excluded = exclude.toSet(),
+        forced = force.toSet(),
+        pins = pin.toMap() + listOfNotNull(drop?.let { it to MontagePin.Drop }),
+    )
+
+    /** Style par défaut de `montage-styles.yaml` (lu dans la configuration : à part, pour que [montageOptions] reste pure). */
+    private fun defaultStyle(): String? = env.config.loadMontageStyles().default
+
+    /**
+     * Options lues sur la ligne de commande (testées seules, sans rien lancer ni lire la configuration) ; [constraints] :
+     * corrections du plan ; [defaultStyle] : style appliqué quand `--style` est absent (`--style none` n'en met aucun).
+     */
+    internal fun montageOptions(constraints: MontageConstraints = MontageConstraints(), defaultStyle: String? = null, preset: ExportPreset? = null): MontageOptions {
+        val options = MontageOptions(
+        formats = formats,
+        platform = platform,
+        outputDir = out,
+        maxDuration = max,
+        fitKills = if (fill) false else null,
+        order = if (chronological) MontageOrder.CHRONOLOGICAL else null,
+        hook = if (noHook) false else null,
+        musicFromStart = if (fromStart) true else null,
+        effectDensity = effects,
+        zoom = if (noZoom) false else null,
+        flash = if (noFlash) false else null,
+        flashEveryCut = if (flashEveryCut) true else null,
+        whip = if (noWhip) false else null,
+        showcase = when {
+            noShowcase -> false
+            showcase -> true
+            else -> null
+        },
+        whoosh = when {
+            noWhoosh -> false
+            whoosh -> true
+            else -> null
+        },
+        whooshDir = whooshDir,
+        boostColors = colors,
+        motionBlur = if (noMotionBlur) false else null,
+        matchCut = if (noMatchCut) false else null,
+        rounds = if (noRounds) false else null,
+        skipAbilityKills = abilityKills?.not(),
+        slowMotion = if (noSlowmo) false else null,
+        speedRamp = if (noRamp) false else null,
+        text = if (noText) false else null,
+        killCounter = killCounter,
+        audioBalance = balance,
+        gameAudio = gameAudio,
+        reactions = if (reactions) true else null,
+        oneTaps = if (oneTaps) true else null,
+        fails = if (fails) true else null,
+        reactionMontage = if (reactionMontage) true else null,
+        fast = if (fast) true else null,
+        fastParts = if (noFastParts) false else null,
+        style = style.takeIf { it != "none" },
+        constraints = constraints,
+        thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail },
+        intro = intro,
+    )
+        val presetted = preset?.let(options::withPreset) ?: options
+        // --style passe devant le préréglage, qui passe devant le style par défaut ; « none » : aucun style du tout.
+        return presetted.copy(style = if (style == "none") null else presetted.style ?: defaultStyle)
     }
 }
 
@@ -446,7 +657,16 @@ private fun PipelineCommand.printHighlights(highlights: List<Highlight>, warning
 internal fun PipelineCommand.printExport(result: ExportResult) {
     echo("Montage (${result.duration.toShortText()}, encodeur ${result.encoder}) :")
     result.videos.forEach { (format, path) -> echo("  ${format.label}  $path") }
+    result.thumbnails.forEach { echo("  miniature  $it") }
     echo("  rapport ${result.report}")
+    // Avertissements (montage presque vide…) : visibles même quand on ne lit que la fin de la sortie.
+    result.notices.forEach { echo("  ! ${it.text()}") }
+    // Montage kills : la question du ressenti, comme dans l'application.
+    val music = result.music
+    if (result.fastShots != null && music != null) {
+        echo("  rythme rapide : ${result.fastShots} plan(s) (ressenti de la musique : ${result.musicFeel?.name?.lowercase() ?: "auto"})")
+        echo("  trop rapide ou pas assez ? app musique-ressenti \"$music\" calm|fast")
+    }
 }
 
 private val reportJson = Json { ignoreUnknownKeys = true }

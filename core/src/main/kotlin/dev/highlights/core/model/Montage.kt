@@ -16,6 +16,11 @@ import kotlin.time.Duration.Companion.seconds
 @Serializable
 data class MontageSettings(
     val killEvent: String = "kill",
+    /**
+     * Autres événements qui ancrent un plan comme [killEvent] (montage des morts : « downed » quand il compte comme une
+     * mort, voir [forFails]). Vide : [killEvent] seul.
+     */
+    val anchorEvents: Set<String> = emptySet(),
     /** Décalage entre la notification et le tir (la notification apparaît après le kill). */
     val killOffset: SerialDuration = (-400).milliseconds,
     /** Kills plus proches que ça : un seul clip (multi-kill). */
@@ -82,8 +87,14 @@ data class MontageSettings(
     val formats: List<OutputFormat> = listOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
     /** Rythme rapide : un kill par temps de musique (voir [FastMontage]), appliqué par [forFast]. */
     val fast: FastMontage = FastMontage(),
+    /** Rythme rapide sur les seules parties rapides et intenses de la musique (voir [FastParts]). */
+    val fastParts: FastParts = FastParts(),
     /** Réglages du montage « onetaps », appliqués par [forOneTaps] quand on le demande. */
     val oneTaps: OneTapMontage = OneTapMontage(),
+    /** Réglages du montage des morts (« fails »), appliqués par [forFails] quand on le demande. */
+    val fails: FailMontage = FailMontage(),
+    /** Réglages du montage des réactions au micro, appliqués par [forReactions] quand on le demande. */
+    val reactionMontage: ReactionMontage = ReactionMontage(),
     /** Choix automatique de la musique : préférence pour celles qui donnent des plans courts. null : aucune. */
     val musicPace: MusicPace? = null,
     /**
@@ -91,9 +102,36 @@ data class MontageSettings(
      * de mort. Posé par [forFast], dont les plans finissent 0,17 s après le kill.
      */
     val skipDeathWithin: SerialDuration = Duration.ZERO,
+    /**
+     * Écarter du montage les kills faits avec une capacité (molly, flèche, drone…) : à l'image, on ne voit ni le tir ni
+     * la cible tomber sous le réticule. Reconnus à ce que le compteur de munitions ne voit aucune balle autour du kill
+     * (voir `AbilityKills`) ; sans compteur lu, rien n'est écarté. Les kills restent dans la session, les statistiques
+     * et la recherche ; un moment choisi par l'utilisateur (recherche, kill forcé ou épinglé) est toujours monté.
+     */
+    val skipAbilityKills: Boolean = false,
+    /**
+     * En dessous de ce nombre de kills trouvés dans les parties, le montage se fait quand même, mais avec un
+     * avertissement : une partie VALORANT de 44 kills en donnait un seul (détection en défaut) et le montage de 2 s
+     * sortait sans un mot. Zéro : jamais d'avertissement.
+     */
+    val minKills: Int = 3,
+    /**
+     * Apprendre les goûts de l'utilisateur : les poids des critères de la note (`MontageScorer`) sont ajustés d'après
+     * ses choix de variantes après les aperçus (`TasteLearner`, à partir de `TasteLearner.MIN_CHOICES` choix). Actif par
+     * défaut : sans effet tant qu'il y a moins de `MIN_CHOICES` choix (poids d'origine, même plan, même note) ;
+     * `app gouts` montre ce qui a été appris, `app gouts --reset` met l'historique de côté (retour aux poids d'origine).
+     */
+    val learnTaste: Boolean = true,
+    /**
+     * Poids des critères de la note qui remplacent ceux d'origine (`MontageScorer.WEIGHTS`), par nom de critère ; null :
+     * ceux d'origine. Posé par le pipeline depuis les goûts appris quand [learnTaste] est vrai, pas à écrire à la main.
+     */
+    val scoreWeights: Map<String, Double>? = null,
 ) {
     init {
         require(minScore in 0.0..1.0) { "montage.minScore doit être entre 0 et 1" }
+        require(minKills >= 0) { "montage.minKills ne peut pas être négatif" }
+        require(scoreWeights == null || scoreWeights.values.all { it >= 0.0 }) { "montage.scoreWeights : poids négatif" }
     }
 
     /**
@@ -138,6 +176,87 @@ data class MontageSettings(
             speedRamp = speedRamp.copy(enabled = false),
             musicPace = o.musicPace,
         )
+    }
+
+    /**
+     * Les mêmes réglages, pour le montage des morts du joueur : chaque mort ancre son plan comme un kill (les secondes qui
+     * la précèdent, un ralenti dessus, un arrêt sur image, un petit texte : voir [FailMontage]). Les morts sont celles de
+     * [KillStyle.deathEvent], plus « à terre » quand [KillStyle.downedAsDeath] le veut. Ce qui sert à classer les kills
+     * (rounds, tirs à la tête, one taps, confirmation au killfeed, flick, pose de l'arme) n'a pas de sens ici : coupé.
+     * Une mort juste après un kill (un échange) reste : elle est drôle aussi.
+     */
+    fun forFails(): MontageSettings {
+        val f = fails
+        val style = killStyle
+        val deaths = style.copy(deathEvent = style.deathEvent.ifEmpty { "death" }).deathKinds
+        return copy(
+            killEvent = style.deathEvent.ifEmpty { "death" },
+            anchorEvents = deaths - style.deathEvent.ifEmpty { "death" },
+            fails = f.copy(enabled = true, killEvent = killEvent),
+            mergeGap = Duration.ZERO,
+            preRoll = f.preRoll,
+            postRoll = f.postRoll,
+            hook = false,
+            reactions = false,
+            skipDeathWithin = Duration.ZERO,
+            // Une mort sans balle tirée n'est pas une capacité : le montage des morts les garde toutes.
+            skipAbilityKills = false,
+            effectDensity = EffectDensity.HEAVY,
+            length = length.copy(perClip = f.perClip, perExtraKill = Duration.ZERO, min = f.min),
+            // Placement de la mort : la place du ralenti et du gel est réservée de part et d'autre (sinon, sur un plan de
+            // trois temps, la mort tombait trop près d'une coupe et 6 morts sur 9 perdaient leur ralenti).
+            cuts = cuts.copy(
+                low = f.perClip, mid = f.perClip, high = f.perClip,
+                minLead = f.minLead + f.slowBefore / f.slowFactor, minTail = f.minTail + f.slowAfter / f.slowFactor + f.freeze,
+                singleBeat = false, offbeatKills = false, jumpCuts = false,
+            ),
+            slowMotion = slowMotion.copy(enabled = true, factor = f.slowFactor, before = f.slowBefore, after = f.slowAfter),
+            speedRamp = speedRamp.copy(enabled = false),
+            matchCut = matchCut.copy(enabled = false),
+            killStyle = style.copy(deathEvent = "", headshotEvent = "", shotEvent = "", hudShotEvent = "", confirmEvent = "", clutchEvent = "", allyDeathEvent = "", clutchBannerEvent = "", flick = false),
+        )
+    }
+}
+
+/**
+ * Montage des morts (« fails ») : pour chaque mort, les secondes qui la précèdent ([preRoll]), un ralenti qui finit sur
+ * elle, un arrêt sur image de [freeze] et un petit texte (OUPS, RIP… : [labels], sinon les libellés `video.fail.*` de la
+ * langue de l'interface, tirés au hasard mais toujours les mêmes pour un même montage). Calé sur la musique comme le
+ * montage kills : un plan par mort, la mort sur un temps. [enabled] est posé par [MontageSettings.forFails].
+ */
+@Serializable
+data class FailMontage(
+    val enabled: Boolean = false,
+    val preRoll: SerialDuration = 3.seconds,
+    val postRoll: SerialDuration = 800.milliseconds,
+    /** Longueur visée d'un plan : l'avant, le ralenti, l'image figée. */
+    val perClip: SerialDuration = 4500.milliseconds,
+    /** Contexte minimal avant la mort (temps réel, hors ralenti) : de quoi voir venir le drame. */
+    val minLead: SerialDuration = 1500.milliseconds,
+    /** Après la mort : place du ralenti qui suit et de l'image figée. */
+    val minTail: SerialDuration = 300.milliseconds,
+    val min: SerialDuration = 15.seconds,
+    val slowFactor: Double = 0.5,
+    val slowBefore: SerialDuration = 600.milliseconds,
+    val slowAfter: SerialDuration = 300.milliseconds,
+    /** Image figée juste après la mort ou son ralenti (durée dans le montage) ; zéro : aucune. */
+    val freeze: SerialDuration = 700.milliseconds,
+    /**
+     * Part des morts qui ont le ralenti, les plus fortes (voir `MontagePlanner.failSlows`), au moins une : un ralenti
+     * sur chaque mort lassait (choix du joueur, 18/11). Les autres gardent l'image figée et le texte. 1 : toutes.
+     */
+    val slowShare: Double = 1.0 / 3,
+    /** Mort qui suit un kill du joueur de moins que ça : un échange, une mort plus forte (préférée pour le ralenti). */
+    val tradeWindow: SerialDuration = 3.seconds,
+    /** Événement des kills du joueur, pour reconnaître un échange ; posé par [MontageSettings.forFails]. */
+    val killEvent: String = "kill",
+    /** Textes affichés sur la mort ; null : ceux de la langue de l'interface (`video.fail.*`). Vide : aucun texte. */
+    val labels: List<String>? = null,
+) {
+    init {
+        require(slowFactor in 0.1..1.0) { "montage.fails.slowFactor doit être entre 0,1 et 1" }
+        require(!freeze.isNegative()) { "montage.fails.freeze ne peut pas être négatif" }
+        require(slowShare in 0.0..1.0) { "montage.fails.slowShare doit être entre 0 et 1" }
     }
 }
 
@@ -201,6 +320,67 @@ data class FastMontage(
         require(postRoll >= minTail) { "montage.fast.postRoll doit couvrir minTail" }
         require(cut.isPositive() && perClip.isPositive() && min.isPositive()) { "montage.fast : durées positives attendues" }
     }
+}
+
+/**
+ * Rythme rapide par partie de la musique, dans un même montage : les parties calmes (intro, montée) gardent le rythme
+ * du style, les parties rapides et intenses passent au rythme rapide ([FastMontage] : un kill par temps quand le tempo
+ * le permet, ni ralenti ni rampe, zoom d'approche vers le réticule). Demande de l'utilisateur du 18/11 : le rythme
+ * rapide « quand la musique s'y prête, par exemple Rome Is Burning après la drop ». Une partie est rapide si elle commence
+ * à la drop ou après et si son intensité atteint [minIntensity] (0 à 1 dans le morceau ; la partie après la drop de
+ * « Rome Is Burning » : 0,95, son intro : 0,25). Le tempo n'y entre plus (choix de l'utilisateur du 18/11, après des
+ * montages côte à côte avec et sans la règle des 120 BPM sur WARDOGS et VALORANT) : une musique lente passe aussi au rythme
+ * rapide après sa drop. Un creux net à l'intérieur d'une partie intense ([calmDb] sous le niveau fort du morceau pendant au
+ * moins [calmBars] mesures : la basse qui s'arrête deux mesures) revient au rythme du style, puis le rythme rapide reprend.
+ * Le rythme rapide forcé ([FastMontage.enabled], `--fast`) l'emporte : tout le montage est rapide.
+ */
+@Serializable
+data class FastParts(
+    val enabled: Boolean = true,
+    val minIntensity: Double = 0.7,
+    /**
+     * Ressenti de la musique du montage, dit par l'utilisateur (`music-feel.json`) ou appris de ses réponses : posé par
+     * le montage pour sa musique, jamais dans un profil. [MusicFeel.CALM] : jamais de rythme rapide ; [MusicFeel.FAST] :
+     * rapide dès la drop, à partir de [fastIntensity] ; [MusicFeel.AUTO] : la règle par défaut ([minIntensity]).
+     */
+    val feel: MusicFeel = MusicFeel.AUTO,
+    /**
+     * Intensité suffisante pour une musique ressentie rapide : plus bas que [minIntensity], une partie moyenne qui suit la
+     * drop (« Doom Eternal » 1:24, 0,51) passe aussi au rythme rapide, une partie vraiment calme (0,33) non.
+     */
+    val fastIntensity: Double = 0.45,
+    /**
+     * Creux d'une partie intense : volume moyen d'une mesure à au moins ce nombre de dB sous le niveau fort du morceau
+     * (90e centile des mesures). Mesuré sur 19 musiques : la coupure de basse de « Big Dawgs » (0:20, deux mesures) est
+     * à 9,2 dB ; ailleurs, deux mesures de suite d'une partie intense ne descendent jamais à plus de 5,8 dB
+     * (« HEAVENLY JUMPSTYLE »), un couplet plus calme de « Lose Yourself » à 5,3 dB.
+     */
+    val calmDb: Double = 7.0,
+    /** Nombre de mesures de suite qu'il faut à un creux : une seule mesure basse est une respiration, pas une partie. */
+    val calmBars: Int = 2,
+    /**
+     * Ancien seuil de tempo (120 BPM), retiré le 18/11. Ignoré : seulement accepté pour qu'une ancienne configuration
+     * qui le pose se charge encore.
+     */
+    val minBpm: Double? = null,
+) {
+    init {
+        require(minIntensity in 0.0..1.0) { "montage.fastParts.minIntensity doit être entre 0 et 1" }
+        require(fastIntensity in 0.0..1.0) { "montage.fastParts.fastIntensity doit être entre 0 et 1" }
+        require(calmDb > 0) { "montage.fastParts.calmDb doit être positif" }
+        require(calmBars >= 1) { "montage.fastParts.calmBars doit valoir au moins 1" }
+    }
+}
+
+/**
+ * Ressenti d'une musique pour le rythme rapide : [FAST] (rapide après la drop), [CALM] (jamais rapide), [AUTO] (la
+ * règle par défaut, d'après l'intensité de ses parties).
+ */
+@Serializable
+enum class MusicFeel {
+    @SerialName("fast") FAST,
+    @SerialName("calm") CALM,
+    @SerialName("auto") AUTO,
 }
 
 /**
@@ -409,6 +589,16 @@ data class KillStyle(
     val quickBonus: Double = 0.3,
     /** Événement émis pour une mort du joueur (VALORANT via Outplayed). Vide : ni mort, ni round, ni ace, ni clutch. */
     val deathEvent: String = "death",
+    /**
+     * Événement émis quand le joueur est à terre, en attente de réanimation (Wardogs : « EN ATTENTE DE RÉANIMATION »
+     * dans le journal des gains). Il peut encore être relevé : ce n'est pas une mort, sauf avec [downedAsDeath].
+     */
+    val downedEvent: String = "downed",
+    /**
+     * À terre compte comme une mort (rounds, kill aussitôt payé, enchaînements écartés du rythme rapide, statistiques).
+     * Désactivé : le joueur relevé n'est pas mort, et dans Wardogs il l'est souvent.
+     */
+    val downedAsDeath: Boolean = false,
     /** Mort qui suit le dernier kill d'un groupe de moins que ça : le kill est aussitôt payé, le groupe recule. */
     val deathGap: SerialDuration = 3.seconds,
     val deathPenalty: Double = 0.5,
@@ -430,6 +620,38 @@ data class KillStyle(
      * dont le dernier kill le précède, sans kill ni mort entre les deux, à moins de [roundGap].
      */
     val clutchEvent: String = "",
+    /**
+     * Mort d'un allié lue dans le killfeed (VALORANT : détecteur `killfeed-teams`, le joueur compris) et mort d'un
+     * adversaire. Quand une partie en a, le clutch est réel : le joueur, dernier de son équipe en vie face à au moins
+     * [clutchMinEnemies] adversaires, gagne le round en éliminant les autres (voir `TeamRounds`). Un clutch annoncé par
+     * le jeu ([clutchEvent]) reste prioritaire. Vide : pas de recherche.
+     */
+    val allyDeathEvent: String = "ally-death",
+    val enemyDeathEvent: String = "enemy-death",
+    /** Joueurs par équipe (5 dans VALORANT). */
+    val teamSize: Int = 5,
+    /**
+     * Adversaires encore en vie quand le joueur se retrouve seul : à partir de combien c'est un clutch. 1 : un 1 contre
+     * 1 gagné en est un (choix de l'utilisateur, 19/11), bien que le jeu n'affiche « CLUTCH » qu'à partir d'un 1 contre 2
+     * (un 1 contre 1 gagné y reste « WON », vu sur deux parties). 2 pour suivre le jeu.
+     */
+    val clutchMinEnemies: Int = 1,
+    /**
+     * Ligne du killfeed où le joueur (ou un allié) meurt pendant l'ultime de Phoenix (« Run it Back ») : il revient
+     * aussitôt, ce n'est pas une mort. Une mort du joueur lue à moins de 1,5 s de cet événement est retirée partout
+     * (rounds, clutchs, morts aussitôt payées, montage des morts, statistiques). Vide : gardée.
+     */
+    val revivedEvent: String = "ally-run-it-back",
+    /**
+     * Début de round lu à l'image (VALORANT : barres de vie des alliés revenues pleines, détecteur `killfeed-teams`).
+     * Sépare les rounds du clutch réel même sans silence entre eux (vidéo montée, phases d'achat coupées).
+     */
+    val roundStartEvent: String = "round-start",
+    /**
+     * Bandeau « CLUTCH » de fin de round lu à l'image (détecteur `killfeed-teams`) : un clutch annoncé de plus, qui
+     * attrape ceux gagnés au spike. Le jeu ne l'affiche qu'à partir d'un 1 contre 2, et pour les deux équipes.
+     */
+    val clutchBannerEvent: String = "clutch-banner",
 ) {
     init {
         require(flickTo > flickFrom) { "montage.killStyle.flickTo doit dépasser flickFrom" }
@@ -437,8 +659,13 @@ data class KillStyle(
         require(roundGap.isPositive()) { "montage.killStyle.roundGap doit être positif" }
         require(aceKills >= 2) { "montage.killStyle.aceKills doit valoir au moins 2" }
         require(clutchKills >= 1) { "montage.killStyle.clutchKills doit valoir au moins 1" }
+        require(teamSize >= 2 && clutchMinEnemies in 1..teamSize) { "montage.killStyle : teamSize ≥ 2, clutchMinEnemies entre 1 et teamSize" }
         require(oneTapWindow.isPositive()) { "montage.killStyle.oneTapWindow doit être positif" }
     }
+
+    /** Événements comptés comme une mort : [deathEvent], plus [downedEvent] avec [downedAsDeath]. Vide : morts ignorées. */
+    val deathKinds: Set<String>
+        get() = if (deathEvent.isEmpty()) emptySet() else setOfNotNull(deathEvent, downedEvent.takeIf { downedAsDeath && it.isNotEmpty() })
 }
 
 /** Ce que devient le son du jeu pendant un ralenti. */
@@ -464,6 +691,14 @@ enum class EffectDensity {
     @SerialName("balanced") BALANCED,
     /** Tous les effets sur tous les plans. */
     @SerialName("heavy") HEAVY,
+}
+
+/** Compteur de kills : aucun, compté dans chaque plan (un multi-kill fait 1, 2, 3), ou cumulé sur tout le montage. */
+@Serializable
+enum class KillCounterMode {
+    @SerialName("off") OFF,
+    @SerialName("clip") CLIP,
+    @SerialName("montage") MONTAGE,
 }
 
 @Serializable
@@ -526,14 +761,26 @@ data class WhipPanEffect(
     /**
      * Volume du souffle (whoosh) qui culmine sur la coupe, celui des highlights story (bruit filtré qui enfle puis
      * retombe) ; 0 : whip pan muet. Sous le son du jeu (1) et la musique (0,8) : il accompagne le mouvement sans
-     * couvrir le tir qui suit.
+     * couvrir le tir qui suit. Muet par défaut depuis le 18/11 (choix de l'utilisateur après les rendus de comparaison) ;
+     * le réactiver (case, `--whoosh`) donne [DEFAULT_WHOOSH].
      */
-    val whoosh: Double = 0.5,
+    val whoosh: Double = 0.0,
+    /**
+     * Dossier de souffles (wav, mp3…) qui remplacent les souffles générés, chacun à son tour dans un ordre mélangé mais
+     * toujours le même, comme les bruitages des highlights story (`SfxBank`). Chemin relatif au fichier de configuration ;
+     * null ou dossier vide : souffles générés.
+     */
+    val sounds: String? = null,
 ) {
     init {
         require(duration.inWholeMilliseconds in 40..600) { "montage.whip.duration doit être entre 40 ms et 600 ms" }
         require(blur in 0.0..0.1) { "montage.whip.blur doit être entre 0 et 0,1" }
         require(whoosh in 0.0..2.0) { "montage.whip.whoosh doit être entre 0 et 2" }
+    }
+
+    companion object {
+        /** Volume du souffle quand on le réactive : sous le son du jeu (1) et la musique (0,8). */
+        const val DEFAULT_WHOOSH = 0.5
     }
 }
 
@@ -616,7 +863,8 @@ data class MotionBlur(
  */
 @Serializable
 data class ColorBoost(
-    val enabled: Boolean = false,
+    /** Activées par défaut depuis le 18/11 (« always by default » après les rendus de comparaison) ; on peut les couper. */
+    val enabled: Boolean = true,
     /** Vibrance, -2 à 2 : renforce les couleurs ternes plus que les vives. */
     val vibrance: Double = 0.5,
     /** Saturation (1 = inchangée). */
@@ -788,8 +1036,11 @@ data class TextEffect(
      * KILL… ou DOUBLÉ, TRIPLÉ…, clés `video.streak.*`). Le dernier vaut pour les séries plus longues.
      */
     val multiKillLabels: List<String>? = null,
-    /** Petit compteur « KILL n » à chaque kill. Désactivé par défaut : il n'apporte rien et surcharge l'image. */
-    val killCounter: Boolean = false,
+    /**
+     * Compteur de kills à l'écran (« 1… 2… 3… », puis ACE), compté dans chaque plan ou cumulé sur le montage. Désactivé
+     * par défaut : il charge l'image, à réserver aux montages qui veulent l'afficher.
+     */
+    val killCounter: KillCounterMode = KillCounterMode.OFF,
 ) {
     /** Libellés à incruster : ceux de la configuration, sinon ceux de la langue de l'interface. */
     val labels: List<String> get() = multiKillLabels ?: (2..5).map { tr("video.streak.$it") }
@@ -804,7 +1055,8 @@ data class TextEffect(
  */
 @Serializable
 data class ShowcaseOpening(
-    val enabled: Boolean = false,
+    /** Activée par défaut depuis le 18/11 : l'utilisateur l'a retenue après avoir vu les rendus de comparaison. */
+    val enabled: Boolean = true,
     val length: SerialDuration = 8.seconds,
     val shotBeats: Int = 2,
     val afterEvent: SerialDuration = 5.seconds,

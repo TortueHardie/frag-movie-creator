@@ -43,7 +43,14 @@ data class MontageScore(
     /** Chaque plan est occupé par l'action (la mise en place, le kill, sa suite) plutôt que par l'attente. */
     val action: Double? = null,
     val details: Map<String, Double> = emptyMap(),
-)
+) {
+    /** Les critères par nom (ceux de [MontageScorer.WEIGHTS]), null quand ils ne se mesurent pas sur ce montage. */
+    fun criteria(): Map<String, Double?> = mapOf(
+        "sync" to sync, "accent" to accent, "restraint" to restraint,
+        "variety" to variety, "fill" to fill, "pacing" to pacing, "coverage" to coverage,
+        "opening" to opening, "lull" to lull, "action" to action,
+    )
+}
 
 /**
  * Mesure un [MontagePlan]. Les critères sont ceux que le moteur vise explicitement ; les poids disent lesquels comptent
@@ -71,7 +78,8 @@ object MontageScorer {
     private val ACTION_BEFORE = 1500.milliseconds
     private val ACTION_AFTER = 1.seconds
 
-    private val WEIGHTS = mapOf(
+    /** Poids d'origine des critères ; des goûts appris peuvent les remplacer ([dev.highlights.core.model.MontageSettings.scoreWeights]). */
+    val WEIGHTS = mapOf(
         "sync" to 0.25, "restraint" to 0.20, "variety" to 0.15,
         "accent" to 0.10, "fill" to 0.10, "pacing" to 0.10, "coverage" to 0.10,
         "opening" to 0.10, "lull" to 0.10, "action" to 0.10,
@@ -189,15 +197,14 @@ object MontageScorer {
         }
         val action = 1.0 - idle.average()
 
-        // Un critère qu'on ne peut pas mesurer sort de la moyenne au lieu d'y entrer à 1 : sinon le total grimperait
-        // justement sur les montages où l'on en sait le moins.
-        val parts = mapOf(
-            "sync" to sync, "accent" to accent, "restraint" to restraint,
-            "variety" to variety, "fill" to fill, "pacing" to pacing, "coverage" to coverage,
-            "opening" to opening, "lull" to lull, "action" to action,
-        ).filterValues { it != null }.mapValues { it.value!! }
-        val weight = WEIGHTS.filterKeys { it in parts }.values.sum()
-        val total = parts.entries.sumOf { (k, v) -> WEIGHTS.getValue(k) * v } / weight
+        val total = total(
+            mapOf(
+                "sync" to sync, "accent" to accent, "restraint" to restraint,
+                "variety" to variety, "fill" to fill, "pacing" to pacing, "coverage" to coverage,
+                "opening" to opening, "lull" to lull, "action" to action,
+            ),
+            plan.settings.scoreWeights ?: WEIGHTS,
+        )
         return MontageScore(
             total = total.roundTo(3),
             sync = sync.roundTo(3),
@@ -226,6 +233,18 @@ object MontageScorer {
                 "horsActionMax" to (idle.maxOrNull() ?: 0.0).roundTo(3),
             ),
         )
+    }
+
+    /**
+     * Note d'ensemble : moyenne des [criteria] mesurés, pondérée par [weights]. Un critère qu'on ne peut pas mesurer
+     * (null) sort de la moyenne au lieu d'y entrer à 1 : sinon le total grimperait justement sur les montages où l'on
+     * en sait le moins. Sert aussi à l'apprentissage des goûts ([TasteLearner]), sur les critères gardés des aperçus.
+     */
+    fun total(criteria: Map<String, Double?>, weights: Map<String, Double> = WEIGHTS): Double {
+        val parts = criteria.filter { (k, v) -> v != null && k in weights }
+        val weight = parts.keys.sumOf { weights.getValue(it) }
+        if (weight <= 0.0) return 0.0
+        return parts.entries.sumOf { (k, v) -> weights.getValue(k) * v!! } / weight
     }
 
     /** Durée de [start, end] couverte par au moins un des intervalles. */

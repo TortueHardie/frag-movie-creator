@@ -1,5 +1,6 @@
 package dev.highlights.montage
 
+import dev.highlights.editing.story.TextMeasure
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
@@ -20,7 +21,9 @@ import dev.highlights.editing.CardStill
 import dev.highlights.editing.IntroOutroCards
 import dev.highlights.editing.MusicLeadIn
 import dev.highlights.editing.RenderCommand
+import dev.highlights.editing.HudPin
 import dev.highlights.editing.RenderCommandBuilder
+import dev.highlights.editing.ZoomCrop
 import dev.highlights.editing.SourceCut
 import dev.highlights.editing.SourceCuts
 import dev.highlights.editing.story.StoryRenderBuilder
@@ -50,6 +53,12 @@ data class MontageRenderRequest(
     val filterScriptOption: String = FfmpegService.FILTER_COMPLEX_FROM_FILE,
     /** Rotation de la caméra de chaque plan, pour le flou par vecteurs (voir [CameraMotion]) ; vide : pas de ce flou. */
     val motion: List<MotionTrack?> = emptyList(),
+    /** Souffles des whip pans pris dans `whip.sounds`, dans l'ordre où ils serviront ; vide : souffles générés. */
+    val whooshFiles: List<String> = emptyList(),
+    /** Options de décodage ajoutées devant chaque extrait (aperçu : voir [MontagePreview.DECODE]). */
+    val decodeOptions: List<String> = emptyList(),
+    /** Montage des réactions : sous-titres de chaque plan, en temps de la source (voir [ReactionRender.transcribe]). */
+    val captions: List<List<dev.highlights.editing.story.Caption>> = emptyList(),
 )
 
 /**
@@ -89,19 +98,27 @@ object MontageRenderBuilder {
         val flashes = flashes(plan)
         val whips = whips(plan)
         val zooms = zooms(plan)
+        // Montage des morts : un texte par mort (OUPS, RIP…), le même pour la même mort d'un rendu à l'autre.
+        val failTexts = if (settings.fails.enabled && settings.text.enabled) FailLabels.assign(clips, FailLabels.available(settings.fails)) else clips.map { null }
 
         val args = mutableListOf<String>()
         clips.forEachIndexed { i, clip ->
             request.hwaccel?.let { args += listOf("-hwaccel", it) }
             val range = sourceRange(clip, bleeds[i], leads[i])
             val input = request.cuts.input(clip.group.media, range)
+            args += request.decodeOptions
             args += listOf("-ss", Durations.ffmpegSecondsPrecise(input.start), "-t", sec(range.length), "-i", input.path.toString())
         }
         val musicInput = clips.size
         args += listOf("-ss", sec(plan.musicStart), "-t", sec(total + plan.period), "-i", plan.music.file.toString())
+        // Souffles fournis : une entrée par fichier servi, à la suite de la musique.
+        val whooshCount = if (settings.whip.whoosh > 0) whips.count { it != null } else 0
+        val whooshSources = request.whooshFiles.take(whooshCount).mapIndexed { j, file ->
+            args += listOf("-i", file)
+            "[${musicInput + 1 + j}:a]"
+        }.ifEmpty { StoryRenderBuilder.WHOOSHES }
 
         val graph = mutableListOf<String>()
-        var killCounter = 0
         val musicDuck = mutableListOf<TimeRange>()
 
         // Taille commune à tout le montage, prise sur la première capture : les suivantes y sont ramenées, avec des
@@ -122,8 +139,11 @@ object MontageRenderBuilder {
             val parts = speedParts(clip, lead)
 
             // --- vidéo : géométrie du format (recadrage 9:16 + HUD), puis ralenti et rampes
-            graph += RenderCommandBuilder.videoChain(i, media, request.format, edit, "g$i")
             val own = RenderCommandBuilder.outputSize(request.format, media, edit)
+            // HUD recollé en 9:16 (bandeau, killfeed, bloc du bas) : empilé sous l'image, recollé fixe après zoom et
+            // flous, sous couleurs, textes et compteur (HudPin). Seulement quand le plan a déjà la taille du montage.
+            val targets = if (own == w to h) RenderCommandBuilder.hudTargets(request.format, media, edit) else emptyList()
+            graph += RenderCommandBuilder.videoChain(i, media, request.format, edit, "g$i", pinHud = targets.isNotEmpty())
             val sized = if (own == w to h) {
                 "g$i"
             } else {
@@ -150,9 +170,11 @@ object MontageRenderBuilder {
                 sized
             }
 
-            val effects = mutableListOf<String>()
+            // Avant les effets qui bougent l'image (zoom, flous) : le gel du début ; ces effets ; puis le reste.
+            val pre = mutableListOf<String>()
+            val motion = mutableListOf<String>()
             // Source trop courte pour le slot : image gelée avant / après.
-            if (clip.padBefore.isPositive()) effects += "tpad=start_mode=clone:start_duration=${sec(clip.padBefore)}"
+            if (clip.padBefore.isPositive()) pre += "tpad=start_mode=clone:start_duration=${sec(clip.padBefore)}"
             // Le dernier kill du clip est celui calé sur le temps : c'est lui qui mérite le zoom en priorité.
             val zoomKills = if (settings.zoom.onEveryKill) outKills else outKills.takeLast(1)
             if (settings.zoom.enabled && zooms[i] && zoomKills.isNotEmpty()) {
@@ -162,8 +184,11 @@ object MontageRenderBuilder {
                     "if(gte(t\\,$tk)\\,exp(-(t-$tk)/${num(decay)})\\,0)"
                 } + ")"
                 // Approche : montée en douceur (carré du temps) jusqu'au kill, puis retombée avec le punch.
-                val approach = settings.zoom.approach.takeIf { it > 0 }?.let { a ->
-                    val lead = settings.zoom.approachLead.inWholeMicroseconds / 1e6
+                // Partie rapide de la musique (FastSections) : l'approche du rythme rapide, même si le montage n'en a pas.
+                val approachAmount = if (clip.fastPart) settings.fast.zoomApproach else settings.zoom.approach
+                val approachLead = if (clip.fastPart) settings.fast.zoomApproachLead else settings.zoom.approachLead
+                val approach = approachAmount.takeIf { it > 0 }?.let { a ->
+                    val lead = approachLead.inWholeMicroseconds / 1e6
                     "+${num(a)}*(" + zoomKills.joinToString("+") { k ->
                         val tk = sec(k)
                         val from = num((k.inWholeMicroseconds / 1e6 - lead).coerceAtLeast(0.0))
@@ -171,17 +196,25 @@ object MontageRenderBuilder {
                     } + ")"
                 } ?: ""
                 val z = "(1+$punch$approach)"
-                effects += "scale=w='trunc($w*$z/2)*2':h='trunc($h*$z/2)*2':eval=frame:flags=${settings.zoom.scaleFlags}"
-                effects += "crop=$w:$h:(iw-$w)/2:(ih-$h)/2"
+                // Recadrage recentré à chaque image (voir ZoomCrop : `iw` resterait celui de la première image).
+                // Vers le réticule réel : le centre de la capture, qui n'est plus au centre du cadre si le 9:16 est décalé.
+                // Ou la hauteur choisie par le profil (vertical.zoomFocus) : VALORANT vise sous le réticule, l'icône du kill reste dans l'image.
+                val (fx, fy) = RenderCommandBuilder.zoomFocus(request.format, media, edit)
+                motion += ZoomCrop.filters(w, h, z, settings.zoom.scaleFlags, focusX = fx, focusY = fy)
             }
             // Flou de mouvement après le zoom : le punch-in traîne lui aussi ; avant textes et flash, qui restent nets.
-            if (blend > 1) effects += "tmix=frames=$blend"
+            if (blend > 1) motion += "tmix=frames=$blend"
             // Flou par vecteurs : une traînée dans le sens où le décor glisse, de la longueur parcourue.
             val track = request.motion.getOrNull(i)
             if (track != null && settings.motionBlur.usesVectors) {
                 val pixelsPerWidth = (media.video?.width ?: w) * RenderCommandBuilder.pixelScale(request.format, media, edit)
-                effects += VectorBlur.filters("vb$i", VectorBlur.sigmas(clip, track, lead, frames, fps, pixelsPerWidth, w, settings.motionBlur, outKills), fps)
+                motion += VectorBlur.filters("vb$i", VectorBlur.sigmas(clip, track, lead, frames, fps, pixelsPerWidth, w, settings.motionBlur, outKills), fps)
             }
+            val effects = mutableListOf<String>()
+            val start = HudPin.statements(base, pre, motion, targets, w, h, "hp$i")?.let { (lines, out) ->
+                graph += lines
+                out
+            } ?: base.also { effects += pre + motion }
             // Couleurs boostées après le zoom (le vignettage reste fixe dans le cadre), avant flash et textes (leur
             // blanc reste blanc).
             if (colors.isNotEmpty()) effects += colors
@@ -190,20 +223,28 @@ object MontageRenderBuilder {
             }
             if (settings.text.enabled) {
                 // Vertical : entre le kill feed replacé en haut et le réticule ; sinon sous la boussole.
-                val (labelY, counterY) = if (request.format == OutputFormat.VERTICAL) "h*0.25" to "h*0.35" else "h*0.20" to "h*0.11"
+                val labelY = if (request.format == OutputFormat.VERTICAL) "h*0.25" else "h*0.20"
                 val font = settings.text.font
                 val labels = settings.text.labels
-                outKills.forEachIndexed { j, k ->
-                    killCounter++
+                // Montage des morts : le texte (à la place des DOUBLÉ, TRIPLÉ des kills) arrive avec l'image figée qu'il
+                // commente ; sans gel, sur la mort. Posé sur la mort, il s'effaçait juste quand l'image se figeait.
+                failTexts[i]?.let { text -> outKills.lastOrNull()?.let { k ->
+                    val at = clip.speeds.firstOrNull { it.kind == SpeedKind.FREEZE }?.let { clip.toOutput(it.range.start) + lead } ?: k
+                    // Aussi gros que possible sans sortir de l'image : « BIEN ESSAYÉ » à 12 % de la hauteur débordait du 9:16.
+                    val nominal = h * 0.12
+                    val size = TextMeasure.width(VideoFonts.forText(font, text), nominal, text)
+                        ?.let { measured -> if (measured > w * 0.88) nominal * w * 0.88 / measured else nominal } ?: nominal
+                    effects += drawText(font, text, at, size.roundToInt(), labelY, border = (size * 0.06).roundToInt().coerceAtLeast(3), safe = request.edit.safeArea)
+                } }
+                if (!settings.fails.enabled) outKills.forEachIndexed { j, k ->
                     if (j >= 1 && labels.isNotEmpty()) {
                         val label = labels[minOf(j - 1, labels.lastIndex)]
                         effects += drawText(font, label, k, (h * 0.10).roundToInt(), labelY, border = (h * 0.006).roundToInt().coerceAtLeast(3), safe = request.edit.safeArea)
                     }
-                    if (settings.text.killCounter) {
-                        effects += drawText(font, "KILL $killCounter", k, (h * 0.045).roundToInt(), counterY, border = (h * 0.003).roundToInt().coerceAtLeast(2), safe = request.edit.safeArea)
-                    }
                 }
             }
+            effects += ReactionRender.captionFilters(request.captions.getOrNull(i), clip, lead, length, request.edit, request.format, w, h)
+            effects += KillCounter.filters(KillCounter.marks(clips, i, outKills, length, settings.text.killCounter), settings.text.font, request.format, h, request.edit.safeArea, edit.vertical)
             effects += "tpad=stop_mode=clone:stop_duration=${sec(clip.padAfter + 500.milliseconds)}"
             // Longueur en images, pas en durée : les horodatages de la source ne tombent pas sur la grille de sortie,
             // et `trim=duration` gardait parfois une image de plus. Sur un montage de 31 plans, 11 images de trop
@@ -229,11 +270,11 @@ object MontageRenderBuilder {
             val cutBlur = cutBlurStages("q$i", "v$i", "k$i", frames, edge, blurIn, blurOut, w, h, fps, settings.motionBlur.cutZoom)
             val clipOut = if (cutBlur.isEmpty()) "v$i" else "q$i"
             if (stages.isEmpty()) {
-                graph += "[$base]${(effects + finish).joinToString(",")}[$clipOut]"
+                graph += "[$start]${(effects + finish).joinToString(",")}[$clipOut]"
             } else {
                 // Whip pan : chaque étape superpose deux copies décalées du plan, puis la dernière rend le plan fini.
                 var label = "w${i}e"
-                graph += "[$base]${effects.joinToString(",")}[$label]"
+                graph += "[$start]${effects.joinToString(",")}[$label]"
                 stages.forEachIndexed { k, (first, second) ->
                     val out = if (k == stages.lastIndex) clipOut else "w${i}s$k"
                     val tail = if (k == stages.lastIndex) ",$finish" else ""
@@ -248,7 +289,7 @@ object MontageRenderBuilder {
             // --- audio du jeu : même découpe, volume adaptatif, posé à son décalage (peut déborder sur le clip suivant)
             // Les pistes sont choisies par leur rôle : une capture à pistes séparées (OBS) est mixée ici même.
             val streams = edit.audioIndices(AudioTracks.of(media.audio, request.audioLayout))
-            val source = when {
+            val source = ReactionRender.source(i, media, request.audioLayout, settings.reactionMontage, graph) ?: when {
                 streams.isEmpty() -> null
                 streams.size == 1 -> "[$i:a:${streams.first()}]"
                 else -> "[xa$i]".also {
@@ -314,13 +355,14 @@ object MontageRenderBuilder {
         }
         graph += "[$musicInput:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo," +
             "$GAIN_FRAMES,volume='$duck':eval=frame,afade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
-        // Souffle sur chaque whip pan, son sommet sur la coupe : le mouvement s'entend autant qu'il se voit.
+        // Souffle sur chaque whip pan, son sommet sur la coupe (le milieu du raccord) : le mouvement s'entend autant
+        // qu'il se voit. Il suit la musique dans `audio.balance` : un habillage, qui reste sous elle quel que soit le réglage.
         val whooshes = if (settings.whip.whoosh > 0) {
             whips.indices.filter { whips[it] != null }.map { (offsets[it] - StoryRenderBuilder.WHOOSH_PEAK).coerceAtLeast(Duration.ZERO) }
         } else {
             emptyList()
         }
-        val sfx = StoryRenderBuilder.placeSfx(graph, "wh", whooshes, settings.whip.whoosh, StoryRenderBuilder.WHOOSHES, StoryRenderBuilder.WHOOSH_LENGTH)
+        val sfx = StoryRenderBuilder.placeSfx(graph, "wh", whooshes, settings.whip.whoosh * audio.musicGain, whooshSources, StoryRenderBuilder.WHOOSH_LENGTH)
         val mix = listOf("[game]", "[music]") + sfx
         graph += mix.joinToString("") + "amix=inputs=${mix.size}:normalize=0:duration=first[amontage]"
         val cards = cards(args, graph, plan, request.edit, w, h, music)
@@ -405,6 +447,19 @@ object MontageRenderBuilder {
     }
 
     /**
+     * Souffle entendu à la coupe qui ouvre chaque clip, pour le rapport : nom du fichier de [files], « généré N » pour
+     * une variante générée, null sans whip pan ou souffle coupé. Même rotation que [StoryRenderBuilder.placeSfx].
+     */
+    fun whooshes(plan: MontagePlan, files: List<String>): List<String?> {
+        val whips = whips(plan)
+        if (plan.settings.whip.whoosh <= 0) return whips.map { null }
+        val used = files.take(whips.count { it != null })
+        val names = used.map { Path.of(it).fileName.toString() }.ifEmpty { StoryRenderBuilder.WHOOSHES.indices.map { "généré ${it + 1}" } }
+        var k = 0
+        return whips.map { w -> w?.let { names[k++ % names.size] } }
+    }
+
+    /**
      * Étapes du whip pan d'un plan de [length] : [enter], sens du raccord à son début ; [exit], à sa fin. Chaque étape
      * décale l'image dans le sens où le décor file (à l'opposé de la caméra), deux fois de suite pour que le bord laissé
      * libre soit rempli par l'image elle-même, puis la floute le long du mouvement. Le plan sortant accélère jusqu'à une
@@ -463,8 +518,8 @@ object MontageRenderBuilder {
                 lines += "[${prefix}a$j]$trim,split=$COPIES" + (0 until COPIES).joinToString("") { "[${prefix}b$j$it]" }
                 for (c in 1 until COPIES) {
                     val f = "(1+${num(zoom * c / (COPIES - 1))}*$strength)"
-                    lines += "[${prefix}b$j$c]scale=w='trunc($w*$f/2)*2':h='trunc($h*$f/2)*2':eval=frame," +
-                        "crop=$w:$h:(iw-$w)/2:(ih-$h)/2,setsar=1[${prefix}c$j$c]"
+                    lines += "[${prefix}b$j$c]scale=w='${ZoomCrop.scaled(w, f)}':h='${ZoomCrop.scaled(h, f)}':eval=frame," +
+                        "${ZoomCrop.crop(w, h, f)},setsar=1[${prefix}c$j$c]"
                 }
                 lines += "[${prefix}b${j}0]" + (1 until COPIES).joinToString("") { "[${prefix}c$j$it]" } +
                     "mix=inputs=$COPIES[${prefix}s$j]"
@@ -600,6 +655,8 @@ object MontageRenderBuilder {
     internal fun slowAudio(part: SpeedPart, extra: Duration, audio: MontageAudio): String {
         if (part.factor == 1.0) return ""
         val out = part.outputLength + extra
+        // Image figée : le son ne s'étire pas (atempo ne descend pas sous 0,5) ; il se tait, la musique porte le gel.
+        if (part.kind == SpeedKind.FREEZE) return ",volume=0,apad=whole_dur=${sec(out)},atrim=duration=${sec(out)}"
         if (part.kind != SpeedKind.SLOW || audio.slowMotion == SlowAudio.STRETCH) return ",atempo=${num(part.factor)}"
         val played = part.sourceLength + extra
         val fade = audio.slowFade.coerceAtMost(played)

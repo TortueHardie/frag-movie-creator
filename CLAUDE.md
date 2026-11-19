@@ -19,7 +19,7 @@ incrustés) passe par les bundles `core/src/main/resources/i18n/messages*.proper
   (FFmpeg requis, vidéos synthétiques générées par `ffmpeg/src/testFixtures/.../TestMedia.kt`). Un module : `:montage:test`.
 - CLI : `.\gradlew.bat :app-cli:installDist` → `app-cli\build\install\app\bin\app.bat` ; ou `:app-cli:run --args="..."`.
 - UI dev : `.\gradlew.bat :app-ui:run` (lit `config/` du projet via `-Dhighlights.config`).
-  Piloter l'app sans souris ni computer-use : `:app-ui:run -Pbridge` + skill `.claude/skills/drive-app` (curl sur le pont, voir §4 app-ui `bridge/`).
+  Piloter l'app sans souris ni computer-use : `:app-ui:run -Pbridge` (+ `-PuserHome=<dossier>` : préférences isolées, pas d'analyse du dossier surveillé de l'utilisateur) + skill `.claude/skills/drive-app` (curl sur le pont, voir §4 app-ui `bridge/`).
 - Installeur : `:app-ui:packageMsi`, `:app-ui:portableZip` (WiX 3 ; FFmpeg téléchargé si absent).
   Licence GPL-3.0-or-later (`LICENSE`) ; livrés aussi `THIRD_PARTY_NOTICES.md`, `licenses/`, `ffmpeg/VERSION.txt` (tâche `ffmpegVersion`).
   Nouvelle dépendance d'exécution → l'ajouter à `THIRD_PARTY_NOTICES.md` et à la table de `checkThirdPartyNotices` (app-ui/build.gradle.kts), sinon l'installeur ne se construit pas.
@@ -32,7 +32,7 @@ incrustés) passe par les bundles `core/src/main/resources/i18n/messages*.proper
 core  ← ffmpeg, analysis, analysis-vision, analysis-ml, scoring, editing
 editing ← export (api core+editing), montage (api core+editing+export)
 publish (api core) : YouTube (OAuth bureau + envoi reprenable + textes), sans dépendance au montage
-pipeline (api core, ffmpeg, scoring, editing, export, montage, publish) ← app-cli, app-ui
+pipeline (api core, ffmpeg, scoring, editing, export, montage, publish) ← assistant (+ analysis-vision en compilation) ← app-cli, app-ui
 analysis / analysis-vision / analysis-ml : runtimeOnly dans app-cli, app-ui, tests pipeline (ServiceLoader, pas de dépendance de compilation)
 ```
 Plugins de convention : `highlights.kotlin-library` (kotlin jvm + serialization, toolchain 21, kotest), `highlights.kotlin-app`,
@@ -74,12 +74,16 @@ style) → `KillInspector.inspect` (`ShotLocator` recale sur l'attaque du tir ; 
 `MatchCutter.inspect` (pose de l'arme `aim`/`rest`, `WeaponTemplate` arme en main ; groupes `MontagePlanner.placeable` seulement) ; ces deux-là passent par `InspectionCache` → `MontagePlanner.best`
 (variantes échelle×dropShift notées par `MontageScorer`) → `ScopeCuts.apply` (raccords sur la pose, retiming) →
 `KillMontageExporter.export` (`MontageRenderBuilder.build`, `MontageReport` JSON avec `MontageScore`).
+Aperçus (`HighlightPipeline.montagePreviews`) : même préparation (`planMontage(…, count = n)`, privée, derrière `planKillMontage`), `MontageVariants.distinct` au lieu
+de `best`, `PreviewProxies.prepare` (passages réduits de toutes les variantes, une fois) puis chaque variante rendue en aperçu
+(`MontageExportRequest.preview` + `proxies`, `onReady` à chaque aperçu prêt) dans `<sortie>/apercus` + `*_variantes.json` ;
+puis `killMontage` avec `MontageOptions.pick` (`VariantPick`) rend la variante n en pleine qualité (empreinte vérifiée) et écrit `*.choix.json`.
 
 ### 3d. UI
 `app-ui/Main.kt main()` → `Installation.setup()` (FFmpeg livré → prop `highlights.ffmpeg.dir` ; recopie config livrée vers
 `%APPDATA%\Highlights\config` via manifeste SHA-256 sans écraser les fichiers modifiés) → `AppController` (implémente
 `UiActions`, expose `StateFlow<UiState>`) → composables purs (`App`, `SidePanel`, `SessionViews`, `LibraryView`, `Dialogs`).
-Un seul job long à la fois (`runTask`). Sauvegarde session différée (`scheduleSave`). Dossier surveillé :
+Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soirée) dans une file (`JobQueue`, un à la fois) ; `runTask` ne garde que les tâches immédiates (lecture, ouverture, envoi YouTube). Sauvegarde session différée (`scheduleSave`). Dossier surveillé :
 `FolderWatcher.poll` toutes les 5 s, fichier stable 15 s → `analyzeInBackground`.
 
 ## 4. Index par fichier (main)
@@ -107,12 +111,15 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `ffmpeg/Hwaccel.kt` : `Hwaccel.resolve("auto"|"none"|nom)`.
 - `model/AudioTracks.kt` : `AudioRole{MIX,GAME,MIC}`, `AudioLayout(mix,game,mic)` (imposé par profil), `AudioTracks.of(streams, layout)`
   (ordre : layout > titres > nombre de pistes), `indexOf(role)`, `mixIndices()`, `describe()` et `explanation` en `Message` (finissent dans « aucun moment retenu »), `roleName(role)`.
-- `model/Highlight.kt` : `Highlight(id, source, range, peak, score, contributions, enabled, events)`, `ScoredTimeline(grid, total, contributions, events, excluded, segments)`, `TimelineEvent`, `TimelineSegment`.
-- `model/MediaInfo.kt` : `MediaInfo(path, sizeBytes, duration, creationTime, container, video, audio ; recordedAt calculé)`, `RECORDING_ORDER`, `VideoStream`, `AudioStream(audioIndex, title…)`.
+- `model/Highlight.kt` : `Highlight(id, source, range, peak, score, contributions, enabled, events, origin: MomentOrigin{DETECTED,ADJUSTED,ADDED}, order: Int?)` (`manual` = retouché/ajouté, ids « m001 »), `ScoredTimeline(grid, total, contributions, events, excluded, segments)`, `TimelineEvent`, `TimelineSegment`.
+- `model/MediaInfo.kt` : `MediaInfo(path, sizeBytes, duration, creationTime, container, video, audio ; recordedAt calculé : creationTime > nom daté > date du fichier)`, `reliableTime` (métadonnées ou nom daté),
+  `nameTime(nom)` (Outplayed MM-dd-yyyy_H-m-s, OBS yyyy-MM-dd HH-mm-ss, ShadowPlay yyyy.MM.dd - HH.mm.ss), `RECORDING_ORDER`, `VideoStream`, `AudioStream(audioIndex, title…)`.
 - `model/Settings.kt` : `SelectionPolicy`, `SelectionTarget(topN|totalDuration|all, exactement un)`, `EditSettings` (style, story, order, transition,
   loudnessLufs, audio, audioStreams, formats, sourceHeight, landscape, vertical, grade, fps; `audioIndices(tracks)`), `AudioSelection`,
-  `GradeSettings(lut, saturation, contrast, vignette, vibrance, brightness)`, `ClipOrder`, `TransitionSettings`, `OutputFormat{SOURCE,LANDSCAPE "16:9",VERTICAL "9:16"}`,
+  `GradeSettings(lut, saturation, contrast, vignette, vibrance, brightness)`, `ClipOrder`, `TransitionSettings`, `OutputFormat{SOURCE,LANDSCAPE "16:9",VERTICAL "9:16"}`, `ClipOrder{CHRONOLOGICAL,SCORE,MANUAL}` (`DefaultEditPlanner.order` ; MANUAL par défaut à l'export si un moment coché a un `order`),
   `FrameSize`, `VerticalSettings(size, cropRegion, hud, reference)`, `HudOverlay`, `OverlayTarget`, `CropRegion` (coords normalisées 0..1).
+- `model/ExportPreset.kt` : `ExportPreset(id, platform | format, length, highlightsStyle, montageStyle, thumbnail ; name/shownDescription = clés `preset.<id>`)`, `ExportPresets` ;
+  fichier `config/export-presets.yaml` (`AppConfig.exportPresets`, `LoadedConfig.loadExportPresets`).
 - `model/Platform.kt` : `SafeArea(top, bottom, left, right ; width, centerY)`, `PlatformProfile(name, format, maxDuration, loudnessLufs, maxBitrate, fps, safeArea ; applyTo(EditSettings))`,
   `DEFAULTS` (tiktok, shorts, reels, youtube), `parseBitrate` ; `LoadedConfig.platforms` = DEFAULTS + `AppConfig.platforms` ; `EncoderProfile.withMaxBitrate`.
   `EditSettings.safeArea/maxBitrate` : textes (Captions.drawText/drawLabel, MontageRenderBuilder.drawText) centrés dans la largeur utile et bornés en y ; sortie inchangée sans plateforme.
@@ -152,18 +159,44 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `HudTemplateDetector.kt` — type **`hud-template`** : correspondance de modèles d'images du HUD. `HudMode{EVENTS,PRESENCE}`, `Sampling{AUTO,KEYFRAMES,FPS}`,
   `MatchMethod{ncc, bright}`, `TemplateSpec(name, kind, file, region, anchor, threshold, scales, minConsecutive, brightness, minContrast…)`.
   Mode presence + `role: gate` = détection « en jeu ».
-- `OcrLogDetector.kt` — type **`ocr-log`** : OCR Windows d'un journal à l'écran (Wardogs), `rules` → kinds, fusion avec icônes (`icons: HudTemplateParams`) via `EventFusion`.
+- `OcrLogDetector.kt` — type **`ocr-log`** : OCR Windows d'un journal à l'écran (Wardogs) ou d'une notification empilée (Apex, `maxDrop`), `rules` → kinds, `credits` (`LogCredit` : notification en retard/en rafale datée de la dernière ligne `to` et comptée par ligne `to` depuis le kill précédent), `finishes` (`LogFinish` : ligne `finish` qui achève une ligne `hit` ouverte écartée, sinon devient un `hit` ; `all` referme tout), fusion avec icônes (`icons: HudTemplateParams`) via `EventFusion` ;
+  `notice: NoticeParams` (libellé sous l'icône, 2e zone OCR agrandie ×2, ses `rules`) corrige ou écarte le type de chaque icône avant la fusion (`NoticeLabels.relabel`).
+  Wardogs : `downed` = « EN ATTENTE DE RÉANIMATION » (à terre, pas une mort).
 - `KillfeedDetector.kt` — type **`killfeed`** : kills/morts du joueur lus dans le killfeed par la couleur de ses lignes (jaune VALORANT, zone `FrameZone.color`).
   `KillfeedParams` (region, `scale` en px lus par px de référence, forme du cadre en px de référence, `maxGap`, `deathSpacing`, `kinds`, `offset`), `KillfeedRole{KILL,DEATH}`,
   `FeedReader.rows` (composantes 8-connexes après comblement `bridge` ; forme `FrameShape` : hauteur d'une ligne, trait du haut, cadres étroits pleins ;
   colonne `victimWidth` au bord droit = mort si collée au bord ; kill avec du jaune côté victime = « soi → soi », écarté),
   `FeedTracker` (suivi : colonnes communes + bord gauche le plus proche, ne fait que monter ; nouvelle ligne = événement).
   Réglé sur 4 parties (scripts d'évaluation hors dépôt) : changer un seuil demande de revalider sur de vraies captures.
+  Basse définition (hauteur < `fillBelow` 720) : `FrameShape.solid`, aplat jaune pur du portrait (`fillColor`, `fill*`), vu `fillMinSeen` 2 s,
+  suivi en attente oublié après `fillPendingGap` (`FeedTracker.pendingGap`), toute la vidéo décodée (pas de `keyframeScan`). Mesuré sur 2 parties 854x480.
   Utilisé par valorant.yaml en `fallbackFor: game-events`.
-- `RewardsLog.kt` : `RewardsLog.classify/fuzzyDistance/rows`, `LogTracker` (suivi de lignes, minSightings), `EventFusion.fuse`.
+- `KillfeedOutline.kt` — mode **`outline`** du `killfeed` (CS2, profil cs2.yaml) : `OutlineParams`, `OutlineReader` (ligne entière
+  encadrée de la couleur du joueur = kill, fond plein = mort ; paires de traits finissant au même bord droit, `bridge` 16),
+  `RowReader` (interface commune avec `FeedReader`). `FeedTracker(newLineGrowth)` : rapprochement par hauteur et ligne qui
+  s'allonge = nouvelle ligne (null = VALORANT inchangé). Mesuré sur une capture 480p : `verite/cs2/`. `FeedRow.edge` : bord gauche
+  pour lire le texte (le plus à gauche des deux traits ; `left` reste celui du suivi). `FeedTracker.add` rend le numéro de suivi de chaque ligne, `appearanceTracks()`.
+- `KillfeedPlayer.kt` — kill ou assistance (`OutlineParams.player: PlayerParams`) : `PlayerName` (pseudo du joueur appris = premier mot le plus fréquent
+  en tête des lignes encadrées, canal le plus clair `BRIGHTEST` ; `score` calé sur le début du premier mot), `RewardLines` (lignes « +$ » vertes du chat,
+  `RewardParams`), `LineSample`, `lineImage` ; `KillfeedDetector.assists` → `KillfeedRole.ASSIST` (kind `assist`).
+- `KillfeedTeams.kt` — type **`killfeed-teams`** : morts des alliés (`ally-death`, le joueur compris) et des adversaires (`enemy-death`) à la couleur de la victime
+  (colonne juste avant son portrait : sarcelle = équipe du joueur, rouge = adversaire ; classes en un octet par `geq`) ; `TeamRowReader` (bandes coupées au pas des lignes,
+  côté tueur de l'autre couleur exigé : écarte menu d'achat et résumé de combat ; nom de la victime neutre ; cercle de Phoenix « Run it Back »
+  → `ally-run-it-back`/`enemy-run-it-back` au lieu d'une mort), `TeamTracker`. `TeamRounds.withoutRevived` (`killStyle.revivedEvent`) retire la mort du joueur
+  correspondante, appelé en tête de `MontagePlanner.groups` et de `Statistics.game`. `round-start` (`RoundBarParams` : barres de vie alliées pleines, `roundStarts`),
+  `clutch-banner` (`BannerParams` : mot « CLUTCH » du bandeau de fin de round, gabarit `templates/valorant/banner_clutch.png`, `bannerAppearances`) →
+  `KillStyle.roundStartEvent/clutchBannerEvent`, utilisés par `TeamRounds.clutchTimes` (bandeau = clutch annoncé de plus). valorant.yaml : `teams`, `fallbackFor: game-events`, 5 img/s. Mesuré en 480p seulement.
+- `RewardsLog.kt` : `RewardsLog.classify/fuzzyDistance/rows`, `LogTracker` (suivi de lignes, minSightings, `maxDrop` : lignes poussées vers le bas), `LogCredits.apply`, `LogFinishes.apply`, `EventFusion.fuse`, `NoticeRead`, `NoticeLabels.relabel` (libellé le plus proche dans [before, after] : son type, "" = icône écartée, rien = icône inchangée).
 - `TemplateMatcher.kt` : `GrayImage`, `PreparedTemplate`, `TemplateMatcher.match` (NCC), `BrightTemplate/BrightMatcher`.
 - `WindowsOcr.kt` : lance `resources/.../windows-ocr.ps1` (Windows.Media.Ocr) par lots ; `WindowsOcr.supported`.
-- `AmmoCounterDetector.kt` — type **`ammo-counter`** : compteur de munitions du HUD relu à 60 img/s autour de chaque kill (`ctx.events`, `dependsOn`) via `frames.extractRange` → events `hud-shot` ; `changes` (chiffres blancs qui changent), `refills` (recharge animée du Combat à mort, zone `TEAL`, ignorée), `windows`.
+- `AmmoCounterDetector.kt` — type **`ammo-counter`** : compteur de munitions du HUD relu à 60 img/s autour de chaque kill (`ctx.events`, `dependsOn`) via `frames.extractRange` → events `hud-shot` ; `changes` (paliers : affichage stable `minPlateau` qui change, palier sans blanc `minDigits` = compteur absent, ignoré), `refills` (recharge animée du Combat à mort, zone `TEAL`, ignorée), `windows`.
+- `HudChangeDetector.kt` — type **`hud-change`** (assistant nouveau jeu) : compteur du HUD comparé sans lire ses chiffres ; `ChangeTracker` (nouvelle image stable jamais vue depuis le zéro = kill, revoir le zéro = nouvelle partie), `UnitsFinder` (colonne des unités : bloc clair qui varie, le plus à droite).
+- `HudCounterDetector.kt` — type **`hud-counter`** : nombre du HUD (éliminations Fortnite) lu par modèles de chiffres (`digit_0..9.png`, chiffre + 1 px de marge, largeur variable)
+  calé à droite (`CounterReader` : unités sur les `slack` dernières colonnes, dizaines juste à gauche), puis `CounterDecoder` (Viterbi : reste, +1..`maxStep`, remise à 0 = nouvelle partie)
+  → un événement `kind` par unité gagnée. Réglé sur une vidéo 480p (31/31). Utilisé par fortnite.yaml (`game-events`).
+  `knocks: KnockSettings` (avec `dependsOn` sur le détecteur des mises à terre) : `KnockPairing.pair` rattache chaque +1 à la plus ancienne mise à terre libre
+  (30 s avant) → `kind` à l'instant de la mise à terre, +k d'un coup = k au compteur (mises à terre absorbées), mises à terre libres = kills ; `eliminationKind` au compteur.
+  `CounterReader.readPair` (clés brutes, pour l'assistant), `load` tolère des chiffres absents (jamais vus par l'assistant).
 - `FrameSampling.kt` : `chooseSampling` (images clés vs fps selon intervalle mesuré).
 
 ### analysis-ml
@@ -176,11 +209,15 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `MomentSelector.kt` : `ThresholdMomentSelector.select/selectAcross` (seuil ou `requiredEvent`, merge, pre/postRoll, min/maxClip, réactions → bonus, cible top/durée/all).
 - `SegmentExtension.kt` : étend un moment pour ne pas couper `keepWhole` (≤ maxExtension).
 - `HighlightMerge.preserveDisabled` : garde décochés les moments recouvrant un moment décoché.
+- `MomentEdits.kt` : retouches à la main, pures : `adjust` (bornes ± delta, capture et minClip/maxClip), `add` (moment centré, score/événements lus dans la timeline),
+  `preserveManual` (appelé par `reselect/reselectAll` : retouches gardées, détectés qui les recouvrent écartés, rang manuel repris), `move`, `nextManualId`.
 - `ScoringEngine` : façade `score / select / selectAcross`.
 
 ### editing
 - `EditPlan.kt` : `PlannedClip`, `EditPlan(clips, settings, fade)`, `DefaultEditPlanner`.
-- `RenderCommandBuilder.kt` : rendu simple (une entrée par clip, xfade, loudnorm, recadrage 9:16 + HUD crop-and-replace, grade). `geometry`, `outputSize`, `pixelScale` (pixels de sortie par pixel de capture), `cropBox`, `grade`, `buildPreview`.
+- `RenderCommandBuilder.kt` : rendu simple (une entrée par clip, xfade, loudnorm, recadrage 9:16 + HUD crop-and-replace, grade). `geometry`, `outputSize`, `pixelScale` (pixels de sortie par pixel de capture), `cropBox`, `crosshair` (réticule = centre de la capture, en fractions du cadre de sortie, décalé en 9:16 selon `cropRegion`), `grade`, `buildPreview`.
+- `ZoomCrop.kt` : zoom animé (`scale` eval=frame + `crop`) qui garde fixe un point (réticule) ; jamais `(iw-w)/2` dans ce crop (iw figé à la première image : le zoom s'ancrait en haut à gauche). Utilisé par `MontageRenderBuilder` (zoom, flou radial) et `StoryRenderBuilder` (punch, secousse).
+- `HudPin.kt` : HUD 9:16 (`vertical.hud`, rectangles `RenderCommandBuilder.hudTargets`) recollé fixe après les effets qui bougent l'image. `videoChain(pinHud = true)` ne colle pas le HUD : il l'empile sous l'image dans la même trame (`vstack`, mêmes ralentis/gels) ; `HudPin` découpe l'image (zoom, flous) et recolle les morceaux. Jamais le HUD dans l'image qui zoome (bloc du bas VALORANT en double sinon). Appelé par `MontageRenderBuilder` (pre `tpad`, motion zoom+tmix+flou vectoriel) et `StoryRenderBuilder` (motion = `framing`), quand le plan a déjà la taille du montage.
 - `IntroOutroCards.kt` : cartes d'ouverture et de fin, étage ajouté en fin de graphe par les trois builders (`append` sur la vidéo et le son
   non normalisé → concat, `asetpts=N/SR/TB` sur le son du montage sinon concat refuse au hasard), `CardRequest.of(edit, w, h, stills, leadIn, introLength)`,
   `CardStill` (image floutée : `stills` = meilleur moment / dernier), `MusicLeadIn` (montage : amorce de la musique avant `musicStart`), `beatLength` (temps entiers),
@@ -198,21 +235,35 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 
 ### export
 - `Exporter.kt` : `ExportRequest`, `ExportResult(videos, report, duration, encoder)`, `export`, `preview` (PNG par format), `thumbnail`, `clipPreview`.
-- `CaptionTranscriber.kt` : filtre FFmpeg `whisper` (whisper.cpp), cache par clé (media, range, piste, réglages, modèle).
-- `OutputNamer.kt` : `reserve(dir, game, date, formats, kind="highlights"|"killmontage")` → `<game>_<date>_<kind><suffix>.mp4` + `.json`, `tempFor`, `slug`.
-- `ExportReport.kt` : rapport JSON des highlights.
+- `CaptionTranscriber.kt` : filtre FFmpeg `whisper` (whisper.cpp), cache par clé (media, range, piste, réglages, modèle). Sans piste du rôle `captions.role` (MIC) : rien, sauf `captions.withoutMic` ; `Captions.readable` borne l'affichage à 3 s (`MAX_SHOWN`).
+- `OutputNamer.kt` : `reserve(dir, game, date, formats, kind="highlights"|"killmontage")` → `<game>_<date>_<kind><suffix>.mp4` + `.json`, `tempFor`, `slug`,
+  `thumbnailFor(video)` (`<nom>_miniature[_N].png`, jamais d'écrasement), `thumbnailOf(video)` (la plus récente).
+- `ExportReport.kt` : rapport JSON des highlights (`ReportHighlight.peakSeconds/events` pour la miniature).
 
 ### montage (montage kills)
+- Clip « meilleur moment » : `core/model/Clip.kt` (`ClipSettings`, `EditSettings.clip`) ; `pipeline/MomentClips.kt` (`ClipOptions`, `MomentClips.pick` : plus de kills puis score, cochés d'abord ; `window` : dichotomie sur la longueur de la fenêtre, `StoryPlanner` sans rendu, durée story dans [min, max] ; `settings` : story, vertical, accroche à 1 moment) ;
+  `HighlightPipeline.clip` → `Exporter.export` (`ExportRequest.kind` = `clip_<id>`, sans musique) ; CLI `ClipCommand` (`app clip`), app `clipMoment` (bouton dans `RetouchBar` de SessionViews). Test `MomentClipsTest`.
+- Rythme rapide par partie : `core/model/Montage.kt` `FastParts` (`MontageSettings.fastParts`, défaut actif) ; `montage/FastSections.kt` (`of` : sections ≥ drop, intensité ≥ `minIntensity`, quel que soit le tempo (`minBpm` accepté, ignoré), rien si `cuts.singleBeat` ; `calmBreaks`/`withCalmBreaks` : creux de `calmBars` mesures à `calmDb` sous le niveau fort coupés en sections BREAKDOWN, `Rhythm.music` = musique découpée, utilisée par `MontagePlanner.layout` pour tout le plan ; garde-fou dans `MontagePlanner.plan` : plan rapide sous `length.min` → refait sans parties rapides ; `Rhythm` : cuts et réglages de `forFast`, sans ralenti ni rampe) →
+  `CutGrid.build/select(fast)` (cadence et minBeats par section ; drop rapide : plan qui s'ouvre sur la drop) → `MontagePlanner.layout/assign` (`need`/`minRestOf` par section, plan de la drop compris) → `MontageClip.fastPart` → zoom d'approche (`MontageRenderBuilder`), rapport `fastPart`.
+  `MontageOptions.fastParts`, `--no-fast-parts`, case `ui.montage.fastParts`. Tests `FastSectionsTest` ; les tests de mécanique du planificateur posent `earlierDefaults()` (montage/src/test).
+- Défauts du 18/11 : couleurs, vitrine actives ; `WhipPanEffect.whoosh` 0 (`DEFAULT_WHOOSH` quand on le demande : `--whoosh`, case, `--whoosh-dir`) ; `default: cinematique` ; `--no-showcase`. Test `MontageDefaultsTest`.
+- Peu de kills : `MontageSettings.minKills` (3) → `PlannedMontage.fewKills` / `fewKillsNotice` → `MontageExportRequest.notices` → `MontageReport.notices` et `ExportResult.notices` (CLI `printExport` « ! … », app : sous le résultat dans `SessionViews`).
+- Styles de montage : `core/model/MontageStyle.kt` (`MontageStyle` : réglages nullables, nom `style.<id>` traduit sinon `displayName` ; `MontageStyles(default, styles)`),
+  fichier `config/montage-styles.yaml` lu par `LoadedConfig.loadMontageStyles()` (`AppConfig.montageStyles`), `HighlightPipeline.montageStyles/montageStyle(id)` ;
+  `MontageOptions.style` + `MontageOptions.withStyle` (pipeline/MontageStyles.kt : le style ne remplit que les options null, `oneTaps` est nullable) ; CLI `montage --style <id>|none` (défaut = `default` du fichier) ;
+  UI `MontageStyleUi.kt` (`StyleKnobs`, `chooseStyle`, `trackedFrom` : cases modifiées à la main dans `MontageUiState.touched`, gardées au changement de style ; `resetToStyle`),
+  `MontageStylePicker` en haut de `MontageDialog`, détail replié sous `MontageUiState.advanced`.
 - `MusicLibrary.kt` : `MusicLibrary(cacheDir).load(ffmpeg, dir)` (analyses gardées en JSON par musique, `StoredMusic` en µs, échecs gardés aussi,
   invalidées par taille/date/`MusicAnalyzer.VERSION`), `files(dir)`, `AUDIO_EXTENSIONS` ; `MusicChoice.rank(groups, musics, settings, fromStart)`
   (plan par musique, en parallèle, `value` = note × groupes gardés / max − `recency`), `recency` (`RECENT_PENALTY` 0,03 sur les `RECENT_DEPTH` 3 derniers montages),
   `settingsFor`, `prepare` ; `MusicCandidate` ; `MusicHistory` (`outputDir/sessions/music-history.json`, `recent/record`, alimenté par `killMontage`).
-- `MusicAnalyzer.kt` : `VERSION` (à incrémenter si l'analyse change), `analyze(ffmpeg, file)` (décode 22050 Hz mono) / `analyzeSamples` ; mel → onset → `estimateTempo` → `trackBeats` (DP) → accents, `detectSections` (novelty timbre+volume, alignées mesures),
+- `MusicAnalyzer.kt` : `VERSION` (à incrémenter si l'analyse change ; 6 : `MusicFeatures`), `analyze(ffmpeg, file)` (décode 22050 Hz mono) / `analyzeSamples` ; mel → onset → `estimateTempo` (+ `halvesTempo` : tempo lu > 140 ramené à la noire si aucune bande, `bandEnvelopes`, ne bat entre deux temps lus et que la noire est aussi nette ; seule « Lose Yourself » sur 19 musiques) → `trackBeats` (DP) → accents, `detectSections` (novelty timbre+volume, alignées mesures),
   `findDrop`, `classify` (`SectionKind` INTRO/BUILD_UP/DROP/BREAKDOWN/BODY/OUTRO), `fromStart`. Modèle `MusicAnalysis(beats, bpm, downbeatPhase, beatAccent, halfAccent, sections, dropBeat, salience)`, `strength(beat)` (max attaque/saillance), `hits()`, `beatTime()`, `Intensity{LOW,MID,HIGH}` ; `MusicAnalyzer.salience` (montée du volume face aux temps voisins × niveau local, `SALIENT` 0,4) + `timbreChanges` (spectre mel centré, écart au temps d'avant ≥ 3× l'habitude, durable) → `MusicAnalysis.salience` = max des deux ; rapport `MontageReportClip.onMusicMoment`.
 - `CutGrid.kt` : `CutSlot(startBeat, endBeat, section, dropBeat)`, `build` (tuiles par section, puissances de 2, `tileAccelerating` en montée ; longueur `sectionBeats` ← `cadence(intensité)` continue low→mid→high ; `tileOnNotes` : cadence de la section, chaque coupe calée `leadBeats` avant la note saillante la plus proche), `select` (échelle + fenêtre selon cible),
   `window` (fenêtres notées puis la mieux notée qu'`accept` retient ; pénalité `DROP_LEAD_WEIGHT` si moins de `cuts.dropLead` avant la drop).
 - `MontagePlanner.kt` : `KillGroup(media, kills, score, protectedSegments, voiceSegments, traits, outcome, style, aim)` (`rank = kills + score/10 + style`), `KillTraits(headshot, flick, shift, direction)`,
   `FlickDirection`, `Aim`, `RoundOutcome`, `SpeedSegment/SpeedKind`, `MontageClip` (`toOutput`, `outputKills`, `slow`, `ramps`), `PlanVariant`, `MontagePlan` (slots contigus obligatoires).
+  Clutch réel sans Outplayed : `TeamRounds.clutchTimes/clutches` (morts `killStyle.allyDeathEvent/enemyDeathEvent`, `teamSize`, `clutchMinEnemies` 1 ; seul face à ≥ 1, équipe adverse éliminée) → mêmes instants qu'un clutch annoncé ; `Statistics` les dit connus dès qu'une partie a des `ally-death`.
   Clutch : `killStyle.clutchEvent` (valorant : « clutch » d'Outplayed) → `announcedClutch` (groupe dont le dernier kill précède l'annonce, sans kill ni mort entre, ≤ roundGap) remplace la déduction.
   `MontagePlanner.groups / rounds / outcome / style / targetDuration / placeable / best / plan / layout / arbitrate / aimFit / assign / pairUp / clipFor / slowCurve / isStrong / allowsSlow`.
   `assign` : un multi-kill ne prend sur la cellule voisine que les temps qui lui manquent (`share` : sur la suivante puis la précédente ; `keeps`/`spare` : le reste garde la moitié de sa longueur), sinon la cellule entière (`grow`).
@@ -221,8 +272,23 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   Constantes de réglage fin : `MIN_KEPT, MONOTONY_PENALTY, RAMP_COST, OFF_BEAT_DISCOUNT, MIN_CLIP_SHARE, TARGET_STEP, MATCH_BONUS, MATCH_VALUE, ORDER_TOLERANCE, MIN_GAIN, SCALES, DROP_SHIFTS`.
 - `MontagePlanner.split` (appelé par `killMontage` après `KillInspector`) : multi-kill étalé (> `splitGap`) → plusieurs parties, même rang, issue au dernier. `need` ne réserve la place du ralenti que sur la drop (`onDrop`) ou en effets HEAVY.
 - Rythme rapide : `MontageSettings.forFast` / `FastMontage` (cadence `calm`/`mid`/`cut` ; zoom d'approche vers le réticule avant le kill, `zoomApproach` → `ZoomEffect.approach`) (un kill par plan, plans d'un temps via `cuts.singleBeat`, contexte 0,2 s + 0,15 s, ni ralenti ni rampe, échanges écartés par `skipDeathWithin` dans `MontagePlanner.groups`) ; `MontageOptions.fast`, `--fast` (montage, search), case « Rythme rapide ».
-- `OneTaps.kt` (branche `montage-onetaps`) : `OneTaps.select` (kills d'une balle à la tête, `strict` si headshots connus) ; réglages `MontageSettings.forOneTaps` / `OneTapMontage`.
+- Montage des morts : `MontageSettings.forFails` / `FailMontage` (préréglage : `killEvent` = mort, `anchorEvents` = « downed » si `downedAsDeath`, classements de kill coupés, HEAVY, ni raccord ni jump cut) ;
+  `MontagePlanner.groups` ancre aussi sur `anchorEvents` ; `failSlows`/`failStrength` : ralenti sur `FailMontage.slowShare` (1/3) des morts, échange (`KillGroup.trade`, kill < `tradeWindow` avant) +1, drop +0,75, intensité ×0,5, ouverture +0,25 ; `clipFor` ajoute l'image figée (`SpeedKind.FREEZE`, `FREEZE_SOURCE` étirée, son coupé dans `slowAudio`) ; `FailLabels.kt` (`available` : `video.fail.*` ou `fails.labels`, `assign` : empreinte capture+instant, jamais deux fois de suite) → texte dans `MontageRenderBuilder` et `MontageReportClip.failText` ;
+  `MontageOptions.fails`, kind « fails », `error.montage.noDeaths` ; CLI `--fails` seulement (retiré de l'application le 19/11 : jugé sans usage par le joueur).
+- Montage des réactions (branche `montage-reactions`) : `core/model/ReactionMontage.kt` (`ReactionMontage`, champ `MontageSettings.reactionMontage`, extension `MontageSettings.forReactions` :
+  `killEvent` = « reaction », `reactions` = true, ni ralenti, ni gel, ni rampe, ni raccord, ni whip, ni `fastParts`, classements de kill coupés) ;
+  `montage/Reactions.kt` : `MicLevels.measure` (piste MIC décodée en 16 kHz, dB par 100 ms ; null sans micro séparé), `ReactionFinder.find` (éclats ≥ médiane de la voix + `rise`,
+  creux ≤ 200 ms, + segments `laughter`/`shout` de YAMNet, `merge`, cause = événement du jeu ≤ `causeWindow` avant, `strength`, `spaced`), `Reactions.annotate` (événement + segment
+  ajoutés à la chronologie, en mémoire) / `rescore` (score du groupe = force) / `of` / `describe` ; `montage/ReactionRender.kt` : `source` (jeu + micro `amix` pondéré, branché
+  dans `MontageRenderBuilder`), `transcribe` (whisper par plan, appelé par `KillMontageExporter.render`, pas en aperçu), `captionFilters` (`MontageRenderRequest.captions`).
+  `CaptionTranscriber.transcribe(…, voice, shouts, …)` (surcharge par segments). Pipeline : `MontageOptions.reactionMontage`, `findReactions` dans `planMontage`, kind « reactions »,
+  `PlannedMontage.reactions` → `MontageExportRequest.reactions/captionCache` → `MontageReport.reactions` (`MontageReportReaction`). Erreurs `error.montage.noMicTrack/noReactions`.
+  CLI `--reaction-montage`, case `MontageUiState.reactionMontage` (`ui.montage.reactionMontage`). Tests : `ReactionMontageTest`.
+- `OneTaps.kt` (branche `montage-onetaps`) : `OneTaps.select` (kills d'une balle à la tête, `strict` si headshots connus ; `countsShots` = le profil a `ammo-counter`/`game-sounds`, `HighlightPipeline.SHOT_SOURCES`, sinon `error.onetaps.noShotSource`) ; réglages `MontageSettings.forOneTaps` / `OneTapMontage`.
+- Morts : `KillStyle.deathKinds` = `deathEvent` (+ `downedEvent` « downed » si `downedAsDeath`, faux par défaut), lu par `MontagePlanner.groups` (rounds, `skipDeathWithin`), `Statistics.game` et `Statistics.sources(sessions, kinds)`.
 - Kill confirmé à l'image : détecteur `kill-confirm` (type `killfeed`, toujours actif, 30 img/s, événements `feed-kill`) → `KillStyle.confirmEvent` ; `MontagePlanner.groups` associe chaque kill à la confirmation la plus proche (`CONFIRM_WINDOW` 0,8 s), `hudShots(…, confirmed)` cherche la balle qui tue jusqu'à `CONFIRM_AFTER` (0,12 s) après elle, sinon `fatal` = confirmation − `CONFIRM_LAG`.
+- Kills à la capacité : `AbilityKills.find/remove` (`MontageSettings.skipAbilityKills`, valorant.yaml) : `KillTraits.shots` = 0 ET aucune `hud-shot` brute de `BEFORE` 1 s avant à `AFTER` 0,3 s après (doublé à 0,4 s : balles toutes attribuées au premier) ;
+  appliqué dans `HighlightPipeline.withoutAbilityKills` sur les groupes de `killMontage` (pas avec `onlyKills` ; kills forcés/épinglés gardés ; stats et recherche intactes) ; `forFails` le coupe. `MontageOptions.skipAbilityKills`, `--ability-kills/--skip-ability-kills`, case `MontageUiState.skipAbilityKills` (si `abilityKillsKnown` : profil avec `ammo-counter`).
 - Balles d'un kill : `MontagePlanner.hudShotCounts` (événements `hud-shot` du compteur de munitions, préférés) ou `shotCounts` (tirs entendus) → `KillTraits.shots`.
 - Ouverture vitrine : `ShowcaseOpening` (`montage.showcase`) → `MontagePlanner.showcase` (dernière étape de `killMontage` ; plans `MontageClip.showcase` sans kill ajoutés devant, place réservée par `planning` = maxDuration − length) ; `MontageScorer.score` ne les voit que dans `opening` ; rapport `showcase` ; `MontageOptions.showcase`, `--showcase`, case de `MontageDialog`.
 - Plans coupés dans l'attente : `CutSettings.jumpCuts/jumpMinBeats/jumpBack` → `MontagePlanner.jumpCuts` (appelé par `killMontage` après `ScopeCuts.apply` ; `jumpBefore`/`jumpAfter`) : `SpeedSegment(kind = SpeedKind.JUMP, factor = ∞)`, portion non montrée (sautée par `speedParts`, `CameraMotion.sourceAt`) ; `KillGroup.calm` (passage sans autre kill ni mort, recalculé par `split`) borne le saut ; rapport `jumpCut`.
@@ -233,9 +299,51 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `InspectionCache.kt` : inspections gardées d'un montage à l'autre (`<workDir>/cache/kills`, un `.json.gz` par capture, oublié si taille/date changent) : `kill/putKill` (KillInspector), `aim/putAim` (MatchCutter, poses en doubles bruts), clés = tout ce dont la mesure dépend ; `VERSION` à incrémenter si KillInspector ou MatchCutter changent.
 - `KillInspector.kt` : `inspect` (cache `InspectionCache`), `ShotLocator.locate/rises`, `FlickMeter.motions/speeds/direction/score/shift`.
 - `MatchCutter.kt` : `MatchCutter.inspect(only = MontagePlanner.placeable)/read/footage/pose` (une lecture `SourceFrames` visée + arme par groupe quand les fenêtres d'avant/après sont alignées à l'image près, sinon deux ; `Footage.slice` reproduit le compte d'images de FFmpeg), `Pose` (ressemblances mémorisées), `HeldPose`, `WeaponTemplate.score/matches` (sommes cumulées), `ScopeCut`, `ScopeCuts.apply/count/aimCurve/restCurve/runs/similarity/compatible/aimStart/aimEnd/speeds/cut/retimeTail/retimeHead/disarm/symmetry`.
-- `MontageRenderBuilder.kt` : graphe FFmpeg du montage : `build`, `sourceCuts`, `flashes`, `whips`/`whipStages` (+ souffle `whip.whoosh` via `StoryRenderBuilder.placeSfx`/`WHOOSHES`), `zooms`, `cutBlurStages` (flou radial des coupes), `leads` (preBeatFrames), `bleeds`, `speedParts`, `slowAudio`, `envelope`, `volumeExpression`.
-- `MontageScorer.kt` : `MontageScore(total, sync, accent, restraint, variety, fill, pacing, coverage, opening, lull, action, details)` ; critère null = exclu de la moyenne.
-- `KillMontageExporter.kt` : `MontageExportRequest(musicChoice)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates)`, `export`, `recordingDate`.
+- `MontageRenderBuilder.kt` : graphe FFmpeg du montage : `build`, `sourceCuts`, `flashes`, `whips`/`whipStages` (+ souffle `whip.whoosh` × `audio.musicGain` via `StoryRenderBuilder.placeSfx`, fichiers `whip.sounds` → `MontageRenderRequest.whooshFiles` (`SfxBank.list`) sinon `WHOOSHES` ; `whooshes` = souffle par plan pour le rapport `whip`/`whoosh`), `zooms`, `cutBlurStages` (flou radial des coupes : `MotionBlur.cutFrames` images de chaque côté, 3 à 60 img/s, au plus `cutShare` du plan ; vérifié sur rendu final WARDOGS : 6 images par coupe, 8,5 % du montage ; test `CutBlurIT`), `leads` (preBeatFrames), `bleeds`, `speedParts`, `slowAudio`, `envelope`, `volumeExpression`.
+- `MontageEdits.kt` : corrections de l'utilisateur. `KillRef(capture, at)` (« partie.mp4@3:12.450 » : `toString` à la ms, `parse/of/clock/precise`, `matches` à `TOLERANCE` 1 s, `exactly` pour la frise ; une désignation vise UN kill, le plus proche : `MontageEdits.designated`), `MontagePin{Drop, At(music)}`,
+  `MontageConstraints(excluded, forced, pins ; clear/exclude/force/pin)`, `MontageEdits.apply` (kills exclus retirés via `withTraits`, `KillGroup.forced/pin`, erreurs `error.montage.edit.*`),
+  `check(plan, groups)` (appelé par `MontagePlanner.plan` dès qu'un groupe est `kept` : erreur nommant le kill si une contrainte n'est pas tenue), `nearestBeat`.
+  Dans le planificateur : plancher et `placeable` gardent les `kept` ; `layout` n'accepte que les fenêtres qui contiennent la drop/les temps épinglés ;
+  `assign` BUILD_UP met l'épinglé sur la drop, les épinglés sur leur cellule, puis les forcés restés dehors remplacent le moins bon groupe non imposé ;
+  CHRONOLOGICAL : épinglé sur la drop = `best`, les moins bons d'avant lui cèdent leur place ; `pairUp` ne déplace pas les épinglés ; `clipFor` ancre sur le temps épinglé.
+- `KillCounter.kt` : compteur de kills à l'écran (`TextEffect.killCounter: KillCounterMode{OFF,CLIP,MONTAGE}`) : `marks(clips, i, outKills, length, mode)` (nombre tenu jusqu'au kill suivant ;
+  cumul : total d'avant affiché dès le début du plan ; ACE sur le dernier kill d'un groupe `outcome.ace`), `filters` (drawtext ; 9:16 en haut à droite dans `safeArea`, à gauche si `rightCornerTaken(vertical)`),
+  une ligne dans `MontageRenderBuilder.build` ; `MontageOptions.killCounter`, `--kill-counter`, `KillCounterPicker` (dialogue) ; texte `video.counter.ace`.
+- `MontageScorer.kt` : `MontageScore(total, sync, accent, restraint, variety, fill, pacing, coverage, opening, lull, action, details)` (+ `criteria()` par nom) ; critère null = exclu de la moyenne ;
+  `WEIGHTS` (public, poids d'origine), `total(criteria, weights)` ; les poids viennent de `plan.settings.scoreWeights ?: WEIGHTS`.
+- Ressenti des musiques (branche `ressenti-musique`) : `MusicFeel.kt` : `FeelVote` (GOOD/TOO_FAST/NOT_FAST_ENOUGH, `feel(hadFast)`), `MusicFeelStore`
+  (`outputDir/sessions/music-feel.json`, `StoredFeels`/`FeelEntry` par clé `nom|taille` (`keyOf`), mesures gardées), `MusicFeels.resolve` (dit > appris si `LearnedFeel.active`
+  et prédiction ≥ `CONFIDENT` > AUTO), `MusicFeelLearner` (régression logistique déterministe, `leaveOneOut`, actif à `MIN_SONGS` 8, `MIN_PER_KIND` 3, `MIN_ACCURACY` 0,8) ;
+  mesures `MusicFeatures` (`MusicAnalyzer.features`, `percussiveShare`, gardées dans `StoredMusic`) ; `core/model/Montage.kt` `MusicFeel` + `FastParts.feel/fastIntensity`
+  (`FastSections.threshold` ; CALM → `of` null) ; `MusicChoice.rank(feels)` (`withFeel`, `feel` : `FEEL_BONUS` si `cuts.singleBeat`) ; pipeline `musicFeelStore`, `rateMusic`,
+  `setMusicFeel`, `musicFeels()` → `MusicFeelState`, `ExportResult.fastShots/musicFeel` ; CLI `MusicFeelCommand.kt` (`musique-ressenti [MUSIQUE fast|calm|auto]`),
+  rappel dans `printExport` ; UI `MusicFeelQuestion` (SessionViews, sous le résultat), action `rateMusicFeel`, `UiState.musicFeels` ; jeu de départ en test
+  `montage/src/test/resources/ressenti/music-feel-seed.json` (jamais dans les données de l'utilisateur) ; tests `MusicFeelTest`.
+- Goûts appris (branche `apprendre-choix`) : `Taste.kt` : `TasteHistory` (`outputDir/sessions/taste-history.json`, `StoredTaste(choices, edits)`, `record`, `reset` = mis de côté en
+  `taste-history.reset-<instant>.json`), `TasteChoice` (critères de chaque variante proposée + index choisi), `TasteEdit` (corrections de l'éditeur + `groups: List<TasteGroup>` : sortes et action de chaque groupe proposé, `GroupTasteLearner.record`),
+  `TasteLearner.learn` (préférence par paires Bradley-Terry, `SHARPNESS` 30, rappel `REGULARIZATION` vers l'origine, poids bornés ×`MIN_FACTOR`..×`MAX_FACTOR`, somme constante,
+  actif à partir de `MIN_CHOICES` 10) → `LearnedTaste`. `MontageSettings.learnTaste` (true par défaut, sans effet sous `MIN_CHOICES`) → `HighlightPipeline.withTaste` → `TasteLearner.applyTo` pose `MontageSettings.scoreWeights` ; seul `taste-history.json` est relu (mis de côté : `.reset-*`, `.qa-finale` ignorés) ;
+  `killMontage` enregistre le choix (`--pick`) et les contraintes (`recordTaste`) ; `HighlightPipeline.taste()` → `TasteState` ; CLI `TasteCommand.kt` : `gouts [--reset --history]`.
+  `GroupTaste.kt` (branche `gouts-editeur`) : `GroupTrait` (multiKill, headshot, oneTap, flick, ace, clutch ; `of(group)` ; « échangé » retiré au choix du joueur), `GroupAction`, `GroupTasteLearner.learn`
+  (moyenne ±1/0 par sorte − moyenne de tous, `PRIOR` 4, ×`GAIN` 1,5, ±`MAX_BONUS` 0,75 kill, nul sous `MIN_BONUS` 0,2, groupe ±`MAX_TOTAL` 1, `MIN_EDITS` 5, `MIN_ACTIONS` 3) → `LearnedGroupTaste.applyTo`
+  pose `KillGroup.taste` (ajouté à `rank`) dans `planMontage` après `MontageEdits.apply` (`groupTaste`, si `learnTaste`) ; `TasteState.groups`.
+  UI : `TasteView.kt` (`TasteUiState`, `UiState.taste`, bouton de `LibraryView`), actions `showTaste/closeTaste/askResetTaste/cancelResetTaste/confirmResetTaste`, clés `ui.taste.*`.
+- `Thumbnail.kt` : miniature YouTube. `ThumbnailStyle{SOBER,VIVID,BIG_TEXT}` (zoom, `GradeSettings`, texte), `ThumbnailMoment`, `ThumbnailPicker` (`fromMontage/fromHighlights`, `strength` kills+3 ace+2 clutch+0,3 HS+0,5 drop, `contenders` à `TIE` près, `label` via `video.*`),
+  `ThumbnailFrames` (10 img/s de −0,4 à +1,2 s, `sharpness` variance du laplacien, `readability` ×1,2 après le kill × luminosité/80, `DARK` écarté), `ThumbnailRenderer.filter/render` (crop centré + punch-in, `RenderCommandBuilder.grade`, `drawtext` mesuré par `TextMeasure`, police `VideoFonts.forText`).
+- `KillMontageExporter.recordingDate(sessions)` : date du montage = `MediaInfo.recordedAt` de la première partie (sinon analyse), jamais le rendu ; `YouTubePublisher.facts` prend la date des captures du rapport (nom de fichier en repli).
+- `KillMontageExporter.kt` : `MontageExportRequest(musicChoice, preview)`, `MontageReport(+Section, +Clip, +Music ; musicCandidates, signature, preview)`, `export` (aperçu → `MontagePreview`), `recordingDate`.
+- Aperçus de variantes (branche `montage-apercu-variantes`) : `MontageVariants.kt` (`distinct` : variantes de `best` classées comme lui, la 1 = celle
+  de `best`, suivantes à `distance` ≥ `MIN_DISTANCE` 0,25 de toutes les retenues, choix glouton donc liste pour n = début de celle pour n+1 ;
+  `ranked`, `distance` = max(clips (plus longue sous-suite commune), coupes à un temps près, passage de la musique), `signature` = empreinte du montage fini) ;
+  `MontagePreview.kt` (`edit` : petit côté 360 px, `plan` : sans flou par vecteurs, flou radial des coupes (`cuts = false`, le final le garde) ni minterpolate, `ENCODER` x264 ultrafast, `format` vertical d'abord,
+  `frames` : images de vignette animée) ; `MontageChoice.kt` (`MontageVariantsFile` `*_variantes.json` et `MontageChoiceRecord` `*.choix.json`, versionnés,
+  formats documentés en KDoc). `MontagePlanner.SCALES/DROP_SHIFTS/MIN_CLIP_SHARE/MIN_GAIN` sont `internal` pour `MontageVariants`.
+- `PreviewProxies.kt` (branche `apercus-proxies`) : copies réduites des passages lus par les aperçus (`<workDir>/cache/proxies/<capture>_<hauteur>/`,
+  `index.json` + `p_<début>_<fin>.mp4`), `-copyts` (horodatages de la capture image pour image), son copié, image clé / 0,5 s ; `height` (pixels de
+  capture que l'aperçu montre, via `RenderCommandBuilder.pixelScale` : 640 pour WARDOGS 9:16, null si < 25 % de gain, VALORANT 480p), `PAD`/`MERGE_GAP`,
+  `sweep` (capture modifiée/disparue, `VERSION`), `MAX_BYTES` (moins récemment servis effacés), `usage` ; `ProxySources.apply(plan, fps)` → plan dont les
+  clips servis ont un `MediaInfo` à la taille du proxy (même chemin : rapport et contrôle des sources inchangés) + `SourceCuts` vers les passages ;
+  géométrie (recadrage, HUD, zoom) en coordonnées relatives, donc juste sur le proxy. `HighlightPipeline.previewProxies`. Le rendu final lit toujours les captures.
 
 ### publish (`dev.highlights.publish`)
 - `YouTubeText.kt` : `VideoKind`, `VideoFacts` (jeu, date, durée, taille, kills, headshots, multiKills, aces, clutches, moments, musique), `YouTubeMetadata` (+ `problems()` = refus prévisibles de YouTube),
@@ -247,17 +355,32 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ### pipeline
 - `HighlightPipeline.kt` (captures effacées depuis l'analyse : écartées de `search` et des groupes de `killMontage`) : `AnalyzeOptions, ExportOptions, MontageOptions, AnalysisOutcome(reused), ProcessOutcome, BatchOutcome` ;
   méthodes `probe, analyze, analyzeAll, export, preview, reselect, reselectAll, thumbnail, clipPreview, killMontage (music = fichier ou dossier), loadMusicLibrary, process, processAll, reloadProfiles, resolveProfile` ;
-  `ExportOptions.platform` / `MontageOptions.platform` (format, loudness, débit, zone sûre ; montage : maxDuration plafonnée ; highlights trop long → InputException avant rendu ; fichier `…_<kind>_<plateforme>`),
-  `platforms` ; `MontageOptions.fromStartMusics` (réglage « depuis le début » par musique en mode bibliothèque) ; `ExportResult.music` = musique utilisée ;
+  `ExportOptions.platform` / `planKillMontage` (tout `killMontage` jusqu'au plan, sans rendu → `PlannedMontage(plan, candidates)` ; `killMontage` l'appelle puis rend), `MontageOptions.constraints` (`MontageConstraints`),
+  `MontageOptions.platform` (format, loudness, débit, zone sûre ; montage : maxDuration plafonnée ; highlights trop long → InputException avant rendu ; fichier `…_<kind>_<plateforme>`),
+  `platforms` ; `montagePreviews(sessions, music, options, count)` → `MontagePreviews(variantsFile, VariantPreview…)`, `MontageOptions.pick` (`VariantPick(index, variantsFile)`),
+  `latestVariantsFile`, `PREVIEW_DIR` (« apercus ») ; `MontageOptions.fromStartMusics` (réglage « depuis le début » par musique en mode bibliothèque) ; `ExportResult.music` = musique utilisée ;
   `library`, `previewDir`, `withJobDir` (workDir/job-UUID, gardé si échec).
+- `ExportPresets.kt` : `ExportPresetRules.resolve` (préréglage vérifié contre plateformes et styles), `ExportOptions/AnalyzeOptions/MontageOptions.withPreset`
+  (ne remplit que les null ; un format choisi écarte la plateforme du préréglage) ; `HighlightPipeline.exportPresets/exportPreset(id)`.
+  CLI : `--preset` (`presetOption`, `presetNamed`) sur export, process, montage, search ; `export` n'applique pas la durée (moments de la session gardés).
 - `Pipelines.kt` : câblage manuel (pas de DI) `Pipelines.ffmpeg(config)`, `Pipelines.create(config)`.
 - `ConfigLocator.locate` : explicite > env `HIGHLIGHTS_CONFIG` > prop `highlights.config` > `./config/app.yaml` > `<install>/config/app.yaml`.
-- `AnalysisLibrary.kt` : index `outputDir/sessions/library.json` (`LibraryEntry`), `find/contains/record/entries`, `fingerprint`, `stamp`, `ANALYSIS_VERSION`.
-- `FolderWatcher.kt` : `poll(isKnown)` → fichiers stables depuis `settle`.
+- `AnalysisLibrary.entries()` recompte les événements d'une session réécrite depuis son comptage (`LibraryEntry.eventsCountedAt`, `countEvents`) : la bibliothèque affiche les kills de la partie.
+- `AnalysisLibrary.kt` : index `outputDir/sessions/library.json` (`LibraryEntry`), `find/contains/record/entries/forget` (oublie : entrée + `*.session.json`, jamais une capture), `fingerprint`, `stamp`, `ANALYSIS_VERSION`.
+- `FolderWatcher.kt` : `poll(isKnown)` → fichiers stables depuis `settle` ; `writing()` (une capture s'écrit encore : soirée pas finie).
+- `Recap.kt` (récap de soirée) : `RecapOptions`, `RecapText` (`video.recap.*` : intercalaire, fin), `RecapReport` ; `HighlightPipeline.eveningRecap(evening, options, progress)`
+  (`reselectAll` → `export` de chaque partie → `RecapRenderer` du module export : `EveningRecap.kt`, `RecapCard/RecapPart/RecapTimeline`, `cardFilter`,
+  deux-points gardés hors de `Captions.sanitize`), `eveningOf(sessionFiles)` (parties telles quelles, sans dédoublonnage) ; `RecapCommand.kt` (`recap [SESSION…] --date --game --style -f --platform -o`) ;
+  action `recapEvening(date, profileId)` (bouton de `StatsView`, dans la file) ; `Evening.games` ; tests `RecapIT`, `RecapCardTest`.
+- `Evenings.kt` (montage de soirée) : `Evening(date, game, profileId, sessionFiles, sources, kills, end)`, `EveningPlanner.of(GameStats)` (= `Statistics.evenings`), `style(choix, défaut du fichier)` (`NO_STYLE` = « none »),
+  `due(evenings, done, now, quiet, minKills, eligible, busy)`, `nextCheck` ; `EveningHistory` (`outputDir/sessions/evening-montages.json`, `done/record`, échecs retenus aussi).
+  `HighlightPipeline.evenings()`, `eveningMontage(evening, music, options, progress)` (= `killMontage` des sessions, puis `eveningHistory.record`), `eveningHistory`.
+- `Thumbnails.kt` : `Thumbnails(ffmpeg).make(video, style)` (rapport à côté de la vidéo via `reportOf`, aussi utilisé par `YouTubePublisher` ; moment le plus lisible parmi `contenders` ; 1280x720 ou 1080x1920), `makeAll` ;
+  `HighlightPipeline.miniature(video, style)`, `ExportOptions/MontageOptions.thumbnail` (null : aucune) → `ExportResult.thumbnails`. CLI `--thumbnail`/`--thumbnail-style`, `ThumbnailCommand` (`app thumbnail`). UI : exports avec miniature sobre, `PublishUiState.thumbnail/thumbnailBusy`, action `makeThumbnail`, `ThumbnailRow` (PublishDialog).
 - `YouTubePublisher.kt` : `HighlightPipeline.youtube(browse)` → `apiEnabled` (`publish.youtube.api`, false par défaut : envoi manuel, `UPLOAD_PAGE`), `configured` (app.yaml `publish.youtube` ou `client_secret*.json` déposé dans le dossier de config), `connected`,
   `facts(video)` (probe + rapport JSON du même dossier qui liste la vidéo dans `outputs`), `suggest`, `login/logout`, `upload` ; jeton `~/.highlights/youtube-token.json`.
 - `Statistics.kt` : `GameStats` (kills, deaths?, headshots?, multiKills, aces, clutches, bestRound?, rounds? ; kd, headshotRate), `EveningStats` (date, game, games ; taux sur les parties où c'est connu),
-  `Statistics.game(session, settings, file, game, deathSources, headshotSources, outdated, clutchSources)` (clutches null = inconnus) (règles du montage : `MontagePlanner.groups/rounds`, rendus publics), `sources`, `evenings` (6 h, par jeu), `distinctGames` (chevauchement > 50 %), `MIN_GAME` 5 min.
+  `Statistics.game(session, settings, file, game, deathSources, headshotSources, outdated, clutchSources)` (clutches null = inconnus) (règles du montage : `MontagePlanner.groups/rounds`, rendus publics), `sources`, `evenings` (6 h, par jeu), `distinctGames` (chevauchement > 50 % seulement entre horaires fiables `GameStats.reliableTime`, ou `sameCapture` : même source, ou même taille + durée), `MIN_GAME` 5 min.
   `HighlightPipeline.statistics()` : entrées de `library` ≥ 5 min, dédoublonnées, profils sans kill écartés ; `outdated` = empreinte de la bibliothèque ≠ `AnalysisLibrary.fingerprint(profil)` ;
   `refreshOutdated(progress)` les réanalyse (`reuse = false`).
 - `LibrarySearch.kt` : `MomentQuery(game, from, to, minKills, ace, clutch, allHeadshots ; matches)`, `FoundMoment` (groupe de kills d'une partie), `MomentPick(kills par capture ; keeps(group) à 1 s près)`.
@@ -271,13 +394,35 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   `Redactor(homes, userNames)` : dossier personnel (toutes écritures : `\`, `/`, `\\` du JSON, casse ignorée) → `~`, tout autre `X:\Users\<nom>` → `~`, jetons/secrets/e-mails masqués, puis nom d'utilisateur → `<user>` ; `forThisMachine()`.
 - `SystemInfo.kt` : `windowsVersion` (build via `ver`), `graphics` (CIM, délai 15 s), `totalMemory/availableMemory`, `describe` (system.txt), `appState`, `diagnostics(pipeline)` ; `HighlightPipeline.diagnostics()`.
 
+### assistant (`dev.highlights.assistant`) — assistant « nouveau jeu »
+- `NewGameAssistant` : `scan(request, workDir, progress)` (candidats `template`/`colorLine`/`counter`/`ocr` construits sur les kills marqués, tous
+  dans un profil d'essai `assistant-essai` d'une config copiée, une seule analyse ; `Hit`, `CandidateResult(sample, sheet)`), `choose(scan, verdicts)`
+  (précision des vignettes jugées, max vrais − faux, au moins un kill marqué retrouvé), `write` (jamais par-dessus un profil ou un modèle), `profile`
+  (en-tête + son + détecteur `game-events`/`killfeed` + fin de `default.yaml`), `preview`. `KillMark(at, box)`, `NewGameRequest`, `CueMethod`.
+- `DigitLearner.kt` : chiffres d'un compteur appris sur la vidéo (`learn` → `LearnedCounter(region, digits)` : zone lue à 2 img/s sur la grille paire, `unitsRight`,
+  graines = formes binaires exactes des unités (≥ 15 images), groupes (moyennes proches, puis formes qui alternent ≥ 10 fois), relecture `CounterReader.readPair`
+  avec un modèle par groupe, `steadyValues`, `bestLabelings` (ordre du compteur + 3 × `fontLikeness` polices grasses, essai exhaustif), puis 2 tours de
+  `recut` (images calmes) + `fillGaps` (chiffre jamais regroupé : entre v et v+2) sur 10 affectations, gardée = meilleure `objective` du décodage).
+  `NewGameAssistant.learnedCounter` en fait le candidat compteur (`hud-counter`, `templates/<id>/chiffres/digit_N.png`), sinon `counter` (`hud-change`).
+- `Candidates.kt` : `Candidate` (bloc YAML + fichiers, `detectorType` lu dans le YAML), `LineColor.find/expression` (teinte r−g, g−b apparue au kill), `measureLine` (hauteur de ligne → tailles `outline`).
+- `Frames.kt` (`FrameGrabber.at`, `RgbFrame`, `PixelBox`), `ContactSheet.write` (planche numérotée par méthode).
+- Mesure : `output/revue/assistant-nouveau-jeu/LOG.md` (CS2 et Fortnite refaits depuis 3 kills, `app verite`) ; chiffres appris : `output/revue/assistant-chiffres/LOG.md`.
+
 ### app-cli (`dev.highlights.cli`)
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
-- `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
-  `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --showcase --colors --no-motion-blur --fast --onetaps --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --out`.
-  `--platform` : `export`, `process`, `montage`. `--intro/--no-intro` (cartes d'ouverture et de fin) : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
+- `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `ClipCommand.kt` : `clip SESSION [--moment --platform -o]` ; `NewGameCommand.kt` : `nouveau-jeu VIDEO --game --mark t[@x,y,l,h] [--box --id --answers-from --work]` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
+  `--variants N --pick N --variants-file` (aperçus puis choix), `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --plan --exclude --force --drop --pin --no-match-cut --no-rounds --ability-kills --skip-ability-kills --no-slowmo --no-ramp --no-text --kill-counter --balance --reactions --game-audio --style --out`.
+  `--platform` : `export`, `process`, `montage`. `--intro/--no-intro` (cartes d'ouverture et de fin) : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `TasteCommand.kt` : `gouts [--reset --history]`. `MusicFeelCommand.kt` : `musique-ressenti [MUSIQUE fast|calm|auto]`. `EveningCommand.kt` : `soiree [--date --game --music --list -f --platform --style -o]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;
   `music` : `--max --clips` ; `preview` : `--at`.
+  Options lues sans lancer le pipeline (tests `CommandOptionsTest`, `CommandLineParser.parseAndRun`) : `MontageCommand.montageOptions(constraints)`
+  (toute nouvelle option de montage s'y ajoute) et `constraints()` (--exclude/--force/--pin/--drop), `ExportCommand.exportOptions()`, `SearchCommand.query(since)/montageOptions(pick)`.
+  Codes de sortie (`PipelineCommand.execute`) : 1 erreur expliquée, 2 FFmpeg, 3 inattendue, 130 interruption ; erreur de saisie Clikt = 1.
+- Vérité terrain : `GroundTruth.kt` (`GroundTruth` YAML : `capture{name,sizeBytes,duration}`, `profile`, `tolerance`, `lead` (avance permise : détection avant le relevé, Apex), `validated`, `kinds`,
+  `events{at,kind,note}`, `thresholds` détecteur→sorte→`Threshold(precision,recall)` ; `TruthScoring.score/match` : paires 1-1 les plus
+  proches d'abord, `DetectorScore` précision/rappel null si incalculables) ; `VeriteCommand.kt` (`app verite [VERITE…] --videos DIR | --sessions DIR -o`,
+  réanalyse avec `outputDir` = `-o` pour ne pas toucher la bibliothèque, code 1 sous un seuil, `verite-rapport.json`) ; tâche Gradle
+  `:app-cli:verite -Pverite="--videos D:\Vidéo"`. Fichiers de vérité : `verite/<jeu>/*.yaml` (vidéos hors dépôt), lus par `GroundTruthTest`.
 - Logs : `~/.highlights/logs/highlights.log` (logback.xml).
 
 ### app-ui (`dev.highlights.ui`)
@@ -285,15 +430,38 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   (`UiState, ConfigStatus, SourceInfo, LibraryItem, WatchState, TargetMode, MomentMode{BEST,KILLS}, SettingsState, JobState, SessionEntry, Segment, SessionState, ErrorInfo, ImagePreview, MontageUiState`).
 - Publication : `PublishUiState` (UiState.kt, `withSuggestion/metadata/problems/canPublish`), `PublishDialog.kt`, actions `openPublish/updatePublish/resetPublishText/publishToYouTube/youtubeLogout/editConfig/browse`,
   `openYouTubeUpload/copyToClipboard` (mode manuel, par défaut : `PublishUiState.api` false), `UiState.lastUpload` ; `Platform.browse/copy` (défaut vide pour les faux).
+- Aperçus de variantes : `VariantsView.kt` (`VariantsUiState`, `VariantCard`, `VariantsWindow` : une carte par variante, vignette animée, Lire = lecteur du système,
+  « Rendre celle-ci » ; `PreviewVariantsButton` dans `MontageDialog`), actions `previewMontage/renderVariant/closeVariants` (défauts vides dans `UiActions`),
+  `UiState.variants` ; `AppController.montageOptions` (options communes au montage et aux aperçus), `pendingVariants` ; `VariantsUiState.partial` :
+  la fenêtre s'ouvre dès le premier aperçu prêt (`total`/`pending`, `variantsFile` null tant que tous ne sont pas faits).
 - Recherche : `SearchView.kt` (`SearchState` : moments chargés une fois, filtres, `unpicked`, `results/picked` ; `SearchPeriod`), actions `showSearch/closeSearch/updateSearch/toggleMoment/montageFromSearch`
   (ouvre les parties via `openSessions(files, then)` puis `openMontage` avec `MontageUiState.pick`).
+- Nouveau jeu : `NewGameView.kt` (`NewGameState`, `NewGameMarkUi`, `NewGameResultUi` ; cadre tracé à la souris sur l'image), `NewGameController.kt` (logique, dernier balayage gardé),
+  actions `showNewGame/closeNewGame/chooseNewGameVideo/updateNewGame/showNewGameFrame/setNewGameBox/addNewGameMark/removeNewGameMark/scanNewGame/toggleNewGameVerdict/createNewGameProfile`
+  (défauts vides dans `UiActions`), `UiState.newGame`, bouton dans `LibraryView`.
 - Statistiques : `StatsView.kt` (`StatsState` : games, jeu choisi, `evenings/gameNames/shown`), actions `showStats/closeStats/setStatsGame`, `UiState.stats` (remplace la liste des analyses).
 - Vues : `App.kt` (layout, drop de fichiers), `SidePanel.kt` (`AppHeader, SourceSection, SettingsSection`), `SessionViews.kt` (`JobCard, SessionHeader, TimelineCard, SegmentList, ExportBar`),
-  `LibraryView.kt` (analyses enregistrées + `WatchCard`), `Dialogs.kt` (`ErrorDialog, VerticalPreviewWindow, MontageDialog`), `Theme.kt` (`Palette`, `HighlightsTheme`, `UiFonts` : famille système de Windows (SystemFont) pour zh/ja/ko).
+  `LibraryView.kt` (analyses enregistrées + `WatchCard` + `ForgetDialog`, actions `askForget/confirmForget/cancelForget`, `UiState.forget`),
+  `MomentRetouch.kt` (retouches de la session ouverte : `montageOrder`, `nudge`, `add`, `move` ; actions `nudgeSegment/addSegmentAt/moveSegment`, barre `RetouchBar` de `SessionViews`), `Dialogs.kt` (`ErrorDialog, VerticalPreviewWindow, MontageDialog`), `Theme.kt` (`Palette`, `HighlightsTheme`, `UiFonts` : famille système de Windows (SystemFont) pour zh/ja/ko).
 - `Platform.kt` (`DesktopPlatform` : FileDialog/JFileChooser, open/reveal/edit), `Installation.kt`, prefs : `WatchPrefs.kt` (`~/.highlights/watch.json`), `MusicPrefs.kt` (`~/.highlights/music.json` : fromStart par musique, dossier `library` + `useLibrary` ; ajouter un Path à un Set avec `plusElement`, un Path est itérable).
 - Ouverture et fin : `IntroView.kt` (`IntroUiState`, `IntroPrefsStore` `~/.highlights/intro.json`, `IntroController` délégué par `AppController`,
   `IntroSection` dans `SettingsSection`, `IntroDialog` avec aperçu), actions `setIntroEnabled/openIntro/closeIntro/updateIntro/chooseIntroLogo/chooseIntroImage/setIntroPreview`,
   `UiState.introCards/introCustom/introDialog`, `Platform.chooseImage`.
+- Frise du plan de montage : `MontageTimeline.kt` (`MontagePlanState`, `PlanView.of(PlannedMontage)`, `PlanGroup.mark`, `KillEdit` + `MontageConstraints.edit`,
+  `MontagePlanEntry` (une ligne dans `MontageDialog`), `MontagePlanWindow` (fenêtre à part, ouverte depuis App.kt quand `montage.plan` != null), `MontagePlanContent`) ;
+  `MontageUiState.constraints/plan` ; actions `openMontagePlan/closeMontagePlan/replanMontage/editMontageKill(kills, KillEdit)/resetMontagePlan`
+  (`AppController.montageOptions` : mêmes options pour la frise et le rendu) ; test `MontageTimelineTest` (captures `build/ui-snapshots/montage_plan*.png`).
+- Montage des soirées : `WatchPrefs.evenings: EveningAuto(enabled=false, delay 60 min, minKills 5, arrived)` ; `WatchState.evenings/eveningDelayText/montaging/montageFraction/lastEvening/eveningProblem` ;
+  `AppController.checkEvenings` (appelé par la boucle du dossier surveillé, relit la bibliothèque seulement à `eveningCheckAt`) → `montageEvening` (musique = `MusicPrefs.library`,
+  formats/plateforme des réglages) → `Platform.notify` (DesktopPlatform : `TrayIcon.displayMessage`, clic = ouvre la vidéo) ; `EveningView.kt` (`EveningAutoSection`, une ligne dans `WatchCard`) ;
+  actions `setEveningMontage/setEveningDelay/setEveningMinKills/setEveningStyle/openLastEvening` (`EveningAuto.style`, `WatchState.eveningStyles`) ; `AppController(clock)`.
+- File des traitements : `JobQueue.kt` (`QueuedJob(id, title, blocking, auto, status JobStatus, fraction…, result, error, details)`, `submit/cancel/move/clearFinished/cancelAll`, un à la fois,
+  échec sans bloquer la suite ; `submit(auto = false)` se place derrière le dernier manuel en attente (`manualSlot`), devant les automatiques : dossier surveillé, soirées ; libellé `ui.jobs.auto` dans `JobsView.JobTitle`) ; `AppController.enqueue` (bloquant : analyse, réanalyse → `UiState.job` avec `queueId`, l'écran attend ; sinon libre), `describeFailure`,
+  `watchJobs`/`queuedEvenings` (dossier surveillé, soirées) ; `UiState.jobs`, `quitConfirm` ; `JobsView.kt` (`JobsCard` bornée : 360 dp et `weight(1f, fill = false)` dans App, attente et finis qui défilent ; `QuitDialog`), le clip 9:16 aussi passe par la file ; actions `cancelQueuedJob/moveQueuedJob/openJobResult/showJobError/clearFinishedJobs/confirmQuit/cancelQuit`,
+  `requestQuit()` (Main) ; tests `JobQueueTest`, capture `16_file_des_traitements`.
+- Préréglages d'export : `ExportPresetUi.kt` (`choosePreset/presetTrackedFrom/resetToPreset` pour `SettingsState` et `MontageUiState`, `PresetKnob`,
+  `ExportPresetPicker` + case miniature ; `ExportBarPresets` en haut de `ExportBar`, `MontagePresets` en haut de `MontageDialog`) ; action `updateExportSettings`
+  (resélectionne si la durée change), `UiState.presets` (`ConfigStatus.Ready.presets`), `SettingsState/MontageUiState.preset/presetTouched/thumbnail`. Test : `ExportPresetUiTest`.
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).
 - Pont de pilotage (dev seulement) `bridge/` : `ControlBridge` (HttpServer 127.0.0.1, port+jeton dans `~/.highlights/control-bridge.json` ; `enabled` = `-Dhighlights.bridge=true`
@@ -315,8 +483,9 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 
 ## 5. Configuration (`config/`)
 - `app.yaml` → `AppConfig`. Installée : `%APPDATA%\Highlights\config`, sortie `~/Videos/Highlights` (filtre au packaging).
-- `profiles/{default,lol,valorant,wardogs}.yaml` → `GameProfile`. Sections : `id, displayName, match{pathContains, priority}, window{size,hop}, audio{mix,game,mic}, detectors[], selection, edit{style, story, grade, vertical{reference, hud[]}, formats…}, montage{…}`.
-  YAML strict : une clé inconnue = `ConfigException`. Profils : wardogs (ocr-log + icônes + gate hud-template, pose `aim`), valorant (outplayed-events avec offsets −390 ms, killfeed en secours et `kill-confirm` toujours, `matchCut.pose: rest`, weapon ammo_icon), lol (audio+voix+rires), default.
+- `profiles/{apex,default,lol,valorant,cs2,wardogs,fortnite}.yaml` → `GameProfile`. Sections : `id, displayName, match{pathContains, priority}, window{size,hop}, audio{mix,game,mic}, detectors[], selection, edit{style, story, grade, vertical{reference, hud[]}, formats…}, montage{…}`.
+  YAML strict : une clé inconnue = `ConfigException`. Profils : wardogs (ocr-log + icônes + gate hud-template, pose `aim`), valorant (outplayed-events avec offsets −390 ms, killfeed en secours et `kill-confirm` toujours, `matchCut.pose: rest`, weapon ammo_icon, `vertical` : recadrage sous le bandeau du haut + bandeau `topbar` replacé, mesuré en 16:9, test `ValorantVerticalTest`), cs2 (killfeed `outline` + `player` : kills/morts/assistances (pseudo appris + récompense du chat) ; `vertical` : bandeau, killfeed, mini-carte et vie/munitions replacés, mesuré en 854x480), lol (audio+voix+rires), fortnite (hud-template « KNOCKED! » → `knock`, puis hud-counter `dependsOn: [knocks]` : `elimination` au compteur, `kill` à la mise à terre que l'élimination achève ; vérité 31/31 et 33/33), apex (ocr-log sur la notification sous le réticule : `kill` = KNOCKED DOWN (mise à terre = kill, choix du joueur), ELIMINATED/SQUAD WIPE en `finish` écartés par `finishes` s'ils achèvent une mise à terre, `maxDrop: 1` notifications empilées ; 9:16 compteur + killfeed en haut à gauche, vie + arme en bas sous la notification ; ni ace ni clutch ; vérité `verite/apex/` avec `lead: 30s` : 47/56 et 35/36), default.
+- `export-presets.yaml` : préréglages d'export (tiktok, shorts, complet ; `--preset`, puces).
 - `templates/<jeu>/*.png` (modèles HUD), `models/yamnet.onnx` + `yamnet_class_map.csv` ; `models/ggml-*.bin` (whisper) hors dépôt et hors installeur.
 - Chemins relatifs dans les profils → résolus par `LoadedConfig.resolve` (dans `gradedEdit`, `killMontage` pour `matchCut.weapon.template`, et `ctx.configDir` pour les détecteurs).
 
@@ -326,14 +495,17 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   Si le calcul d'un détecteur existant change : incrémenter `AnalysisLibrary.ANALYSIS_VERSION`.
 - **Nouveau réglage de montage kills (exposé UI+CLI)** : champ dans la data class de `core/model/Montage.kt` (défaut + KDoc + `require`) → usage dans `montage/` →
   `MontageOptions` + bloc `base.copy(...)` de `HighlightPipeline.killMontage` → `MontageUiState` + `AppController.createMontage` + `Dialogs.MontageDialog` (+ `MusicPrefs` si mémorisé par musique) →
-  option dans `MontageCommand` (Commands.kt) → README (section montage) → tests (`MontagePlannerTest`, `MontageRenderBuilderTest`, `KillMontageIT`).
+  option dans `MontageCommand` (Commands.kt) → si un style peut le poser : champ de `MontageStyle`, `withStyle`, `StyleKnobs` → README (section montage) → tests (`MontagePlannerTest`, `MontageRenderBuilderTest`, `KillMontageIT`).
 - **Réglage highlights/story** : `Settings.kt`/`Story.kt` → `StoryPlanner`/`StoryRenderBuilder` ou `RenderCommandBuilder` ; chemins de fichiers à résoudre dans `gradedEdit`.
-- **Nouveau critère de note** : `MontageScore` (nullable pour compat des anciens rapports) + `MontageScorer.score` + `criteria()` de `ScoreCommand`.
+- **Nouveau critère de note** : `MontageScore` (nullable pour compat des anciens rapports) + `MontageScore.criteria()` + `MontageScorer.WEIGHTS` + `MontageScorer.score` + `criteria()` de `ScoreCommand`
+  (les goûts appris et l'historique `taste-history.json` le prennent alors en compte tout seuls ; un critère absent d'un vieux choix sort de sa moyenne).
 - **Texte affiché à l'utilisateur** : jamais en dur. Clé dans `messages.properties` (anglais naturel pour joueurs) ET `messages_fr.properties`,
   puis `tr("ui.zone.nom", "arg" to v)` dans l'interface, `Message("error.zone.nom", …)` dans une exception ou un avertissement (traduit à
   l'affichage). Clés : `ui.<écran>.*`, `error.*`, `notice.*` (avertissements de session), `progress.*`, `youtube.*`, `video.*` (textes
   incrustés), `format.*`, `event.*`. Placeholders nommés `{nom}` ; nombres → `count` pour le pluriel. `BundlesTest` + `HardcodedTextTest` vérifient.
 - **Changement de format de session** : `Session.CURRENT_VERSION`, `ignoreUnknownKeys` déjà actif ; défauts obligatoires pour les nouveaux champs.
+- **Changement d'un détecteur ou de la sélection** : `app verite` avant/après (README « Vérité terrain ») ; un seuil de
+  `verite/` qui baisse doit être justifié, pas juste abaissé.
 - **Sélection des moments** : `ThresholdMomentSelector` (+ `SegmentExtension`) ; appelé aussi à chaud par `reselect` (UI seuil/durée sans réanalyse).
 
 ## 7. Invariants / pièges

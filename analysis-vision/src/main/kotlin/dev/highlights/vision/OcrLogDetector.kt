@@ -52,12 +52,23 @@ data class OcrLogParams(
     /** Écart vertical entre deux lignes du journal, et écart en dessous duquel deux morceaux lus sont la même ligne. */
     val rowPitch: Int = 32,
     val rowTolerance: Int = 10,
+    /**
+     * Lignes dont une ligne déjà vue peut descendre d'une image à l'autre : notifications empilées, la nouvelle au-dessus
+     * des anciennes (Apex). 0 : journal qui ne fait que remonter (Wardogs). Voir [LogTracker].
+     */
+    val maxDrop: Int = 0,
+    /** Notifications qui créditent des kills en retard ou en rafale (Apex : « SQUAD WIPE ») : voir [LogCredit]. */
+    val credits: List<LogCredit> = emptyList(),
+    /** Coups de grâce qui ne comptent pas en plus de la mise à terre (Apex) : voir [LogFinish]. Appliqué après [credits]. */
+    val finishes: LogFinish? = null,
     /** Une ligne non relue depuis cette durée est oubliée (une ligne reste affichée une dizaine de secondes). */
     val hold: SerialDuration = 6.seconds,
     /** Lectures nécessaires avant de compter une ligne. */
     val minSightings: Int = 2,
     /** Icônes de notification à fusionner avec le journal (voir [EventFusion]) ; null = journal seul. */
     val icons: HudTemplateParams? = null,
+    /** Libellé écrit sous ces icônes, qui corrige leur type (voir [NoticeLabels]) ; null = icônes prises telles quelles. */
+    val notice: NoticeParams? = null,
     /** Fenêtre de rapprochement entre une icône et une ligne du journal. */
     val fusionBefore: SerialDuration = 3.seconds,
     val fusionAfter: SerialDuration = 8.seconds,
@@ -71,7 +82,31 @@ data class OcrLogParams(
 ) {
     init {
         require(rules.isNotEmpty()) { "au moins une règle attendue" }
-        require(referenceHeight > 0 && rowPitch > 0 && minSightings >= 1 && parallelism >= 1 && fps > 0) { "paramètres invalides : $this" }
+        require(referenceHeight > 0 && rowPitch > 0 && maxDrop >= 0 && minSightings >= 1 && parallelism >= 1 && fps > 0) { "paramètres invalides : $this" }
+    }
+}
+
+/**
+ * Libellé de la notification centrale (sous l'icône et le montant : « ÉLIMINATION CONFIRMÉE », « AIDE : ÉLIMINATION »…),
+ * lu par l'OCR sur les mêmes images que le journal. Une seule ligne de texte : les morceaux lus sont mis bout à bout.
+ */
+@Serializable
+data class NoticeParams(
+    /** Zone du libellé (normalisée). */
+    val region: CropRegion,
+    val referenceHeight: Int = 1440,
+    val referenceWidth: Int? = null,
+    val anchor: RegionAnchor = RegionAnchor.CENTER,
+    /** Agrandissement avant l'OCR : le libellé fait ~18 px de haut sur 1440, petit pour une lecture sûre. */
+    val scale: Double = 2.0,
+    /** Règles dans l'ordre, comme celles du journal ; une règle sans `kind` écarte l'icône. */
+    val rules: List<LogRule>,
+    /** Fenêtre autour de l'icône où chercher son libellé. */
+    val before: SerialDuration = 1.seconds,
+    val after: SerialDuration = 3.seconds,
+) {
+    init {
+        require(rules.isNotEmpty() && referenceHeight > 0 && scale > 0) { "paramètres du libellé invalides : $this" }
     }
 }
 
@@ -87,6 +122,7 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
         val subscription: FrameSampler.Subscription,
         val ocr: WindowsOcr,
         val images: ConcurrentHashMap<Int, Path>,
+        val notices: ConcurrentHashMap<Int, Path>,
     )
 
     private val icons = params.icons?.let { HudTemplateDetector("$id-icons", it) }
@@ -98,38 +134,34 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
         val video = ctx.media.video ?: return
         if (!WindowsOcr.supported) return
         icons?.prepare(ctx)
-        val referenceAspect = params.referenceWidth?.let { it.toDouble() / params.referenceHeight }
-        val region = referenceAspect
-            ?.let { ScreenGeometry.rescale(params.region, it, video.width.toDouble() / video.height, params.anchor) }
-            ?: params.region
-        val cx = (region.x * video.width).roundToInt().coerceIn(0, video.width - 1)
-        val cy = (region.y * video.height).roundToInt().coerceIn(0, video.height - 1)
-        val cw = (region.width * video.width).roundToInt().coerceIn(1, video.width - cx)
-        val ch = (region.height * video.height).roundToInt().coerceIn(1, video.height - cy)
-        val scale = params.referenceHeight.toDouble() / video.height
-        val zone = FrameZone(cx, cy, cw, ch, (cw * scale).roundToInt().coerceAtLeast(1), (ch * scale).roundToInt().coerceAtLeast(1))
+        val zone = zoneOf(params.region, params.referenceWidth, params.referenceHeight, params.anchor, video.width, video.height, params.referenceHeight.toDouble() / video.height)
+        // Libellé de la notification : ramené à sa hauteur de référence, puis agrandi pour l'OCR.
+        val noticeZone = params.notice?.let { n ->
+            zoneOf(n.region, n.referenceWidth, n.referenceHeight, n.anchor, video.width, video.height, n.referenceHeight.toDouble() / video.height * n.scale)
+        }
         val spec = chooseSampling(ctx, id, params.sampling, params.fps, params.hwaccel, params.maxKeyframeInterval)
         val dir = ctx.workDir.resolve("ocr-$id").createDirectories()
         val ocr = WindowsOcr(dir, params.language, params.parallelism)
         val images = ConcurrentHashMap<Int, Path>()
+        val notices = ConcurrentHashMap<Int, Path>()
         log.info { "$id : journal ${zone.width}x${zone.height} lu par OCR, ${if (spec.keyframes) "images clés (~${spec.interval})" else "${params.fps} img/s"}" }
         val subscription = ctx.frames.subscribe(
             spec = spec,
-            zones = listOf(zone),
+            zones = listOfNotNull(zone, noticeZone),
             label = id,
             progress = ctx.progress,
-            onReset = { images.clear() },
+            onReset = {
+                images.clear()
+                notices.clear()
+            },
             onFrame = { index, zones ->
-                val frame = zones[0]
-                val image = BufferedImage(frame.width, frame.height, BufferedImage.TYPE_BYTE_GRAY)
-                image.raster.setDataElements(0, 0, frame.width, frame.height, frame.pixels)
-                val file = dir.resolve("f_%07d.png".format(index))
-                ImageIO.write(image, "png", file.toFile())
-                images[index] = file
-                ocr.submit(file)
+                images[index] = gray(zones[0].width, zones[0].height, zones[0].pixels, dir.resolve("f_%07d.png".format(index))).also(ocr::submit)
+                if (noticeZone != null) {
+                    notices[index] = gray(zones[1].width, zones[1].height, zones[1].pixels, dir.resolve("n_%07d.png".format(index))).also(ocr::submit)
+                }
             },
         )
-        prepared = Prepared(subscription, ocr, images)
+        prepared = Prepared(subscription, ocr, images, notices)
     }
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
@@ -146,8 +178,8 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
                 log.warn(e) { "$id : OCR en échec, icônes seules" }
                 emptyMap()
             }
-            val tracker = LogTracker(params.hold, params.rowPitch, params.minSightings)
-            val logEvents = mutableListOf<LogEvent>()
+            val tracker = LogTracker(params.hold, params.rowPitch, params.minSightings, params.maxDrop)
+            val tracked = mutableListOf<LogEvent>()
             var readable = 0
             for (index in times.indices) {
                 val file = state.images[index] ?: continue
@@ -157,11 +189,25 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
                     val kind = RewardsLog.classify(text, params.rules)
                     if (kind.isNullOrEmpty()) null else Triple(y, kind, text)
                 }
-                logEvents += tracker.update(times[index], rows)
+                tracked += tracker.update(times[index], rows)
             }
-            log.info { "$id : texte lu sur $readable/${times.size} images ; journal : " + logEvents.joinToString { "${it.kind} ${Durations.format(it.at)} « ${it.text} »" } }
+            log.info { "$id : texte lu sur $readable/${times.size} images ; journal : " + tracked.joinToString { "${it.kind} ${Durations.format(it.at)} « ${it.text} »" } }
+            val logEvents = LogFinishes.apply(LogCredits.apply(tracked, params.credits), params.finishes)
+            if (params.credits.isNotEmpty() || params.finishes != null) log.info { "$id : après crédits : " + logEvents.joinToString { "${it.kind} ${Durations.format(it.at)}" } }
 
-            val iconEvents = icons?.analyze(ctx)?.events.orEmpty().map { TimedKind(it.at, it.kind) }
+            val notice = params.notice
+            val noticeReads = if (notice == null) emptyList() else times.indices.mapNotNull { index ->
+                val lines = state.notices[index]?.let { read[it] }.orEmpty()
+                val text = lines.sortedBy { it.x }.joinToString(" ") { it.text }
+                RewardsLog.classify(text, notice.rules)?.let { NoticeRead(times[index], it, text) }
+            }
+            val shown = icons?.analyze(ctx)?.events.orEmpty().map { TimedKind(it.at, it.kind) }
+            val iconEvents = if (notice == null) shown else NoticeLabels.relabel(shown, noticeReads, notice.before, notice.after)
+            if (notice != null) {
+                log.info { "$id : libellés " + noticeReads.joinToString { "${it.kind.ifEmpty { "-" }} ${Durations.format(it.at)} « ${it.text} »" } }
+                val changed = shown.filterNot { it in iconEvents }
+                if (changed.isNotEmpty()) log.info { "$id : icônes corrigées par leur libellé : " + changed.joinToString { "${it.kind} ${Durations.format(it.at)}" } }
+            }
             val fused = if (icons == null) logEvents.map { TimedKind(it.at, it.kind) } else EventFusion.fuse(logEvents, iconEvents, params.fusionBefore, params.fusionAfter)
             log.info { "$id : ${fused.groupingBy { it.kind }.eachCount()} (journal ${logEvents.size}, icônes ${iconEvents.size})" }
             return SignalTrack(id, DoubleArray(ctx.grid.count) { Double.NaN }, fused.map { SignalEvent(it.at, it.kind, 1.0) })
@@ -169,6 +215,24 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
             state.ocr.close()
         }
     }
+}
+
+/** Zone de capture : [region] convertie au format de la vidéo, puis mise à l'échelle [scale]. */
+private fun zoneOf(region: CropRegion, referenceWidth: Int?, referenceHeight: Int, anchor: RegionAnchor, width: Int, height: Int, scale: Double): FrameZone {
+    val r = referenceWidth?.let { ScreenGeometry.rescale(region, it.toDouble() / referenceHeight, width.toDouble() / height, anchor) } ?: region
+    val cx = (r.x * width).roundToInt().coerceIn(0, width - 1)
+    val cy = (r.y * height).roundToInt().coerceIn(0, height - 1)
+    val cw = (r.width * width).roundToInt().coerceIn(1, width - cx)
+    val ch = (r.height * height).roundToInt().coerceIn(1, height - cy)
+    return FrameZone(cx, cy, cw, ch, (cw * scale).roundToInt().coerceAtLeast(1), (ch * scale).roundToInt().coerceAtLeast(1))
+}
+
+/** Pixels gris d'une zone décodée, écrits en PNG pour l'OCR. */
+private fun gray(width: Int, height: Int, pixels: ByteArray, file: Path): Path {
+    val image = BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY)
+    image.raster.setDataElements(0, 0, width, height, pixels)
+    ImageIO.write(image, "png", file.toFile())
+    return file
 }
 
 class OcrLogDetectorFactory : SignalDetectorFactory {

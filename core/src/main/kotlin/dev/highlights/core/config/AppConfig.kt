@@ -7,6 +7,8 @@ import com.charleskorn.kaml.YamlException
 import dev.highlights.core.ConfigException
 import dev.highlights.core.ffmpeg.Hwaccel
 import dev.highlights.core.model.IntroOutroSettings
+import dev.highlights.core.model.ExportPresets
+import dev.highlights.core.model.MontageStyles
 import dev.highlights.core.model.PlatformProfile
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationException
@@ -31,6 +33,10 @@ data class AppConfig(
     val platforms: Map<String, PlatformProfile> = emptyMap(),
     /** Cartes d'ouverture et de fin de tous les jeux ; un profil qui a les siennes (`intro:`) les remplace. */
     val intro: IntroOutroSettings? = null,
+    /** Styles de montage kills (`--style`, choix en haut de la fenêtre de montage) ; fichier absent : aucun style. */
+    val montageStyles: String = "montage-styles.yaml",
+    /** Préréglages d'export (`--preset`, puces en haut de la barre d'export et de la fenêtre de montage) ; fichier absent : aucun. */
+    val exportPresets: String = "export-presets.yaml",
 )
 
 @Serializable
@@ -86,6 +92,14 @@ data class LoadedConfig(val app: AppConfig, val baseDir: Path, val source: Path?
 
     /** Plateformes connues, surchargées par celles d'app.yaml. */
     val platforms: Map<String, PlatformProfile> get() = PlatformProfile.DEFAULTS + app.platforms
+
+    /** Styles de montage du fichier [AppConfig.montageStyles], relus à chaque appel ; fichier absent : aucun. */
+    fun loadMontageStyles(): MontageStyles =
+        resolve(app.montageStyles).takeIf { it.isRegularFile() }?.let { ConfigYaml.decodeFile(it, MontageStyles.serializer()) } ?: MontageStyles.NONE
+
+    /** Préréglages d'export du fichier [AppConfig.exportPresets], relus à chaque appel ; fichier absent : aucun. */
+    fun loadExportPresets(): ExportPresets =
+        resolve(app.exportPresets).takeIf { it.isRegularFile() }?.let { ConfigYaml.decodeFile(it, ExportPresets.serializer()) } ?: ExportPresets.NONE
 }
 
 object ConfigYaml {

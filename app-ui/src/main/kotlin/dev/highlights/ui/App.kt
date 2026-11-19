@@ -80,13 +80,17 @@ fun App(state: UiState, actions: UiActions) {
             VerticalDivider(color = Palette.outline)
             Column(Modifier.weight(1f).fillMaxHeight().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 state.update?.let { UpdateCard(it, busy = state.job != null, actions) }
-                state.job?.let { JobCard(it, actions) }
+                state.job?.takeIf { it.queueId == null }?.let { JobCard(it, actions) }
+                // Part bornée de la colonne : la liste des moments et la barre d'export restent à l'écran (voir JobsCard).
+                if (state.jobs.isNotEmpty()) JobsCard(state.jobs, actions, Modifier.weight(1f, fill = false))
                 val session = state.session
                 if (session == null) {
                     if (state.job == null) {
                         when {
                             state.search != null -> SearchView(state.search, actions, busy = state.job != null, modifier = Modifier.weight(1f))
+                            state.newGame != null -> NewGameView(state.newGame, actions, busy = state.job != null, modifier = Modifier.weight(1f))
                             state.stats != null -> StatsView(state.stats, actions, Modifier.weight(1f))
+                            state.taste != null -> TasteView(state.taste, actions, Modifier.weight(1f))
                             else -> LibraryView(state, actions, Modifier.weight(1f))
                         }
                     }
@@ -109,6 +113,9 @@ fun App(state: UiState, actions: UiActions) {
         }
         state.montage?.let { MontageDialog(it, state, actions) }
         state.introDialog?.let { IntroDialog(it, state.introCards, actions) }
+        state.quitConfirm?.let { QuitDialog(it, actions) }
+        state.variants?.let { VariantsWindow(it, state.job != null, actions) }
+        state.montage?.let { m -> m.plan?.let { MontagePlanWindow(m, it, actions) } }
         state.publish?.let { PublishDialog(it, actions) }
         state.error?.let { ErrorDialog(it, actions) }
         state.memoryWarning?.let { MemoryDialog(it, actions) }

@@ -33,11 +33,51 @@ interface Platform {
     fun chooseSaveFile(initialDir: Path?, fileName: String, title: String): Path? = null
     /** Une image (logo, fond des cartes d'ouverture et de fin) ; null si annulé. */
     fun chooseImage(initialDir: Path?): Path? = null
+    /** Notification Windows (bulle de la zone de notification) ; [onClick] : clic sur la notification. */
+    fun notify(title: String, text: String, onClick: () -> Unit) = Unit
 }
 
 class DesktopPlatform(private val owner: () -> Frame?) : Platform {
     init {
         runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
+    }
+
+    private var tray: java.awt.TrayIcon? = null
+
+    @Volatile
+    private var onNotificationClick: (() -> Unit)? = null
+
+    /**
+     * Par l'icône de la zone de notification, posée à la première notification seulement : Windows en fait une
+     * notification du centre de notifications. Le clic sur la bulle déclenche l'action de l'icône.
+     */
+    override fun notify(title: String, text: String, onClick: () -> Unit) {
+        if (!java.awt.SystemTray.isSupported()) {
+            log.info { "Notification impossible (pas de zone de notification) : $title — $text" }
+            return
+        }
+        runCatching {
+            onNotificationClick = onClick
+            val icon = tray ?: java.awt.TrayIcon(trayImage(), "Highlights").also { icon ->
+                icon.isImageAutoSize = true
+                icon.addActionListener { onNotificationClick?.invoke() }
+                java.awt.SystemTray.getSystemTray().add(icon)
+                tray = icon
+            }
+            icon.displayMessage(title, text, java.awt.TrayIcon.MessageType.INFO)
+        }.onFailure { log.warn(it) { "Notification non affichée : $title" } }
+    }
+
+    /** Point orange de la marque, dessiné : l'application n'a pas d'image d'icône à charger. */
+    private fun trayImage(): java.awt.Image {
+        val size = 32
+        val image = java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+        val g = image.createGraphics()
+        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+        g.color = java.awt.Color(0xFF, 0x7A, 0x2F)
+        g.fillOval(4, 4, size - 8, size - 8)
+        g.dispose()
+        return image
     }
 
     override fun chooseVideos(initialDir: Path?): List<Path> =

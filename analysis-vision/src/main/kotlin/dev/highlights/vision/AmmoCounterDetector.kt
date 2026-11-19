@@ -35,8 +35,16 @@ private val log = KotlinLogging.logger {}
 /**
  * Compteur de munitions du chargeur dans le HUD (VALORANT) : chaque balle tirée change ses chiffres. [region] : mesurée
  * en 16:9, accrochée au centre comme le HUD, assez large pour trois chiffres (alignés à droite contre l'icône du
- * chargeur). Un pixel est un chiffre au-dessus de [brightness] (blanc franc) ; une image dont plus de [minChange] des
- * pixels blancs diffèrent de la précédente compte une balle.
+ * chargeur). Un pixel est un chiffre au-dessus de [brightness] (blanc franc). Le compteur est lu en paliers : des images
+ * qui se ressemblent (moins de [minChange] de pixels blancs différents d'une image à la suivante) pendant au moins
+ * [minPlateau] ; passer d'un palier au suivant quand ils diffèrent de plus de [minChange] compte une balle. Un palier
+ * presque sans blanc ([minDigits]) est un compteur absent ou effacé : il ne compte pas, et la lecture repart du palier
+ * lisible suivant.
+ *
+ * Paliers mesurés sur une partie en 854x480 (16:9, 30 img/s) : en comparant chaque image à la précédente, le décor
+ * derrière les chiffres (flash rouge des dégâts, mur clair, compteur caché 1,2 s) comptait 28 fausses balles autour de
+ * 5 kills pour 33 vraies ; en paliers, 4 fausses, les 33 vraies gardées. Un chiffre reste affiché au moins 0,064 s
+ * (Odin, l'arme la plus rapide) : le palier de 0,05 s ne perd pas de balle.
  *
  * Ne relit que [before] avant et [after] après chaque kill des détecteurs dont il dépend ([kill]) : décoder toute la
  * partie à [fps] images/s coûterait plusieurs minutes. Les instants d'Outplayed arrivent jusqu'à 0,6 s après la balle
@@ -61,12 +69,20 @@ data class AmmoCounterParams(
     /** Assez pour séparer les balles du Vandal (0,1 s) ; un changement de chiffre s'étale sur une ou deux images. */
     val fps: Double = 60.0,
     val hwaccel: String? = Hwaccel.AUTO,
+    /** Durée minimale d'un palier : en deçà, le changement est du décor qui scintille, pas un chiffre affiché. */
+    val minPlateau: SerialDuration = 50.milliseconds,
+    /**
+     * Part de la zone en blanc en deçà de laquelle le compteur est absent (caché, effacé par un flash) : 80 pixels de la
+     * zone réduite à 96x48. Un vrai chiffre en allume 102 au moins (mesuré, sous un flash rouge), un « 1 » seul vers 120.
+     */
+    val minDigits: Double = 0.017,
 ) {
     init {
         require(brightness in 1..254) { "ammo-counter : brightness doit être entre 1 et 254" }
         require(minChange > 0 && minChange < 1) { "ammo-counter : minChange doit être entre 0 et 1" }
         require(before.isPositive() && !after.isNegative()) { "ammo-counter : before positif, after positif ou nul" }
         require(fps in 20.0..120.0) { "ammo-counter : fps entre 20 et 120" }
+        require(!minPlateau.isNegative() && minDigits in 0.0..1.0) { "ammo-counter : minPlateau positif, minDigits entre 0 et 1" }
     }
 }
 
@@ -103,7 +119,11 @@ class AmmoCounterDetector(override val id: String, private val params: AmmoCount
                         )
                         ctx.progress.update(done.incrementAndGet().toDouble() / windows.size, tr("progress.kill", "done" to done.get(), "total" to windows.size))
                         val masked = refills(frames, teal, params.brightness, margin(params.fps))
-                        changes(frames, params.brightness, params.minChange, sameShot(params.fps), masked).mapNotNull { times.getOrNull(it) }
+                        changes(
+                            frames, params.brightness, params.minChange, sameShot(params.fps), masked,
+                            plateau = (params.minPlateau.inWholeMilliseconds / 1000.0 * params.fps).roundToInt().coerceAtLeast(1),
+                            minDigits = params.minDigits,
+                        ).mapNotNull { times.getOrNull(it) }
                     }
                 }
             }.awaitAll().flatten().distinct().sorted()
@@ -191,21 +211,56 @@ class AmmoCounterDetector(override val id: String, private val params: AmmoCount
         }
 
         /**
-         * Images (indices) où le compteur change : plus de [minChange] des pixels blancs (les chiffres) diffèrent de
-         * l'image précédente. Deux changements à moins de [gap] images n'en font qu'un. Les images de [masked] (une
-         * recharge, voir [refills]) ne comptent pas.
+         * Images (indices) où le compteur change : début d'un palier (images à moins de [minChange] de pixels blancs
+         * différents l'une de l'autre, au moins [plateau] de suite) qui diffère de plus de [minChange] du palier lisible
+         * d'avant, chacun pris à la majorité de ses images. Un palier avec moins de [minDigits] de la zone en blanc
+         * (compteur absent ou effacé) ne compte pas et oublie le palier d'avant. Deux changements à moins de [gap]
+         * images n'en font qu'un. Un palier qui commence dans [masked] (une recharge, voir [refills]) ne compte pas mais
+         * devient la référence.
          */
-        internal fun changes(frames: List<ByteArray>, brightness: Int, minChange: Double, gap: Int, masked: Set<Int> = emptySet()): List<Int> {
+        internal fun changes(
+            frames: List<ByteArray>,
+            brightness: Int,
+            minChange: Double,
+            gap: Int,
+            masked: Set<Int> = emptySet(),
+            plateau: Int = 1,
+            minDigits: Double = 0.0,
+        ): List<Int> {
+            if (frames.isEmpty()) return emptyList()
             val masks = frames.map { f -> BooleanArray(f.size) { (f[it].toInt() and 0xFF) > brightness } }
-            val result = mutableListOf<Int>()
-            for (i in 1 until masks.size) {
-                if (i in masked) continue
-                val a = masks[i - 1]
-                val b = masks[i]
+            fun differ(a: BooleanArray, b: BooleanArray): Boolean {
                 val lit = maxOf(a.count { it }, b.count { it })
-                if (lit == 0) continue
-                val differ = a.indices.count { a[it] != b[it] }
-                if (differ.toDouble() / lit > minChange && (result.isEmpty() || i - result.last() > gap)) result += i
+                return lit > 0 && a.indices.count { a[it] != b[it] }.toDouble() / lit > minChange
+            }
+            // Paliers : suites d'images voisines semblables.
+            val runs = mutableListOf<IntRange>()
+            var start = 0
+            for (i in 1..masks.size) {
+                if (i == masks.size || differ(masks[i - 1], masks[i])) {
+                    runs += start until i
+                    start = i
+                }
+            }
+            val result = mutableListOf<Int>()
+            var previous: BooleanArray? = null
+            for (run in runs) {
+                if (run.last - run.first + 1 < plateau) continue
+                // Le palier à la majorité de ses images : le bruit d'une image isolée s'efface.
+                val size = masks[run.first].size
+                val votes = IntArray(size)
+                for (i in run) for (p in 0 until size) if (masks[i][p]) votes[p]++
+                val count = run.last - run.first + 1
+                val current = BooleanArray(size) { votes[it] * 2 >= count }
+                if (current.count { it } < minDigits * size) {
+                    previous = null
+                    continue
+                }
+                val before = previous
+                if (before != null && run.first !in masked && differ(before, current) && (result.isEmpty() || run.first - result.last() > gap)) {
+                    result += run.first
+                }
+                previous = current
             }
             return result
         }

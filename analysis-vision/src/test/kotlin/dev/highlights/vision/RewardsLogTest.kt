@@ -63,6 +63,79 @@ class RewardsLogTest : FunSpec({
         tracker.update(31.seconds, listOf(row(0, "kill"))).map { it.at } shouldBe listOf(30.seconds)
     }
 
+    test("mise à terre = kill (Apex) : l'achèvement d'un ennemi déjà à terre ne compte pas en plus") {
+        fun e(at: Double, kind: String, text: String) = LogEvent(at.seconds, kind, text)
+        val finish = LogFinish(finish = "finish", hit = "kill", within = 30.seconds, all = listOf("SQUADWIPE"))
+        // Lectures de « Apex 37 kills revenant » (texte de l'OCR tel quel), règles du profil apex.
+        val read = listOf(
+            e(17.5, "kill", "KNOCKED DOWN"),
+            e(24.5, "finish", "ELIMINATED"), // achève la mise à terre de 17.5
+            e(204.0, "kill", "KNOCKED DOWN"),
+            e(208.0, "kill", "KNOCKED DOWN • tso"),
+            e(223.5, "kill", "KNOCKED DOWN •150 e."),
+            e(227.5, "finish", "SQUAD WIPE • 100"), // referme les trois
+            e(337.5, "kill", "KNOCKED DOWN"),
+            e(341.0, "kill", "KNOCKED DOWN"),
+            e(346.0, "finish", "e ELIMINATED"), // achève 337.5
+            e(349.5, "finish", "e ELIMINATED"), // achève 341
+            e(443.0, "kill", "\"(NOCKED DOWN -"),
+            e(446.5, "kill", "KNOCKED DOWN • tsot•"),
+            e(449.0, "finish", "SQUAD WIPE • 100"),
+            e(450.5, "finish", "SQUAO WIPE • 100"), // relue : rien à refermer, écartée
+            e(667.5, "finish", "ELIMINATEb"), // aucune mise à terre lue avant : compte
+        )
+        val out = LogFinishes.apply(read, finish)
+        out.all { it.kind == "kill" } shouldBe true
+        out.map { it.at.inWholeMilliseconds / 1000.0 } shouldBe listOf(17.5, 204.0, 208.0, 223.5, 337.5, 341.0, 443.0, 446.5, 667.5)
+        // Une mise à terre trop ancienne (au-delà de within) ne retient pas l'achèvement : il compte.
+        LogFinishes.apply(listOf(e(0.0, "kill", "KNOCKED DOWN"), e(40.0, "finish", "ELIMINATED")), finish).size shouldBe 2
+    }
+
+    test("SQUAD WIPE (Apex) : daté de la dernière mise à terre, compté par mise à terre, relecture écartée") {
+        fun e(at: Double, kind: String, text: String) = LogEvent(at.seconds, kind, text)
+        val credit = LogCredit(listOf("SQUADWIPE"), to = "knock", within = 6.seconds, countSince = 30.seconds)
+        // Lectures de « Apex 37 kills revenant » (texte de l'OCR tel quel).
+        val read = listOf(
+            e(204.0, "knock", "KNOCKED DOWN"),
+            e(208.0, "knock", "KNOCKED DOWN • tso"),
+            e(223.5, "knock", "KNOCKED DOWN •150 e."),
+            // Death box ouverte au moment du kill : notification vue 4 s plus tard. Trois mises à terre → 3 kills.
+            e(227.5, "kill", "SQUAD WIPE • 100"),
+            e(443.0, "knock", "\"(NOCKED DOWN -"),
+            e(446.5, "knock", "KNOCKED DOWN • tsot•"),
+            e(449.0, "kill", "SQUAD WIPE • 100"),
+            // La même relue 1,5 s plus tard, sans mise à terre entre : écartée.
+            e(450.5, "kill", "SQUAO WIPE • 100"),
+            e(466.0, "knock", "KNOCKED DOWN • 150"),
+            // Élimination ordinaire : inchangée, et elle borne le compte du SQUAD WIPE suivant.
+            e(481.5, "kill", "e ELIMINATED"),
+            e(571.5, "knock", "KNOCKED OOWN"),
+            e(575.0, "kill", "SQUAD WIPE • 100"),
+        )
+        LogCredits.apply(read, listOf(credit)).filter { it.kind == "kill" }.map { it.at.inWholeMilliseconds / 1000.0 } shouldBe
+            listOf(223.5, 223.5, 223.5, 446.5, 446.5, 481.5, 571.5)
+        // Sans countSince : daté, mais compté une fois.
+        LogCredits.apply(read, listOf(credit.copy(countSince = null))).count { it.kind == "kill" } shouldBe 4
+    }
+
+    test("notifications empilées (Apex) : la ligne poussée d'un cran vers le bas n'est pas recomptée") {
+        fun row(y: Int, kind: String) = Triple(y, kind, kind)
+        // Relevé de « Apex 53 kills octane » à 1:30-1:32 : « ELIMINATED » à y 99, puis « KNOCKED DOWN » s'insère
+        // au-dessus et le pousse à y 239 (pas de 130).
+        val reads = listOf(
+            90.5.seconds to listOf(row(99, "kill")),
+            91.seconds to listOf(row(102, "kill")),
+            92.seconds to listOf(row(95, "knock"), row(239, "kill")),
+            92.5.seconds to listOf(row(101, "knock"), row(240, "kill")),
+        )
+        fun events(tracker: LogTracker) = reads.flatMap { (at, rows) -> tracker.update(at, rows) }.map { it.kind to it.at }
+
+        events(LogTracker(hold = 1.seconds, rowPitch = 130, minSightings = 1, maxDrop = 1)) shouldBe
+            listOf("kill" to 90.5.seconds, "knock" to 92.seconds)
+        // Sans maxDrop (journal qui ne fait que remonter), l'élimination poussée comptait deux fois.
+        events(LogTracker(hold = 1.seconds, rowPitch = 130, minSightings = 1)).count { it.first == "kill" } shouldBe 2
+    }
+
     test("fusion : l'icône date, le journal donne le type, chacun comble les trous de l'autre") {
         val log = listOf(
             LogEvent(100.seconds, "kill", ""), // lu avec l'icône
@@ -81,6 +154,55 @@ class RewardsLogTest : FunSpec({
             TimedKind(201.seconds, "assist"),
             TimedKind(300.seconds, "kill"),
             TimedKind(400.seconds, "revive"),
+        )
+    }
+
+    test("joueur à terre : « EN ATTENTE DE RÉANIMATION » sort en downed, avant les lignes ignorées") {
+        val withDowned = listOf(LogRule("downed", listOf("ATTENTEDEREANIMATION"))) + rules
+        // Lectures réelles (22-55-31), montant compris.
+        RewardsLog.classify("EN ATTENTE DE RÉANIMATION *Sloo", withDowned) shouldBe "downed"
+        RewardsLog.classify("EN ATTENTE DEREANIMATION *Sloo", withDowned) shouldBe "downed"
+        RewardsLog.classify("EN ATTENTE OEREANIMATION", withDowned) shouldBe "downed"
+        RewardsLog.classify("COÉQUIPIER RÉANIMÉ 250XP +", withDowned) shouldBe "revive"
+    }
+
+    test("libellé de la notification : lectures réelles classées par les règles du profil wardogs") {
+        val notice = listOf(
+            LogRule(null, listOf("PASSAGER", "SAGERA", "SURVECU", "FOURNITURESLIVREES")),
+            LogRule("assist", listOf("AIDEELIMINATION", "ALELIMINATIONREPEREE")),
+            LogRule("kill", listOf("ELIMINATIONCONFIRMEE", "SHUTDOWNKILL", "TIRALATETE")),
+            LogRule("revive", listOf("REANIMATIONDEJOUEUR")),
+        )
+        RewardsLog.classify("AIDE : ÉLIMINATION", notice) shouldBe "assist"
+        RewardsLog.classify("+\$800 À L'ÉLIMINATION REPÉRÉE", notice) shouldBe "assist"
+        RewardsLog.classify("ÉLIMINATION CONFIRMÉE +\$1750", notice) shouldBe "kill"
+        RewardsLog.classify("ÉLIMINATION COYFIRMÉE +\$2500", notice) shouldBe "kill"
+        RewardsLog.classify("IANIMATION DE JOUEUR", notice) shouldBe "revive"
+        RewardsLog.classify("iljNbA SAGERRÉRVÉCU", notice) shouldBe ""
+        RewardsLog.classify("ASSAGÉRÉ", notice) shouldBe ""
+        RewardsLog.classify("FOURNITURES LIVRÉES +\$2500", notice) shouldBe ""
+        // « ÉLIMINATION » seul (fin d'« AIDE : ÉLIMINATION » mal lue) ne tranche pas : l'icône garde son type.
+        RewardsLog.classify("ÉLIMINATION", notice) shouldBe null
+        RewardsLog.classify("+\$1500", notice) shouldBe null
+    }
+
+    test("libellé : corrige le type de l'icône, l'écarte, ou la laisse quand il est illisible") {
+        val icons = listOf(
+            TimedKind(100.seconds, "kill"), // « AIDE : ÉLIMINATION » sous la tête de mort
+            TimedKind(200.seconds, "assist"), // « UN PASSAGER A SURVÉCU » sous la poignée de main
+            TimedKind(300.seconds, "kill"), // libellé illisible sur fond clair
+            TimedKind(400.seconds, "kill"), // vrai kill, libellé lu 2 s plus tard
+        )
+        val reads = listOf(
+            NoticeRead(101.seconds, "assist", "AIDE : ÉLIMINATION"),
+            NoticeRead(200.seconds, "", "UN PASSAGER A SURVÉCU"),
+            NoticeRead(306.seconds, "revive", "RÉANIMATION DE JOUEUR"), // trop tard : une autre notification
+            NoticeRead(402.seconds, "kill", "ÉLIMINATION CONFIRMÉE"),
+        )
+        NoticeLabels.relabel(icons, reads, before = 1.seconds, after = 3.seconds) shouldBe listOf(
+            TimedKind(100.seconds, "assist"),
+            TimedKind(300.seconds, "kill"),
+            TimedKind(400.seconds, "kill"),
         )
     }
 

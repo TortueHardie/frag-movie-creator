@@ -44,6 +44,8 @@ detectors:
   # headshots (absents du killfeed pour le joueur). Mesuré sur quatre parties (3440x1440 et 1920x1080, deux joueurs,
   # deux agents) : 79 kills sur 79, 58 morts sur 58, aucun faux positif. Coût : les images clés sont lues d'abord, puis
   # seuls les instants où une nouvelle ligne du joueur apparaît sont décodés (keyframeScan, voir le README).
+  # Sous 720 px de haut (vidéos 480p de YouTube), le contour est délavé : l'aplat jaune du portrait est lu à la place
+  # (fillBelow, voir le README) ; mesuré sur deux parties 854x480 en 16:9.
   - id: killfeed
     type: killfeed
     fallbackFor: game-events
@@ -113,6 +115,23 @@ detectors:
       sounds:
         headshot: { file: templates/valorant/headshot.wav, threshold: 0.7, minHz: 1000, maxHz: 12000 }
 
+  # Morts des alliés et des adversaires, à la couleur de la victime de chaque ligne du killfeed (sarcelle pour l'équipe
+  # du joueur, rouge pour l'adversaire, lue juste avant son portrait) : c'est ce qui compte les alliés en vie dans un
+  # round et reconnaît un vrai clutch sans Outplayed (montage.killStyle.allyDeathEvent). Avec Outplayed, c'est le jeu
+  # qui annonce ses clutchs. Lit aussi les débuts de round (barres de vie alliées) et le bandeau « CLUTCH » de fin de
+  # round (clutchs gagnés au spike). Lu seulement en secours, à 5 img/s, en décodage logiciel (le matériel ternit le cercle de
+  # « Run it Back » de Phoenix, dont les morts sont écartées). Mesuré sur deux parties 854x480 (voir le README) ; non
+  # vérifié en 1080p ni 1440p, faute de capture.
+  - id: teams
+    type: killfeed-teams
+    fallbackFor: game-events
+    weight: 0
+    params:
+      region: { x: 0.709302, y: 0.076389, width: 0.290698, height: 0.243056 }
+      referenceWidth: 3440
+      referenceHeight: 1440
+      anchor: right
+
   # Prises de parole sur la piste micro : un moment n'est jamais coupé au milieu d'une phrase ou d'un rire.
   - id: voice
     type: voice-activity
@@ -168,10 +187,41 @@ edit:
   audio: mix
   # source = ratio de la capture (21:9 sur écran ultrawide).
   formats: ["source"]
+  # Vertical 9:16 : le recadrage au centre ne gardait que le milieu du bandeau du haut (score, minuteur), les avatars
+  # des deux équipes coupés sur les côtés. Le recadrage part donc sous le bandeau (y 0,09 : il ne s'y voit plus), et le
+  # bandeau entier est replacé en haut, sur toute la largeur. Mesuré sur une capture 16:9 ; centré, il garde sa taille
+  # en pixels en 21:9 (ScreenGeometry).
+  # Même chose en bas : le bloc vie, armure, capacités et munitions (x 0,27 à 0,73, y 0,89 à 0,995, mesuré sur
+  # « Valorant- 44 kills » en 16:9) était rogné sur les côtés. Le recadrage s'arrête au-dessus de lui (y 0,885), et le
+  # bloc entier est replacé en bas, dans la zone sûre des applications verticales (marges de 5 % à gauche, 14 % à
+  # droite, 22 % en bas : TikTok). Bandeau et bloc restent fixes pendant les zooms (HudPin). Le réticule tombe alors à
+  # 1,6 % sous le centre de l'image verticale.
+  vertical:
+    size: { width: 1080, height: 1920 }
+    reference: { width: 1920, height: 1080 }
+    cropRegion: { x: 0.0, y: 0.09, width: 1.0, height: 0.795 }
+    # Les zooms (punch-in + approche : ×1,43 au plus) visent sous le réticule : l'icône du kill (y 0,74 à 0,835 de la
+    # capture, mesuré sur 12 kills) reste entière dans l'image, sous le bloc replacé ; le réticule remonte à ~0,39.
+    # Visés sur le réticule, le recadrage ne pouvant s'agrandir sans montrer bandeau ou bloc en double, le crâne sortait
+    # par le bas.
+    zoomFocus: 0.726
+    hud:
+      - name: topbar
+        source: { x: 0.20, y: 0.008, width: 0.60, height: 0.080 }
+        target: { x: 0.0, y: 0.0, width: 1.0 }
+        anchor: center
+      - name: abilities
+        source: { x: 0.27, y: 0.89, width: 0.46, height: 0.105 }
+        target: { x: 0.05, y: 0.72, width: 0.81 }
+        anchor: center
 
 montage:
   # Les instants des kills sont déjà corrigés du retard d'Outplayed (offsets de game-events) : rien à compenser.
   killOffset: 0ms
+  # Kills à la capacité (molly, flèche, drone…) écartés : la cible meurt hors du réticule, rien de lisible à l'image.
+  # Reconnus à l'absence de balle sur le compteur de munitions (ammo-counter) ; aucun kill à l'arme écarté sur 61
+  # mesurés (deux parties 854x480). Les statistiques et la recherche les gardent.
+  skipAbilityKills: true
   # Les clutchs annoncés par le jeu (game-events), plutôt que déduits : la déduction en comptait 3 pour 1 réel.
   killStyle:
     clutchEvent: clutch

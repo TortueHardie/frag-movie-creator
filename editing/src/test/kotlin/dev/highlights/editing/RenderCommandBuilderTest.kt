@@ -109,6 +109,12 @@ class RenderCommandBuilderTest : FunSpec({
         cmd.filterGraph shouldNotContain "amix"
     }
 
+    test("ordre manuel : rangs choisis d'abord, moments sans rang ensuite dans l'ordre chronologique") {
+        val c = TimeRange(400.seconds, 408.seconds) to 0.5
+        val s = session(clipA, clipB, c).let { it.copy(highlights = it.highlights.mapIndexed { i, h -> if (i == 2) h.copy(order = 0) else h }) }
+        DefaultEditPlanner.plan(s, EditSettings(order = ClipOrder.MANUAL)).clips.map { it.highlight.id } shouldBe listOf("h2", "h0", "h1")
+    }
+
     test("segments décochés exclus, erreur si plus rien") {
         DefaultEditPlanner.plan(session(clipA, clipB, enabled = setOf(1)), EditSettings()).clips.size shouldBe 1
         shouldThrow<HighlightsException> { DefaultEditPlanner.plan(session(clipA, enabled = emptySet()), EditSettings()) }

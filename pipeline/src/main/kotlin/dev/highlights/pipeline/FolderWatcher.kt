@@ -36,6 +36,16 @@ class FolderWatcher(
     /** Captures déjà proposées, avec leur taille et date d'alors : réécrite, une capture est reproposée. */
     private val proposed = mutableMapOf<Path, Pair<Long, Long>>()
 
+    /**
+     * Une capture nouvelle est-elle encore en train de s'écrire (taille ou date changées depuis moins de [settle]) ? Une
+     * partie est en cours : la soirée n'est pas finie.
+     */
+    @Synchronized
+    fun writing(): Boolean {
+        val now = clock()
+        return observed.values.any { it.stableSince.plus(settle.toJavaDuration()).isAfter(now) }
+    }
+
     /** Captures prêtes, nouvelles depuis [since], ni déjà proposées ni connues de [isKnown] (déjà analysées). */
     @Synchronized
     fun poll(isKnown: (Path) -> Boolean): List<Path> {

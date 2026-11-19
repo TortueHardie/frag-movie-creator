@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -48,6 +49,7 @@ import kotlin.io.path.name
 @Composable
 fun LibraryView(state: UiState, actions: UiActions, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        state.forget?.let { ForgetDialog(it, actions) }
         startHint(state)?.let { Text(it, color = Palette.textMuted, style = MaterialTheme.typography.bodyMedium) }
         WatchCard(state, actions)
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -57,6 +59,10 @@ fun LibraryView(state: UiState, actions: UiActions, modifier: Modifier = Modifie
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = actions::showStats) { Text(tr("ui.library.stats")) }
             }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = actions::showTaste) { Text(tr("ui.library.taste")) }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = actions::showNewGame) { Text(tr("ui.newgame.open")) }
             Spacer(Modifier.width(8.dp))
             val selected = state.librarySelection.size
             if (selected > 0) {
@@ -158,9 +164,22 @@ private fun WatchCard(state: UiState, actions: UiActions) {
                     )
                 }
                 watch.lastError?.let { Text(tr("ui.watch.failed", "detail" to it), style = MaterialTheme.typography.bodySmall, color = Palette.danger, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                EveningAutoSection(watch, actions)
             }
         }
     }
+}
+
+/** Confirmation avant d'oublier une analyse : la session et ses retouches s'effacent, jamais la vidéo. */
+@Composable
+fun ForgetDialog(item: LibraryItem, actions: UiActions) {
+    AlertDialog(
+        onDismissRequest = actions::cancelForget,
+        title = { Text(tr("ui.library.forgetTitle")) },
+        text = { Text(tr("ui.library.forgetMessage", "name" to item.source.name)) },
+        confirmButton = { Button(onClick = actions::confirmForget) { Text(tr("ui.library.forgetConfirm")) } },
+        dismissButton = { TextButton(onClick = actions::cancelForget) { Text(tr("ui.common.cancel")) } },
+    )
 }
 
 @Composable
@@ -204,6 +223,7 @@ private fun LibraryRow(item: LibraryItem, profileName: String, checked: Boolean,
                     Text(tr("ui.library.missingVideo"), style = MaterialTheme.typography.bodySmall, color = Palette.danger)
                 }
             }
+            TextButton(onClick = { actions.askForget(item.sessionFile) }, enabled = enabled) { Text(tr("ui.library.forget")) }
         }
     }
 }

@@ -39,10 +39,7 @@ object DefaultEditPlanner : EditPlanner {
 
         // Chronologique : les parties dans l'ordre où elles ont été jouées, puis les moments dans l'ordre de chaque
         // partie. Le montage raconte la soirée telle qu'elle s'est déroulée, quel que soit l'ordre des fichiers.
-        val ordered = when (settings.order) {
-            ClipOrder.CHRONOLOGICAL -> enabled.sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { c: PlannedClip -> c.media }.thenBy { it.range.start })
-            ClipOrder.SCORE -> enabled.sortedByDescending { it.highlight.score }
-        }
+        val ordered = order(enabled, settings.order)
         // Une capture à 30 img/s n'a rien à gagner à sortir en 60, ni un enregistrement 720p à sortir en 1080p :
         // le montage ne dépasse ni la cadence ni la hauteur de la plus grande des sources (fichier plus lourd, rendu
         // plus long, pour des images dupliquées ou agrandies).
@@ -58,5 +55,16 @@ object DefaultEditPlanner : EditPlanner {
             else -> minOf(settings.transition.duration, shortest / 3)
         }
         return EditPlan(ordered, capped, fade)
+    }
+
+    /** Ordre du montage : aussi celui que l'interface affiche quand on réordonne les moments. */
+    fun order(clips: List<PlannedClip>, order: ClipOrder): List<PlannedClip> {
+        val chronological = clips.sortedWith(compareBy(MediaInfo.RECORDING_ORDER) { c: PlannedClip -> c.media }.thenBy { it.range.start })
+        return when (order) {
+            ClipOrder.CHRONOLOGICAL -> chronological
+            ClipOrder.SCORE -> clips.sortedByDescending { it.highlight.score }
+            // Tri stable : les moments sans rang (détectés après coup) gardent l'ordre chronologique, à la fin.
+            ClipOrder.MANUAL -> chronological.sortedBy { it.highlight.order ?: Int.MAX_VALUE }
+        }
     }
 }

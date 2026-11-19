@@ -57,4 +57,9 @@ class BridgePlatform(private val real: Platform) : Platform {
     override fun edit(path: Path) = script?.record("edit $path") ?: real.edit(path)
     override fun browse(uri: URI) = script?.record("browse $uri") ?: real.browse(uri)
     override fun copy(text: String) = script?.record("copy ${text.take(200)}") ?: real.copy(text)
+    /** La notification part pour de vrai (elle vient d'un traitement de fond) ; notée dans le journal du pont. */
+    override fun notify(title: String, text: String, onClick: () -> Unit) {
+        script?.record("notify $title — $text")
+        real.notify(title, text, onClick)
+    }
 }

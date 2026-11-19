@@ -3,6 +3,7 @@ package dev.highlights.pipeline
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.session.Session
 import dev.highlights.montage.MontagePlanner
+import dev.highlights.montage.TeamRounds
 import java.nio.file.Path
 import java.time.Instant
 import java.time.LocalDate
@@ -41,6 +42,10 @@ data class GameStats(
     val rounds: Int?,
     /** Analysée avec d'autres réglages de détection que ceux du profil aujourd'hui : à réanalyser pour être à jour. */
     val outdated: Boolean = false,
+    /** [playedAt] vient de l'enregistrement, pas de la date du fichier (voir [dev.highlights.core.model.MediaInfo.reliableTime]). */
+    val reliableTime: Boolean = true,
+    /** Taille de la capture (octets) : deux copies d'une même capture ont la même taille et la même durée. */
+    val sizeBytes: Long = 0,
 ) {
     /** Kills par mort (les kills seuls sans mort). */
     val kd: Double? get() = deaths?.let { kills.toDouble() / it.coerceAtLeast(1) }
@@ -100,13 +105,14 @@ object Statistics {
         clutchSources: Set<String>? = null,
     ): GameStats {
         val style = settings.killStyle
-        val events = session.timeline.events
+        // Morts de Phoenix pendant son ultime (« Run it Back ») retirées, comme au montage : le joueur revient.
+        val events = TeamRounds.withoutRevived(session.timeline.events, style)
         val killEvents = events.filter { it.kind == settings.killEvent }
         val kills = killEvents.map { it.at }.sorted()
         val killSources = killEvents.map { it.detectorId }.toSet()
         // Sans kill, la partie ne dit rien de son détecteur : on se fie à ce que le profil sait voir.
         fun known(sources: Set<String>?) = sources == null || (sources.isNotEmpty() && (killSources.isEmpty() || killSources.any { it in sources }))
-        val deaths = if (style.deathEvent.isEmpty() || !known(deathSources)) null else events.filter { it.kind == style.deathEvent }.map { it.at }.sorted()
+        val deaths = if (style.deathEvent.isEmpty() || !known(deathSources)) null else events.filter { it.kind in style.deathKinds }.map { it.at }.sorted()
         val groups = MontagePlanner.groups(listOf(session), settings)
         // Les tirs à la tête peuvent venir d'un autre détecteur que les kills (le son du jeu, avec le killfeed) : il
         // suffit qu'il ait entendu quelque chose dans cette partie. On compte les kills à la tête, pas les événements :
@@ -128,11 +134,18 @@ object Statistics {
             multiKills = groups.map { it.kills.size }.filter { it > 1 }.groupingBy { it }.eachCount(),
             aces = groups.count { it.outcome.ace },
             // Clutchs annoncés par le jeu : connus seulement d'une analyse à jour dont les kills viennent d'un détecteur
-            // qui les annonce ; sinon inconnus plutôt que 0. Clutchs déduits : toujours connus.
-            clutches = if (style.clutchEvent.isEmpty() || (!outdated && known(clutchSources))) groups.count { it.outcome.clutch } else null,
+            // qui les annonce ; sinon inconnus plutôt que 0. Clutchs déduits : toujours connus. Clutchs réels, comptés sur les
+            // morts des deux équipes lues dans le killfeed : connus dès que la partie en a.
+            clutches = if (style.clutchEvent.isEmpty() || (!outdated && (known(clutchSources) || events.any { it.kind.isNotEmpty() && (it.kind == style.allyDeathEvent || it.kind == style.clutchBannerEvent) }))) {
+                groups.count { it.outcome.clutch }
+            } else {
+                null
+            },
             bestRound = if (deaths != null) rounds.maxOfOrNull { it.kills.size } ?: 0 else null,
             rounds = if (deaths != null) rounds.size else null,
             outdated = outdated,
+            reliableTime = session.media.reliableTime,
+            sizeBytes = session.media.sizeBytes,
         )
     }
 
@@ -140,8 +153,11 @@ object Statistics {
      * Détecteurs qui produisent cet événement dans au moins une partie du profil : une partie sans mort vaut alors 0
      * mort, et un profil qui n'en voit jamais (pas de killfeed, pas d'Outplayed) laisse le chiffre inconnu.
      */
-    fun sources(sessions: List<Session>, kind: String): Set<String> =
-        if (kind.isEmpty()) emptySet() else sessions.flatMap { s -> s.timeline.events.filter { it.kind == kind }.map { it.detectorId } }.toSet()
+    fun sources(sessions: List<Session>, kind: String): Set<String> = sources(sessions, setOf(kind))
+
+    /** Détecteurs qui ont émis l'une des sortes [kinds] (ex. mort et, si elle compte, mise à terre). */
+    fun sources(sessions: List<Session>, kinds: Set<String>): Set<String> =
+        sessions.flatMap { s -> s.timeline.events.filter { it.kind.isNotEmpty() && it.kind in kinds }.map { it.detectorId } }.toSet()
 
     /**
      * Parties regroupées par soirée et par jeu, la plus récente d'abord ; celles sans date d'enregistrement sont
@@ -155,8 +171,11 @@ object Statistics {
 
     /**
      * On ne joue pas deux parties d'un même jeu à la fois : deux captures qui se chevauchent sur plus de la moitié de
-     * la plus courte sont la même partie, vue par deux enregistreurs (18:07, 44 min, et 18:08, 40 min). La plus riche
-     * en kills reste.
+     * la plus courte sont la même partie, vue par deux enregistreurs (18:07, 44 min, et 18:08, 40 min). Seulement si
+     * les deux horaires viennent de l'enregistrement ([GameStats.reliableTime]) : deux parties VALORANT sans date dans
+     * leurs métadonnées, copiées à une minute d'écart, passaient pour une seule (« 1 partie, 46 kills » au lieu de
+     * 2 parties, 61 kills). La même capture, elle, reste une partie quels que soient ses horaires ([sameCapture]). La
+     * plus riche en kills reste.
      */
     fun distinctGames(games: List<GameStats>): List<GameStats> {
         val kept = mutableListOf<GameStats>()
@@ -166,12 +185,17 @@ object Statistics {
                 val kStart = k.playedAt!!
                 val overlap = minOf(start + g.duration.toJavaDuration(), kStart + k.duration.toJavaDuration()).epochSecond -
                     maxOf(start, kStart).epochSecond
-                k.game == g.game && overlap > minOf(g.duration, k.duration).inWholeSeconds / 2
+                k.game == g.game && (sameCapture(k, g) || (k.reliableTime && g.reliableTime && overlap > minOf(g.duration, k.duration).inWholeSeconds / 2))
             }
             if (!same) kept += g
         }
         return kept.sortedBy { it.playedAt }
     }
+
+    /** La même capture : même fichier, ou une copie (même taille à l'octet près, même durée à la seconde). */
+    internal fun sameCapture(a: GameStats, b: GameStats): Boolean =
+        a.source.toAbsolutePath().normalize() == b.source.toAbsolutePath().normalize() ||
+            (a.sizeBytes > 0 && a.sizeBytes == b.sizeBytes && (a.duration - b.duration).absoluteValue < kotlin.time.Duration.parse("1s"))
 
     fun eveningOf(at: Instant, zone: ZoneId = ZoneId.systemDefault()): LocalDate =
         at.atZone(zone).minusHours(EVENING_END.inWholeHours).toLocalDate()

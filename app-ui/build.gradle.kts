@@ -7,6 +7,7 @@ plugins {
 
 dependencies {
     implementation(project(":pipeline"))
+    implementation(project(":assistant"))
     implementation(compose.desktop.currentOs)
     implementation(libs.compose.material3)
     implementation(libs.coroutines.swing)
@@ -20,6 +21,9 @@ dependencies {
     runtimeOnly(project(":analysis-ml"))
 
     testImplementation(testFixtures(project(":ffmpeg")))
+    // Tests de mise en page (hauteur d'un bouton, nœuds visibles) sans fenêtre : jamais livré dans l'application.
+    @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+    testImplementation(compose.uiTest)
 }
 
 // Ressources livrées avec l'application (dossier « resources » de l'installation) :
@@ -214,6 +218,9 @@ tasks.withType<JavaExec>().configureEach {
         systemProperty("highlights.config", rootProject.file("config/app.yaml").absolutePath)
         // Pont de pilotage pour le développement (gradlew :app-ui:run -Pbridge) : jamais ailleurs que dans `run`.
         if (project.hasProperty("bridge")) systemProperty("highlights.bridge", "true")
+        // Préférences isolées (-PuserHome=<dossier>) : ni le dossier surveillé ni les musiques de l'utilisateur ne sont
+        // repris, une session pilotée ne lance pas d'analyse en fond. Le fichier du pont est alors dans <dossier>/.highlights.
+        findProperty("userHome")?.let { systemProperty("user.home", it.toString()) }
     }
 }
 

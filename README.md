@@ -5,15 +5,26 @@ Transforme des captures de gameplay brutes (Outplayed, OBS, ShadowPlay…) en mo
 Deux interfaces sur le même moteur : une **application de bureau** (Compose) et une **ligne de commande**.
 
 - **Détection des moments** : volume du jeu (EBU R128), prises de parole et rires (YAMNet), événements enregistrés par
-  Outplayed (kills, morts, assistances), killfeed lu à l'image quand Outplayed n'est pas là (VALORANT), icônes du HUD
-  et journal des gains lu par OCR (Wardogs).
+  Outplayed (kills, morts, assistances), killfeed lu à l'image quand Outplayed n'est pas là (VALORANT, Counter-Strike 2),
+  icônes du HUD et journal des gains lu par OCR (Wardogs), compteur d'éliminations du HUD lu
+  chiffre par chiffre (Fortnite), notifications de kill
+  lues par OCR (Apex Legends).
 - **Highlights** : les meilleurs moments fusionnés et exportés en 16:9 et/ou 9:16, encodés par le GPU (AMD, NVIDIA,
   Intel) avec repli logiciel.
 - **Étalonnage** (`edit.grade` d'un profil, pour les highlights comme pour le montage) : table de correspondance
   `.cube` (chemin relatif au dossier de configuration), saturation, contraste et vignettage. Sert à unifier des
   captures venues de sessions ou de jeux différents. Neutre tant qu'on n'y touche pas.
 - **Montage kills** : tous les kills calés sur une musique (temps, sections, drop), avec effets, style TikTok.
-- **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Wardogs, et un profil par défaut.
+- **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Counter-Strike 2, Wardogs, Fortnite, Apex Legends, et un profil par défaut.
+  - **Fortnite** (`fortnite.yaml`, fichiers dont le chemin contient « Fortnite ») : les éliminations du joueur sont lues
+    sur son compteur en haut à droite (détecteur `hud-counter` : chiffres comparés à `config/templates/fortnite/digit_*.png`,
+    deux images par seconde, puis suite croissante la plus probable, remise à zéro à chaque partie : `elimination`).
+    **Mettre à terre, c'est le kill** : le `kill` du montage est la notification « KNOCKED! » que l'élimination achève
+    (rattachement sur 30 s, `params.knocks`), sans second plan quand l'adversaire est achevé ; une élimination sans
+    mise à terre reste un kill à son instant, une équipe éliminée d'un coup reste un multi-kill (« QUADRUPLÉ »), une
+    mise à terre jamais créditée au joueur reste un kill. Réglé et vérifié sur une seule vidéo YouTube 854x480 de trois
+    parties en escouade : 31 éliminations sur 31 et 33 kills sur 33 (`verite/fortnite/`), aucun en trop. Non vérifié : captures 1080p, HUD déplacé dans les options du jeu, parties
+    où le joueur meurt et regarde un coéquipier (son compteur s'affiche alors à la place).
 - **Mémoire des analyses** : une capture déjà analysée n'est pas réanalysée. La rechoisir (application ou ligne de
   commande) reprend son analyse instantanément, moments décochés compris ; seule la sélection (seuil, cible) est
   recalculée. Elle est refaite d'office si le fichier change ou si les détecteurs, fenêtres ou pistes audio de son
@@ -21,11 +32,29 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
   analyse ouverte, ou `--reanalyze`. L'index est `sessions/library.json` dans le dossier de sortie de `app.yaml`.
 - **Analyses enregistrées** : quand aucune analyse n'est ouverte, l'application liste celles déjà faites ; un clic en
   rouvre une, plusieurs cochées s'ouvrent ensemble pour un seul montage (toute une soirée).
+- **File des traitements** : un export, un montage ou des aperçus se lancent pendant qu'un autre tourne ; ils attendent
+  leur tour dans la carte « Traitements » (un seul traitement lourd à la fois : FFmpeg et la mémoire ne supportent pas
+  mieux). On y annule un traitement en attente ou en cours, on change l'ordre de ceux qui attendent, on ouvre le
+  résultat d'un traitement fini ou le détail d'un échec, qui ne bloque pas les suivants. Le dossier surveillé et le
+  montage des soirées passent par la même file, derrière ce qu'on lance à la main : un export demandé passe devant les
+  analyses du dossier surveillé (marquées « auto ») sans interrompre celle en cours. Fermer l'application avec des traitements en file demande
+  confirmation ; ils ne reprennent pas au lancement suivant.
 - **Dossier surveillé** : dans l'application, « Surveiller un dossier… » (celui d'Outplayed, d'OBS…, sous-dossiers
   compris). Chaque nouvelle capture y est analysée en fond une fois son enregistrement terminé (fichier inchangé
   depuis 15 s), puis apparaît dans la liste marquée « nouveau » ; l'export reste à lancer soi-même. Les captures déjà
   présentes quand le dossier est choisi ne sont pas analysées d'office, celles arrivées pendant que l'application était
   fermée le sont à la relance. Le dossier est retenu d'un lancement à l'autre (`~/.highlights/watch.json`).
+- **Montage de la soirée, sans clic** (case « Monter chaque soirée finie » de la carte du dossier surveillé, désactivée
+  par défaut) : quand la soirée est finie (aucune nouvelle partie depuis 1 h, réglable, et rien en cours
+  d'enregistrement ni d'analyse), un montage kills de toutes ses parties se fait seul : soirée découpée comme les
+  statistiques (de 6 h à 6 h, un jeu à la fois), musique choisie dans le dossier de musiques du dialogue du montage,
+  formats et plateforme des réglages, style choisi dans la carte (par défaut celui de `montage-styles.yaml`, « aucun »
+  pour les réglages du profil seuls ; `app soiree --style`). Une notification Windows le dit (« Soirée du 16/11 : 47 kills, montage prêt »),
+  un clic ouvre la vidéo. Rien n'est monté ni notifié sous 5 kills (réglable). Seules les soirées d'une capture arrivée
+  dans le dossier surveillé pendant que l'option est active comptent (l'activer ne remonte pas l'historique), et une
+  soirée n'est jamais remontée d'office (`output/sessions/evening-montages.json`). Seulement quand l'application est
+  ouverte : ni service ni tâche planifiée. `app soiree [--date AAAA-MM-JJ] [--game wardogs] --music <musique ou
+  dossier>` monte une soirée analysée à la demande, `app soiree --list` liste les soirées et celles déjà montées.
 
 ## Installer l'application (Windows)
 
@@ -103,6 +132,38 @@ MSI lui-même, qu'il s'installe sans droits administrateur et qu'il porte un cod
 ```powershell
 .\gradlew.bat test                    # unitaires + intégration (vidéos synthétiques générées par FFmpeg)
 .\gradlew.bat :app-cli:installDist    # → app-cli\build\install\app\bin\app.bat
+```
+
+### Vérité terrain : prouver qu'un changement de détecteur n'a rien cassé
+
+`verite/<jeu>/*.yaml` liste, pour quelques vraies captures, les vrais kills et morts du joueur avec leurs temps, relevés
+image par image et validés par le joueur. Les vidéos ne sont pas dans le dépôt : une capture y est reconnue par son nom,
+sa taille et sa durée. `app verite` réanalyse chaque capture avec le code du moment et mesure chaque détecteur :
+
+```powershell
+.\gradlew.bat :app-cli:verite "-Pverite=--videos D:\Vidéo"          # réanalyse (longue : une analyse par capture)
+& $app verite verite --sessions D:\dev\editor\output\sessions        # mesure les analyses déjà enregistrées (immédiat)
+```
+
+Pour chaque capture et chaque détecteur : vrais (retrouvés dans la tolérance), faux (détections sans vrai événement),
+manqués, précision, rappel, avec l'instant de chaque faux et de chaque manqué. Une détection ne valide qu'un seul vrai
+événement (deux kills à 1 s d'écart demandent deux détections). Les seuils (`thresholds` du fichier) sont l'état mesuré
+au moment du relevé : la commande échoue (code 1) si un détecteur passe en dessous, et écrit `verite-rapport.json`.
+Les analyses refaites vont dans `-o` (défaut : `%TEMP%\highlights\verite`), avec leur propre mémoire d'analyses : la
+bibliothèque de l'utilisateur n'est pas touchée.
+
+Format d'un fichier :
+
+```yaml
+capture: { name: WARDOGS_09-23-2026_20-4-19-983.mp4, sizeBytes: 6911741815, duration: 2708.992s }
+profile: wardogs
+tolerance: 3s               # écart toléré entre l'instant relevé et l'instant détecté
+validated: joueur, 2026-11-18
+kinds: [kill, death]        # sortes relevées sans oubli ; les autres (réanimations…) ne comptent pas
+events:
+  - { at: "07:56", kind: kill, note: "ÉLIMINATION dans le journal" }
+thresholds:
+  game-events: { kill: { precision: 1.0, recall: 1.0 } }
 ```
 
 ## Construire l'installeur
@@ -185,12 +246,24 @@ Dans l'application :
 3. cliquer sur « Analyser » ;
 4. relire les segments : timeline, vignettes, « ▶ Revoir » ouvre un extrait dans le lecteur, « 9:16 » affiche l'aperçu vertical avec le HUD ;
 5. décocher les segments à retirer (le seuil et la durée se recalculent sans réanalyser) ;
-6. cliquer sur « Exporter le montage ».
+6. retoucher à la main si besoin (voir ci-dessous) ;
+7. cliquer sur « Exporter le montage ».
+
+**Retoucher les moments.** Un moment sélectionné montre une barre de retouche : « Début » et « Fin » se déplacent de
+−1 s, −0,5 s, +0,5 s ou +1 s, dans les limites de la vidéo et des longueurs du profil (`selection.minClip`/`maxClip` ;
+un moment déjà étendu au-delà peut raccourcir, pas grandir). « ↑ Plus tôt » / « ↓ Plus tard » changent sa place dans
+le montage (n° affiché sur chaque ligne) : l'export suit alors cet ordre manuel (`order: manual`), toutes captures de la
+soirée confondues. Un double-clic sur la courbe ajoute un moment de 8 s centré à cet endroit, marqué « ajouté à la
+main ». Ces retouches sont enregistrées dans la session (`origin`, `order` de chaque moment) et survivent au changement
+de seuil ou de durée : un moment détecté qui recouvre un moment retouché laisse la place à la retouche.
+**Oublier une analyse.** Dans la liste des analyses, « Oublier » (après confirmation) retire l'analyse de la mémoire
+et efface sa session ; la vidéo n'est jamais touchée et peut être réanalysée.
 
 ### Pont de pilotage (outils de développement)
 
 ```powershell
 .\gradlew.bat :app-ui:run -Pbridge
+.\gradlew.bat :app-ui:run -Pbridge -PuserHome=D:/tmp/maison   # préférences isolées : pas de dossier surveillé repris
 ```
 
 Démarre aussi un petit serveur HTTP local (127.0.0.1, port au hasard, jeton au hasard, tous deux dans
@@ -260,6 +333,10 @@ meilleurs moments ne sont plus posés bout à bout : chacun est remonté comme l
   moments ne la refait pas. Il faut le modèle, trop lourd pour le dépôt et l'installeur :
   [`ggml-large-v3-turbo-q5_0.bin`](https://huggingface.co/ggerganov/whisper.cpp) (~574 Mo) dans `config/models/`
   (`story.captions.model`). Sans lui, le montage sort sans sous-titres.
+  Une capture **sans piste micro séparée** (une seule piste « tout le son », comme les vidéos VALORANT téléchargées)
+  n'est pas sous-titrée : whisper y transcrivait l'annonceur du jeu (« REMAINING. - LES », « 1 ENNEMI »).
+  `story.captions.withoutMic: true` force la transcription du son complet (désactivé par défaut). Un sous-titre reste
+  affiché 3 s au plus (ou son temps de lecture) : whisper étirait parfois un mot sur 7 s de silence.
 - Son adouci à chaque coupe, fondu au noir final, normalisation EBU R128.
 
 ```powershell
@@ -274,7 +351,21 @@ détecte les kills). En ligne de commande :
 ```powershell
 & $app montage output\sessions\partie.session.json --music D:\Musique\son.mp3 --max 60s --format 9:16,source
 & $app montage output\sessions\partie.session.json --music D:\Musique\TikTok --max 60s   # musique choisie dans le dossier
+& $app montage output\sessions\partie.session.json --music D:\Musique\son.mp3 --style tiktok
 ```
+
+- **Défauts** (choisis par l'utilisateur le 18/11) : style Cinématique, couleurs boostées (`--colors natural` pour les
+  couper), ouverture vitrine (`--no-showcase`), whip pans muets (`--whoosh` ou un `--whoosh-dir` pour le souffle),
+  rythme rapide sur les parties rapides de la musique (voir « Rythme rapide »).
+- **Styles** (`config/montage-styles.yaml`) : un jeu de réglages choisi d'un coup, en haut de la fenêtre de montage
+  (puces « Aucun », « Edit TikTok », « Propre », « One taps », « Cinématique ») ou par `--style <id>` ; les cases
+  détaillées sont repliées sous « Réglages avancés ». Livrés : `tiktok` (rythme rapide, couleurs boostées, flou, zoom
+  d'approche), `propre` (effets sobres, raccords sur la pose et whip pans, ni flash, ni zoom, ni texte), `onetaps`,
+  `cinematique` (ouverture vitrine, ralentis et rampes, montée jusqu'à la drop). Un style ne dit que ce qu'il change,
+  le reste vient du profil ; une case modifiée à la main (ou une option de la ligne de commande) passe devant lui et
+  reste en place quand on change de style, jusqu'à « Revenir au style ». `default:` dans le fichier choisit le style
+  pris sans rien demander (`--style none` : profil seul). On peut modifier, retirer ou ajouter des styles ; un style
+  sans traduction s'affiche avec son `displayName` et sa `description`.
 
 - **Bibliothèque musicale** : `--music` accepte un dossier (sous-dossiers compris), et le dialogue du montage a un mode
   « Choisir dans un dossier » (dossier retenu d'un montage à l'autre). Le montage est alors planifié sur chaque musique,
@@ -322,6 +413,10 @@ détecte les kills). En ligne de commande :
 - **Choix et ordre des clips** : deux plans voisins ne viennent pas du même moment de la même partie (`varietyGap`), et
   `minScore` permet d'écarter les groupes de kills trop faibles quitte à raccourcir le montage (0 = tout garder ; les
   trois meilleurs sont gardés quoi qu'il arrive). Les meilleurs groupes restants terminent naturellement le montage.
+- **Peu de kills trouvés** (`minKills`, 3 par défaut, 0 : jamais) : le montage se fait quand même, mais un
+  avertissement le dit (« Seulement 2 kills trouvés dans ces parties : vérifiez l'analyse »), sur la console, dans le
+  rapport JSON (`notices`) et sous le résultat dans l'application. Le plus souvent, c'est la détection des kills qui a
+  manqué (une partie VALORANT de 44 kills en donnait un). Pas d'avertissement pour des moments choisis dans la recherche.
 - **Clips taillés pour la musique** : chaque clip est étendu ou coupé pour remplir exactement son plan ; le dernier kill
   tombe sur le temps le plus accentué du plan, le meilleur groupe (multi-kill, ace) exactement sur la drop — en ordre
   chronologique aussi : le passage de la musique est alors choisi pour que la drop tombe sur lui (ou sur un groupe qui
@@ -346,8 +441,12 @@ détecte les kills). En ligne de commande :
   le plan sortant file dans le sens où la vue tournait, flouté par la vitesse, et le suivant arrive en continuant le
   même mouvement (200 ms en tout, `duration` ; flou `blur`). Le whip remplace le flash sur cette coupe ; sans flick de
   part et d'autre, la coupe reste franche. Désactivable par une case de la fenêtre de montage ou `--no-whip`.
-  Un souffle (whoosh, celui des highlights story) culmine sur la coupe (`whoosh`, volume 0,5 ; 0 ou `--no-whoosh` :
-  whip pan muet).
+  Un souffle (whoosh, celui des highlights story) culmine sur la coupe (`whoosh`, volume 0,5 ; 0, `--no-whoosh` ou la
+  case « Souffle sur les whip pans » : whip pan muet). Il suit la musique dans `audio.balance` (±6 dB par cran), pour
+  rester sous elle. Un dossier de sons (`whip.sounds`, ou `--whoosh-dir DOSSIER`) remplace les souffles générés,
+  chacun à son tour dans un ordre mélangé mais toujours le même, comme `story.sfx.whooshDir`. Le rapport JSON indique
+  pour chaque plan si sa coupe d'entrée est un whip pan (`whip`) et le souffle entendu (`whoosh` : fichier ou
+  « généré N »).
 - **Flou de mouvement** (`motionBlur`), mesuré sur les montages de référence (flou sur 48 à 93 % des coupes, une ou
   deux images à 30 img/s) :
   - Mélange d'images (`blend`, désactivé par défaut) : chaque image mélange celles des 17 ms précédentes. Dans un FPS
@@ -405,10 +504,34 @@ détecte les kills). En ligne de commande :
   recule (`deathPenalty`) ; le groupe qui finit un round de 5 kills monte nettement (**ace**, `aceBonus`) ; celui qui
   finit un round survécu sur au moins deux kills monte aussi (**clutch**, `clutchBonus`). Le jeu ne donne ni les rounds
   ni le nombre d'alliés en vie : une mort clôt le round du joueur, un silence de plus de 40 s aussi (`roundGap`, plus
-  court que la phase d'achat), et le clutch reste une approximation. Une mort sépare toujours deux kills rapprochés en
+  court que la phase d'achat), et le clutch reste une approximation. En VALORANT, le clutch est celui que le jeu annonce
+  (Outplayed) ; sans Outplayed, il est **réel** : les morts des deux équipes sont lues dans le killfeed (détecteur
+  `killfeed-teams` : la moitié droite de chaque ligne a la couleur de l'équipe de la victime, sarcelle pour celle du
+  joueur, rouge pour l'adversaire). Le joueur, resté seul de son équipe face à au moins un adversaire, gagne le round
+  en les éliminant (`TeamRounds`) : un 1 contre 1 gagné compte (`clutchMinEnemies: 2` pour suivre le bandeau « CLUTCH »
+  du jeu, qui n'apparaît qu'à partir d'un 1 contre 2). Un round
+  gagné au spike (désamorcé, explosé) ne se voit pas dans le killfeed : le bandeau « CLUTCH » de fin de round, lu au
+  centre de l'écran (gabarit du mot, `templates/valorant/banner_clutch.png`), le rattrape. Gris pour les deux équipes,
+  il est rattaché comme un clutch annoncé : au groupe du joueur dont le dernier kill le précède sans mort entre les
+  deux (le clutch d'un coéquipier, joueur mort, n'est pas le sien). Un 1 contre 1 gagné au spike reste manqué (pas de
+  bandeau). Les rounds sont séparés
+  par l'élimination d'une équipe, un silence de 40 s, et surtout le retour des cinq barres de vie alliées pleines en haut
+  de l'écran (`round-start`) : dans une vidéo montée, phases d'achat coupées, deux rounds se suivent à 10 s. Mesuré sur
+  deux parties en 854x480 (`output/revue/clutch-reel/`, vérité `verite/valorant/`) : morts alliées précision 0,92,
+  rappel 0,97 (67 sur 69, le joueur compris) ; clutchs : 2 trouvés pour 2 réels (deux 1 contre 1, aucun 1 contre 2
+  dans ces parties), aucun inventé, ni à partir des clutchs de coéquipiers. Pas vérifié en 1080p ni 1440p, faute de capture. Une mort sépare toujours deux kills rapprochés en
   deux clips. Sans aucune mort annoncée (`deathEvent` vide, ou jeu sans Outplayed ni killfeed lu), rien de tout ça ne
   s'applique.
   Désactivable par une case de la fenêtre de montage ou `--no-rounds`.
+- **Kills à la capacité écartés** (`skipAbilityKills`, activé dans le profil VALORANT) : un kill fait avec une molly,
+  une flèche, un drone… ne montre ni le tir ni la cible sous le réticule. Il est reconnu à ce que le compteur de
+  munitions (détecteur `ammo-counter`) ne voit **aucune balle** de 1 s avant le kill à 0,3 s après ; un couteau aussi.
+  Sans compteur lu, rien n'est écarté (le son seul se trompait sur 1 kill au fusil sur 61). Mesuré sur 61 kills au fusil
+  de deux parties 854x480 : aucun écarté ; aucune de ces parties n'a de kill à la capacité du joueur, ce qui est
+  vraiment reconnu reste donc à mesurer. Les kills restent dans la session, les statistiques et la recherche ; un moment
+  choisi dans la recherche, ou un kill forcé ou épinglé dans la frise, est monté quand même. Un multi-kill garde son
+  importance et ses autres kills. Case « Écarter les kills à la capacité » de la fenêtre de montage (profils qui lisent
+  le compteur), `--ability-kills` pour les garder, `--skip-ability-kills` pour les écarter.
 - **Variantes** (`variants`) : une douzaine de plans sont calculés (échelle de la grille, place de la drop) et seul le
   mieux noté est rendu, à condition de garder presque tous les clips du plan de base et de le battre nettement.
 - **Accroche** : le meilleur groupe après celui de la drop ouvre le montage (`--no-hook`) : c'est dans les premières
@@ -420,6 +543,11 @@ détecte les kills). En ligne de commande :
 - **Une emphase par plan** (`effectDensity`, `--effects sober|balanced|heavy`) : au rythme normal, un plan reçoit un
   ralenti *ou* un zoom, jamais les deux. Le ralenti va aux plans forts — drop, multi-kill visible à l'écran, accroche —
   et les autres prennent le zoom. `sober` ne garde que le ralenti de la drop, `heavy` remet tout partout.
+- **Compteur de kills** (désactivé par défaut ; « Compteur de kills à l'écran » du dialogue, `--kill-counter clip|montage`,
+  `text.killCounter` d'un profil) : « 1… 2… 3… » à chaque kill, tenu jusqu'au suivant, puis ACE (doré, sous le nombre)
+  sur le dernier kill d'un groupe qui finit un ace. `clip` : compté dans chaque plan (un multi-kill fait 1, 2, 3) ;
+  `montage` : cumul sur tout le montage, le total restant affiché d'un plan à l'autre. En 9:16, en haut à droite à
+  côté du kill feed recollé (à gauche si le HUD recollé du profil occupe ce coin), dans la zone sûre de la plateforme.
 - **Effets** (désactivables : `--no-zoom`, `--no-flash`, `--no-slowmo`, `--no-text`) : zoom punch, ralenti ×0,5 sur le
   kill (seulement s'il tient dans le plan), textes « DOUBLÉ / TRIPLÉ », fondu au noir final. Le ralenti s'installe par
   paliers avant le kill et le plein régime revient exactement sur un temps, au lieu d'un changement de vitesse net ;
@@ -453,11 +581,79 @@ détecte les kills). En ligne de commande :
 - Réglages détaillés : section `montage:` d'un profil (voir `core/.../model/Montage.kt`), notamment `cuts:` (durées
   visées par intensité `low`/`mid`/`high`, `maxBeats`, `minLead`/`minTail`, `dropPosition`, `dropLead`).
 
+### Corriger le plan : écarter, forcer, épingler un kill
+
+Quand le planificateur se trompe sur un kill (un faux kill, le mauvais sur la drop, un beau kill écarté), on corrige le
+plan au lieu de tout relancer à l'aveugle.
+
+- **Dans l'application** : bouton **Voir le plan…** du dialogue du montage. Une fenêtre montre la musique (volume de
+  chaque temps, sections, drop) et les plans placés dessus, une vignette par groupe de kills, chaque kill en trait ; les
+  groupes que le plan écarte sont listés dessous. Clic sur un plan : l'écarter ; clic sur un trait : écarter ce kill
+  seul ; clic sur un groupe écarté : le forcer dans le montage ; glisser un groupe sur la drop : l'y épingler ; un
+  nouveau clic annule. **Replanifier** recalcule le plan sans réanalyser (inspection des kills en cache : quelques
+  secondes). « Créer le montage » rend le plan corrigé.
+- **En ligne de commande** : `--plan` affiche le plan sans rendre, avec la désignation de chaque kill
+  (`capture@instant`, à une seconde près) ; `--exclude`, `--force` (répétables), `--drop` et `--pin capture@instant=0:42`
+  (le kill tombe sur le temps du morceau le plus proche) le corrigent.
+
+  ```powershell
+  & $app montage partie.session.json --music son.mp3 --plan
+  & $app montage partie.session.json --music son.mp3 --exclude partie.mp4@40:00.6 --drop partie.mp4@38:36.3
+  ```
+
+- Un kill exclu sort de son groupe (un triplé devient un doublé) ; un groupe forcé prend la place du moins bon groupe
+  que rien n'impose ; épinglé sur la drop, il y tombe (en ordre chronologique, les moins bons groupes joués avant lui
+  cèdent leur place). Une correction impossible (kill introuvable, plus de place, pas de drop dans le passage retenu,
+  temps hors du montage) arrête le plan avec un message qui nomme le kill : jamais un montage qui l'ignore en silence.
+
+## Récap de soirée
+
+Une vidéo highlights de toute une soirée, partie par partie : avant chaque partie, un intercalaire d'une seconde avec un
+impact sonore (ceux du style story, au volume du reste)
+(« PARTIE 3 – 14 KILLS », le jeu et l'heure, sur une image floutée de la partie), puis ses meilleurs moments ; à la fin,
+le bilan, 2 s sur un souffle (« SOIRÉE DU 16/11 », « 47 KILLS · MEILLEURE PARTIE : N°3 (14) »). La soirée est celle des statistiques (de 6 h
+à 6 h, un jeu à la fois) ; les moments de chaque partie sont recalculés avec une cible de durée partagée sur la soirée
+(moments retouchés à la main gardés), et rendus par l'export habituel (style simple ou story, formats, plateforme). Une
+partie sans moment n'a pas d'intercalaire mais garde son numéro. Dans l'application : « Récap de la soirée » sur chaque
+soirée des statistiques (passe par la file des traitements). En ligne de commande :
+
+```powershell
+& $app recap --date 2026-09-22 --game wardogs --style story --platform tiktok
+& $app recap output\sessions\a.session.json output\sessions\b.session.json   # ces parties-là, telles quelles
+```
+
+Sortie : `<jeu>_<date>_recap[_9x16].mp4` et un rapport JSON (parties montrées, kills, début de chaque carton). La carte
+ou le mode d'une partie ne sont pas connus des analyses : l'intercalaire dit le jeu et l'heure.
+
+## Clip « meilleur moment » (9:16)
+
+Un seul moment en vidéo verticale de 15 à 30 s, prête pour TikTok ou Shorts, sans musique imposée : l'action d'origine,
+le son du jeu et la voix. Bouton **Clip 9:16** sur le moment sélectionné, ou :
+
+```powershell
+& $app clip output\sessions\partie.session.json                       # le meilleur moment (le plus de kills, puis le score)
+& $app clip output\sessions\partie.session.json --moment h003 --platform tiktok
+```
+
+- Monté en style story sur ce seul moment : accroche (le kill en ouverture), attente coupée en jump cuts, punch-in et
+  secousse sur le kill, sous-titres de la voix si le modèle whisper est là, bruitages.
+- Un moment détecté ne dure que 5 à 7 s : le clip prend la partie autour (au plus 6 s après le kill, le reste avant) et
+  l'élargit jusqu'à ce que le montage, attente coupée, dure entre 15 et 30 s (22 s visées). Une partie où presque
+  tout est de l'attente peut aller chercher 3 minutes avant le kill. Réglages : `edit.clip` du profil (`minDuration`,
+  `maxDuration`, `target`, `lead`, `after`).
+- `--platform` (ou la plateforme choisie dans l'application) : zone sûre, volume, débit, et sa durée maximale plafonne
+  le clip. Fichier `<jeu>_<date>_clip_<moment>[_plateforme]_9x16.mp4`.
+
 ## Statistiques par soirée
 
 Bouton **Statistiques** au-dessus des analyses enregistrées (ou `app stats`) : les parties analysées, un jeu à la
 fois, soirée par soirée — kills par partie, K/D, part de tirs à la tête, meilleur round, doublés / triplés / aces /
 clutchs, et un graphique des kills par partie d'une soirée à l'autre. Chaque partie se rouvre d'un clic.
+
+Une même partie enregistrée deux fois (Outplayed et OBS en même temps, ou la même capture analysée deux fois) ne
+compte qu'une fois. Deux captures qui se chevauchent ne sont fusionnées que si leurs horaires viennent de
+l'enregistrement (date dans les métadonnées, ou nom daté par Outplayed, OBS ou ShadowPlay) : des captures copiées ou
+téléchargées n'ont que la date du fichier, et deux parties copiées à une minute d'écart restent deux parties.
 
 ```powershell
 & $app stats                     # dix dernières soirées, jeu par jeu, et la tendance
@@ -468,7 +664,8 @@ clutchs, et un graphique des kills par partie d'une soirée à l'autre. Chaque p
   du montage kills (les chiffres concordent avec ce qu'il monte).
 - **Clutchs** : en VALORANT, ceux que le jeu annonce (via Outplayed), et non plus déduits (la déduction en comptait 3
   pour 1 réel). Une partie analysée avant ce réglage a ses clutchs « inconnus » : **Mettre à jour les analyses** (ou
-  `app stats --refresh`) la réanalyse, en quelques secondes. Une capture OBS, lue dans le killfeed, n'en a jamais.
+  `app stats --refresh`) la réanalyse, en quelques secondes. Une capture OBS, lue dans le killfeed, a ses clutchs réels,
+  comptés sur les morts des deux équipes (voir « Kills dans leur round ») ; analysée avant, elle les a inconnus.
 - Une **soirée** va jusqu'à 6 h du matin : la partie de 1 h compte pour la veille. Deux jeux ne se mélangent pas.
 - Une **partie** dure au moins 5 minutes : les clips d'Outplayed (1 min 30) n'en sont pas. La même partie enregistrée
   deux fois (deux captures qui se chevauchent de plus de moitié) ne compte qu'une, la plus riche en kills.
@@ -512,6 +709,11 @@ commande pour `export`, `process` et `montage`) adapte l'export à là où la vi
   boutons à droite). Les textes du montage (DOUBLÉ, TRIPLÉ…, sous-titres et libellés du montage story) sont centrés dans
   la largeur utile et gardés entre les marges du haut et du bas. Les éléments du HUD replacés en 9:16 (`vertical.hud`
   du profil) gardent la place que le profil leur donne.
+- **HUD fixe pendant les zooms** : en 9:16, le HUD recollé (`vertical.hud` : bandeau VALORANT, killfeed WARDOGS) reste
+  fixe par-dessus le punch-in, le zoom d'approche, la secousse et le flou de mouvement ; seule l'image du jeu zoome.
+  Les couleurs du montage, le flash, les textes et le compteur de kills restent par-dessus. Montage kills, montage
+  story et clips. VALORANT : le bandeau du haut et le bloc du bas (vie, armure, capacités, munitions) sont replacés
+  entiers, le bloc dans la zone sûre des applications verticales ; le recadrage 9:16 s'arrête au-dessus de lui.
 - **Durée** : en montage kills, la durée maximale de la plateforme devient un plafond de plus ; un montage highlights
   trop long est refusé avant le rendu, avec la durée à atteindre.
 - Le nom du fichier porte la plateforme : `valorant_2026-09-27_killmontage_tiktok_9x16.mp4`.
@@ -556,6 +758,65 @@ intro:
   intro: true                  # carte d'ouverture
   outro: true                  # carte de fin
 ```
+
+## Préréglages d'export (TikTok, YouTube court, vidéo complète)
+
+Un préréglage choisit d'un clic **ce qu'on fabrique**, pour les highlights comme pour le montage kills : puces en haut
+de la barre d'export et de la fenêtre de montage, `--preset <id>` en ligne de commande (`export`, `process`, `montage`,
+`search --montage`). Ils sont dans `config/export-presets.yaml` (YAML strict, comme les styles) : on peut les modifier,
+en ajouter ou en retirer.
+
+| | Plateforme / format | Durée | Highlights | Style du montage kills | Miniature |
+|---|---|---|---|---|---|
+| `tiktok` (TikTok) | `tiktok` (9:16) | 30 s | story | `tiktok` | non (TikTok choisit la couverture à la publication) |
+| `shorts` (YouTube court) | `shorts` (9:16) | 60 s | story | `cinematique` | non (un Short ne prend pas de miniature envoyée) |
+| `complet` (vidéo complète) | 16:9 | 3 min | story | `cinematique` | oui |
+
+- **Durée** : durée cible des highlights (les moments sont resélectionnés aussitôt dans l'application, comme quand on
+  tape la durée) et durée maximale du montage kills (la durée adaptée au nombre de kills reste un plafond).
+  `export` repart des moments déjà choisis dans la session : la durée du préréglage n'y change rien.
+- **Personnalisé** : aucun préréglage, les réglages restent tels qu'ils sont.
+- **Ce qu'on choisit à la main passe devant** : un réglage changé sous un préréglage (plateforme, formats, durée, style,
+  miniature) est noté (« 1 réglage modifié à la main ») et ne bouge plus quand on change de préréglage ; « Revenir au
+  préréglage » l'oublie. En ligne de commande, `--platform`, `-f`, `--max`, `--duration`, `--style`, `--thumbnail`
+  passent devant `--preset` ; un format choisi (`-f`) écarte la plateforme du préréglage, qui imposerait le sien.
+- Montage kills : le style du préréglage passe devant le style par défaut de `montage-styles.yaml` ; les cases d'un
+  style modifiées à la main restent.
+- La case **Miniature YouTube** (sous les puces) est posée par le préréglage et se change à la main.
+- Un préréglage qui vise une plateforme ou un style inconnus est refusé au choix, avec la liste de ceux qui existent.
+
+```powershell
+& $app montage output\sessions\partie.session.json --music D:\Musique --preset tiktok
+& $app process D:\Vidéo\partie.mp4 --preset complet
+& $app search --min-kills 2 --montage D:\Musique --preset shorts
+```
+
+## Miniature YouTube
+
+Chaque export lancé depuis l'application écrit aussi une miniature PNG prête pour YouTube, à côté de la vidéo
+(`<nom>_miniature.png`, `_miniature_2.png`… : jamais d'écrasement) : 1280x720 pour une vidéo en largeur, 1080x1920
+pour une vidéo verticale. La fenêtre de publication la montre, avec « Copier le chemin » (YouTube Studio la demande à
+part), ou « Créer la miniature » pour une vidéo exportée avant.
+
+- **Le moment** : le plus fort de la vidéo d'après son rapport JSON (kills du groupe, +3 pour un ace, +2 pour un clutch,
+  +0,3 par tir à la tête, +0,5 pour le kill posé sur la drop), comme l'accroche du titre.
+- **L'instant** : 10 images par seconde de 0,4 s avant à 1,2 s après le kill, au centre de l'écran, notées par leur
+  netteté (variance du laplacien : une image filée par un flick tombe), un peu plus après le kill (la notification de
+  kill est à l'écran) et moins dans le noir (luminosité moyenne ramenée à 80 ; écran noir écarté). Entre moments de
+  même force (sur une soirée de Wardogs, tous les kills sont seuls), c'est l'image la plus lisible qui l'emporte.
+- **L'image** vient de la capture d'origine en pleine résolution : recadrée au format, resserrée sur le réticule.
+- **L'habillage** : `vivid` (défaut : couleurs boostées comme les kill montages de TikTok, texte jaune), `sober`
+  (couleurs à peine relevées, petit texte blanc), `big` (texte aussi large que l'image, lisible en petite vignette). Texte :
+  ACE, CLUTCH, la série (TRIPLÉ…), sinon le nombre de kills de la vidéo, dans la langue de l'interface (`video.*`).
+
+```powershell
+& $app montage partie.session.json -m D:\Musique\son.mp3 --thumbnail               # miniature (vive) à côté du montage
+& $app export partie.session.json --thumbnail-style vivid                            # habillage au choix
+& $app thumbnail output\wardogs_2026-09-22_killmontage_9x16.mp4 --thumbnail-style big   # vidéo déjà exportée
+```
+
+Une vidéo dont les captures ont été déplacées depuis l'export n'a plus d'image : la miniature est refusée avec un
+message qui le dit.
 
 ## Publier sur YouTube
 
@@ -623,6 +884,45 @@ pas d'Outplayed (OBS…), le signal est simplement absent.
   mesuré sur une partie complète : l'instant tombe alors sur l'image où le kill apparaît dans le killfeed).
 - Sur une partie VALORANT de 50 min : 22 kills, 22 morts, 8 assistances, exactement le tableau de fin.
 
+## Ajouter un jeu : l'assistant « nouveau jeu »
+
+Pour un jeu sans profil, l'assistant écrit `config/profiles/<jeu>.yaml` à partir d'une vidéo et de 1 à 3 kills
+marqués. Dans l'application : « Nouveau jeu… » dans la liste des analyses. En ligne de commande :
+
+```powershell
+& $app nouveau-jeu "D:\Vidéo\partie.mp4" --game "Counter-Strike 2" --mark "3:48.5@0.903,0.063,0.095,0.042" --mark "4:57.5@0.875,0.096,0.125,0.042"
+```
+
+1. Pour chaque kill marqué : l'instant où le repère apparaît, et un cadre autour de ce repère (notification, ligne du
+   killfeed, compteur). Dans l'application, on affiche l'image et on trace le cadre à la souris ; en ligne de commande,
+   `@x,y,largeur,hauteur` en fractions de l'image (ou `--box` pour tous).
+2. L'assistant construit un détecteur par méthode et les fait tourner ensemble sur toute la vidéo (un seul décodage) :
+   - **image du repère** (`hud-template`) : le cadre découpé sur le kill marqué où il change le plus ; seuil choisi
+     d'après les scores des kills marqués ;
+   - **ligne de couleur** (`killfeed`, mode `outline`) : la teinte qui apparaît dans le cadre au kill et la hauteur de
+     la ligne, mesurée sur ses traits, fixent couleur et tailles ;
+   - **compteur** (`hud-counter`) : les chiffres du compteur sont **appris sur la vidéo**, sans OCR. Les formes exactes
+     du chiffre des unités, regroupées (deux formes d'un même chiffre alternent dans une même valeur), sont nommées par
+     l'ordre du compteur (il monte de 1, revient à 0 à chaque partie, « 10 » a un 1 devant) ancré par leur ressemblance
+     à des chiffres de polices grasses, puis redécoupées sur les images où la valeur est sûre. Si rien n'est appris (pas
+     de compteur dans le cadre), chaque nouvelle valeur stable de la zone est un kill (`hud-change`, sans lire) ;
+   - **texte** (`ocr-log`) : le mot lu par l'OCR de Windows sur les kills marqués et jamais ailleurs.
+3. Une planche par méthode (12 détections), toutes décochées : on coche celles qui sont de vrais kills (en ligne de
+   commande, on donne leurs numéros). La méthode retenue garde le
+   plus de vrais kills moins de faux, et doit retrouver au moins un kill marqué. Le profil est écrit (son, le
+   détecteur choisi, puis sélection et montage du profil par défaut), jamais par-dessus un profil existant.
+
+Mesuré (18-19/11, `app verite`, CS2 et Fortnite refaits depuis 3 kills chacun) :
+
+| Jeu | Méthode retenue | Profil de l'assistant | Profil fait main |
+|---|---|---|---|
+| CS2 (33 kills, 14 morts) | ligne de couleur | 32 kills (8 faux), 14 morts (1 fausse) | 32 kills (10 faux), 13 morts ; depuis le tri des assistances : 30 kills (4 faux) |
+| Fortnite (31 kills) | compteur, chiffres appris | 31 kills (0 faux) ; 23 kills (19 faux) avant l'apprentissage | 31 kills (0 faux) |
+
+Fortnite : l'assistant apprend maintenant les 10 chiffres du compteur tout seul (3 kills marqués, environ 1 s de
+calcul après la lecture de la zone) et fait aussi bien que les modèles découpés à la main (31/31, 0 faux,
+`output/revue/assistant-chiffres/`). Avant, il comparait des images de 6x6 px sur un fond qui bouge (23 kills, 19 faux).
+
 ## Killfeed (sans Outplayed)
 
 Une capture VALORANT enregistrée par OBS, ShadowPlay ou autre n'a pas d'événements Outplayed : le détecteur `killfeed`
@@ -653,6 +953,53 @@ ligne est un événement.
   est absent.
 - La zone (`region`) est mesurée en 3440x1440 et suit le format de la capture (`referenceWidth`, `anchor: right`) ; les
   tailles du cadre (`minHeight`…`maxFill`) et la couleur (`color`, `threshold`) se règlent pour un autre jeu.
+- **Basse définition** (capture de moins de 720 px de haut, `fillBelow`) : le contour du cadre (3 px en 1440p) y fait
+  moins d'un pixel et la couleur sous-échantillonnée le délave jusqu'à la teinte des murs de sable ; mesuré en 854x480
+  (deux parties téléchargées de YouTube) : 25 à 50 de jaune pour un seuil de 60, 1 kill lu sur 44. Le détecteur y lit
+  alors l'aplat jaune pur derrière le portrait du joueur (`fillColor` : rouge et vert égaux à 30 près, ce qui écarte le
+  sable), une tache pleine de la hauteur d'une demi-ligne à une ligne (`fillMinHeight`…`fillMin`), pas collée au bord
+  droit de l'écran (bordure dorée de certaines capacités). Une ligne doit y rester visible 2 s (`fillMinSeen`, une
+  ligne en reste 5) et toute la vidéo est décodée (480p coûte peu). Sur la partie dont le tableau de fin dit 44 kills /
+  14 morts : 46 kills et 18 morts lus (1 et 0 avant) ; 4 des morts portent l'icône de l'ultime de Phoenix, qui ramène le
+  joueur sans compter de mort (vérifié à l'image : il revient aussitôt). Ces morts sont écartées partout (montage des
+  morts, rounds, clutchs, K/D) : le détecteur `killfeed-teams` reconnaît le grand cercle blanc de « Run it Back » sur
+  la ligne (il déborde en haut et en bas, l'icône de tir à la tête non) et émet `ally-run-it-back` ; la mort du joueur
+  lue à moins de 1,5 s est retirée (`killStyle.revivedEvent`). Sans Outplayed seulement, et mesuré en 480p seulement.
+  La géométrie 16:9 n'était pas en cause : la zone mesurée en
+  21:9 tombe juste sur le killfeed en 16:9.
+
+### Counter-Strike 2 : lignes encadrées (`outline`)
+
+Dans CS2, le joueur n'a pas de portrait dans le killfeed : c'est sa **ligne entière** qui est marquée, entourée d'un
+contour rouge quand il tue (ou aide), sur fond rouge plein quand il meurt. Avec `outline` (profil `cs2`), le détecteur
+`killfeed` cherche ces lignes au lieu du cadre d'un portrait ; `fillBelow` et les réglages du cadre ne servent plus.
+
+- Rouge du joueur (`color`) : rouge nettement au-dessus du vert et du bleu, eux égaux (contour 163/92/100 sur un mur
+  clair, fond 96/23/21) ; le sable et les murs au soleil (180/135/97) restent à 0.
+- En 854x480, le contour fait 2 px en haut et en bas mais un seul sur les côtés, et la couleur sous-échantillonnée en
+  efface des morceaux sur un ciel ou un mur clair (côtés, moitié gauche d'un trait, trous de 8 à 14 px sous les
+  lettres, d'où `bridge: 16`). Une ligne est donc une **paire de traits horizontaux** qui finissent au même bord droit,
+  l'un 13 à 16 px sous l'autre, l'intérieur presque vide (`maxInnerFill`) ; deux lignes du joueur empilées (doublé)
+  sont deux kills. Une bande de la hauteur d'une ligne, colorée à 50 % au moins (`deathFill`), est une mort ; collée
+  au bord de l'écran ou loin de lui (`minEdgeGap`, `maxEdgeGap`), c'est du décor (voile rouge des dégâts, panneaux).
+- Suivi : le bord gauche d'une ligne n'étant pas sûr, une ligne est rapprochée du suivi le plus proche en hauteur ; une
+  ligne qui dépasse à gauche de 45 px (`newLineGrowth`) le suivi qu'elle rejoint en est une nouvelle (une ligne plus
+  longue prend la place de la plus ancienne). Une ligne doit être vue 1 s (`minSightings: 10` à 10 img/s).
+- **Assistances** (`outline.player`) : le contour marque aussi les lignes « coéquipier + joueur ». Ce qui les sépare
+  d'un kill, c'est le premier nom de la ligne. Le pseudo du joueur n'est pas donné : il est appris sur la vidéo, comme
+  le premier mot qui revient le plus souvent en tête des lignes encadrées (21x10 px en 480p), lu dans le canal le plus
+  clair de la même zone. Une ligne est un kill si son premier mot lui ressemble (corrélation ≥ 0,86, posée sur le début
+  du mot : posée n'importe où, « Adamant » ressemblait à « Kryptek ») ; sinon une assistance (événement `assist`), sauf
+  si elle lui ressemble un peu (≥ 0,3) et que le chat affiche au même moment une récompense « +$… for neutralizing an
+  enemy » (le « +$ » vert en début de ligne, `reward`), donnée pour les kills seuls. L'OCR de Windows ne lit pas ce
+  message en 480p, d'où sa couleur.
+- Mesuré sur « CS2- 33 Kills On Dust 2 » (854x480, 28 min, `verite/cs2/`) : **30 kills sur 33**, 4 en trop ; 13 morts
+  sur 14, aucune en trop. Des 6 assistances vues par le contour, 4 sont écartées ; celles de 9:26 et 16:43 restent
+  (une récompense du chat tombe au même moment). Avant ce tri : 32 kills sur 33 et 10 en trop, dont les 6 assistances.
+  Manqués : 10:44 et 16:29 (premier mot mal lu sur un fond clair, sans récompense lue) ; 18:50 (ligne plus courte qui
+  remplace celle du kill d'avant). Une mort manquée sur un écran déjà rouge. Analyse : 1 min 40 (trois zones lues).
+- 9:16 : bandeau du haut, killfeed, mini-carte (en haut à gauche, face au killfeed) et ligne du bas (vie, munitions)
+  sont replacés (`vertical.hud`).
 
 ## Journal des gains (Wardogs)
 
@@ -666,8 +1013,45 @@ Windows (rien à installer), par lots et en parallèle pendant le décodage de l
 - `icons` (paramètres d'un `hud-template`) fusionne le journal avec les icônes de notification : le journal donne le
   type (une « Aide : Élimination » affiche la même tête de mort qu'un kill) et sépare les kills enchaînés, l'icône date
   l'événement et couvre le texte illisible sur ciel clair.
+- `notice` lit aussi le libellé écrit sous l'icône (« ÉLIMINATION CONFIRMÉE », « AIDE : ÉLIMINATION », « UN PASSAGER
+  A SURVÉCU »…), avec ses propres `rules` : il corrige le type de l'icône quand le journal n'a rien lu, ou l'écarte.
+  Sans lui, une aide au kill sortait en kill (même tête de mort) et un passager déposé en aide (même poignée de main).
+  Illisible (texte gris sur fond clair), l'icône garde son type.
+- Joueur à terre : « EN ATTENTE DE RÉANIMATION » sort en événement `downed`, pas en mort (il est souvent relevé).
+  `montage.killStyle.downedAsDeath: true` le ferait compter comme une mort (rounds, kill aussitôt payé, K/D) ; désactivé.
 - Sur une partie de 1 h 25 : 14 kills sur 14, 3 aides sur 3, 8 réanimations sur 10, aucun faux positif (les icônes
   seules : 12 kills et un faux, aucune aide, 4 réanimations). Environ 1 min d'analyse pour 1 h 53 de vidéo.
+
+## Notifications de kill (Apex Legends)
+
+Le profil `apex` lit avec `ocr-log` la notification affichée sous le réticule, au lieu d'un journal. Les notifications
+s'empilent, la nouvelle au-dessus des autres : `maxDrop: 1` laisse une ligne déjà vue descendre d'un cran sans la
+recompter (sans lui, une élimination poussée par un « KNOCKED DOWN » comptait deux fois). Jeu en anglais
+(`language: en-US`).
+
+- **Le kill, c'est la mise à terre** (choix du joueur) : « KNOCKED DOWN <pseudo> » donne le `kill`, et le plan du
+  montage est calé dessus. « ELIMINATED <pseudo> » et « SQUAD WIPE » (`finishes` du détecteur, `LogFinish`) qui
+  achèvent un ennemi déjà mis à terre (30 s au plus avant) ne font ni un deuxième plan ni un deuxième kill ;
+  « SQUAD WIPE » referme toutes les mises à terre ouvertes. Une élimination sans mise à terre lue avant (achèvement
+  hors champ, tiers qui passe) compte, à son instant ; une même notification relue est écartée. Les libellés
+  DOUBLÉ / TRIPLÉ et les statistiques suivent les mises à terre.
+- Ni ace ni clutch déduits (escouades de trois, pas de rounds).
+- 9:16 : compteur (escouades restantes, kills, dégâts) et killfeed, en haut à droite, replacés en haut à gauche ; vie
+  et arme replacées en bas (à partir de y 0,85), sous la bande de la notification (y 0,66 à 0,83), qui reste visible.
+- Mesuré contre le compteur de kills du HUD, relevé à l'œil (`verite/apex/`), sur deux compilations YouTube en
+  854x480, image teintée. Le compteur crédite le kill à l'élimination, 2 à 30 s après la mise à terre : la vérité
+  le dit (`lead: 30s` : une détection peut précéder le relevé de 30 s, `GroundTruth.lead`). « Apex 53 kills octane »
+  (trois parties) : 54 kills pour 56 crédits, 47 retrouvés ; « Apex 37 kills revenant » : 37 pour 36, 35 retrouvés.
+  Les kills sans crédit sont des mises à terre d'ennemis relevés par leurs alliés (le jeu ne les compte pas) ou
+  achevés par un autre. Avant (kill = élimination, SQUAD WIPE compté par mise à terre avec `credits`) : 43 et 29
+  vrais à 3 s.
+- Statistiques : les « kills » sont les mises à terre, comme le montage. Leur total est plus proche du compteur du jeu
+  (54 pour 56, 37 pour 36) que celui des éliminations lues (44 et 31) : une élimination de SQUAD WIPE en cache
+  plusieurs.
+- `credits` (`LogCredit`, datation et compte des notifications en rafale) reste disponible pour un jeu dont le kill
+  est l'élimination.
+- Le compteur lui-même (chiffres de ~6 px en 480p) n'est pas lisible par l'OCR de Windows. Morts du joueur non lues :
+  aucune dans ces captures.
 
 ## Voix et rires
 
@@ -711,7 +1095,12 @@ ou le killfeed d'une capture OBS). La balle qui tue est la dernière vue entre 1
   qui repasse au blanc en 0,3 s), qui comptait pour trois balles de plus : aucun one tap n'y était jamais trouvé. La
   zone est aussi relue en turquoise, et les changements pendant une recharge ne comptent pas (2 balles sur 2 au lieu
   de 5, vérifié à l'image). Aucun turquoise autour des kills des parties classées.
-- Zone mesurée en 3440x1440 seulement. Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
+- Lecture en paliers : un changement ne compte que s'il fait passer le compteur d'un affichage stable (0,05 s au moins)
+  à un autre, et un compteur absent ou effacé (presque sans blanc : caché, flash) n'est pas lu. Avant, chaque image
+  était comparée à la précédente : le décor qui change derrière les chiffres (flash rouge des dégâts, mur clair,
+  compteur caché) comptait des balles. Sur une partie en 854x480 (16:9), autour de 5 kills vérifiés à l'image :
+  33 vraies balles sur 33 dans les deux cas, 29 fausses avant, 3 après (`minPlateau`, `minDigits`).
+- Zone mesurée en 3440x1440 et vérifiée en 854x480 (16:9). Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
   est à mettre à jour (**Mettre à jour les analyses**, ou `--reanalyze`).
 - Le gabarit du son headshot livré reconnaît la moitié des headshots (0,72 à 0,78) sans aucun faux (kills au corps à
   0,64 au plus), au seuil 0,7. Un premier réglage, pris dans l'une de ces deux parties : à revoir sur d'autres.
@@ -777,6 +1166,65 @@ les parties analysées avant sont à mettre à jour.
 
 ## Rythme rapide : un kill par temps
 
+**Par défaut, seulement sur les parties rapides de la musique** (`montage.fastParts`, case « Rythme rapide sur les
+parties rapides » de « Réglages avancés », `--no-fast-parts` pour l'éviter) : la drop et ce qui suit, si cette partie est
+intense (`minIntensity` 0,7 ; « Rome Is Burning » : 0,95 après la drop), quel que soit le tempo. Avant, l'intro et la
+montée gardent le rythme du style (Cinématique : plans longs, ralentis) ; après, un kill par temps (deux à 160 BPM et
+plus), sans ralenti ni rampe, zoom d'approche vers le réticule. Le rythme rapide part de la drop elle-même (choix de
+l'utilisateur du 18/11) : le meilleur groupe y tombe, en plan rapide, sans ralenti (un multi-kill s'étend juste avant
+la drop pour y finir). Si une musique passe au rythme rapide sans que vous le vouliez, `--no-fast-parts` ou la case
+l'évitent.
+
+**Le rythme suit la musique après la drop** : chaque partie calme qui suit (breakdown, couplet plus doux, outro) revient
+au rythme du style, et le rythme rapide reprend quand la musique redevient intense. Les sections de l'analyse font au
+moins quatre mesures ; une coupure plus courte au milieu d'une partie intense (la basse de « Big Dawgs » qui s'arrête
+deux mesures à 0:20) est repérée à part : une suite d'au moins `calmBars` (2) mesures dont le volume est à `calmDb`
+(7 dB) ou plus sous le niveau fort du morceau devient une section calme, au rythme du style. Mesuré sur les 19 musiques
+de test : seule cette coupure de « Big Dawgs » descend aussi bas (9,2 dB) ; ailleurs, deux mesures d'une partie intense
+ne descendent jamais à plus de 5,8 dB. Avec beaucoup de kills, le montage peut finir avant le retour au calme : 45 kills
+d'un plan d'un temps tiennent en 25 s après la drop, et la première partie calme de « Rome Is Burning » arrive 61 s
+après la sienne.
+
+**Garde-fou : peu de kills.** Un plan d'un temps par kill raccourcit le montage d'autant : 3 kills faisaient 1,5 s. Si le
+montage au rythme rapide dure moins que `montage.length.min` (12 s), il est refait entièrement au rythme du style.
+Au-dessus, le rythme rapide reste, même s'il raccourcit le montage : 10 kills WARDOGS en font 17 à 26 s, et c'est la
+version préférée (18/11).
+
+### Ressenti de chaque musique
+
+Aucune mesure du contenu ne sépare seule les musiques qu'on ressent rapides des calmes (mesuré sur 19 musiques). Le
+montage apprend donc de vos réponses. Sous le résultat d'un montage kills, une question : « Rythme rapide sur
+<musique> ? » **👍 Bien**, **👎 Trop rapide** ou **👎 Pas assez rapide**. En ligne de commande : `app musique-ressenti
+MUSIQUE fast|calm|auto` (`auto` efface), et `app musique-ressenti` seul liste les ressentis et ce que le modèle en a
+appris. La fin d'un `app montage` rappelle la commande.
+
+- **calm** : jamais de rythme rapide sur cette musique.
+- **fast** : rapide dès la drop, aussi dans les parties moyennes qui suivent (intensité à partir de
+  `montage.fastParts.fastIntensity`, 0,45 au lieu de 0,7).
+- **auto** : la règle par défaut.
+- « Bien » confirme ce que le montage a fait : rapide s'il avait des plans rapides, calme sinon.
+
+Les ressentis sont gardés dans `<sortie>\sessions\music-feel.json`, par nom de fichier et taille : une musique copiée
+ailleurs garde le sien, une autre version (autre taille) non. Chaque réponse garde aussi les mesures de la musique
+(attaques par seconde, toutes bandes puis basses, médiums, aigus ; volume ; part percussive ; tempo), d'où un modèle
+appris (régression logistique) qui devine le ressenti des musiques sans réponse. Il ne sert qu'à partir de 8 musiques,
+dont 3 de chaque sorte, et seulement s'il classe bien au moins 80 % des musiques qu'il n'a pas vues (validation croisée
+« une de côté »). Sinon, la règle par défaut. Le jeu de départ connu le 18/11 (rapides : « Rome Is Burning » après la
+drop, « R2D2 », « Spitfire », « Doom Eternal », « Big Dawgs » ; calme : « Lose Yourself ») n'est pas versé dans vos
+réponses. Il sert de données de test : avec 6 musiques dont une seule calme, le modèle en classe 4 sur 6 en validation
+croisée et reste inactif.
+
+Dans une bibliothèque de musiques, un style au rythme rapide partout (`fast: true`, plans d'un temps) préfère les
+musiques ressenties rapides (+0,03 sur la note du choix) et évite les calmes (−0,03). Les autres styles n'avancent
+rien : le ressenti y règle seulement les parties rapides.
+
+Plus de seuil de tempo (choix de l'utilisateur du 18/11, après des montages côte à côte avec et sans lui) : le seuil des
+120 BPM gardait au rythme du style des musiques lentes mais intenses (« Doom Eternal » 103 BPM, « Big Dawgs » 90).
+Aucune mesure du contenu (attaques par seconde, part percussive, volume) ne séparait mieux les musiques ressenties
+rapides des calmes. Une ancienne configuration qui pose `montage.fastParts.minBpm` se charge encore ; le réglage est
+ignoré.
+Le rythme rapide forcé (ci-dessous) rend tout le montage rapide.
+
 Case « Rythme rapide » du dialogue du montage kills, `montage --fast` ou `search --montage … --fast` : un kill sur
 chaque temps de la musique, sur chaque coup de grosse caisse d'une techno, comme les edits TikTok de référence (plans de
 0,37 à 0,67 s en médiane). Tous les kills, chacun son plan (même dans un multi-kill), sans ralenti ni rampe (ils n'ont pas
@@ -793,6 +1241,111 @@ En 21:9, l'ennemi n'est souvent que quelques pixels au fond d'un couloir : il gr
   0,17 s après le kill et ne montrait que l'écran de mort.
 - Dans un dossier de musiques, celles qui gardent des plans d'un temps passent devant (`fast.musicPace`).
 - `montage.fast.enabled: true` dans le profil pour l'avoir par défaut.
+
+## Tempo : musiques lues au double
+
+Le tempo est lu par autocorrélation des attaques, avec une préférence pour 120 BPM. Une musique lente aux croches
+très régulières peut alors se lire sur ses croches : « Lose Yourself » sortait à 171 BPM pour 86, et passait au rythme
+rapide après sa drop. Au-dessus de 140 BPM lus, l'analyse ramène le tempo à la noire quand deux choses se voient à la
+fois (`MusicAnalyzer.halvesTempo`) :
+- **rien ne bat entre deux temps lus**, dans aucune bande (basses < 220 Hz, médiums < 2,2 kHz, aigus) :
+  l'autocorrélation de chaque bande au demi-temps lu reste ≤ −0,1. Une vraie musique rapide a quelque chose entre ses
+  temps (charleston, caisse claire, basse) ;
+- **la noire est presque aussi nette que le temps lu** (autocorrélation à deux temps lus ≥ 0,85 × celle du temps lu).
+
+Mesuré sur les 19 musiques différentes de `D:\Musique` et de `music sample`. Le « réel » n'est noté que s'il est
+établi : tempo publié par plusieurs sources, ou dit par l'utilisateur. Une mesure maison de la battue (grosse caisse et
+caisse claire séparées, puis leur alternance) a été essayée : elle se trompait sur des musiques connues (« Fortunate
+Son », « R2D2 »), donc elle ne sert pas de référence.
+
+| Musique | Lu avant | Lu après | Réel | Source du réel | Entre deux temps / noire (lu > 140) |
+|---|---|---|---|---|---|
+| Eminem - Lose Yourself | 171,4 | **85,7** | 86 | piste de batterie de Karaoke-Version (85,7) ; plusieurs bases de données donnent 171, le même doublement | −0,26 / 0,96 → ramené |
+| Creedence - Fortunate Son | 132,6 | 132,6 | 132 | analyses publiées (Université de Waterloo 132,7 ; AcousticBrainz 132-133) | — |
+| Two Door Cinema Club - Undercover Martyn | 159,9 | 159,9 | 161 | audiokeychain (une seule source) | 0,32 / 0,78 |
+| R2D2 | 161,4 | 161,4 | rapide | dit par l'utilisateur ; aucun BPM publié trouvé | 0,02 / 0,73 |
+| GO2 - Spitfire | 157,0 | 157,0 | rapide | dit par l'utilisateur ; eurobeat (genre à 150-160) ; aucun BPM publié trouvé | 0,45 / 0,87 |
+| Apashe - Rome Is Burning | 126,1 | 126,1 | rapide après la drop | dit par l'utilisateur ; aucun BPM publié trouvé | — |
+| Apashe - Menace | 155,0 | 155,0 | non établi | aucun BPM publié trouvé ; rap sur trap, peut-être 77 (à écouter) | 0,12 / 1,12 |
+| life kinda sucks | 187,6 | 187,6 | non établi | aucun BPM publié trouvé ; peut-être 94 (à écouter) | 0,24 / 0,72 |
+| Meg & Dia - Monster (DotEXE Dubstep Remix) | 140,0 | 140,0 | non établi | dubstep, d'habitude publié à 140 et ressenti à 70 | — (139,7 à la grille de l'autocorrélation, sous 140) |
+| BACK2BACK | 124,0 | 124,0 | non établi | — | — |
+| HEAVENLY JUMPSTYLE (Slowed) | 111,2 | 111,2 | non établi | jumpstyle (~150) ralenti, cohérent | — |
+| Hanumankind - Big Dawgs | 90,4 | 90,4 | non établi | aucun BPM publié trouvé | — |
+| KEYGEN CHURCH - Tenebre Rosso Sangue | 88,1 | 88,1 | non établi | aucun BPM publié trouvé | — |
+| MokuMoku - You Are Not Invited | 110,2 | 110,2 | non établi | aucun BPM publié trouvé | — |
+| Nightcore - Snake Eyes | 131,4 | 131,4 | non établi | — | — |
+| RUBIKDICE - MONTAGEM PEGADORA | 110,4 | 110,4 | non établi | aucun BPM publié trouvé | — |
+| STORM I | 123,0 | 123,0 | non établi | — | — |
+| Time Is Ticking | 101,7 | 101,7 | non établi | — | — |
+| Doom Eternal - The Only Thing They Fear Is You | 103,0 | 103,0 | non établi | aucun BPM publié trouvé | — |
+
+Deux boucles synthétiques des tests (grosse caisse à chaque temps, charleston entre) restent à 150 et 170 BPM
+(entre deux temps : 0,61 et 0,80). Une seule musique est ramenée : le critère tient sur un seul exemple, d'où des
+seuils loin des musiques gardées. Une musique rapide sans rien entre ses temps et à la noire très nette, une boucle de
+grosse caisse seule par exemple, serait ramenée à tort.
+
+Note du montage par défaut (WARDOGS, deux parties, ~10 kills), avant et après :
+
+| Musique | BPM | Durée | Plans (rapides) | Note | sync | accent | durée remplie | creux | action |
+|---|---|---|---|---|---|---|---|---|---|
+| Lose Yourself avant | 171,4 | 22 s | 25 (10) | 0,837 | 1,00 | 0,51 | 0,40 | 1,00 | 0,97 |
+| Lose Yourself après | 85,7 | 43 s | 20 (0) | 0,862 | 1,00 | 0,54 | 0,94 | 0,85 | 0,88 |
+| Rome Is Burning avant / après | 126,1 | 16 s | 22 (13) | 0,833 / 0,833 | identiques | | | | |
+| R2D2 avant / après | 161,4 | 16 s | 25 (13) | 0,813 / 0,813 | identiques | | | | |
+
+Les plans restent calés sur les temps (sync 1,00). « Lose Yourself » n'a plus de partie rapide, et le montage remplit
+sa durée cible (43 s contre 22). Il perd un peu en creux et en action : des plans plus longs à 86 BPM.
+`MusicAnalyzer.VERSION` passe à 4 : les analyses gardées des bibliothèques de musiques sont refaites.
+
+## Montage des morts
+
+`montage --fails` (en ligne de commande seulement : retiré de l'application, jugé sans usage) monte les morts du
+joueur au lieu de ses kills, sur la musique, avec le même moteur : un plan par mort, la mort sur un temps.
+
+- Chaque plan montre les 3 secondes qui précèdent la mort, une image figée (0,7 s, son du jeu coupé, la musique
+  continue) et un petit texte. Le ralenti qui finit sur la mort est réservé aux plus fortes, une sur trois (au moins
+  une) : d'abord les échanges (le joueur venait de tuer), puis la mort sur la drop, puis les morts en plein combat
+  (intensité du moment), puis le plan d'ouverture (`montage.fails.slowShare`, 1 = toutes) : OUPS, RIP, AÏE, GAME OVER, BIEN ESSAYÉ, RATÉ (`video.fail.*`,
+  dans la langue de l'interface, ou `montage.fails.labels` du profil). Le texte d'une mort est tiré d'une empreinte de
+  la mort (capture et instant) : le même montage garde les mêmes textes, et deux morts voisines n'ont jamais le même.
+- Les morts sont les `death` du killfeed ou d'Outplayed. Dans Wardogs, « à terre » ne compte que si
+  `montage.killStyle.downedAsDeath` est activé ; sinon une partie de Wardogs n'a pas de mort, et le montage le dit.
+- Une mort juste après un kill (un échange) reste : elle est drôle aussi. Rounds, tirs à la tête, one taps et raccords
+  sur la pose de l'arme ne servent pas ici.
+- Fichiers : `<jeu>_<date>_fails.mp4`, à côté de son rapport (le texte de chaque mort y est : `failText`).
+
+```powershell
+& $app montage "Valorant- 44 kills.session.json" Valorant_game.session.json -m D:\Musique\R2D2.mp3 --fails -f 9:16
+```
+
+## Montage des réactions
+
+Case « Réactions » du dialogue du montage (rubrique du rythme, réglages avancés) ou `montage --reaction-montage` : les
+moments où le joueur réagit au micro (rire, cri, coup de gueule), quelle qu'en soit la cause (un kill, une mort, rien
+du tout), montés sur la musique avec le même moteur : un plan par réaction, son début sur un temps.
+
+- Il faut une piste micro séparée (Outplayed en écrit trois : mix, jeu, micro ; OBS sait le faire). Sans elle, le
+  montage refuse plutôt que d'inventer des réactions (`error.montage.noMicTrack`). Dans `D:\Vidéo`, seules les captures
+  WARDOGS en ont une ; les vidéos VALORANT, CS2, Apex et Fortnite n'ont qu'une piste.
+- Les réactions viennent de la piste micro, décodée en entier (4 s pour 45 min) : les éclats de voix 10 dB au-dessus
+  de la voix habituelle du joueur dans la partie (médiane des passages où il parle), plus les rires et cris reconnus par
+  YAMNet. YAMNet seul n'en trouvait presque pas (un rire en 2 h 30 de WARDOGS : le joueur rit peu fort) ; les éclats en
+  donnent 53, que whisper confirme : au-dessus de +20 dB ce sont des réactions (« oh la pute, ah fait chier », « waouh,
+  putain ! », « c'est pas le moment ! »), entre +12 et +17 dB souvent de la conversation ou des annonces.
+- Classement par la force de la réaction : montée au-dessus de la voix habituelle, durée, rire reconnu, et un kill, une
+  mort ou une aide moins de 5 s avant (`montage.reactionMontage.causeBonus`). Deux réactions à moins de 8 s : la plus
+  forte seule.
+- Micro mixé par-dessus la piste du jeu (×2, +6 dB), musique baissée à 25 % sous la voix, plan prolongé jusqu'à la fin
+  de la phrase, et ce qui est dit en sous-titres (whisper, modèle de `edit.story.captions`, une phrase criée en rouge).
+  Ni ralenti ni image figée : ils déformeraient la voix. Pas de plans d'un temps sur les parties rapides de la musique.
+- Réglages : `montage.reactionMontage` du profil (`rise`, `preRoll`, `postRoll`, `perClip`, `spacing`, `micGain`,
+  `musicUnderVoice`, `captions`…). Fichiers : `<jeu>_<date>_reactions.mp4` ; le rapport liste toutes les réactions
+  trouvées (`reactions`, avec `used` pour celles montées).
+
+```powershell
+& $app montage WARDOGS_09-22-2026_22-55-31-983.session.json WARDOGS_09-23-2026_20-4-19-983.session.json -m D:\Musique\R2D2.mp3 --reaction-montage -f 9:16
+```
 
 ## Montage onetaps
 
@@ -811,9 +1364,103 @@ La drop garde son plan d'élan, le premier plan en fait deux. Fichiers `…_onet
   l'affiche (« rythme +0,100 »).
 
 - Les balles viennent du compteur de munitions (`ammo-counter`), à défaut des tirs entendus (`game-sounds`) : une partie
-  analysée avant eux est à réanalyser. Une capacité ou le couteau (compteur immobile) n'est jamais un one tap.
+  analysée avant eux est à réanalyser. Une capacité ou le couteau (compteur immobile) n'est jamais un one tap. Un
+  profil qui n'a ni l'un ni l'autre (WARDOGS) ne peut pas faire de montage onetaps, et le message le dit au lieu de
+  proposer une réanalyse ; « aucun one tap » donne le nombre de kills trouvés.
 - Sans tirs à la tête connus (ni Outplayed, ni gabarit du son), tout kill d'une balle compte, et le journal le dit ;
   `montage.oneTaps.allowWithoutHeadshots: false` refuse plutôt.
+
+## Aperçus : choisir parmi plusieurs versions du montage
+
+Un rendu pleine qualité du montage kills prend plusieurs minutes : le juger à l'aveugle coûte cher. Bouton « Aperçu de
+3 versions » du dialogue du montage, ou `montage … --variants 3` : trois versions du même montage sont rendues en petit
+(360 pixels sur le petit côté, vertical d'abord), vite (x264 `ultrafast`, sans flou par vecteurs ni flou radial des
+coupes, que le rendu final garde), dans
+`<sortie>\apercus\`. Chaque plan y garde exactement son nombre d'images : coupes, kills sur les temps et son sont ceux
+du rendu final. L'aperçu décode en logiciel, sans filtre de boucle H.264 (plus rapide ici que le décodage matériel,
+dont chaque image pleine taille redescend de la carte graphique).
+
+**Aperçus rapides** : deux choses les accélèrent.
+- **Copies réduites (proxies)** : chaque passage de capture que lisent les aperçus est réduit une fois (à la taille
+  que l'aperçu montre vraiment : 640 lignes pour WARDOGS 3440x1440 en 9:16), avec une image clé toutes les 0,5 s, et
+  gardé dans `%TEMP%\highlights\cache\proxies` pour les aperçus suivants (autre musique, autre style). Mêmes
+  horodatages d'images que la capture et son copié tel quel : coupes, kills et son ne bougent pas ; le cadrage (9:16,
+  HUD recollé, zoom vers le réticule) se calcule en coordonnées relatives, donc juste sur la copie. Les copies d'une
+  capture modifiée ou effacée sont jetées ; au-delà de 3 Go, les moins récemment servies partent. Une capture déjà
+  petite (VALORANT 480p) est lue telle quelle. Le rendu final lit toujours les captures d'origine.
+- **Rendus simultanés** : le graphe de filtres d'un montage n'occupe qu'un cœur ; les trois aperçus se rendent donc en
+  même temps quand les images lues sont petites (copies réduites, captures ≤ 1080p). Dans l'application, la fenêtre des
+  versions s'ouvre dès que la première est prête.
+
+Mesuré (3 versions, « GO2 - Spitfire », sous le verrou de rendu ; détail dans `output\revue\apercu-rapide\`) :
+
+| parties | avant | après, 1re fois | après, copies déjà faites |
+|---|---|---|---|
+| WARDOGS 22-55-31 (2 versions, 19 plans) | 34,7 s | 28,8 s | 15,0 s |
+| WARDOGS 20-4-19 (3 versions, 4 plans) | 9,9 s | 8,5 s | 4,7 s |
+| VALORANT « 44 kills » 480p (3 versions, ~50 plans) | 143,8 s | 71,0 s | 64,3 s |
+| VALORANT « game » 480p (2 versions) | 32,7 s | 21,7 s | 21,6 s |
+
+Depuis, le flou radial des coupes n'est plus rendu dans les aperçus (un `scale` recalculé à chaque image, un tiers du
+temps d'un aperçu) : il ne couvre que 3 images de part et d'autre d'une coupe, et le rendu final le garde. Mesuré
+ensuite (copies déjà faites, détail dans `output\revue\apercu-sans-flou\`) : WARDOGS 22-55-31 14,8 s → 9,5 s,
+VALORANT « 44 kills » 52,1 s → 28,4 s. La version choisie se rend toujours : l'empreinte ne voit pas les effets.
+
+- **Les versions** : celles que le planificateur note déjà (échelle de la grille de coupes × place de la drop) et le
+  plan de base, classées comme il les classe : la version 1 est celle qu'un montage sans aperçu aurait rendue. Les
+  suivantes doivent s'écarter d'au moins 0,25 de toutes les précédentes : un quart des plans changent de clip ou de
+  place, ou un quart des coupes tombent ailleurs (à un temps près), ou la musique part d'un quart de montage plus loin.
+  Moins de trois versions quand les autres se ressemblent trop.
+- **Choisir** : dans l'application, chaque version a sa vignette animée, « Lire » (lecteur du système) et « Rendre
+  celle-ci ». En ligne de commande, la même commande avec `--pick <n>` à la place de `--variants` (fichier des
+  versions : le plus récent pour ces parties et cette musique, ou `--variants-file`). Rien n'est réanalysé ; le montage
+  recalculé doit avoir la même empreinte que l'aperçu regardé, sinon il est refusé (réglages ou analyses changés).
+- **Fichiers** : `…_killmontage_variantes.json` (chaque version : réglage, empreinte, note critère par critère, écart
+  aux précédentes, aperçu) et, à côté du rapport du rendu final, `….choix.json` (version choisie, notes de toutes) :
+  de quoi apprendre plus tard ce qui fait préférer une version.
+
+```powershell
+& $app montage output\sessions\WARDOGS_*.session.json --music "D:\Musique\R2D2.mp3" --variants 3
+& $app montage output\sessions\WARDOGS_*.session.json --music "D:\Musique\R2D2.mp3" --pick 2
+```
+
+## Goûts appris : la note du montage s'ajuste aux choix
+
+Chaque fois qu'une version est rendue après les aperçus (`--pick`, « Rendre celle-ci »), le choix est gardé dans
+`<sortie>\sessions\taste-history.json` : les critères de la note de chaque version proposée (sur le temps, accent,
+sobriété, variété, durée, rythme, images gelées, ouverture, trous, action) et celle qui a été rendue. Les corrections de
+l'éditeur de plan (kills écartés, forcés, épinglés) y sont gardées aussi, avec les sortes de chaque groupe proposé.
+
+Dès 10 choix (`montage.learnTaste`, actif par défaut), les poids de ces critères s'ajustent pour que la
+version rendue batte les autres (préférence par paires) : un critère que vous préférez plus que le moteur ne le pensait
+pèse plus, et décide de la version 1, des versions proposées et du montage rendu sans aperçu. Prudent : chaque poids
+reste entre le quart et le quadruple de l'origine, leur somme ne change pas, et un rappel vers l'origine empêche
+quelques choix de tout renverser. Tant qu'il y a moins de 10 choix, rien ne change : même plan, même note qu'avec
+les poids d'origine. Pour revenir aux poids d'origine : `app gouts --reset` ; pour ne jamais apprendre :
+`montage.learnTaste: false` dans le profil.
+
+```powershell
+& $app gouts            # « actif, N choix sur 10 avant d'apprendre », choix gardés, poids appris contre poids d'origine, et ce que ça changerait au dernier choix
+& $app gouts --reset    # oublier : l'historique est mis de côté (taste-history.reset-<date>.json), pas effacé
+```
+
+Démonstration sur données synthétiques (aucun vrai choix encore) : un goût caché qui tient 4 fois plus à l'action et
+3 fois plus à l'ouverture, 4 fois moins à la sobriété, 10 % de choix au hasard. Après 25 choix : action +37 %,
+ouverture +13 %, sobriété −30 % ; sur 2000 choix tenus à l'écart, la version préférée est la mieux notée 83,6 % des fois
+contre 79,5 % avec les poids d'origine. Après 100 choix : action +59 %, ouverture +23 %, sobriété −29 %.
+
+**Sortes de kills préférées (corrections de l'éditeur).** À chaque montage rendu avec des corrections, chaque groupe
+proposé est gardé avec ses sortes (multi-kill, tout à la tête, one tap, flick, ace, clutch) et ce que vous
+en avez fait : écarté (−1), gardé de force ou épinglé (+1), rien (0). Dès 5 montages corrigés, une sorte qui compte au
+moins 3 groupes écartés ou gardés reçoit un bonus de rang : sa moyenne moins celle de tous les groupes (un utilisateur
+qui écarte beaucoup ne déteste pas toutes les sortes pour autant), ×1,5, borné à ±0,75 kill par sorte et ±1 kill par
+groupe, nul sous 0,2 kill (bruit : une sorte neutre sort entre −0,18 et +0,12 sur la démonstration). Un flick préféré passe donc devant un kill seul quand la place manque, jamais devant un groupe qui a un kill de
+plus. Comptage simple, déterministe ; la distance du kill n'en fait pas partie (pas mesurée). `app gouts` les liste ;
+les corrections d'avant cette version (sans les groupes) restent gardées mais ne sont pas apprises.
+
+**Dans l'application** : bouton « Goûts appris » dans la liste des analyses. Une barre par critère (écart à son poids
+d'origine) et par sorte de kill (préférée, évitée, pas de préférence, trop peu de corrections), grisées tant que
+l'apprentissage n'a pas assez de choix, et « Oublier ce qui a été appris » (après confirmation, comme `--reset`).
 
 ## Ligne de commande
 
@@ -826,7 +1473,9 @@ $app = ".\app-cli\build\install\app\bin\app.bat"
 & $app music D:\Musique\son.mp3 --max 60s --clips 12         # tempo, sections, drop et grille de coupes d'un montage
 & $app music D:\Musique\TikTok                         # analyse d'avance chaque musique d'un dossier (bibliothèque)
 & $app publish output\partie_killmontage_9x16.mp4 --dry-run   # titre, description et tags proposés pour YouTube
+& $app thumbnail output\partie_killmontage_9x16.mp4           # miniature YouTube d'une vidéo exportée
 & $app stats --games                                  # statistiques par soirée, partie par partie
+& $app gouts                                         # goûts appris des choix de variantes (voir plus haut)
 & $app search --clutch --montage D:\Musique            # moments cherchés dans toutes les parties, et leur montage
 & $app process "D:\Videos\...\partie.mp4"         # analyse + montage
 & $app process partie.mp4 --profile valorant --duration 5m --format 16:9,9:16
@@ -854,6 +1503,8 @@ Un fichier existant n'est jamais écrasé (suffixe `_2`, `_3`…), et les source
 ## Configuration
 
 - `config/app.yaml` : FFmpeg, dossiers, préférence d'encodeur, parallélisme.
+- `config/montage-styles.yaml` : styles du montage kills (`--style`, puces de la fenêtre de montage) et style par défaut.
+- `config/export-presets.yaml` : préréglages d'export (`--preset`, puces de la barre d'export et de la fenêtre de montage).
 - `config/profiles/*.yaml` : un fichier par jeu. Il définit les fenêtres d'analyse, les détecteurs (type, poids, normalisation, paramètres), la sélection (seuil, marges, durée cible) et le montage. Le profil est choisi d'après le chemin du fichier (`match.pathContains`), sinon c'est `default`. `--profile` force un profil.
 
 Pistes audio : un détecteur demande un rôle (`role: game`, `role: mic`…) et non un numéro de piste ; l'index reste

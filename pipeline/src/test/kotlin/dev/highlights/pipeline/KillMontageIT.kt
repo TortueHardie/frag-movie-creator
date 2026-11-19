@@ -69,8 +69,10 @@ class KillMontageIT : FunSpec({
             baseDir = Path("../config").toAbsolutePath().normalize(),
             source = null,
         )
+        // Parties rapides actives (défaut) : avec trois kills, un plan d'un temps chacun ferait un montage d'1,5 s ; le
+        // garde-fou de MontagePlanner.plan le refait au rythme du style.
         val result = Pipelines.create(config, ffmpeg).killMontage(
-            listOf(session), music, MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds), ProgressReporter.NONE,
+            listOf(session), music, MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds, showcase = false), ProgressReporter.NONE,
         )
 
         val out = ffmpeg.probe(result.videos.getValue(OutputFormat.VERTICAL))
@@ -78,6 +80,9 @@ class KillMontageIT : FunSpec({
         val report = Json { ignoreUnknownKeys = true }.decodeFromString(MontageReport.serializer(), result.report.readText())
         report.bpm shouldBe (120.0 plusOrMinus 1.0)
         report.clips shouldHaveSize 2
+        report.clips.none { it.fastPart } shouldBe true
+        // Au rythme du style, pas les 1,5 s des trois plans d'un temps (le style seul ne garantit pas length.min).
+        (report.durationSeconds > 5.0) shouldBe true
         val beatPeriod = 60.0 / report.bpm
         val totalBeats = report.clips.sumOf { it.beats }
         // Frontières sur les temps détectés (résolution ~12 ms) : la durée suit le tempo à quelques ms près.
@@ -136,7 +141,7 @@ class KillMontageIT : FunSpec({
         )
         val pipeline = Pipelines.create(config, ffmpeg)
         val result = pipeline.killMontage(
-            listOf(session), library, MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds), ProgressReporter.NONE,
+            listOf(session), library, MontageOptions(formats = listOf(OutputFormat.VERTICAL), maxDuration = 30.seconds, showcase = false), ProgressReporter.NONE,
         )
 
         result.music shouldBe library.resolve("rythmee.wav")

@@ -21,6 +21,7 @@ import java.nio.file.Path
 import java.security.MessageDigest
 import java.time.Instant
 import kotlin.io.path.createDirectories
+import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
 import kotlin.io.path.fileSize
 import kotlin.io.path.getLastModifiedTime
@@ -46,6 +47,11 @@ data class LibraryEntry(
     val duration: SerialDuration,
     val recordedAt: SerialInstant? = null,
     val events: Map<String, Int> = emptyMap(),
+    /**
+     * Date de modification de la session quand [events] a été compté ; null : à l'analyse. Une session réécrite depuis
+     * (réanalyse rangée ailleurs, retouche) est recomptée par [AnalysisLibrary.entries].
+     */
+    val eventsCountedAt: SerialInstant? = null,
 )
 
 @Serializable
@@ -59,9 +65,23 @@ private data class LibraryIndex(val version: Int = 1, val entries: List<LibraryE
 class AnalysisLibrary(val file: Path) {
     private val lock = Any()
 
-    /** Analyses dont la session existe encore, la plus récente d'abord. */
+    /**
+     * Analyses dont la session existe encore, la plus récente d'abord, avec les événements de la partie telle que sa
+     * session la décrit aujourd'hui. Les comptes de l'index datent de l'analyse : « Valorant- 44 kills » y gardait le
+     * 1 kill d'avant la correction du killfeed alors que sa session, réanalysée depuis, en a 46 (QA finale).
+     */
     fun entries(): List<LibraryEntry> = synchronized(lock) {
-        load().filter { it.sessionFile.isRegularFile() }.sortedByDescending { it.analyzedAt }
+        val all = load()
+        var changed = false
+        val fresh = all.map { e ->
+            val modified = runCatching { e.sessionFile.getLastModifiedTime().toInstant() }.getOrNull() ?: return@map e
+            if (modified <= (e.eventsCountedAt ?: e.analyzedAt)) return@map e
+            val session = runCatching { SessionStore.load(e.sessionFile) }.getOrNull() ?: return@map e
+            changed = true
+            e.copy(events = countEvents(session), eventsCountedAt = modified, duration = session.media.duration)
+        }
+        if (changed) runCatching { save(fresh) }.onFailure { log.warn(it) { "Mémoire des analyses non mise à jour ($file)" } }
+        fresh.filter { it.sessionFile.isRegularFile() }.sortedByDescending { it.analyzedAt }
     }
 
     /** Analyse réutilisable pour [source] tel qu'il est sur le disque, avec ce profil et ces réglages. */
@@ -86,6 +106,21 @@ class AnalysisLibrary(val file: Path) {
         runCatching { save(kept + normalized) }.onFailure { log.warn(it) { "Mémoire des analyses non enregistrée ($file)" } }
     }
 
+    /**
+     * Oublie l'analyse enregistrée dans [sessionFile] : retire ses entrées de l'index et efface la session. Ne touche
+     * jamais une capture : seul un fichier `*.session.json` qui n'est la source d'aucune entrée est effacé.
+     * Renvoie les entrées retirées.
+     */
+    fun forget(sessionFile: Path): List<LibraryEntry> = synchronized(lock) {
+        val target = key(sessionFile)
+        val all = load()
+        val (removed, kept) = all.partition { key(it.sessionFile) == target }
+        if (removed.isNotEmpty()) save(kept)
+        val isSession = target.fileName.toString().endsWith(SESSION_SUFFIX, ignoreCase = true)
+        if (isSession && all.none { it.source == target }) target.deleteIfExists()
+        removed
+    }
+
     private fun load(): List<LibraryEntry> {
         if (!file.exists()) return emptyList()
         return try {
@@ -105,7 +140,10 @@ class AnalysisLibrary(val file: Path) {
 
     companion object {
         /** À augmenter quand un détecteur change de calcul : les analyses précédentes sont alors refaites. */
-        const val ANALYSIS_VERSION = 3
+        const val ANALYSIS_VERSION = 5
+
+        /** Extension des fichiers de session : la seule chose que [forget] efface. */
+        const val SESSION_SUFFIX = ".session.json"
 
         private val json = Json(SessionStore.json) { prettyPrint = true }
         // Sans les null : le sérialiseur YAML des paramètres (retirés ici) ne les accepte pas.
@@ -171,6 +209,10 @@ internal fun libraryEntry(outcome: AnalysisOutcome, fingerprint: String, stamp: 
         analyzedAt = Instant.now(),
         duration = session.media.duration,
         recordedAt = session.media.recordedAt,
-        events = session.timeline.events.groupingBy { it.kind }.eachCount(),
+        events = countEvents(session),
     )
 }
+
+/** Événements de toute la partie par type : les kills de la partie, comme les statistiques, pas ceux des moments retenus. */
+internal fun countEvents(session: dev.highlights.core.session.Session): Map<String, Int> =
+    session.timeline.events.groupingBy { it.kind }.eachCount()

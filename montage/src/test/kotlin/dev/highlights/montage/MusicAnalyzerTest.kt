@@ -123,10 +123,37 @@ class MusicAnalyzerTest : FunSpec({
         MusicAnalyzer.fromStart(analysis, 10.seconds).dropBeat shouldBe 666
     }
 
+    test("mesures du contenu après la drop : attaques par seconde par bande, part percussive") {
+        // 120 BPM : une grosse caisse par temps (2/s) et un charleston entre deux (2/s), soit 4 attaques par seconde. Le
+        // charleston de la boucle est un bruit blanc : il atteint aussi les basses (4/s mesurées, contre 2 de grosse caisse).
+        val f = MusicAnalyzer.analyzeSamples(beatLoop(120.0, 40)).features!!
+        f.bpm shouldBe (120.0 plusOrMinus 1.5)
+        f.onsets shouldBe (4.5 plusOrMinus 1.0)
+        f.lowOnsets shouldBe (3.5 plusOrMinus 1.5)
+        // Rien que des percussions.
+        (f.percussive > 0.7) shouldBe true
+    }
+
     test("tempos variés") {
         listOf(90.0, 100.0, 120.0, 140.0, 150.0, 170.0).forEach { bpm ->
             withClue("$bpm BPM") { MusicAnalyzer.analyzeSamples(beatLoop(bpm, 40)).bpm shouldBe (bpm plusOrMinus 1.5) }
         }
+    }
+
+    test("tempo doublé : ramené à la noire seulement si rien ne bat entre deux temps lus et que la noire est aussi nette") {
+        val fps = MusicAnalyzer.SAMPLE_RATE / 256.0
+        // Autocorrélation de l'enveloppe au temps lu (décalage 30 trames, 172 BPM) et à la noire (60).
+        fun r(beat: Double, half: Double) = DoubleArray(130) { lag -> when (lag) { 30 -> beat; 60 -> half; else -> 0.0 } }
+        // « Lose Yourself » : 171 lus, rien entre deux temps lus dans aucune bande (−0,28), noire 0,97.
+        MusicAnalyzer.halvesTempo(r(0.82, 0.80), 30, fps, between = -0.28) shouldBe true
+        // « GO2 - Spitfire » : noire nette mais des attaques entre les temps (0,45) : vraiment rapide.
+        MusicAnalyzer.halvesTempo(r(0.40, 0.35), 30, fps, between = 0.45) shouldBe false
+        // « R2D2 » : presque rien entre les temps (0,02) ; même sans rien, sa noire est bien moins nette (0,73).
+        MusicAnalyzer.halvesTempo(r(0.54, 0.39), 30, fps, between = 0.02) shouldBe false
+        MusicAnalyzer.halvesTempo(r(0.54, 0.39), 30, fps, between = -0.3) shouldBe false
+        // Sous 140 BPM, un tempo lu n'est jamais divisé (40 trames : 129 BPM).
+        val slow = DoubleArray(130) { lag -> when (lag) { 40 -> 0.8; 80 -> 0.8; else -> -0.2 } }
+        MusicAnalyzer.halvesTempo(slow, 40, fps, between = -0.5) shouldBe false
     }
 
     test("rôles des sections : intro, montée vers la drop, creux, outro") {

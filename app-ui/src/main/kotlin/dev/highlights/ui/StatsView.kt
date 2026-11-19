@@ -160,6 +160,8 @@ private fun EveningCard(e: EveningStats, actions: UiActions) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(date, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 Text(tr("ui.stats.eveningGames", "count" to e.games.size, "duration" to e.playTime), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                // Récap de la soirée : passe par la file des traitements, comme un export.
+                androidx.compose.material3.TextButton(onClick = { actions.recapEvening(e.date.toString(), e.games.first().profileId) }) { Text(tr("ui.stats.recap")) }
             }
             Text(
                 listOfNotNull(

@@ -2,6 +2,7 @@ package dev.highlights.montage
 
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageSettings
+import dev.highlights.core.model.MusicFeel
 import dev.highlights.core.model.ScoredTimeline
 import dev.highlights.core.model.TimelineEvent
 import dev.highlights.core.model.VideoStream
@@ -52,7 +53,7 @@ class MusicLibraryTest : FunSpec({
         )
     }
 
-    val settings = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds)
+    val settings = MontageSettings(killOffset = Duration.ZERO, maxDuration = 60.seconds).earlierDefaults()
     val kills = listOf(60, 180, 183, 300, 420, 540, 660, 780, 900, 1020)
     val groups = MontagePlanner.groups(listOf(session(kills)), settings)
 
@@ -136,6 +137,22 @@ class MusicLibraryTest : FunSpec({
         val b = Path("C:/Musique/b.mp3")
         MusicHistory(file).apply { record(a); record(b); record(a) }
         MusicHistory(file).recent().map { it.toString() } shouldContainExactly listOf(a.toString(), b.toString())
+    }
+
+    test("ressenti : un style au rythme rapide préfère la musique ressentie rapide ; les autres styles n'avancent rien") {
+        val a = music("a.mp3", 120)
+        val b = music("b.mp3", 120)
+        val feels = mapOf(Path("a.mp3") to MusicFeel.CALM, Path("b.mp3") to MusicFeel.FAST)
+        // Rythme rapide partout : à égalité, la musique dite rapide passe devant, la calme recule.
+        val fast = settings.forFast()
+        val ranked = MusicChoice.rank(groups, listOf(a, b), fast, feels = feels) { false }
+        ranked.first().music.file shouldBe Path("b.mp3")
+        ranked.first().feel shouldBe MusicChoice.FEEL_BONUS
+        ranked.last().feel shouldBe -MusicChoice.FEEL_BONUS
+        // Style ordinaire : pas d'avance, mais la musique calme n'a aucun plan au rythme rapide.
+        val plain = MusicChoice.rank(groups, listOf(a, b), settings, feels = feels) { false }
+        plain.forEach { it.feel shouldBe 0.0 }
+        plain.single { it.music.file == Path("a.mp3") }.plan!!.clips.none { it.fastPart } shouldBe true
     }
 
     test("sans kill à monter, aucune musique n'a de plan et chacune dit pourquoi") {

@@ -1,8 +1,6 @@
 package dev.highlights.ui
 
 import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.ImageComposeScene
-import androidx.compose.ui.unit.Density
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.model.AudioStream
 import dev.highlights.core.model.Highlight
@@ -54,17 +52,12 @@ class UiSnapshotTest : FunSpec({
         var french: Path? = null
         for ((tag, folder) in languages) {
             I18n.withLanguage(tag) {
-                val scene = ImageComposeScene(width, height, Density(1f)) { App(state.copy(language = tag), NoopActions) }
-                try {
-                    scene.render(0)
-                    val image = scene.render(500.milliseconds.inWholeNanoseconds)
-                    val file = outDir.resolve("$folder$name.png")
-                    file.parent.createDirectories()
-                    file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
-                    if (tag == "fr") french = file
-                } finally {
-                    scene.close()
-                }
+                // Rendue jusqu'au repos avant l'image et la fermeture (voir SceneRendering).
+                val image = SceneRendering.image(width, height) { App(state.copy(language = tag), NoopActions) }
+                val file = outDir.resolve("$folder$name.png")
+                file.parent.createDirectories()
+                file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+                if (tag == "fr") french = file
             }
         }
         return french!!
@@ -182,6 +175,40 @@ class UiSnapshotTest : FunSpec({
         render("04_relecture_petite_fenetre", state, 1100, 700).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("file des traitements : un en cours, deux en attente, un fini, un en échec ; puis la confirmation de fermeture") {
+        val jobs = listOf(
+            QueuedJob(1, "Export : WARDOGS_09-16-2026_19-1-23-983.mp4", status = JobStatus.DONE, fraction = 1.0, result = Path("D:/Highlights/wardogs_highlights.mp4")),
+            QueuedJob(2, "Montage kills sur R2D2.mp3", status = JobStatus.FAILED, error = "Aucune musique ne convient à ce montage"),
+            QueuedJob(3, "Montage kills sur Rome Is Burning.mp3", status = JobStatus.RUNNING, fraction = 0.42, stage = "Rendu > 9:16", elapsed = 83.seconds, eta = 115.seconds),
+            QueuedJob(4, "Aperçus de variantes sur Rome Is Burning.mp3"),
+            QueuedJob(5, "Export : WARDOGS_09-22-2026_22-55-31-983.mp4"),
+            QueuedJob(6, "Analyse en arrière-plan : WARDOGS_09-23-2026_21-4-12-105.mp4", auto = true),
+        )
+        val state = UiState(config = ready, sources = listOf(source), settings = settings, session = SessionState(session, Path("D:/Highlights/sessions/x.session.json"), selectedId = "h003"), jobs = jobs)
+        render("16_file_des_traitements", state).fileSize() shouldBeGreaterThan 0L
+        render("17_fermeture_avec_traitements", state.copy(quitConfirm = 3)).fileSize() shouldBeGreaterThan 0L
+    }
+
+    test("file des traitements : un export lancé à la main passe devant deux analyses du dossier surveillé") {
+        // Ordre produit par la vraie file : une analyse automatique en cours, deux en attente, puis l'export.
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+        val queue = JobQueue(scope, onChange = {})
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val first = queue.submit("Analyse en fond : WARDOGS_09-25-2026_21-4-12-105.mp4", auto = true) { gate.await(); null }
+        queue.submit("Analyse en fond : WARDOGS_09-25-2026_21-41-7-105.mp4", auto = true) { null }
+        queue.submit("Analyse en fond : WARDOGS_09-25-2026_22-20-55-105.mp4", auto = true) { null }
+        kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeout(5_000) { while (queue.snapshot.first().status != JobStatus.RUNNING) kotlinx.coroutines.delay(10) } }
+        val before = queue.snapshot.map { if (it.id == first) it.copy(fraction = 0.37, stage = "Détecteurs", elapsed = 41.seconds, eta = 70.seconds) else it }
+        queue.submit("Export : WARDOGS_09-22-2026_22-55-31-983.mp4") { null }
+        val after = queue.snapshot.map { if (it.id == first) it.copy(fraction = 0.37, stage = "Détecteurs", elapsed = 41.seconds, eta = 70.seconds) else it }
+        after.map { it.auto } shouldBe listOf(true, false, true, true)
+        val state = UiState(config = ready, sources = listOf(source), settings = settings)
+        render("16b_file_avant_export", state.copy(jobs = before)).fileSize() shouldBeGreaterThan 0L
+        render("16c_file_export_devant", state.copy(jobs = after)).fileSize() shouldBeGreaterThan 0L
+        gate.complete(Unit)
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+    }
+
     test("réglages du montage kills") {
         val state = UiState(
             config = ready,
@@ -229,6 +256,24 @@ class UiSnapshotTest : FunSpec({
         render("13_plateforme_reglages", state.copy(montage = null)).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("préréglages d'export : puces en haut de la barre d'export et de la fenêtre de montage") {
+        val presets = listOf(
+            dev.highlights.core.model.ExportPreset("tiktok", platform = "tiktok", length = 30.seconds, montageStyle = "tiktok", thumbnail = false),
+            dev.highlights.core.model.ExportPreset("shorts", platform = "shorts", length = 60.seconds, montageStyle = "cinematique", thumbnail = false),
+            dev.highlights.core.model.ExportPreset("complet", format = OutputFormat.LANDSCAPE, length = 3.minutes, montageStyle = "cinematique", thumbnail = true),
+        )
+        val platforms = dev.highlights.core.model.PlatformProfile.DEFAULTS.map { (id, p) -> PlatformInfo.of(id, p) }
+        val state = UiState(
+            config = ready.copy(platforms = platforms, presets = presets),
+            sources = listOf(source),
+            settings = settings.choosePreset("tiktok", presets).copy(durationText = "45s", presetTouched = setOf(PresetKnob.LENGTH)),
+            session = SessionState(session, Path("D:/Highlights/sessions/x.session.json")),
+        )
+        render("18_prereglages_export", state).fileSize() shouldBeGreaterThan 0L
+        val montage = MontageUiState(music = Path("D:/Musique/phonk_128.mp3")).choosePreset("shorts", presets)
+        render("19_prereglages_montage", state.copy(montage = montage)).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("statistiques par soirée") {
         fun game(at: String, name: String, kills: Int, deaths: Int?, hs: Int?, best: Int?, multi: Map<Int, Int> = emptyMap(), clutches: Int = 0) =
             dev.highlights.pipeline.GameStats(
@@ -250,6 +295,25 @@ class UiSnapshotTest : FunSpec({
         )
         val state = UiState(config = ready, stats = StatsState(loading = false, games = games))
         render("14_statistiques", state).fileSize() shouldBeGreaterThan 0L
+    }
+
+    test("goûts appris : poids des critères et sortes de kills préférées") {
+        val base = dev.highlights.montage.MontageScorer.WEIGHTS
+        val weights = base + mapOf("action" to 0.19, "opening" to 0.16, "restraint" to 0.09, "sync" to 0.21)
+        val learned = dev.highlights.montage.LearnedTaste(weights, base, choices = 14, agreementBefore = 0.43, agreementAfter = 0.79, active = true)
+        val groups = dev.highlights.montage.LearnedGroupTaste(
+            bonus = mapOf(dev.highlights.montage.GroupTrait.FLICK to 0.42, dev.highlights.montage.GroupTrait.ONE_TAP to -0.31, dev.highlights.montage.GroupTrait.HEADSHOT to 0.08),
+            actions = mapOf(dev.highlights.montage.GroupTrait.FLICK to 9, dev.highlights.montage.GroupTrait.ONE_TAP to 5, dev.highlights.montage.GroupTrait.HEADSHOT to 6, dev.highlights.montage.GroupTrait.MULTI_KILL to 4, dev.highlights.montage.GroupTrait.ACE to 1),
+            edits = 7, active = true,
+        )
+        val taste = dev.highlights.pipeline.TasteState(
+            Path("D:/Highlights/sessions/taste-history.json"), 14, 7, learned, listOf("valorant", "wardogs"), null, null, null, groups = groups,
+        )
+        render("17_gouts", UiState(config = ready, taste = TasteUiState(taste, confirmReset = true))).fileSize() shouldBeGreaterThan 0L
+        val fresh = dev.highlights.pipeline.TasteState(
+            Path("D:/Highlights/sessions/taste-history.json"), 3, 1, learned.copy(weights = base, choices = 3, active = false), listOf("valorant"), null, null, null,
+        )
+        render("17_gouts_debut", UiState(config = ready, taste = TasteUiState(fresh))).fileSize() shouldBeGreaterThan 0L
     }
 
     test("recherche de moments") {
@@ -318,6 +382,12 @@ private object NoopActions : UiActions {
     override fun openLibraryItem(sessionFile: Path) = Unit
     override fun toggleLibraryItem(sessionFile: Path) = Unit
     override fun openLibrarySelection() = Unit
+    override fun askForget(sessionFile: Path) = Unit
+    override fun confirmForget() = Unit
+    override fun cancelForget() = Unit
+    override fun nudgeSegment(id: String, end: Boolean, delta: kotlin.time.Duration) = Unit
+    override fun addSegmentAt(entry: Int, at: kotlin.time.Duration) = Unit
+    override fun moveSegment(id: String, delta: Int) = Unit
     override fun chooseWatchFolder() = Unit
     override fun stopWatching() = Unit
     override fun addSources() = Unit
@@ -340,6 +410,7 @@ private object NoopActions : UiActions {
     override fun openOutputDir() = Unit
     override fun analyze() = Unit
     override fun export() = Unit
+    override fun clipMoment(key: String) = Unit
     override fun cancelJob() = Unit
     override fun toggleSegment(id: String) = Unit
     override fun setAllSegments(enabled: Boolean) = Unit
@@ -370,6 +441,7 @@ private object NoopActions : UiActions {
     override fun browse(uri: java.net.URI) = Unit
     override fun openYouTubeUpload() = Unit
     override fun copyToClipboard(text: String) = Unit
+    override fun makeThumbnail() = Unit
     override fun updateMontage(change: (MontageUiState) -> MontageUiState) = Unit
     override fun setIntroEnabled(enabled: Boolean) = Unit
     override fun openIntro() = Unit

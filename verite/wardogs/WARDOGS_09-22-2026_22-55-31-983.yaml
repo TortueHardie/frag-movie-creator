@@ -1,0 +1,52 @@
+# Vérité terrain validée par le joueur le 19/11/2026 sur les planches de output/revue/verite-terrain/
+# (détections de game-events, profil wardogs, analyse du 18/11/2026). downed = à terre (« EN ATTENTE DE
+# RÉANIMATION ») : compté à part, pas une mort (choix du joueur).
+capture: { name: WARDOGS_09-22-2026_22-55-31-983.mp4, sizeBytes: 16244722666, duration: 6362.986s }
+profile: wardogs
+tolerance: 3s
+validated: utilisateur, 2026-11-19
+note: "Soirée de 1 h 46, plusieurs parties : la plus riche en kills. Planche de validation : output/revue/verite-terrain/22-55-31/."
+kinds: [kill, assist, revive, downed]
+events:
+  - { at: "12:47", kind: revive }
+  - { at: "16:50", kind: assist }
+  - { at: "17:23", kind: assist }
+  - { at: "20:21", kind: kill }
+  - { at: "20:28", kind: revive }
+  - { at: "23:22", kind: downed }
+  - { at: "24:06", kind: assist }
+  - { at: "24:15", kind: downed }
+  - { at: "29:51", kind: assist }
+  - { at: "31:31", kind: assist }
+  - { at: "31:42", kind: kill }
+  - { at: "37:12", kind: kill }
+  - { at: "37:23", kind: revive }
+  - { at: "37:35", kind: revive }
+  - { at: "38:37", kind: assist }
+  - { at: "40:01", kind: kill }
+  - { at: "41:41", kind: downed }
+  - { at: "45:34", kind: assist }
+  - { at: "50:00", kind: kill }
+  - { at: "52:39", kind: kill }
+  - { at: "53:37", kind: kill }
+  - { at: "55:56", kind: kill }
+  - { at: "56:18", kind: revive }
+  - { at: "1:07:52", kind: revive }
+  - { at: "1:09:07", kind: kill }
+  - { at: "1:10:08", kind: assist }
+  - { at: "1:13:03", kind: downed }
+  - { at: "1:13:31", kind: revive }
+  - { at: "1:14:17", kind: kill }
+  - { at: "1:14:40", kind: revive }
+  - { at: "1:16:52", kind: assist }
+  - { at: "1:19:48", kind: downed }
+  - { at: "1:22:24", kind: revive }
+  - { at: "1:23:04", kind: assist }
+  - { at: "1:23:50", kind: kill }
+  - { at: "1:26:41", kind: downed }
+  - { at: "1:29:48", kind: downed }
+  - { at: "1:31:48", kind: downed }
+  - { at: "1:33:12", kind: kill }
+# Seuils = état mesuré au relevé (toutes les détections retrouvées, aucune en trop).
+thresholds:
+  game-events: { kill: { precision: 1.0, recall: 1.0 }, assist: { precision: 1.0, recall: 1.0 }, revive: { precision: 1.0, recall: 1.0 }, downed: { precision: 1.0, recall: 1.0 } }

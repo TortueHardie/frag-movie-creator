@@ -1,5 +1,7 @@
 package dev.highlights.ui
 
+import dev.highlights.montage.ThumbnailStyle
+import dev.highlights.export.OutputNamer
 import dev.highlights.publish.YouTubeText
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.i18n.tr
@@ -17,11 +19,15 @@ import dev.highlights.core.session.Session
 import dev.highlights.core.session.SessionStore
 import dev.highlights.pipeline.AnalyzeOptions
 import dev.highlights.pipeline.ConfigLocator
+import dev.highlights.pipeline.Evening
+import dev.highlights.pipeline.EveningPlanner
 import dev.highlights.pipeline.ExportOptions
 import dev.highlights.pipeline.FolderWatcher
 import dev.highlights.pipeline.HighlightPipeline
 import dev.highlights.pipeline.MontageOptions
 import dev.highlights.pipeline.Pipelines
+import dev.highlights.pipeline.VariantPick
+import dev.highlights.montage.MontageVariants
 import dev.highlights.pipeline.ProblemReport
 import dev.highlights.pipeline.SystemInfo
 import dev.highlights.pipeline.YouTubePublisher
@@ -81,11 +87,19 @@ interface UiActions {
 
     fun analyze()
     fun export()
+    /** Clip « meilleur moment » du moment [key] : une vidéo 9:16 de 15 à 30 s (voir [dev.highlights.pipeline.MomentClips]). */
+    fun clipMoment(key: String)
     fun cancelJob()
 
     fun toggleSegment(id: String)
     fun setAllSegments(enabled: Boolean)
     fun selectSegment(id: String?)
+    /** Retouche : déplace le début (ou la fin si [end]) du moment [id] de [delta], dans les bornes du profil. */
+    fun nudgeSegment(id: String, end: Boolean, delta: Duration)
+    /** Ajoute à la main un moment centré sur [at] dans la capture [entry] (index dans la session ouverte). */
+    fun addSegmentAt(entry: Int, at: Duration)
+    /** Fait monter ([delta] < 0) ou descendre le moment [id] dans l'ordre du montage. */
+    fun moveSegment(id: String, delta: Int)
     fun previewClip(id: String)
     fun previewVertical(id: String)
     fun regenerateVerticalPreview()
@@ -106,7 +120,34 @@ interface UiActions {
     fun chooseIntroImage()
     /** Carte montrée en aperçu : l'ouverture ou la fin ([outro]), dans [format]. */
     fun setIntroPreview(format: OutputFormat, outro: Boolean)
+    /** Réglages d'export des highlights (préréglage, miniature…) ; la sélection est recalculée si la durée visée change. */
+    fun updateExportSettings(change: (SettingsState) -> SettingsState) {}
     fun createMontage()
+
+    /** File des traitements (voir [JobQueue]) : annuler, avancer/reculer un traitement en attente, ouvrir un résultat. */
+    fun cancelQueuedJob(id: Long) {}
+    fun moveQueuedJob(id: Long, delta: Int) {}
+    fun openJobResult(id: Long) {}
+    fun showJobError(id: Long) {}
+    fun clearFinishedJobs() {}
+    /** Fermeture demandée avec des traitements en file : quitter quand même, ou rester. */
+    fun confirmQuit() {}
+    fun cancelQuit() {}
+    /** Aperçus de quelques variantes du montage au lieu du rendu final (voir [VariantsUiState]). */
+    fun previewMontage() {}
+    /** Rend en pleine qualité la variante [index] des aperçus, et enregistre ce choix. */
+    fun renderVariant(index: Int) {}
+    fun closeVariants() {}
+
+    /** Frise du plan de montage ([MontagePlanState]) : l'ouvrir (plan calculé aussitôt), la fermer. */
+    fun openMontagePlan() {}
+    fun closeMontagePlan() {}
+    /** Recalcule le plan avec les corrections posées, sans réanalyser (inspection des kills en cache). */
+    fun replanMontage() {}
+    /** Corrige un groupe : [kills], ses désignations « capture@instant » ([dev.highlights.montage.KillRef]). */
+    fun editMontageKill(kills: List<String>, edit: KillEdit) {}
+    /** Retire toutes les corrections. */
+    fun resetMontagePlan() {}
 
     /** Fenêtre de publication d'une vidéo exportée sur YouTube, champs proposés d'après la vidéo. */
     fun openPublish(video: Path)
@@ -119,6 +160,10 @@ interface UiActions {
     /** Envoi manuel : page d'envoi de YouTube dans le navigateur, vidéo montrée dans l'Explorateur pour l'y glisser. */
     fun openYouTubeUpload()
     fun copyToClipboard(text: String)
+    /** Miniature YouTube de la vidéo à publier (habillage par défaut, le vif), écrite à côté d'elle. */
+    fun makeThumbnail()
+    /** Réponse à la question du rythme rapide sous le résultat d'un montage kills : ressenti de sa musique retenu. */
+    fun rateMusicFeel(vote: dev.highlights.montage.FeelVote) {}
     /** Ouvre app.yaml dans l'éditeur (identifiant YouTube, réglages de publication). */
     fun editConfig()
     fun browse(uri: java.net.URI)
@@ -132,18 +177,52 @@ interface UiActions {
 
     /** Statistiques des parties analysées, par soirée. */
     fun showStats()
+
+    // Assistant « nouveau jeu » (NewGameView) : défauts vides pour les faux contrôleurs des tests.
+    fun showNewGame() {}
+    fun closeNewGame() {}
+    fun chooseNewGameVideo() {}
+    fun updateNewGame(game: String? = null, time: String? = null) {}
+    fun showNewGameFrame() {}
+    fun setNewGameBox(x: Double, y: Double, width: Double, height: Double) {}
+    fun addNewGameMark() {}
+    fun removeNewGameMark(index: Int) {}
+    fun scanNewGame() {}
+    fun toggleNewGameVerdict(method: String, index: Int) {}
+    fun createNewGameProfile() {}
     fun closeStats()
+    /** Écran des goûts appris (TasteView) : ouvrir, fermer, oublier (après confirmation). */
+    fun showTaste() {}
+    fun closeTaste() {}
+    fun askResetTaste() {}
+    fun cancelResetTaste() {}
+    fun confirmResetTaste() {}
     fun setStatsGame(game: String)
     /** Réanalyse les parties analysées avec d'anciens réglages de détection, puis rouvre les statistiques. */
     fun refreshOutdated()
+    /** Récap d'une soirée ([date] AAAA-MM-JJ, jeu [profileId]) : intercalaire par partie, moments, bilan ; dans la file. */
+    fun recapEvening(date: String, profileId: String) {}
 
     /** Ferme l'analyse ouverte (elle reste enregistrée) et revient à la liste des analyses. */
     fun showLibrary()
     fun openLibraryItem(sessionFile: Path)
     fun toggleLibraryItem(sessionFile: Path)
     fun openLibrarySelection()
+    /** Oublier une analyse : demande d'abord confirmation (la vidéo n'est jamais touchée). */
+    fun askForget(sessionFile: Path)
+    fun confirmForget()
+    fun cancelForget()
     fun chooseWatchFolder()
     fun stopWatching()
+    /** Montage automatique de chaque soirée finie (voir [EveningAuto]). */
+    fun setEveningMontage(enabled: Boolean) {}
+    /** Délai sans nouvelle partie après lequel la soirée est finie (« 1 h », « 45 min »). */
+    fun setEveningDelay(text: String) {}
+    fun setEveningMinKills(count: Int) {}
+    /** Style du montage de soirée : un identifiant, `none`, ou null (celui par défaut du fichier de styles). */
+    fun setEveningStyle(id: String?) {}
+    /** Ouvre la vidéo du dernier montage de soirée. */
+    fun openLastEvening() {}
 
     fun open(path: Path)
     fun reveal(path: Path)
@@ -234,6 +313,7 @@ class AppController(
     /** Intervalle entre deux passages sur le dossier surveillé, et temps sans écriture avant qu'une capture soit prise. */
     private val watchInterval: Duration = 5.seconds,
     private val watchSettle: Duration = 15.seconds,
+    private val clock: () -> Instant = Instant::now,
     private val updater: Updater = Updater.NONE,
     private val reportEnv: ReportEnvironment = ReportEnvironment(),
     private val backendFactory: () -> Backend = {
@@ -249,10 +329,101 @@ class AppController(
     private var backend: Backend? = null
     private val intro = IntroController(scope, platform, introPrefs, _state) { backend?.pipeline }
     private var mainJob: Job? = null
+
+    // ---------------------------------------------------------------- file des traitements lourds
+
+    /**
+     * Traitements lourds, un à la fois ([JobQueue]). Ceux qui changent l'écran (analyse, réanalyse : [QueuedJob.blocking])
+     * tiennent aussi [UiState.job], qui verrouille l'interface comme avant ; les autres (export, montage, aperçus, dossier
+     * surveillé, soirée) la laissent libre.
+     */
+    private val queue: JobQueue = JobQueue(scope, onChange = { list ->
+        _state.update { s -> s.copy(jobs = list, job = blockingJob(list) ?: s.job?.takeIf { it.queueId == null }) }
+    }, describe = ::describeFailure)
+
+    /** Analyse du dossier surveillé en attente dans la file, par traitement : annulée, sa capture sort de l'attente. */
+    private val watchJobs = java.util.concurrent.ConcurrentHashMap<Long, Path>()
+
+    /** Soirées déjà mises en file : la vérification suivante ne les remet pas. */
+    private val queuedEvenings: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    private fun blockingJob(list: List<QueuedJob>): JobState? = list.firstOrNull { it.blocking && it.active }?.let { j ->
+        JobState(
+            j.title, j.fraction,
+            if (j.status == JobStatus.WAITING) tr("ui.jobs.waitingTurn") else j.stage,
+            j.elapsed, j.eta, cancellable = true, queueId = j.id,
+        )
+    }
+
+    /**
+     * Met [block] dans la file. Un traitement bloquant qui échoue ouvre aussi la boîte d'erreur (l'utilisateur
+     * l'attendait) ; les autres l'affichent dans la carte des traitements, sans arrêter les suivants.
+     */
+    private fun enqueue(
+        title: String,
+        blocking: Boolean = false,
+        auto: Boolean = false,
+        onProgress: ((dev.highlights.core.progress.ProgressSnapshot) -> Unit)? = null,
+        block: suspend (ProgressReporter) -> Path?,
+    ): Long = queue.submit(title, blocking, auto, onProgress) { progress ->
+        try {
+            block(progress)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (blocking) reportFailure(tr("ui.error.taskFailed", "task" to title), e)
+            throw e
+        }
+    }
+
+    /** Message lisible et détails d'un échec, comme la boîte d'erreur les montre. */
+    private fun describeFailure(e: Throwable): Pair<String, List<String>> = when (e) {
+        is FfmpegException -> e.localizedMessage to (e.stderrTail.takeLast(20) + listOf("", tr("ui.error.step", "step" to e.description), tr("ui.error.command", "command" to e.commandLine), tr("ui.error.log", "file" to LOG_FILE)))
+        is HighlightsException -> e.localizedMessage to emptyList()
+        is OutOfMemoryError -> tr("ui.memory.outOfMemory") to listOf(tr("ui.error.log", "file" to LOG_FILE))
+        else -> e.toString() to listOf(tr("ui.error.log", "file" to LOG_FILE))
+    }
+
+    override fun cancelQueuedJob(id: Long) {
+        queue.cancel(id)
+        // Analyse du dossier surveillé annulée avant d'avoir commencé : sa capture ne bloque plus la soirée.
+        watchJobs.remove(id)?.let { file -> _state.update { s -> s.copy(watch = s.watch.copy(pending = s.watch.pending - setOf(file))) } }
+    }
+
+    override fun moveQueuedJob(id: Long, delta: Int) = queue.move(id, delta)
+
+    override fun openJobResult(id: Long) {
+        queue.snapshot.find { it.id == id }?.result?.let(platform::open)
+    }
+
+    override fun showJobError(id: Long) {
+        val job = queue.snapshot.find { it.id == id } ?: return
+        showError(tr("ui.error.taskFailed", "task" to job.title), job.error ?: "", job.details)
+    }
+
+    override fun clearFinishedJobs() = queue.clearFinished()
+
+    /** Fermeture de la fenêtre : vrai si l'on peut quitter tout de suite ; sinon une confirmation est demandée. */
+    fun requestQuit(): Boolean {
+        val active = queue.activeCount
+        if (active == 0) return true
+        _state.update { it.copy(quitConfirm = active) }
+        return false
+    }
+
+    override fun confirmQuit() = _state.update { it.copy(quitConfirm = null, exitRequested = true) }
+
+    override fun cancelQuit() = _state.update { it.copy(quitConfirm = null) }
     private var thumbnailJob: Job? = null
     private var saveJob: Job? = null
     private var watchJob: Job? = null
+    private var watchSettings: WatchPrefs? = null
+    private var watcher: FolderWatcher? = null
+    /** Prochaine relecture des soirées (null : à la prochaine analyse en fond) ; voir [checkEvenings]. */
+    @Volatile
+    private var eveningCheckAt: Instant? = null
     private var updateJob: Job? = null
+    private var planJob: Job? = null
 
     init {
         reloadConfig()
@@ -279,6 +450,8 @@ class AppController(
                         config = ConfigStatus.Ready(
                             b.configFile, p.profilesDir, p.profiles.all().map { ProfileInfo(it.id, it.displayName) },
                             p.platforms.map { (id, platform) -> PlatformInfo.of(id, platform) },
+                            // Fichier illisible : pas de préréglages, l'erreur est dans le journal.
+                            runCatching { p.exportPresets.presets }.onFailure { log.warn(it) { "Préréglages d'export illisibles" } }.getOrDefault(emptyList()),
                         ),
                         settings = s.settings.copy(outputDir = s.settings.outputDir ?: p.defaultOutputDir),
                         sources = s.sources.map { src -> src.copy(detectedProfileId = p.resolveProfile(src.path).id) },
@@ -359,7 +532,7 @@ class AppController(
                     sources = sources,
                     session = null,
                     lastExport = null,
-                    settings = s.settings.withProfileDefaults(profile).copy(profileId = null),
+                    settings = s.settings.withProfileDefaults(profile).copy(profileId = null).choosePreset(s.settings.preset, s.presets),
                 )
             }
         }
@@ -380,7 +553,7 @@ class AppController(
                     sources = entries.map { SourceInfo(it.session.media.path, it.session.media, p.resolveProfile(it.session.media.path).id) },
                     session = opened.copy(selectedId = opened.segments.firstOrNull()?.key),
                     lastExport = null,
-                    settings = s.settings.withProfileDefaults(profile).copy(profileId = profile.id),
+                    settings = s.settings.withProfileDefaults(profile).copy(profileId = profile.id).choosePreset(s.settings.preset, s.presets),
                 )
             }
             val openedFiles = files.map { it.toAbsolutePath().normalize() }.toSet()
@@ -406,19 +579,26 @@ class AppController(
         }
         _state.update { s ->
             s.copy(
-                settings = s.settings.withProfileDefaults(profile).copy(profileId = id),
+                settings = s.settings.withProfileDefaults(profile).copy(profileId = id).choosePreset(s.settings.preset, s.presets),
                 session = s.session?.let { it.copy(profileChanged = it.sessions.any { session -> session.profileId != profile.id }) },
             )
         }
     }
 
-    override fun setStyle(style: EditStyle) = _state.update { s -> s.copy(settings = s.settings.copy(style = style)) }
+    override fun setStyle(style: EditStyle) = _state.update { s -> s.copy(settings = s.settings.copy(style = style).presetTrackedFrom(s.settings, s.presets)) }
 
-    override fun setPlatform(id: String?) = _state.update { s -> s.copy(settings = s.settings.copy(platform = id)) }
+    override fun setPlatform(id: String?) = _state.update { s -> s.copy(settings = s.settings.copy(platform = id).presetTrackedFrom(s.settings, s.presets)) }
 
     override fun toggleFormat(format: OutputFormat) = _state.update { s ->
         val formats = if (format in s.settings.formats) s.settings.formats - format else s.settings.formats + format
-        s.copy(settings = s.settings.copy(formats = formats))
+        s.copy(settings = s.settings.copy(formats = formats).presetTrackedFrom(s.settings, s.presets))
+    }
+
+    override fun updateExportSettings(change: (SettingsState) -> SettingsState) {
+        val before = state.value.settings
+        val next = change(before).presetTrackedFrom(before, state.value.presets)
+        // Durée visée changée (préréglage) : les moments sont resélectionnés comme quand on tape la durée.
+        if (next.target != before.target) updateSelection { next } else _state.update { it.copy(settings = next) }
     }
 
     override fun setMomentMode(mode: MomentMode) = updateSelection { it.copy(momentMode = mode) }
@@ -439,7 +619,7 @@ class AppController(
 
     /** Seuil et cible s'appliquent instantanément à une analyse existante (recalcul sans réanalyser). */
     private fun updateSelection(change: (SettingsState) -> SettingsState) {
-        _state.update { it.copy(settings = change(it.settings)) }
+        _state.update { it.copy(settings = change(it.settings).presetTrackedFrom(it.settings, it.presets)) }
         val s = state.value
         val current = s.session ?: return
         val target = s.settings.target ?: return
@@ -467,7 +647,7 @@ class AppController(
         val target = s.settings.target ?: return showError(tr("ui.error.invalidSettingTitle"), tr("ui.error.invalidSetting"))
         val title = if (sources.size == 1) tr("ui.job.analyze", "name" to sources.single().path.name) else tr("ui.job.analyzeMany", "count" to sources.size)
         withMemory(title, MEMORY_ANALYSIS) {
-            runTask(title) { progress ->
+            enqueue(title, blocking = true) { progress ->
                 val outcomes = p.analyzeAll(
                     sources.map { it.path },
                     AnalyzeOptions(
@@ -497,6 +677,7 @@ class AppController(
                     showError(tr("ui.error.noMomentTitle"), (warnings + hint).joinToString("\n"))
                 }
                 loadThumbnails()
+                null
             }
         }
     }
@@ -505,26 +686,53 @@ class AppController(
         val s = state.value
         val current = s.session ?: return
         val p = backend?.pipeline ?: return
-        withMemory(tr("ui.job.export"), MEMORY_EXPORT) {
-            runTask(tr("ui.job.export")) { progress ->
+        // Le titre nomme la partie : plusieurs exports peuvent attendre l'un derrière l'autre.
+        val title = tr("ui.job.exportOf", "name" to (current.entries.firstOrNull()?.session?.media?.path?.name ?: ""))
+        withMemory(title, MEMORY_EXPORT) {
+            enqueue(title) { progress ->
                 saveNow(current)
                 val (introOn, introCards) = intro.exportChoice()
                 val result = p.export(
                     current.sessions,
-                    ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform, intro = introOn, introSettings = introCards),
+                    ExportOptions(
+                        s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform,
+                        thumbnail = ThumbnailStyle.DEFAULT.takeIf { s.settings.thumbnail }, intro = introOn, introSettings = introCards,
+                    ),
                     progress,
                 )
                 _state.update { it.copy(lastExport = result, lastUpload = null) }
+                result.videos.values.firstOrNull()
+            }
+        }
+    }
+
+    override fun clipMoment(key: String) {
+        val s = state.value
+        val current = s.session ?: return
+        val segment = current.segments.firstOrNull { it.key == key } ?: return
+        val p = backend?.pipeline ?: return
+        // Un rendu FFmpeg comme un export : dans la file (un seul rendu lourd à la fois, l'export reste disponible).
+        // Le titre nomme le moment et la partie : plusieurs clips peuvent attendre l'un derrière l'autre.
+        val title = tr("ui.job.clipOf", "moment" to segment.highlight.id, "name" to current.sessions[segment.entry].media.path.name)
+        withMemory(title, MEMORY_EXPORT) {
+            enqueue(title) { progress ->
+                saveNow(current)
+                val options = dev.highlights.pipeline.ClipOptions(segment.highlight.id, s.settings.platform, s.settings.outputDir)
+                val result = p.clip(current.sessions[segment.entry], options, progress)
+                _state.update { it.copy(lastExport = result, lastUpload = null) }
+                result.videos.values.firstOrNull()
             }
         }
     }
 
     override fun cancelJob() {
-        mainJob?.cancel(CancellationException("Annulé par l'utilisateur"))
+        val queued = state.value.job?.queueId
+        if (queued != null) queue.cancel(queued) else mainJob?.cancel(CancellationException("Annulé par l'utilisateur"))
     }
 
     /** Annule les traitements en cours avant de quitter (tue les process FFmpeg). */
     fun shutdown() {
+        queue.cancelAll()
         val jobs = listOfNotNull(mainJob, thumbnailJob, saveJob, watchJob)
         jobs.forEach { it.cancel() }
         runBlocking { withTimeoutOrNull(3.seconds) { jobs.forEach { it.join() } } }
@@ -589,6 +797,28 @@ class AppController(
 
     override fun selectSegment(id: String?) = _state.update { s -> s.copy(session = s.session?.copy(selectedId = id)) }
 
+    override fun nudgeSegment(id: String, end: Boolean, delta: Duration) = retouch { current, policy ->
+        MomentRetouch.nudge(current, id, end, delta, policy).let { (updated, key) -> updated.copy(selectedId = key) }
+    }
+
+    override fun addSegmentAt(entry: Int, at: Duration) = retouch { current, policy ->
+        MomentRetouch.add(current, entry, at, policy)?.let { (updated, key) -> updated.copy(selectedId = key) } ?: current
+    }
+
+    override fun moveSegment(id: String, delta: Int) = retouch { current, _ -> MomentRetouch.move(current, id, delta) }
+
+    /** Retouche à la main de la session ouverte, avec la sélection du profil (bornes de longueur), puis sauvegarde différée. */
+    private fun retouch(change: (SessionState, dev.highlights.core.model.SelectionPolicy) -> SessionState) {
+        val current = state.value.session ?: return
+        val policy = runCatching { backend?.pipeline?.profiles?.byId(current.sessions.first().profileId)?.selection }.getOrNull()
+            ?: dev.highlights.core.model.SelectionPolicy()
+        val updated = change(current, policy)
+        if (updated == current) return
+        _state.update { it.copy(session = updated) }
+        scheduleSave()
+        loadThumbnails()
+    }
+
     override fun previewClip(id: String) {
         val s = state.value
         val current = s.session ?: return
@@ -651,6 +881,8 @@ class AppController(
         val p = backend?.pipeline ?: return
         val profileId = s.session?.sessions?.firstOrNull()?.profileId ?: return
         val montage = runCatching { p.profiles.byId(profileId).montage }.getOrNull()
+        // Fichier de styles illisible : la fenêtre s'ouvre quand même, sans styles (l'erreur est dans le journal).
+        val styles = runCatching { p.montageStyles }.onFailure { log.warn(it) { "Styles de montage illisibles" } }.getOrDefault(dev.highlights.core.model.MontageStyles.NONE)
         _state.update {
             it.copy(
                 montage = MontageUiState(
@@ -660,24 +892,17 @@ class AppController(
                     musicLibrary = musicPrefs.library(),
                     maxDurationText = I18n.duration(montage?.maxDuration ?: 60.seconds),
                     fitKills = montage?.length?.fitKills ?: true,
-                    buildUp = montage?.order != dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
                     formats = montage?.formats?.toSet() ?: setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
-                    zoom = montage?.zoom?.enabled ?: true,
-                    flash = montage?.flash?.enabled ?: true,
-                    whip = montage?.whip?.enabled ?: true,
-                    showcase = montage?.showcase?.enabled ?: false,
-                    boostColors = montage?.colors?.enabled ?: false,
-                    motionBlur = montage?.motionBlur?.enabled ?: true,
-                    matchCut = montage?.matchCut?.enabled ?: true,
                     rounds = montage?.killStyle?.deathEvent?.isNotEmpty() ?: true,
-                    slowMotion = montage?.slowMotion?.enabled ?: true,
-                    text = montage?.text?.enabled ?: true,
+                    fastParts = montage?.fastParts?.enabled ?: true,
+                    skipAbilityKills = montage?.skipAbilityKills ?: false,
+                    abilityKillsKnown = runCatching { p.profiles.byId(profileId).detectors.any { d -> d.enabled && d.type == "ammo-counter" } }.getOrDefault(false),
                     balance = montage?.audio?.balance ?: 0.0,
-                    gameAudio = montage?.audio?.game ?: GameAudio.FULL,
-                    reactions = montage?.reactions ?: false,
-                    fast = montage?.fast?.enabled ?: false,
+                    killCounter = montage?.text?.killCounter ?: dev.highlights.core.model.KillCounterMode.OFF,
                     platform = it.settings.platform,
-                ),
+                    styles = styles.styles,
+                    profileKnobs = StyleKnobs.of(montage),
+                ).chooseStyle(styles.default).choosePreset(it.settings.preset, it.presets),
             )
         }
     }
@@ -698,7 +923,7 @@ class AppController(
     }
 
     override fun updateMontage(change: (MontageUiState) -> MontageUiState) =
-        _state.update { s -> s.copy(montage = s.montage?.let(change)) }
+        _state.update { s -> s.copy(montage = s.montage?.let { before -> change(before).trackedFrom(before).presetTrackedFrom(before, s.presets) }) }
 
     override fun setIntroEnabled(enabled: Boolean) = intro.setEnabled(enabled)
     override fun openIntro() = intro.open()
@@ -716,50 +941,161 @@ class AppController(
         musicPrefs.rememberLibrary(montage.musicLibrary, montage.useLibrary)
         val session = s.session ?: return
         val p = backend?.pipeline ?: return
+        planJob?.cancel()
         _state.update { it.copy(montage = null) }
         val title = if (montage.useLibrary) tr("ui.job.montageFolder", "folder" to music.name) else tr("ui.job.montage", "track" to music.name)
         withMemory(title, MEMORY_MONTAGE) {
-            runTask(title) { progress ->
+            enqueue(title) { progress ->
                 saveNow(session)
-                val result = p.killMontage(
-                    session.sessions,
-                    music,
-                    MontageOptions(
-                        formats = OutputFormat.entries.filter { it in montage.formats },
-                        outputDir = s.settings.outputDir,
-                        maxDuration = montage.maxDuration,
-                        fitKills = montage.fitKills,
-                        order = if (montage.buildUp) dev.highlights.core.model.MontageOrder.BUILD_UP else dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
-                        effectDensity = montage.density,
-                        zoom = montage.zoom,
-                        flash = montage.flash,
-                        whip = montage.whip,
-                        showcase = montage.showcase,
-                        boostColors = montage.boostColors,
-                        motionBlur = montage.motionBlur,
-                        matchCut = montage.matchCut,
-                        rounds = montage.rounds,
-                        slowMotion = montage.slowMotion,
-                        text = montage.text,
-                        audioBalance = montage.balance,
-                        gameAudio = montage.gameAudio,
-                        reactions = montage.reactions,
-                        // Bibliothèque : chaque musique garde son réglage « depuis le début ».
-                        musicFromStart = if (montage.useLibrary) null else montage.musicFromStart,
-                        fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
-                        platform = montage.platform,
-                        onlyKills = montage.pick,
-                        oneTaps = montage.oneTaps,
-                        fast = montage.fast,
-                        intro = intro.exportChoice().first,
-                        introSettings = intro.exportChoice().second,
-                    ),
-                    progress,
-                )
+                val result = p.killMontage(session.sessions, music, montageOptions(montage, s), progress)
                 _state.update { it.copy(lastExport = result, lastUpload = null) }
+                result.videos.values.firstOrNull()
             }
         }
     }
+
+    /** Parties, musique et réglages des derniers aperçus : la variante choisie se rend avec exactement les mêmes. */
+    private data class PendingVariants(val sessions: List<Session>, val music: Path, val options: MontageOptions, val file: Path)
+
+    @Volatile
+    private var pendingVariants: PendingVariants? = null
+
+    override fun previewMontage() {
+        val s = state.value
+        val montage = s.montage ?: return
+        val music = montage.musicSource ?: return
+        if (!montage.useLibrary) musicPrefs.remember(music, montage.musicFromStart)
+        musicPrefs.rememberLibrary(montage.musicLibrary, montage.useLibrary)
+        val session = s.session ?: return
+        val p = backend?.pipeline ?: return
+        _state.update { it.copy(montage = null, variants = null) }
+        val options = montageOptions(montage, s)
+        val title = tr("ui.job.previews", "track" to music.name)
+        withMemory(title, MEMORY_MONTAGE) {
+            enqueue(title) { progress ->
+                saveNow(session)
+                // Chaque aperçu se montre dès qu'il est prêt ; fenêtre fermée entre-temps : elle ne rouvre qu'à la fin.
+                val ready = mutableListOf<dev.highlights.pipeline.VariantPreview>()
+                val previews = p.montagePreviews(session.sessions, music, options, MontageVariants.DEFAULT_COUNT, progress) { preview, total ->
+                    ready += preview
+                    _state.update { if (it.variants == null && ready.size > 1) it else it.copy(variants = VariantsUiState.partial(ready.toList(), total, MontageVariants.DEFAULT_COUNT)) }
+                }
+                pendingVariants = PendingVariants(session.sessions, music, options, previews.variantsFile)
+                _state.update { it.copy(variants = VariantsUiState.of(previews, MontageVariants.DEFAULT_COUNT)) }
+                null
+            }
+        }
+    }
+
+    override fun renderVariant(index: Int) {
+        val pending = pendingVariants ?: return
+        val p = backend?.pipeline ?: return
+        _state.update { it.copy(variants = null) }
+        val title = tr("ui.job.montage", "track" to pending.music.name)
+        withMemory(title, MEMORY_MONTAGE) {
+            enqueue(title) { progress ->
+                val result = p.killMontage(pending.sessions, pending.music, pending.options.copy(pick = VariantPick(index, pending.file)), progress)
+                _state.update { it.copy(lastExport = result, lastUpload = null) }
+                result.videos.values.firstOrNull()
+            }
+        }
+    }
+
+    override fun closeVariants() = _state.update { it.copy(variants = null) }
+
+    /** Réglages du dialogue pour le pipeline : les mêmes pour la frise et pour le rendu, sinon le plan montré mentirait. */
+    private fun montageOptions(montage: MontageUiState, s: UiState) = MontageOptions(
+        // Miniature (habillage par défaut) de chaque vidéo : prête dans la fenêtre de publication ; le préréglage peut l'ôter.
+        thumbnail = ThumbnailStyle.DEFAULT.takeIf { montage.thumbnail },
+        formats = OutputFormat.entries.filter { it in montage.formats },
+        outputDir = s.settings.outputDir,
+        maxDuration = montage.maxDuration,
+        fitKills = montage.fitKills,
+        order = if (montage.buildUp) dev.highlights.core.model.MontageOrder.BUILD_UP else dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
+        effectDensity = montage.density,
+        zoom = montage.zoom,
+        flash = montage.flash,
+        whip = montage.whip,
+        whoosh = montage.whoosh,
+        showcase = montage.showcase,
+        boostColors = montage.boostColors,
+        motionBlur = montage.motionBlur,
+        matchCut = montage.matchCut,
+        rounds = montage.rounds,
+        slowMotion = montage.slowMotion,
+        text = montage.text,
+        killCounter = montage.killCounter,
+        audioBalance = montage.balance,
+        gameAudio = montage.gameAudio,
+        reactions = montage.reactions,
+        // Bibliothèque : chaque musique garde son réglage « depuis le début ».
+        musicFromStart = if (montage.useLibrary) null else montage.musicFromStart,
+        fromStartMusics = if (montage.useLibrary) musicPrefs.fromStartMusics() else emptySet(),
+        platform = montage.platform,
+        onlyKills = montage.pick,
+        oneTaps = montage.oneTaps,
+        reactionMontage = montage.reactionMontage,
+        fast = montage.fast,
+        fastParts = montage.fastParts,
+        skipAbilityKills = montage.skipAbilityKills,
+        // Les cases de la fenêtre sont déjà passées ; le style garde ce qu'elle ne montre pas (accroche, rampes…).
+        style = montage.style,
+        constraints = montage.constraints,
+        intro = intro.exportChoice().first,
+        introSettings = intro.exportChoice().second,
+    )
+
+    // ---------------------------------------------------------------- frise du plan de montage
+
+    override fun openMontagePlan() {
+        _state.update { s -> s.copy(montage = s.montage?.let { it.copy(plan = it.plan ?: MontagePlanState()) }) }
+        replanMontage()
+    }
+
+    override fun closeMontagePlan() {
+        planJob?.cancel()
+        _state.update { s -> s.copy(montage = s.montage?.copy(plan = null)) }
+    }
+
+    override fun editMontageKill(kills: List<String>, edit: KillEdit) =
+        updateMontage { it.copy(constraints = it.constraints.edit(kills.map(dev.highlights.montage.KillRef::parse), edit)) }
+
+    override fun resetMontagePlan() = updateMontage { it.copy(constraints = dev.highlights.montage.MontageConstraints.NONE) }
+
+    override fun replanMontage() {
+        val s = state.value
+        val montage = s.montage ?: return
+        val music = montage.musicSource ?: return
+        val session = s.session ?: return
+        val p = backend?.pipeline ?: return
+        val constraints = montage.constraints
+        planJob?.cancel()
+        updatePlan { it.copy(loading = true, fraction = 0.0, error = null) }
+        planJob = scope.launch {
+            try {
+                val tracker = ProgressTracker { snap -> updatePlan { it.copy(fraction = snap.fraction) } }
+                // Pas de rendu : la musique, l'inspection des kills (en cache après le premier plan) et la planification.
+                val view = withContext(Dispatchers.Default) { PlanView.of(p.planKillMontage(session.sessions, music, montageOptions(montage, s), tracker.root)) }
+                updatePlan { it.copy(loading = false, view = view, planned = constraints, error = null) }
+                val known = state.value.montage?.plan?.thumbnails.orEmpty()
+                for (g in (view.clips.mapNotNull { it.group } + view.left.take(PLAN_THUMBNAILS)).filter { it.key !in known }) {
+                    val image = runCatching { withContext(Dispatchers.IO) { p.thumbnail(g.media, g.kills.last()) } }.getOrNull() ?: continue
+                    updatePlan { it.copy(thumbnails = it.thumbnails + (g.key to image)) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: HighlightsException) {
+                // Correction impossible (ou kill introuvable) : dite dans la frise, le dernier plan reste affiché.
+                updatePlan { it.copy(loading = false, planned = constraints, error = e.localizedMessage) }
+            } catch (e: Exception) {
+                updatePlan { it.copy(loading = false) }
+                reportFailure(tr("ui.montagePlan.failed"), e)
+            }
+        }
+    }
+
+    private fun updatePlan(change: (MontagePlanState) -> MontagePlanState) =
+        _state.update { s -> s.copy(montage = s.montage?.let { m -> m.plan?.let { m.copy(plan = change(it)) } ?: m }) }
 
     // ---------------------------------------------------------------- publication YouTube
 
@@ -767,7 +1103,9 @@ class AppController(
 
     override fun openPublish(video: Path) {
         val yt = youtube() ?: return
-        _state.update { it.copy(publish = PublishUiState(video, api = yt.apiEnabled, configured = !yt.apiEnabled || yt.configured, connected = yt.connected)) }
+        _state.update {
+            it.copy(publish = PublishUiState(video, api = yt.apiEnabled, configured = !yt.apiEnabled || yt.configured, connected = yt.connected, thumbnail = OutputNamer.thumbnailOf(video)))
+        }
         scope.launch {
             try {
                 val suggested = withContext(Dispatchers.IO) { yt.suggest(video) }
@@ -818,6 +1156,42 @@ class AppController(
 
     override fun copyToClipboard(text: String) = platform.copy(text)
 
+    override fun rateMusicFeel(vote: dev.highlights.montage.FeelVote) {
+        val result = state.value.lastExport ?: return
+        val music = result.music ?: return
+        val p = backend?.pipeline ?: return
+        val hadFast = (result.fastShots ?: 0) > 0
+        // Réponse affichée tout de suite ; les mesures de la musique (pour l'apprentissage) se lisent ensuite.
+        _state.update { s -> s.copy(musicFeels = s.musicFeels + (result.report to vote.feel(hadFast))) }
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { p.rateMusic(music, vote, hadFast) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { s -> s.copy(musicFeels = s.musicFeels - result.report) }
+                reportFailure(tr("ui.error.musicFeel"), e)
+            }
+        }
+    }
+
+    override fun makeThumbnail() {
+        val video = state.value.publish?.video ?: return
+        val p = backend?.pipeline ?: return
+        updatePublish { it.copy(thumbnailBusy = true) }
+        scope.launch {
+            try {
+                val made = withContext(Dispatchers.IO) { p.miniature(video, ThumbnailStyle.DEFAULT) }
+                _state.update { s -> s.copy(publish = s.publish?.takeIf { it.video == video }?.copy(thumbnail = made, thumbnailBusy = false)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updatePublish { it.copy(thumbnailBusy = false) }
+                reportFailure(tr("ui.error.thumbnail"), e)
+            }
+        }
+    }
+
     override fun editConfig() {
         backend?.configFile?.let(platform::edit)
     }
@@ -835,7 +1209,7 @@ class AppController(
     }
 
     override fun openLibraryItem(sessionFile: Path) {
-        _state.update { it.copy(stats = null, search = null) }
+        _state.update { it.copy(stats = null, search = null, taste = null) }
         openSessions(listOf(sessionFile))
     }
 
@@ -846,6 +1220,21 @@ class AppController(
     override fun openLibrarySelection() {
         val s = state.value
         openSessions(s.library.map { it.sessionFile }.filter { it in s.librarySelection })
+    }
+
+    override fun askForget(sessionFile: Path) = _state.update { s -> s.copy(forget = s.library.firstOrNull { it.sessionFile == sessionFile }) }
+
+    override fun cancelForget() = _state.update { it.copy(forget = null) }
+
+    override fun confirmForget() {
+        val item = state.value.forget ?: return
+        val p = backend?.pipeline ?: return
+        _state.update { it.copy(forget = null) }
+        scope.launch(Dispatchers.IO) {
+            runCatching { p.library.forget(item.sessionFile) }
+                .onFailure { log.warn(it) { "Analyse ${item.sessionFile} non oubliée" } }
+            refreshLibrary()
+        }
     }
 
     private fun refreshLibrary() {
@@ -864,7 +1253,7 @@ class AppController(
 
     override fun showSearch() {
         val p = backend?.pipeline ?: return
-        _state.update { it.copy(search = SearchState(), stats = null) }
+        _state.update { it.copy(search = SearchState(), stats = null, taste = null) }
         scope.launch {
             try {
                 val moments = withContext(Dispatchers.IO) { p.search(dev.highlights.pipeline.MomentQuery()) }
@@ -895,7 +1284,7 @@ class AppController(
         openSessions(picked.map { it.sessionFile }.distinct()) {
             openMontage()
             // Des one taps cherchés : le montage qui va avec, que l'on peut encore décocher.
-            _state.update { s -> s.copy(montage = s.montage?.let { m -> m.copy(pick = pick, oneTaps = search.oneTaps || m.oneTaps) }) }
+            _state.update { s -> s.copy(montage = s.montage?.let { m -> m.copy(pick = pick, oneTaps = search.oneTaps || m.oneTaps, touched = if (search.oneTaps) m.touched + "oneTaps" else m.touched) }) }
         }
     }
 
@@ -903,7 +1292,7 @@ class AppController(
 
     override fun showStats() {
         val p = backend?.pipeline ?: return
-        _state.update { it.copy(stats = StatsState(), search = null) }
+        _state.update { it.copy(stats = StatsState(), search = null, taste = null) }
         scope.launch {
             try {
                 val games = withContext(Dispatchers.IO) { p.statistics() }
@@ -919,17 +1308,89 @@ class AppController(
 
     override fun closeStats() = _state.update { it.copy(stats = null) }
 
+    // ---------------------------------------------------------------- goûts appris
+
+    override fun showTaste() {
+        _state.update { it.copy(taste = TasteUiState(), stats = null, search = null) }
+        loadTaste()
+    }
+
+    private fun loadTaste(resetDone: String? = null) {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            try {
+                val taste = withContext(Dispatchers.IO) { p.taste() }
+                _state.update { s -> s.copy(taste = s.taste?.copy(state = taste, confirmReset = false, resetDone = resetDone)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(taste = null) }
+                reportFailure(tr("ui.taste.title"), e)
+            }
+        }
+    }
+
+    override fun closeTaste() = _state.update { it.copy(taste = null) }
+
+    override fun askResetTaste() = _state.update { s -> s.copy(taste = s.taste?.copy(confirmReset = true, resetDone = null)) }
+
+    override fun cancelResetTaste() = _state.update { s -> s.copy(taste = s.taste?.copy(confirmReset = false)) }
+
+    /** Comme `app gouts --reset` : l'historique est mis de côté, pas effacé. */
+    override fun confirmResetTaste() {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            val aside = withContext(Dispatchers.IO) { p.tasteHistory.reset() }
+            loadTaste(resetDone = aside?.fileName?.toString())
+        }
+    }
+
+    // ---------------------------------------------------------------- nouveau jeu
+
+    private val newGame by lazy {
+        NewGameController(_state, scope, platform, { backend?.configFile }, { title, block -> runTask(title, block = block) }, ::reportFailure)
+    }
+
+    override fun showNewGame() = newGame.show()
+    override fun closeNewGame() = newGame.close()
+    override fun chooseNewGameVideo() = newGame.chooseVideo()
+    override fun updateNewGame(game: String?, time: String?) = newGame.update(game, time)
+    override fun showNewGameFrame() = newGame.showFrame()
+    override fun setNewGameBox(x: Double, y: Double, width: Double, height: Double) = newGame.setBox(x, y, width, height)
+    override fun addNewGameMark() = newGame.addMark()
+    override fun removeNewGameMark(index: Int) = newGame.removeMark(index)
+    override fun scanNewGame() = newGame.scan()
+    override fun toggleNewGameVerdict(method: String, index: Int) = newGame.toggleVerdict(method, index)
+    override fun createNewGameProfile() = newGame.create()
+
     override fun setStatsGame(game: String) = _state.update { s -> s.copy(stats = s.stats?.copy(game = game)) }
 
     override fun refreshOutdated() {
         val p = backend?.pipeline ?: return
         val game = state.value.stats?.game
         withMemory(tr("ui.job.refresh"), MEMORY_ANALYSIS) {
-            runTask(tr("ui.job.refresh")) { progress ->
+            enqueue(tr("ui.job.refresh"), blocking = true) { progress ->
                 p.refreshOutdated(progress)
                 refreshLibrary()
                 showStats()
                 _state.update { s -> s.copy(stats = s.stats?.copy(game = game)) }
+                null
+            }
+        }
+    }
+
+    override fun recapEvening(date: String, profileId: String) {
+        val p = backend?.pipeline ?: return
+        val s = state.value
+        val title = tr("ui.job.recap", "date" to I18n.date(java.time.LocalDate.parse(date), "format.date.dayMonth"))
+        withMemory(title, MEMORY_EXPORT) {
+            enqueue(title) { progress ->
+                val evening = p.evenings().firstOrNull { it.date.toString() == date && it.profileId == profileId }
+                    ?: throw dev.highlights.core.InputException(dev.highlights.core.i18n.Message("error.recap.noMoments"))
+                val options = dev.highlights.pipeline.RecapOptions(OutputFormat.entries.filter { it in s.settings.formats }, s.settings.style, s.settings.platform, s.settings.outputDir)
+                val result = p.eveningRecap(evening, options, progress)
+                _state.update { it.copy(lastExport = result, lastUpload = null) }
+                result.videos.values.firstOrNull()
             }
         }
     }
@@ -948,8 +1409,127 @@ class AppController(
     override fun stopWatching() {
         watchJob?.cancel()
         watchJob = null
+        watchSettings = null
+        watcher = null
         watchPrefs.save(null)
         _state.update { it.copy(watch = WatchState(fresh = it.watch.fresh)) }
+    }
+
+    // ---------------------------------------------------------------- montage automatique des soirées
+
+    private fun updateEvenings(change: (EveningAuto) -> EveningAuto) {
+        val prefs = watchSettings ?: return
+        val next = prefs.copy(evenings = change(prefs.evenings))
+        watchSettings = next
+        watchPrefs.save(next)
+        _state.update { it.copy(watch = it.watch.copy(evenings = next.evenings)) }
+    }
+
+    override fun setEveningMontage(enabled: Boolean) {
+        updateEvenings { it.copy(enabled = enabled) }
+        if (enabled) eveningCheckAt = clock()
+        _state.update { it.copy(watch = it.watch.copy(eveningProblem = if (enabled && musicPrefs.library() == null) tr("ui.evening.noLibrary") else null)) }
+    }
+
+    override fun setEveningDelay(text: String) {
+        _state.update { it.copy(watch = it.watch.copy(eveningDelayText = text)) }
+        val delay = I18n.parseDuration(text)?.takeIf { it.isPositive() } ?: return
+        updateEvenings { it.copy(delay = delay) }
+        eveningCheckAt = clock()
+    }
+
+    override fun setEveningMinKills(count: Int) {
+        updateEvenings { it.copy(minKills = count.coerceAtLeast(0)) }
+        eveningCheckAt = clock()
+    }
+
+    override fun setEveningStyle(id: String?) = updateEvenings { it.copy(style = id) }
+
+    override fun openLastEvening() {
+        state.value.watch.lastEvening?.video?.let(platform::open)
+    }
+
+    /**
+     * Monte les soirées finies, s'il y en a. La bibliothèque n'est relue qu'au moment prévu ([eveningCheckAt] : après
+     * une analyse en fond, puis quand la prochaine soirée en attente sera finie), pas à chaque passage sur le dossier.
+     * Rien tant qu'une capture s'écrit, qu'une analyse attend ou qu'un traitement lancé à la main tourne.
+     */
+    private suspend fun checkEvenings(p: HighlightPipeline) {
+        val auto = watchSettings?.evenings ?: return
+        if (!auto.enabled) return
+        val at = eveningCheckAt ?: return
+        val now = clock()
+        if (now.isBefore(at)) return
+        // Une capture s'écrit, attend son analyse ou est en cours d'analyse : la soirée n'est peut-être pas finie.
+        if (watcher?.writing() == true || state.value.watch.pending.isNotEmpty() || state.value.watch.current != null) return
+        val arrived = auto.arrived
+        val eligible = { e: Evening -> e.sources.any { it.toAbsolutePath().normalize() in arrived } }
+        val evenings = runCatching { p.evenings() }.onFailure { log.warn(it) { "Soirées illisibles" } }.getOrDefault(emptyList())
+        val due = EveningPlanner.due(evenings, p.eveningHistory::done, now, auto.delay, auto.minKills, eligible, busy = false)
+        eveningCheckAt = EveningPlanner.nextCheck(evenings, p.eveningHistory::done, now, auto.delay, auto.minKills, eligible)
+        // Chaque soirée due passe par la file, comme un montage lancé à la main ; une seule fois.
+        for (e in due) {
+            val key = "${e.date}/${e.profileId}"
+            if (!queuedEvenings.add(key)) continue
+            val label = tr("ui.evening.label", "date" to I18n.date(e.date, "format.date.dayMonth"))
+            val lastUpdate = AtomicLong(0)
+            enqueue(tr("ui.jobs.evening", "evening" to label), auto = true, onProgress = { snap ->
+                val now = System.currentTimeMillis()
+                if (now - lastUpdate.getAndUpdate { prev -> if (now - prev >= 250) now else prev } >= 250) {
+                    _state.update { s -> s.copy(watch = s.watch.copy(montageFraction = snap.fraction)) }
+                }
+            }) { progress ->
+                try {
+                    montageEvening(p, e, progress)
+                } finally {
+                    queuedEvenings.remove(key)
+                }
+            }
+        }
+    }
+
+    private suspend fun montageEvening(p: HighlightPipeline, evening: Evening, progress: ProgressReporter): Path? {
+        val music = musicPrefs.library()
+        if (music == null) {
+            // Pas de dossier de musiques : rien à monter, l'utilisateur le voit dans la carte (pas de notification).
+            _state.update { it.copy(watch = it.watch.copy(eveningProblem = tr("ui.evening.noLibrary"))) }
+            eveningCheckAt = null
+            return null
+        }
+        val label = tr("ui.evening.label", "date" to I18n.date(evening.date, "format.date.dayMonth"))
+        _state.update { it.copy(watch = it.watch.copy(montaging = label, montageFraction = 0.0, eveningProblem = null)) }
+        try {
+            val s = state.value
+            log.info { "Montage de la soirée du ${evening.date} (${evening.game}) : ${evening.sessionFiles.size} partie(s), ${evening.kills} kills" }
+            val result = p.eveningMontage(
+                evening,
+                music,
+                MontageOptions(
+                    formats = OutputFormat.entries.filter { it in s.settings.formats },
+                    platform = s.settings.platform,
+                    outputDir = s.settings.outputDir,
+                    fromStartMusics = musicPrefs.fromStartMusics(),
+                    thumbnail = ThumbnailStyle.DEFAULT,
+                    style = EveningPlanner.style(watchSettings?.evenings?.style, runCatching { p.montageStyles.default }.getOrNull()),
+                ),
+                progress,
+            )
+            val video = result.videos.values.firstOrNull()
+            val text = tr("ui.evening.ready", "date" to I18n.date(evening.date, "format.date.dayMonth"), "count" to evening.kills)
+            _state.update { it.copy(watch = it.watch.copy(lastEvening = EveningReady(text, video))) }
+            platform.notify(tr("ui.evening.notifyTitle"), text) { video?.let(platform::open) }
+            return video
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Retenue comme faite (voir [HighlightPipeline.eveningMontage]) : pas de nouvel essai toutes les 5 s. Dite
+            // dans la carte du dossier surveillé, et dans la file (échec lisible).
+            log.error(e) { "Montage de la soirée du ${evening.date} impossible" }
+            _state.update { s -> s.copy(watch = s.watch.copy(eveningProblem = tr("ui.evening.failed", "date" to label, "detail" to (e.localizedMessage ?: e.toString())))) }
+            throw e
+        } finally {
+            _state.update { s -> s.copy(watch = s.watch.copy(montaging = null, montageFraction = 0.0)) }
+        }
     }
 
     /**
@@ -959,7 +1539,18 @@ class AppController(
     private fun startWatching(prefs: WatchPrefs) {
         watchJob?.cancel()
         val watcher = FolderWatcher(prefs.folder, prefs.since, watchSettle)
-        _state.update { it.copy(watch = WatchState(folder = prefs.folder, fresh = it.watch.fresh)) }
+        this.watcher = watcher
+        watchSettings = prefs
+        // Au lancement, une soirée finie pendant que l'application était fermée se monte aussitôt.
+        eveningCheckAt = clock()
+        _state.update {
+            it.copy(
+                watch = WatchState(
+                    folder = prefs.folder, fresh = it.watch.fresh, evenings = prefs.evenings, eveningDelayText = I18n.duration(prefs.evenings.delay),
+                    eveningStyles = backend?.pipeline?.let { p -> runCatching { p.montageStyles }.getOrNull() } ?: dev.highlights.core.model.MontageStyles.NONE,
+                ),
+            )
+        }
         log.info { "Surveillance de ${prefs.folder} (captures depuis ${prefs.since})" }
         watchJob = scope.launch(Dispatchers.IO) {
             while (true) {
@@ -968,29 +1559,37 @@ class AppController(
                     if (found.isNotEmpty()) {
                         log.info { "Nouvelle(s) capture(s) : ${found.joinToString { it.name }}" }
                         _state.update { it.copy(watch = it.watch.copy(pending = it.watch.pending + found)) }
+                        // Chaque capture passe par la file : jamais en même temps qu'un export ou un montage.
+                        for (file in found) {
+                            val lastUpdate = AtomicLong(0)
+                            val id = enqueue(tr("ui.jobs.watchAnalyze", "name" to file.name), auto = true, onProgress = { snap ->
+                                val now = System.currentTimeMillis()
+                                if (now - lastUpdate.getAndUpdate { prev -> if (now - prev >= 250) now else prev } >= 250) {
+                                    _state.update { s -> s.copy(watch = s.watch.copy(fraction = snap.fraction)) }
+                                }
+                            }) { progress -> analyzeInBackground(p, file, progress); null }
+                            watchJobs[id] = file
+                        }
                     }
-                    while (state.value.watch.pending.isNotEmpty()) {
-                        while (mainJob?.isActive == true) delay(1.seconds)
-                        analyzeInBackground(p, state.value.watch.pending.first())
-                    }
+                    checkEvenings(p)
                 }
                 delay(watchInterval)
             }
         }
     }
 
-    private suspend fun analyzeInBackground(p: HighlightPipeline, file: Path) {
+    private suspend fun analyzeInBackground(p: HighlightPipeline, file: Path, progress: ProgressReporter) {
+        watchJobs.entries.removeIf { it.value == file }
         _state.update { it.copy(watch = it.watch.copy(current = file, fraction = 0.0, pending = it.watch.pending - setOf(file))) }
-        val lastUpdate = AtomicLong(0)
-        val tracker = ProgressTracker { snap ->
-            val now = System.currentTimeMillis()
-            if (now - lastUpdate.getAndUpdate { prev -> if (now - prev >= 250) now else prev } >= 250) {
-                _state.update { s -> s.copy(watch = s.watch.copy(fraction = snap.fraction)) }
-            }
-        }
         try {
-            val outcome = p.analyze(file, AnalyzeOptions(outputDir = state.value.settings.outputDir), tracker.root)
+            val outcome = p.analyze(file, AnalyzeOptions(outputDir = state.value.settings.outputDir), progress)
             val sessionFile = outcome.sessionFile.toAbsolutePath().normalize()
+            // Capture arrivée pendant que le montage des soirées est actif : sa soirée se montera une fois finie.
+            if (watchSettings?.evenings?.enabled == true) {
+                val key = file.toAbsolutePath().normalize()
+                updateEvenings { it.copy(arrived = (it.arrived.plusElement(key)).toList().takeLast(EveningAuto.KEEP_ARRIVED).toSet()) }
+                eveningCheckAt = clock()
+            }
             _state.update { s -> s.copy(watch = s.watch.copy(fresh = s.watch.fresh + setOf(sessionFile), lastError = null)) }
             refreshLibrary()
         } catch (e: CancellationException) {
@@ -1000,6 +1599,7 @@ class AppController(
             // retentée tant qu'elle ne change pas.
             log.error(e) { "Analyse en fond de $file impossible" }
             _state.update { s -> s.copy(watch = s.watch.copy(lastError = tr("ui.error.inFile", "file" to file.name, "detail" to (e.localizedMessage ?: e.toString())))) }
+            throw e
         } finally {
             _state.update { s -> s.copy(watch = s.watch.copy(current = null, fraction = 0.0)) }
         }
@@ -1289,7 +1889,8 @@ class AppController(
                     listOf(tr("ui.error.log", "file" to LOG_FILE)),
                 )
             } finally {
-                _state.update { it.copy(job = null) }
+                // Un traitement bloquant de la file garde la main sur l'écran.
+                _state.update { it.copy(job = blockingJob(queue.snapshot)) }
             }
         }
     }

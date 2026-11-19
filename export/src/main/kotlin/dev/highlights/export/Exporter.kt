@@ -64,6 +64,8 @@ data class ExportRequest(
     /** Plateforme visée (identifiant, dans le nom des fichiers) et sa durée maximale, vérifiée avant le rendu. */
     val platform: String? = null,
     val maxDuration: Duration? = null,
+    /** Genre de vidéo, dans le nom des fichiers : highlights, clip. */
+    val kind: String = "highlights",
 )
 
 data class ExportResult(
@@ -73,11 +75,19 @@ data class ExportResult(
     val encoder: String,
     /** Musique du montage kills (choisie dans une bibliothèque, ou imposée) ; null pour les highlights. */
     val music: Path? = null,
+    /** Avertissements à montrer à la fin du travail (montage presque vide…), traduits à l'affichage. */
+    val notices: List<dev.highlights.core.i18n.Message> = emptyList(),
+    /** Miniatures écrites à côté des vidéos (une par vidéo), si elles ont été demandées. */
+    val thumbnails: List<Path> = emptyList(),
+    /** Montage kills : nombre de plans au rythme rapide (null pour les highlights), pour demander le ressenti de la musique. */
+    val fastShots: Int? = null,
+    /** Montage kills : ressenti appliqué à la musique (dit, appris ou AUTO). */
+    val musicFeel: dev.highlights.core.model.MusicFeel? = null,
 )
 
 class Exporter(
     private val ffmpeg: FfmpegService,
-    private val encoders: EncoderSelector,
+    val encoders: EncoderSelector,
     private val planner: EditPlanner,
 ) {
     private val transcriber = CaptionTranscriber(ffmpeg)
@@ -109,14 +119,19 @@ class Exporter(
         // Trop long pour la plateforme : on le dit avant le rendu, plutôt que de livrer une vidéo qu'elle refusera.
         request.maxDuration?.let { max ->
             if (duration > max) {
-                throw InputException(Message("error.export.platformTooLong", "duration" to duration, "platform" to request.platform, "max" to max))
+                // Sans plateforme, la limite vient du réglage du clip (edit.clip.maxDuration) : jamais un nom vide.
+                val platform = request.platform
+                throw InputException(
+                    if (platform != null) Message("error.export.platformTooLong", "duration" to duration, "platform" to platform, "max" to max)
+                    else Message("error.export.clipTooLong", "duration" to duration, "max" to max),
+                )
             }
         }
         val encoder = encoders.select().withMaxBitrate(settings.maxBitrate)
 
         request.outputDir.createDirectories()
         request.workDir.createDirectories()
-        val kind = request.platform?.let { "highlights_${OutputNamer.slug(it)}" } ?: "highlights"
+        val kind = request.platform?.let { "${request.kind}_${OutputNamer.slug(it)}" } ?: request.kind
         val paths = OutputNamer.reserve(request.outputDir, request.gameName, recordingDate(sessions), settings.formats, kind)
         val sources = plan.clips.map { it.media.path }.toSet()
         paths.all.forEach { ensureNotSource(it, sources) }
