@@ -264,7 +264,10 @@ barre de position (image par image pendant le glissement), temps écoulé et tot
 Aucune dépendance nouvelle : le FFmpeg livré décode les images réduites à 720p (RGBA brut) et le son (PCM 48 kHz vers
 Java Sound) ; le son est l'horloge maîtresse, une image en retard de plus d'une trame et demie est sautée. Décodage
 matériel (`-hwaccel auto`) avec repli logiciel au premier échec ; sans sortie son, lecture muette sur l'horloge murale.
-Mesures (montage 1080×1920 60 img/s) : voir `output/revue/lecteur-video/LOG.md`.
+Cadence plafonnée par un budget de pixels (un montage 9:16 reste à 60 img/s, une capture 21:9 passe à 30) ; si l'image
+prend plus d'une seconde de retard, la lecture repart à la position du son à cadence moitié. Mesuré sur un montage
+1080×1920 à 60 img/s (Ryzen 7 5800X) : écart image/son moyen 4 ms, 95 % sous 7,5 ms, 2 images sautées sur 2838,
+environ 5 % du processeur.
 
 **Oublier une analyse.** Dans la liste des analyses, « Oublier » (après confirmation) retire l'analyse de la mémoire
 et efface sa session ; la vidéo n'est jamais touchée et peut être réanalysée.

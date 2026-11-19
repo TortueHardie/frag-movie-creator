@@ -460,7 +460,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   événements AWT `dispatchEvent`, jamais Robot). Branché dans `Main.kt` (`ControlBridge.platform` + `startIfEnabled`), sans toucher aux composables.
   Garde-fou de construction : `createDistributable` vérifie que `Highlights.cfg` ne pose pas `highlights.bridge`. Test : `ControlBridgeTest`.
 - Lecteur intégré `player/` : `VideoPlayer` (moteur : deux FFmpeg, images RGBA réduites par `DecodeSize.fit` ≤ 1280×720 + PCM 48 kHz ; file de commandes
-  `Open/Play/Pause/Toggle/Seek/Scrub/EndScrub/Stop`, glissements fusionnés ; `PlaybackClock` = son maître puis horloge murale ; image > 1,5 trame en retard sautée ;
+  `Open/Play/Pause/Toggle/Seek/Scrub/EndScrub/Stop/Lagging`, glissements fusionnés ; `PlaybackClock` = son maître (retenu jusqu'à la 1re image) puis horloge murale ; image > 1,5 trame en retard sautée ;
+  `playbackFps` (≤ 60, divisée par 2 au-delà de `PIXEL_BUDGET` 24 Mpx/s : le goulot est la copie/le dessin côté JVM) ; retard > 1 s → reprise à cadence moitié ;
   `SyncMeter`/`SyncStats` ; `BitmapRing` 8 images Skia recyclées ; `-hwaccel auto` puis repli logiciel), `AudioSink`/`JavaSoundSink` (null = muet),
   `PlayerController` (dans `AppController` : moteur sur `Backend.ffmpeg`, sans lui `platform.open` ; recopie `UiState.player` à 0,5 s près),
   `PlayerWindow.kt` (`VideoPlayerWindow`, `VideoSurface` : image lue en phase de dessin). Actions `videoPlayer` (propriété), `playVideo, scrubSource/scrubSourceEnd`
