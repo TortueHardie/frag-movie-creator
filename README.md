@@ -509,8 +509,12 @@ détecte les kills). En ligne de commande :
   `killfeed-teams` : la moitié droite de chaque ligne a la couleur de l'équipe de la victime, sarcelle pour celle du
   joueur, rouge pour l'adversaire). Le joueur, resté seul de son équipe face à au moins deux adversaires
   (`clutchMinEnemies`, comme le bandeau « CLUTCH » du jeu), gagne le round en les éliminant (`TeamRounds`). Un round
-  gagné au spike (désamorcé, explosé) ne se voit pas dans le killfeed : son clutch est manqué. Mesuré sur deux parties
-  en 854x480 (`output/revue/clutch-reel/`), pas en 1080p ni 1440p. Une mort sépare toujours deux kills rapprochés en
+  gagné au spike (désamorcé, explosé) ne se voit pas dans le killfeed : son clutch est manqué. Les rounds sont séparés
+  par l'élimination d'une équipe, un silence de 40 s, et surtout le retour des cinq barres de vie alliées pleines en haut
+  de l'écran (`round-start`) : dans une vidéo montée, phases d'achat coupées, deux rounds se suivent à 10 s. Mesuré sur
+  deux parties en 854x480 (`output/revue/clutch-reel/`, vérité `verite/valorant/`) : morts alliées précision 0,92,
+  rappel 0,97 (67 sur 69, le joueur compris) ; aucun clutch à 1 contre 2 dans ces parties, aucun inventé ; un 1 contre
+  1 gagné sur deux retrouvé (`clutchMinEnemies: 1`). Pas vérifié en 1080p ni 1440p, faute de capture. Une mort sépare toujours deux kills rapprochés en
   deux clips. Sans aucune mort annoncée (`deathEvent` vide, ou jeu sans Outplayed ni killfeed lu), rien de tout ça ne
   s'applique.
   Désactivable par une case de la fenêtre de montage ou `--no-rounds`.
