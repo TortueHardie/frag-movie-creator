@@ -177,8 +177,10 @@ Pistes, de la plus simple à la plus lourde :
   - [x] Apprendre des choix : historique `taste-history.json` (choix de variantes et corrections de l'éditeur), poids des
     critères appris par préférence par paires, `montage.learnTaste` (actif par défaut depuis `gouts-actifs`, sans effet avant 10 choix), `app gouts`, `--reset`.
     - [ ] Valider sur de vrais choix de l'utilisateur (démonstration sur données synthétiques seulement).
-    - [ ] Apprendre aussi des corrections de l'éditeur (kills écartés ou forcés : préférence de groupes, pas de critères).
-    - [ ] Afficher les goûts appris dans l'application (aujourd'hui : `app gouts` seulement).
+    - [x] Apprendre aussi des corrections de l'éditeur (kills écartés ou forcés : préférence de groupes, pas de critères) :
+      `GroupTasteLearner` (branche `gouts-editeur`), bonus de rang par sorte de groupe, actif dès 5 montages corrigés.
+      - [ ] Valider sur de vraies corrections (démonstration synthétique seulement) ; distance du kill non mesurée.
+    - [x] Afficher les goûts appris dans l'application : écran « Goûts appris » (`TasteView`), avec l'oubli.
   - [ ] Variantes au-delà du planificateur (ordre chronologique / montée, accroche, densité d'effets) : à décider avec l'utilisateur.
 - [x] Styles nommés (`config/montage-styles.yaml`, `--style`, puces en haut de la fenêtre, cases sous « Réglages
   avancés ») : tiktok, propre, onetaps, cinematique. Une case modifiée à la main passe devant le style.
@@ -196,9 +198,15 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Clutch réel : compter les alliés en vie à partir des morts alliées du killfeed (`killfeed-teams`, `TeamRounds`).
   Mesuré en 854x480 seulement (output/revue/clutch-reel/). Restent : rounds gagnés au spike (désamorcé ou explosé),
   invisibles dans le killfeed, donc leurs clutchs manqués ; vérifier en 1080p et 1440p.
-- [ ] VALORANT : écarter du montage les kills à la capacité (molly, flèche, drone…), peu lisibles à l'image, sauf les
-  « beaux » kills aux ultis d'arme (couteaux de Jett, Tour de force de Chamber…). Piste : lire l'icône d'arme/capacité
-  de la ligne du killfeed (`KillfeedDetector`) et une liste blanche des capacités gardées dans le profil.
+- [x] VALORANT : écarter du montage les kills à la capacité (molly, flèche, drone…), peu lisibles à l'image
+  (`skipAbilityKills`, `AbilityKills` : aucune balle au compteur de munitions autour du kill). 0 kill au fusil écarté
+  sur 61 ; **rappel non mesuré** : aucune capture disponible n'a de kill à la capacité du joueur. Outplayed n'enregistre
+  pas l'arme (le « data » de ses kills est un compteur).
+  - [ ] Mesurer le rappel sur une partie avec des kills à la capacité (molly de Brimstone/Viper, flèche de Sova…) : le
+    compteur reste-t-il affiché, immobile, quand le joueur tient une capacité ?
+  - [ ] Ultis d'arme (couteaux de Jett, Tour de force de Chamber, Showstopper de Raze) : gardés s'ils font bouger le
+    compteur ; non vérifié. Sinon, lire l'icône de la ligne du killfeed (`KillfeedDetector`, 10 à 25 px en 480p) et une
+    liste blanche dans le profil.
 
 ## Interface : retoucher les moments
 - [x] Ajuster début/fin d'un moment (boutons ±0,5 s / ±1 s du moment sélectionné ; poignées à la souris : à faire,
@@ -218,12 +226,12 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Jeu de vérité terrain versionné (`verite/`, timecodes validés par le joueur) + `app verite` (précision/rappel par
   détecteur, échec sous les seuils), lancé à la main (`gradlew :app-cli:verite`).
 - [ ] Vérité terrain VALORANT (killfeed, compteur de munitions, `kill-confirm`) : aucune capture VALORANT sur le disque.
-- [ ] Valider avec le joueur la vérité provisoire de `verite/wardogs/` (planches dans `output/revue/verite-terrain/`) et y
+- [x] (validée le 19/11 pour 18-23-47, 20-4-19 et 22-55-31 ; 18-53-18, sans partie, reste provisoire) Valider avec le joueur la vérité provisoire de `verite/wardogs/` (planches dans `output/revue/verite-terrain/`) et y
   ajouter les morts.
 - [x] Wardogs `ocr-log` : « AIDE : ÉLIMINATION » lue comme kill (22-55-31 à 38:37) et « UN PASSAGER A SURVÉCU » lu
   comme aide (18-23-47 à 15:14), corrigés par le libellé de la notification (`notice`) ; « EN ATTENTE DE RÉANIMATION »
   → événement `downed`.
-- [ ] Décider si « à terre » compte comme une mort (`montage.killStyle.downedAsDeath`, faux par défaut) : rounds,
+- [x] (19/11 : non, « à terre » reste à part, choix du joueur ; `downedAsDeath` faux) Décider si « à terre » compte comme une mort (`montage.killStyle.downedAsDeath`, faux par défaut) : rounds,
   kill aussitôt payé, statistiques K/D.
 - [x] Profil Apex Legends (`config/profiles/apex.yaml`) : notifications KNOCKED DOWN / ELIMINATED / SQUAD WIPE lues
   par `ocr-log` (`maxDrop` pour les notifications empilées) ; vérité `verite/apex/` (compteur du HUD) : 33 kills sur 56

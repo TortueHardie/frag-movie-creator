@@ -273,6 +273,25 @@ class UiSnapshotTest : FunSpec({
         render("14_statistiques", state).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("goûts appris : poids des critères et sortes de kills préférées") {
+        val base = dev.highlights.montage.MontageScorer.WEIGHTS
+        val weights = base + mapOf("action" to 0.19, "opening" to 0.16, "restraint" to 0.09, "sync" to 0.21)
+        val learned = dev.highlights.montage.LearnedTaste(weights, base, choices = 14, agreementBefore = 0.43, agreementAfter = 0.79, active = true)
+        val groups = dev.highlights.montage.LearnedGroupTaste(
+            bonus = mapOf(dev.highlights.montage.GroupTrait.FLICK to 0.42, dev.highlights.montage.GroupTrait.TRADED to -0.31, dev.highlights.montage.GroupTrait.HEADSHOT to 0.08),
+            actions = mapOf(dev.highlights.montage.GroupTrait.FLICK to 9, dev.highlights.montage.GroupTrait.TRADED to 5, dev.highlights.montage.GroupTrait.HEADSHOT to 6, dev.highlights.montage.GroupTrait.MULTI_KILL to 4, dev.highlights.montage.GroupTrait.ACE to 1),
+            edits = 7, active = true,
+        )
+        val taste = dev.highlights.pipeline.TasteState(
+            Path("D:/Highlights/sessions/taste-history.json"), 14, 7, learned, listOf("valorant", "wardogs"), null, null, null, groups = groups,
+        )
+        render("17_gouts", UiState(config = ready, taste = TasteUiState(taste, confirmReset = true))).fileSize() shouldBeGreaterThan 0L
+        val fresh = dev.highlights.pipeline.TasteState(
+            Path("D:/Highlights/sessions/taste-history.json"), 3, 1, learned.copy(weights = base, choices = 3, active = false), listOf("valorant"), null, null, null,
+        )
+        render("17_gouts_debut", UiState(config = ready, taste = TasteUiState(fresh))).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("recherche de moments") {
         fun moment(at: String, kills: Int, hs: Int, ace: Boolean = false, clutch: Boolean = false, game: String = "VALORANT") = dev.highlights.pipeline.FoundMoment(
             Path("D:/Highlights/sessions/${at.take(10)}.session.json"), Path("D:/Videos/Valorant_${at.take(10)}.mp4"), game.lowercase(), game,

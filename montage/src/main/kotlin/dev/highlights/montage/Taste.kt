@@ -37,7 +37,11 @@ data class TasteChoice(
     }
 }
 
-/** Corrections de l'éditeur de plan sur un montage rendu ; gardées pour plus tard, pas encore apprises. */
+/**
+ * Corrections de l'éditeur de plan sur un montage rendu. [groups] : les groupes proposés, leurs sortes et ce que
+ * l'utilisateur en a fait, d'où [GroupTasteLearner] apprend ses préférences (vide dans les corrections d'avant
+ * `gouts-editeur` : gardées, pas apprises).
+ */
 @Serializable
 data class TasteEdit(
     val at: String,
@@ -48,6 +52,7 @@ data class TasteEdit(
     val forced: List<String> = emptyList(),
     val pins: Map<String, String> = emptyMap(),
     val report: String? = null,
+    val groups: List<TasteGroup> = emptyList(),
 )
 
 /** Fichier `taste-history.json` : version du format, choix et corrections, du plus ancien au plus récent. */

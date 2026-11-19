@@ -514,6 +514,15 @@ détecte les kills). En ligne de commande :
   deux clips. Sans aucune mort annoncée (`deathEvent` vide, ou jeu sans Outplayed ni killfeed lu), rien de tout ça ne
   s'applique.
   Désactivable par une case de la fenêtre de montage ou `--no-rounds`.
+- **Kills à la capacité écartés** (`skipAbilityKills`, activé dans le profil VALORANT) : un kill fait avec une molly,
+  une flèche, un drone… ne montre ni le tir ni la cible sous le réticule. Il est reconnu à ce que le compteur de
+  munitions (détecteur `ammo-counter`) ne voit **aucune balle** de 1 s avant le kill à 0,3 s après ; un couteau aussi.
+  Sans compteur lu, rien n'est écarté (le son seul se trompait sur 1 kill au fusil sur 61). Mesuré sur 61 kills au fusil
+  de deux parties 854x480 : aucun écarté ; aucune de ces parties n'a de kill à la capacité du joueur, ce qui est
+  vraiment reconnu reste donc à mesurer. Les kills restent dans la session, les statistiques et la recherche ; un moment
+  choisi dans la recherche, ou un kill forcé ou épinglé dans la frise, est monté quand même. Un multi-kill garde son
+  importance et ses autres kills. Case « Écarter les kills à la capacité » de la fenêtre de montage (profils qui lisent
+  le compteur), `--ability-kills` pour les garder, `--skip-ability-kills` pour les écarter.
 - **Variantes** (`variants`) : une douzaine de plans sont calculés (échelle de la grille, place de la drop) et seul le
   mieux noté est rendu, à condition de garder presque tous les clips du plan de base et de le battre nettement.
 - **Accroche** : le meilleur groupe après celui de la drop ouvre le montage (`--no-hook`) : c'est dans les premières
@@ -1216,7 +1225,7 @@ sa durée cible (43 s contre 22). Il perd un peu en creux et en action : des pla
 
 ## Montage des morts
 
-`montage --fails` (ou la case « Montage des morts » de la fenêtre de montage, réglages avancés) monte les morts du
+`montage --fails` (en ligne de commande seulement : retiré de l'application, jugé sans usage) monte les morts du
 joueur au lieu de ses kills, sur la musique, avec le même moteur : un plan par mort, la mort sur un temps.
 
 - Chaque plan montre les 3 secondes qui précèdent la mort, une image figée (0,7 s, son du jeu coupé, la musique
@@ -1317,7 +1326,7 @@ VALORANT « 44 kills » 52,1 s → 28,4 s. La version choisie se rend toujours :
 Chaque fois qu'une version est rendue après les aperçus (`--pick`, « Rendre celle-ci »), le choix est gardé dans
 `<sortie>\sessions\taste-history.json` : les critères de la note de chaque version proposée (sur le temps, accent,
 sobriété, variété, durée, rythme, images gelées, ouverture, trous, action) et celle qui a été rendue. Les corrections de
-l'éditeur de plan (kills écartés, forcés, épinglés) y sont gardées aussi, pour plus tard.
+l'éditeur de plan (kills écartés, forcés, épinglés) y sont gardées aussi, avec les sortes de chaque groupe proposé.
 
 Dès 10 choix (`montage.learnTaste`, actif par défaut), les poids de ces critères s'ajustent pour que la
 version rendue batte les autres (préférence par paires) : un critère que vous préférez plus que le moteur ne le pensait
@@ -1336,6 +1345,19 @@ Démonstration sur données synthétiques (aucun vrai choix encore) : un goût c
 3 fois plus à l'ouverture, 4 fois moins à la sobriété, 10 % de choix au hasard. Après 25 choix : action +37 %,
 ouverture +13 %, sobriété −30 % ; sur 2000 choix tenus à l'écart, la version préférée est la mieux notée 83,6 % des fois
 contre 79,5 % avec les poids d'origine. Après 100 choix : action +59 %, ouverture +23 %, sobriété −29 %.
+
+**Sortes de kills préférées (corrections de l'éditeur).** À chaque montage rendu avec des corrections, chaque groupe
+proposé est gardé avec ses sortes (multi-kill, tout à la tête, one tap, flick, ace, clutch, kill échangé) et ce que vous
+en avez fait : écarté (−1), gardé de force ou épinglé (+1), rien (0). Dès 5 montages corrigés, une sorte qui compte au
+moins 3 groupes écartés ou gardés reçoit un bonus de rang : sa moyenne moins celle de tous les groupes (un utilisateur
+qui écarte beaucoup ne déteste pas toutes les sortes pour autant), ×1,5, borné à ±0,75 kill par sorte et ±1 kill par
+groupe, nul sous 0,2 kill (bruit : une sorte neutre sort entre −0,18 et +0,12 sur la démonstration). Un flick préféré passe donc devant un kill seul quand la place manque, jamais devant un groupe qui a un kill de
+plus. Comptage simple, déterministe ; la distance du kill n'en fait pas partie (pas mesurée). `app gouts` les liste ;
+les corrections d'avant cette version (sans les groupes) restent gardées mais ne sont pas apprises.
+
+**Dans l'application** : bouton « Goûts appris » dans la liste des analyses. Une barre par critère (écart à son poids
+d'origine) et par sorte de kill (préférée, évitée, pas de préférence, trop peu de corrections), grisées tant que
+l'apprentissage n'a pas assez de choix, et « Oublier ce qui a été appris » (après confirmation, comme `--reset`).
 
 ## Ligne de commande
 

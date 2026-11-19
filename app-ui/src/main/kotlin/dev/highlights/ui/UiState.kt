@@ -59,6 +59,8 @@ data class UiState(
     val lastMusic: Path? = null,
     /** Vue des statistiques, à la place des analyses enregistrées (null = fermée). */
     val stats: StatsState? = null,
+    /** Écran des goûts appris (TasteView) ; null : fermé. */
+    val taste: TasteUiState? = null,
     /** Écran « Nouveau jeu » ouvert (remplace la liste des analyses). */
     val newGame: NewGameState? = null,
     /** Vue de recherche de moments, à la place des analyses enregistrées (null = fermée). */
@@ -350,12 +352,14 @@ data class MontageUiState(
     val reactions: Boolean = false,
     /** Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun. */
     val oneTaps: Boolean = false,
-    /** Montage des morts du joueur (ralenti, image figée, petit texte) au lieu des kills. */
-    val fails: Boolean = false,
     /** Rythme rapide : un kill par temps de musique, sur chaque coup de basse. */
     val fast: Boolean = false,
     /** Rythme rapide sur les seules parties rapides et intenses de la musique (drop et après). */
     val fastParts: Boolean = true,
+    /** Kills à la capacité écartés (aucune balle au compteur de munitions), réglage du profil au départ. */
+    val skipAbilityKills: Boolean = false,
+    /** Le profil lit le compteur de munitions : sans lui, la case [skipAbilityKills] ne ferait rien et n'est pas montrée. */
+    val abilityKillsKnown: Boolean = false,
     /** Style de montage choisi (voir [chooseStyle]) ; null : réglages du profil seuls. */
     val style: String? = null,
     /** Styles proposés (`config/montage-styles.yaml`). */

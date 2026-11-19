@@ -51,8 +51,10 @@ data class KillGroup(
     val pin: MontagePin? = null,
     /** Montage des morts : le joueur avait tué juste avant de mourir ([FailMontage.tradeWindow]), un échange. */
     val trade: Boolean = false,
+    /** Préférence apprise des corrections de l'éditeur pour ce genre de groupe, en kills ([LearnedGroupTaste]). */
+    val taste: Double = 0.0,
 ) {
-    val rank: Double get() = kills.size + score / 10 + style
+    val rank: Double get() = kills.size + score / 10 + style + taste
 
     /** L'utilisateur tient à ce groupe : ni le plancher de qualité, ni le manque de place ne l'écartent. */
     val kept: Boolean get() = forced || pin != null

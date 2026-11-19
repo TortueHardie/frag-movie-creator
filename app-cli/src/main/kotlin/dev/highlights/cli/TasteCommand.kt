@@ -4,6 +4,8 @@ import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
+import dev.highlights.montage.GroupTasteLearner
+import dev.highlights.montage.GroupTrait
 import dev.highlights.montage.MontageScorer
 import dev.highlights.montage.TasteHistory
 import dev.highlights.montage.TasteLearner
@@ -57,6 +59,16 @@ class TasteCommand : PipelineCommand("gouts") {
         echo("")
         echo("Accord avec les choix (variante rendue = la mieux notée) : %.0f %% avec les poids d'origine, %.0f %% avec les poids appris"
             .format(learned.agreementBefore * 100, learned.agreementAfter * 100))
+        val groups = state.groups
+        echo("")
+        echo(
+            "Préférences de groupes (corrections de l'éditeur, bonus en kills ajouté au rang ; actives à partir de ${GroupTasteLearner.MIN_EDITS} corrections) : " +
+                if (groups.active) "actives, ${groups.edits} corrections" else "${groups.edits} correction(s) sur ${GroupTasteLearner.MIN_EDITS}, pas encore actives",
+        )
+        GroupTrait.entries.forEach { t ->
+            val bonus = groups.bonus[t]
+            echo("  %-10s %3d écarté(s) ou gardé(s)  %s".format(t.key, groups.actions[t] ?: 0, if (bonus == null) "-" else "%+.2f kill".format(bonus)))
+        }
         val last = state.last ?: return
         echo("")
         echo("Dernier choix (${last.at}, ${Path.of(last.music).fileName}) : variante ${last.chosen + 1} rendue")
