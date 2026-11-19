@@ -40,8 +40,8 @@ detectors:
 
   # Sans Outplayed (capture OBS, ShadowPlay…), kills et morts sont lus dans le killfeed : le portrait du joueur y est
   # pris dans un cadre jaune, à gauche quand il tue, à droite quand il meurt, quels que soient l'agent, l'arme, le skin
-  # ou le pseudo. Ne tourne que si game-events n'a rien donné : jamais deux fois les mêmes kills. Sans assistances ni
-  # headshots (absents du killfeed pour le joueur). Mesuré sur quatre parties (3440x1440 et 1920x1080, deux joueurs,
+  # ou le pseudo. Ne tourne que si game-events n'a rien donné : jamais deux fois les mêmes kills. Sans assistances ;
+  # les headshots sont lus à part (headshot-icon, plus bas). Mesuré sur quatre parties (3440x1440 et 1920x1080, deux joueurs,
   # deux agents) : 79 kills sur 79, 58 morts sur 58, aucun faux positif. Coût : les images clés sont lues d'abord, puis
   # seuls les instants où une nouvelle ligne du joueur apparaît sont décodés (keyframeScan, voir le README).
   # Sous 720 px de haut (vidéos 480p de YouTube), le contour est délavé : l'aplat jaune du portrait est lu à la place
@@ -105,15 +105,35 @@ detectors:
   # 66 ms après un kill à la tête (partie du 25/09, 548,05 s, piste du jeu), le motif qui revenait le plus dans les
   # 9 headshots d'Outplayed de deux parties et le moins dans les 14 kills au corps. Mesuré autour des 23 kills : les
   # headshots montent à 0,72-0,78 (4 sur les 8 autres), les kills au corps plafonnent à 0,64. Seuil 0,7 : aucun faux
-  # headshot, la moitié des vrais manqués (le son se perd dans la rafale). À revoir sur d'autres parties.
+  # headshot, la moitié des vrais manqués (le son se perd dans la rafale). Revu le 19/11 sur les deux parties 854x480
+  # du disque, comparé à l'icône du killfeed relue à l'image : 2 kills à la tête reconnus sur 27, et 4 kills au corps
+  # dits à la tête (autant de faux one taps). Désactivé : l'icône du killfeed (headshot-icon) le remplace.
   - id: headshot-sound
     type: game-sounds
+    enabled: false
     fallbackFor: game-events
     weight: 0
     params:
       shots: null
       sounds:
         headshot: { file: templates/valorant/headshot.wav, threshold: 0.7, minHz: 1000, maxHz: 12000 }
+
+  # Tirs à la tête sans Outplayed, lus dans le killfeed : l'icône de la cible entre l'arme et la victime, présente sur
+  # les lignes du joueur (revérifié le 19/11 sur deux parties 854x480, à l'image : 27 icônes sur 61 kills). Relit
+  # 2 s autour de chaque kill. Bien plus sûr que le son (headshot-sound) : sur les deux parties, le son reconnaissait 2
+  # headshots sur 27 et en inventait 4, l'icône 25 sur 27 sans faux (seuil 0,6). Avec Outplayed, ne relit rien. Non vérifié en 1080p
+  # ni 1440p (gabarit pris en 480p, agrandi).
+  - id: headshot-icon
+    type: killfeed-headshot
+    dependsOn: [game-events, killfeed]
+    weight: 0
+    params:
+      template: templates/valorant/killfeed_headshot.png
+      killfeed:
+        region: { x: 0.709302, y: 0.076389, width: 0.290698, height: 0.243056 }
+        referenceWidth: 3440
+        referenceHeight: 1440
+        anchor: right
 
   # Morts des alliés et des adversaires, à la couleur de la victime de chaque ligne du killfeed (sarcelle pour l'équipe
   # du joueur, rouge pour l'adversaire, lue juste avant son portrait) : c'est ce qui compte les alliés en vie dans un

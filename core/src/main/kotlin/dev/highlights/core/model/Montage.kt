@@ -404,9 +404,16 @@ data class OneTapMontage(
     val minTail: SerialDuration = 300.milliseconds,
     /** Plans d'un seul temps permis (voir [CutSettings.singleBeat]) : un kill par temps de musique. */
     val singleBeat: Boolean = true,
-    /** Durée visée par kill, et durée minimale du montage. */
+    /** Durée visée par kill. */
     val perClip: SerialDuration = 500.milliseconds,
-    val min: SerialDuration = 6.seconds,
+    /**
+     * Durée minimale du montage. À 6 s, deux one taps (une partie du 22/09) étiraient leurs plans pour la remplir : le
+     * second passait de 1 à 4 temps (1,8 s d'attente avant le kill à 130 BPM). Une seconde : le montage dure ce que
+     * durent ses one taps, plus l'élan de la drop.
+     */
+    val min: SerialDuration = 1.seconds,
+    /** En deçà de ce nombre de one taps, le montage se fait mais prévient qu'il est court ([MontageSettings.minKills] en kills). */
+    val few: Int = 3,
     /**
      * Sans source de tirs à la tête (ni Outplayed, ni gabarit du son), garder les kills d'une seule balle plutôt que ne
      * rien monter : un kill au corps à l'Operator passe alors pour un one tap.
@@ -419,6 +426,7 @@ data class OneTapMontage(
         require(preRoll >= minLead) { "montage.oneTaps.preRoll doit couvrir minLead" }
         require(postRoll >= minTail) { "montage.oneTaps.postRoll doit couvrir minTail" }
         require(cut.isPositive() && perClip.isPositive() && min.isPositive()) { "montage.oneTaps : durées positives attendues" }
+        require(few >= 0) { "montage.oneTaps.few ne peut pas être négatif" }
     }
 }
 

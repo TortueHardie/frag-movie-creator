@@ -194,4 +194,18 @@ class OneTapsTest : FunSpec({
         // Sans préférence (montage kills ordinaire), aucune avance.
         MusicChoice.rank(groups, listOf(music(105.0)), settings.copy(musicPace = null)) { false }.single().pace shouldBe 0.0
     }
+    test("peu de one taps : les plans ne s'étirent pas pour remplir une durée minimale, et on prévient") {
+        val two = select(session(listOf(Triple(100.0, 1, true), Triple(700.0, 1, true))))
+        two.kills shouldBe 2
+        two.notice?.text() shouldBe "Seulement 2 one taps trouvés : le montage sera très court."
+        for ((bpm, beats) in listOf(105.0 to 1, 130.0 to 2)) {
+            val plan = MontagePlanner.plan(two.groups, music(bpm), settings)
+            // Hors drop (qui garde son élan), un plan d'un ou deux temps comme dans un long montage ; 6 s de minimum
+            // en faisaient 2 et 4 temps.
+            plan.clips.filter { it.slot.dropBeat == null }.map { it.beats } shouldBe listOf(beats)
+            val stretched = MontagePlanner.plan(two.groups, music(bpm), settings.copy(length = settings.length.copy(min = 6.seconds)))
+            (plan.duration < stretched.duration) shouldBe true
+        }
+        select(session(listOf(Triple(100.0, 1, true), Triple(400.0, 1, true), Triple(700.0, 1, true)))).notice shouldBe null
+    }
 })

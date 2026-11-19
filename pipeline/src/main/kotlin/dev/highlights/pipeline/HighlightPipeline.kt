@@ -290,6 +290,8 @@ class PlannedMontage internal constructor(
     val killsFound: Int = candidates.sumOf { it.kills.size },
     /** Montage des réactions : réactions trouvées par session ; vide ailleurs. */
     internal val reactions: List<SessionReactions> = emptyList(),
+    /** Montage onetaps : avertissement quand il y a peu de one taps ([OneTaps.Selection.notice]). */
+    val oneTapsNotice: Message? = null,
 ) {
     /**
      * Avertissement quand les parties n'ont presque pas de kills ([MontageSettings.minKills]) : le montage se fait,
@@ -874,7 +876,7 @@ class HighlightPipeline(
         val result = withJobDir { workDir ->
             montageExporter.export(
                 plan,
-                montageRequest(planned, sessions, options, workDir, options.outputDir ?: config.outputDir, notices = listOfNotNull(planned.fewKills(options))),
+                montageRequest(planned, sessions, options, workDir, options.outputDir ?: config.outputDir, notices = listOfNotNull(planned.fewKills(options), planned.oneTapsNotice)),
                 progress.child(tr("progress.render"), 0.86),
             )
         }
@@ -1051,7 +1053,7 @@ class HighlightPipeline(
         return MontagePreviews(
             file,
             results.mapIndexed { i, r -> VariantPreview(entries[i], r.videos.values.first(), r.report, frames[i].orEmpty()) },
-            notices = listOfNotNull(planned.fewKills(options)),
+            notices = listOfNotNull(planned.fewKills(options), planned.oneTapsNotice),
         )
     }
 
@@ -1244,7 +1246,8 @@ class HighlightPipeline(
         missing.forEach { log.warn { "Capture introuvable, ses kills sont écartés du montage : $it" } }
         val available = picked.filterNot { it.media.path in missing }
         if (available.isEmpty()) throw InputException(Message("error.montage.capturesMissing", "files" to missing.joinToString()))
-        val found = if (options.oneTaps == true) OneTaps.select(available, sessions, settings, countsShots = profile.detectors.any { it.enabled && it.type in SHOT_SOURCES }).groups else available
+        val oneTaps = if (options.oneTaps == true) OneTaps.select(available, sessions, settings, countsShots = profile.detectors.any { it.enabled && it.type in SHOT_SOURCES }) else null
+        val found = oneTaps?.groups ?: available
         // Les multi-kills étalés deviennent plusieurs plans (classement, aces et clutchs déjà tirés du groupe entier).
         val inspected = MontagePlanner.split(KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child(tr("progress.kills"), 0.06)), settings)
         // Corrections de l'utilisateur : kills exclus retirés, groupes forcés ou épinglés marqués pour le planificateur.
@@ -1289,7 +1292,7 @@ class HighlightPipeline(
                 ?: throw InputException(Message("error.montage.variantMissing", "index" to pick.index, "total" to finished.size))
         }
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(plan.music.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
-        return PlannedMontage(plan, inspected, choice, profile, platform, finished, variants, killsFound = available.sumOf { it.kills.size }, reactions = reactions)
+        return PlannedMontage(plan, inspected, choice, profile, platform, finished, variants, killsFound = available.sumOf { it.kills.size }, reactions = reactions, oneTapsNotice = oneTaps?.notice)
     }
 
     /** [analyzeAll] puis un seul montage de toutes les captures. */

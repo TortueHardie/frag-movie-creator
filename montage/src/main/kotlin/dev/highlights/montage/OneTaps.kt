@@ -14,8 +14,13 @@ private val log = KotlinLogging.logger {}
  */
 object OneTaps {
 
-    /** Ce qui a été gardé, et si les tirs à la tête étaient connus ([strict]) ou seulement le nombre de balles. */
-    data class Selection(val groups: List<KillGroup>, val strict: Boolean)
+    /**
+     * Ce qui a été gardé, et si les tirs à la tête étaient connus ([strict]) ou seulement le nombre de balles. [notice] :
+     * peu de one taps ([dev.highlights.core.model.OneTapMontage.few]), le montage sera court.
+     */
+    data class Selection(val groups: List<KillGroup>, val strict: Boolean, val notice: Message? = null) {
+        val kills: Int get() = groups.sumOf { it.kills.size }
+    }
 
     /**
      * [countsShots] : le profil a de quoi compter les balles (compteur de munitions ou tirs entendus). Sans, réanalyser
@@ -43,6 +48,8 @@ object OneTaps {
         // Le nombre de kills trouvés dit tout de suite si c'est la partie ou la détection : 0 one tap sur 1 kill
         // (VALORANT « 44 kills » mal lu) n'appelle pas la même réaction que 0 sur 40.
         if (kept.isEmpty()) throw InputException(Message("error.onetaps.none", "count" to groups.sumOf { it.kills.size }))
-        return Selection(kept, strict)
+        val count = kept.sumOf { it.kills.size }
+        val notice = Message("notice.onetaps.few", "count" to count).takeIf { count < settings.oneTaps.few }
+        return Selection(kept, strict, notice)
     }
 }

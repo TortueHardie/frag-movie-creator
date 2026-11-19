@@ -5,3 +5,4 @@ dev.highlights.vision.AmmoCounterDetectorFactory
 dev.highlights.vision.HudCounterDetectorFactory
 dev.highlights.vision.HudChangeDetectorFactory
 dev.highlights.vision.KillfeedTeamsDetectorFactory
+dev.highlights.vision.KillfeedHeadshotDetectorFactory

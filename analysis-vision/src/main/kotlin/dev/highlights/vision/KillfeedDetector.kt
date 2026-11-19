@@ -522,56 +522,15 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
 
     override suspend fun prepare(ctx: AnalysisContext) {
         val video = ctx.media.video ?: return
-        val region = params.referenceWidth?.let {
-            ScreenGeometry.rescale(params.region, it.toDouble() / params.referenceHeight, video.width.toDouble() / video.height, params.anchor)
-        } ?: params.region
-        val cx = (region.x * video.width).roundToInt().coerceIn(0, video.width - 1)
-        val cy = (region.y * video.height).roundToInt().coerceIn(0, video.height - 1)
-        val cw = (region.width * video.width).roundToInt().coerceIn(1, video.width - cx)
-        val ch = (region.height * video.height).roundToInt().coerceIn(1, video.height - cy)
-        // Même finesse pour toutes les définitions : scale pixels lus par pixel de référence, sans jamais agrandir.
-        val reduction = (params.scale * params.referenceHeight / video.height).coerceAtMost(1.0)
-        // Basse définition : le contour du cadre n'est plus lisible, l'aplat jaune du portrait l'est encore.
-        val solid = params.outline == null && video.height < params.fillBelow
-        val zone = FrameZone(
-            cx, cy, cw, ch, (cw * reduction).roundToInt().coerceAtLeast(1), (ch * reduction).roundToInt().coerceAtLeast(1),
-            if (solid) params.fillColor else params.color,
-        )
-        // Pixels de référence → pixels de la zone lue.
-        val k = zone.height.toDouble() / ch * video.height / params.referenceHeight
-        fun px(v: Int) = (v * k).roundToInt().coerceAtLeast(1)
-        val tooSmall = params.outline?.let { zone.height < px(it.maxHeight) || zone.width < px(it.minWidth) }
-            ?: (zone.height < px(params.maxHeight) || zone.width < px(params.victimWidth + params.minWidth))
-        if (tooSmall) {
-            throw ConfigException(Message("error.detector.zoneTooSmall", "id" to id, "size" to "${zone.width}x${zone.height}"))
-        }
-        val shape = if (solid) {
-            FrameShape(
-                px(params.fillMinHeight), px(params.fillMaxHeight), px(params.fillMinWidth), px(params.fillMaxWidth),
-                params.fillMin, 1.0, minTopEdge = 0.0, deathEdge = px(params.deathEdge), selfShare = params.selfShare, solid = true,
-            )
-        } else {
-            FrameShape(
-                px(params.minHeight), px(params.maxHeight), px(params.minWidth), px(params.maxWidth),
-                params.minFill, params.maxFill, px(params.narrowWidth), params.narrowFill,
-                params.minTopEdge, params.topRows, px(params.deathEdge), params.selfShare,
-            )
-        }
-        // Un aplat est plein : rien à combler entre deux pixels.
+        val setup = feedSetup(id, params, video.width, video.height)
+        val (cx, cy, cw, ch) = setup.crop
+        val zone = setup.zone
+        val reader = setup.reader
+        val solid = setup.solid
+        val k = setup.k
+        val reduction = setup.reduction
         val outline = params.outline
-        val reader = if (outline != null) {
-            OutlineReader(
-                params.threshold, params.bridge,
-                outline.copy(
-                    minHeight = px(outline.minHeight), maxHeight = px(outline.maxHeight), lineHeight = px(outline.lineHeight),
-                    minWidth = px(outline.minWidth), maxWidth = px(outline.maxWidth), edgeTolerance = px(outline.edgeTolerance),
-                    minEdgeGap = (outline.minEdgeGap * k).roundToInt(), maxEdgeGap = px(outline.maxEdgeGap),
-                    newLineGrowth = px(outline.newLineGrowth),
-                ),
-            )
-        } else {
-            FeedReader(params.threshold, px(params.victimWidth), if (solid) 0 else params.bridge, shape)
-        }
+        fun px(v: Int) = (v * k).roundToInt().coerceAtLeast(1)
         val sightings = if (solid) maxOf(params.minSightings, ceil(params.fillMinSeen.toDouble(DurationUnit.SECONDS) * params.fps).toInt()) else params.minSightings
         val rows = mutableListOf<List<FeedRow>>()
         // Basse définition : toute la vidéo est lue. Les passages relus autour des images clés (2,4 s après celle qui
@@ -812,4 +771,71 @@ class KillfeedDetectorFactory : SignalDetectorFactory {
 
     override fun create(id: String, params: DetectorParams): SignalDetector =
         KillfeedDetector(id, params.decode(KillfeedParams.serializer()) { throw ConfigException(Message("error.detector.paramRequired", "id" to id, "params" to "region")) })
+}
+
+/** Zone lue, lecteur des lignes et échelle d'un killfeed pour une capture donnée ; partagé avec [KillfeedHeadshotDetector]. */
+internal class FeedSetup(
+    /** Découpe dans la capture : x, y, largeur, hauteur. */
+    val crop: List<Int>,
+    val zone: FrameZone,
+    val reader: RowReader,
+    /** Basse définition : lecture de l'aplat du portrait. */
+    val solid: Boolean,
+    /** Pixels de la zone lue par pixel de référence. */
+    val k: Double,
+    val reduction: Double,
+)
+
+internal fun feedSetup(id: String, params: KillfeedParams, width: Int, height: Int): FeedSetup {
+    val region = params.referenceWidth?.let {
+        ScreenGeometry.rescale(params.region, it.toDouble() / params.referenceHeight, width.toDouble() / height, params.anchor)
+    } ?: params.region
+    val cx = (region.x * width).roundToInt().coerceIn(0, width - 1)
+    val cy = (region.y * height).roundToInt().coerceIn(0, height - 1)
+    val cw = (region.width * width).roundToInt().coerceIn(1, width - cx)
+    val ch = (region.height * height).roundToInt().coerceIn(1, height - cy)
+    // Même finesse pour toutes les définitions : scale pixels lus par pixel de référence, sans jamais agrandir.
+    val reduction = (params.scale * params.referenceHeight / height).coerceAtMost(1.0)
+    // Basse définition : le contour du cadre n'est plus lisible, l'aplat jaune du portrait l'est encore.
+    val solid = params.outline == null && height < params.fillBelow
+    val zone = FrameZone(
+        cx, cy, cw, ch, (cw * reduction).roundToInt().coerceAtLeast(1), (ch * reduction).roundToInt().coerceAtLeast(1),
+        if (solid) params.fillColor else params.color,
+    )
+    // Pixels de référence → pixels de la zone lue.
+    val k = zone.height.toDouble() / ch * height / params.referenceHeight
+    fun px(v: Int) = (v * k).roundToInt().coerceAtLeast(1)
+    val tooSmall = params.outline?.let { zone.height < px(it.maxHeight) || zone.width < px(it.minWidth) }
+        ?: (zone.height < px(params.maxHeight) || zone.width < px(params.victimWidth + params.minWidth))
+    if (tooSmall) {
+        throw ConfigException(Message("error.detector.zoneTooSmall", "id" to id, "size" to "${zone.width}x${zone.height}"))
+    }
+    val shape = if (solid) {
+        FrameShape(
+            px(params.fillMinHeight), px(params.fillMaxHeight), px(params.fillMinWidth), px(params.fillMaxWidth),
+            params.fillMin, 1.0, minTopEdge = 0.0, deathEdge = px(params.deathEdge), selfShare = params.selfShare, solid = true,
+        )
+    } else {
+        FrameShape(
+            px(params.minHeight), px(params.maxHeight), px(params.minWidth), px(params.maxWidth),
+            params.minFill, params.maxFill, px(params.narrowWidth), params.narrowFill,
+            params.minTopEdge, params.topRows, px(params.deathEdge), params.selfShare,
+        )
+    }
+    // Un aplat est plein : rien à combler entre deux pixels.
+    val outline = params.outline
+    val reader = if (outline != null) {
+        OutlineReader(
+            params.threshold, params.bridge,
+            outline.copy(
+                minHeight = px(outline.minHeight), maxHeight = px(outline.maxHeight), lineHeight = px(outline.lineHeight),
+                minWidth = px(outline.minWidth), maxWidth = px(outline.maxWidth), edgeTolerance = px(outline.edgeTolerance),
+                minEdgeGap = (outline.minEdgeGap * k).roundToInt(), maxEdgeGap = px(outline.maxEdgeGap),
+                newLineGrowth = px(outline.newLineGrowth),
+            ),
+        )
+    } else {
+        FeedReader(params.threshold, px(params.victimWidth), if (solid) 0 else params.bridge, shape)
+    }
+    return FeedSetup(listOf(cx, cy, cw, ch), zone, reader, solid, k, reduction)
 }
