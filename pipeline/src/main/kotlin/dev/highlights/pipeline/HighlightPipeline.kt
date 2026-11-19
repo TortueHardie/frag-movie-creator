@@ -486,6 +486,12 @@ class HighlightPipeline(
     /** Styles de montage kills (`config/montage-styles.yaml`), relus à chaque appel : une modification du fichier compte aussitôt. */
     val montageStyles: MontageStyles get() = config.loadMontageStyles()
 
+    /** Préréglages d'export (`config/export-presets.yaml`), relus à chaque appel. */
+    val exportPresets: dev.highlights.core.model.ExportPresets get() = config.loadExportPresets()
+
+    /** Préréglage [id], vérifié ([ExportPresetRules.resolve]), ou une erreur qui liste ceux qui existent. */
+    fun exportPreset(id: String): dev.highlights.core.model.ExportPreset = ExportPresetRules.resolve(id, exportPresets, platforms, montageStyles)
+
     /** Détecteurs qui comptent les balles d'un kill (montage onetaps). */
     private val SHOT_SOURCES = setOf("ammo-counter", "game-sounds")
 

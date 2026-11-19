@@ -144,6 +144,7 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                     )
                 }
 
+                MontagePresets(montage, state, actions)
                 MontageStylePicker(montage, actions)
 
                 DialogGroup(tr("ui.montage.music")) {

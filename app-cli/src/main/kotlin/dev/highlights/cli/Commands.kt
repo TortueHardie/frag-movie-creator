@@ -47,6 +47,10 @@ import dev.highlights.montage.MontageScore
 import dev.highlights.montage.MusicAnalyzer
 import dev.highlights.montage.MusicLibrary
 import dev.highlights.montage.ThumbnailStyle
+import dev.highlights.core.model.ExportPreset
+import dev.highlights.core.config.LoadedConfig
+import dev.highlights.pipeline.ExportPresetRules
+import dev.highlights.pipeline.withPreset
 import dev.highlights.core.profile.ProfileRepository
 import dev.highlights.pipeline.AnalysisOutcome
 import dev.highlights.pipeline.AnalyzeOptions
@@ -70,6 +74,17 @@ private fun PipelineCommand.platformOption() = option(
     "--platform",
     help = "Plateforme visée : tiktok, shorts, reels, youtube (ou définie dans app.yaml) — format, volume, débit, textes hors de l'interface de l'appli, durée maximale",
 )
+
+/** `--preset <id>` : préréglage d'export de `config/export-presets.yaml` (voir [presetNamed]). */
+internal fun PipelineCommand.presetOption() = option(
+    "--preset",
+    help = "Préréglage d'export (config/export-presets.yaml : tiktok, shorts, complet) : plateforme ou format, durée, style et miniature d'un coup ; " +
+        "les autres options passent devant",
+)
+
+/** Préréglage [id], vérifié contre les plateformes et les styles de la configuration ; erreur lisible s'il n'existe pas. */
+internal fun presetNamed(config: LoadedConfig, id: String): ExportPreset =
+    ExportPresetRules.resolve(id, config.loadExportPresets(), config.platforms, config.loadMontageStyles())
 
 /** `--thumbnail` : miniature YouTube de chaque vidéo ; `--thumbnail-style` choisit son habillage (vif par défaut). */
 private fun PipelineCommand.thumbnailFlag() = option("--thumbnail", help = "Écrit aussi une miniature YouTube (PNG 1280x720, 1080x1920 en vertical) à côté de chaque vidéo").flag()
@@ -106,6 +121,7 @@ class ProcessCommand : PipelineCommand("process") {
     private val style by styleOption()
     private val music by musicOption()
     private val out by option("-o", "--out", help = "Dossier de sortie").path(canBeFile = false)
+    private val preset by presetOption()
 
     override fun help(context: Context) =
         "Analyse une ou plusieurs vidéos puis exporte le montage des meilleurs moments. Avec plusieurs vidéos, la cible " +
@@ -115,11 +131,14 @@ class ProcessCommand : PipelineCommand("process") {
         val progress = ConsoleProgress()
         val outcome = execute {
             val pipeline = Pipelines.create(env.config)
+            val chosen = preset?.let { presetNamed(env.config, it) }
+            val analyze = AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, reuse = !reanalyze)
+            val export = ExportOptions(formats, out, style, music, platform)
             try {
                 pipeline.processAll(
                     files,
-                    AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, reuse = !reanalyze),
-                    ExportOptions(formats, out, style, music, platform),
+                    chosen?.let(analyze::withPreset) ?: analyze,
+                    chosen?.let(export::withPreset) ?: export,
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -167,15 +186,18 @@ class ExportCommand : PipelineCommand("export") {
     private val out by option("-o", "--out").path(canBeFile = false)
     private val thumbnail by thumbnailFlag()
     private val thumbnailStyle by thumbnailStyleOption()
+    private val preset by presetOption()
 
-    override fun help(context: Context) = "Exporte le montage à partir d'une session (segments enabled uniquement), sans réanalyser."
+    override fun help(context: Context) =
+        "Exporte le montage à partir d'une session (segments enabled uniquement), sans réanalyser. Avec --preset, la durée " +
+            "du préréglage ne change pas les moments déjà choisis dans la session (elle vaut pour process, montage et search)."
 
     override fun run() {
         val progress = ConsoleProgress()
         val result = execute {
             val sessions = sessionFiles.map { SessionStore.load(it) }
             try {
-                Pipelines.create(env.config).export(sessions, exportOptions(), ProgressTracker(listener = progress).root)
+                Pipelines.create(env.config).export(sessions, exportOptions(preset?.let { presetNamed(env.config, it) }), ProgressTracker(listener = progress).root)
             } finally {
                 progress.finish()
             }
@@ -184,7 +206,8 @@ class ExportCommand : PipelineCommand("export") {
     }
 
     /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
-    internal fun exportOptions() = ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail })
+    internal fun exportOptions(preset: ExportPreset? = null) =
+        ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail }).let { o -> preset?.let(o::withPreset) ?: o }
 }
 
 class MontageCommand : PipelineCommand("montage") {
@@ -268,6 +291,7 @@ class MontageCommand : PipelineCommand("montage") {
     ).int().restrictTo(min = 1, max = 6)
     private val pick by option("--pick", help = "Rendre la variante n (1 = la mieux notée) proposée par --variants, en pleine qualité ; le choix est enregistré (*.choix.json)")
         .int().restrictTo(min = 1)
+    private val preset by presetOption()
     private val variantsFile by option("--variants-file", help = "Fichier *_variantes.json des aperçus pour --pick (défaut : le plus récent pour ces sessions et cette musique)")
         .path(mustExist = true, canBeDir = false)
 
@@ -287,7 +311,7 @@ class MontageCommand : PipelineCommand("montage") {
             val planned = execute {
                 val loaded = sessions.map { SessionStore.load(it) }
                 try {
-                    Pipelines.create(env.config).planKillMontage(loaded, music, montageOptions(constraints, defaultStyle()), ProgressTracker(listener = progress).root)
+                    Pipelines.create(env.config).planKillMontage(loaded, music, montageOptions(constraints, defaultStyle(), preset?.let { presetNamed(env.config, it) }), ProgressTracker(listener = progress).root)
                 } finally {
                     progress.finish()
                 }
@@ -309,7 +333,7 @@ class MontageCommand : PipelineCommand("montage") {
                 pipeline.killMontage(
                     loaded,
                     music,
-                    montageOptions(constraints, defaultStyle()).copy(pick = picked),
+                    montageOptions(constraints, defaultStyle(), preset?.let { presetNamed(env.config, it) }).copy(pick = picked),
                     ProgressTracker(listener = progress).root,
                 )
             } finally {
@@ -344,7 +368,7 @@ class MontageCommand : PipelineCommand("montage") {
             val loaded = sessions.map { SessionStore.load(it) }
             try {
                 val pipeline = Pipelines.create(env.config)
-                pipeline.montagePreviews(loaded, music, montageOptions(constraints, defaultStyle()), count, ProgressTracker(listener = progress).root) { _, _ ->
+                pipeline.montagePreviews(loaded, music, montageOptions(constraints, defaultStyle(), preset?.let { presetNamed(env.config, it) }), count, ProgressTracker(listener = progress).root) { _, _ ->
                     if (firstReady == null) firstReady = System.nanoTime()
                 }.also { proxies = pipeline.previewProxies.usage().toString() }
             } finally {
@@ -405,7 +429,8 @@ class MontageCommand : PipelineCommand("montage") {
      * Options lues sur la ligne de commande (testées seules, sans rien lancer ni lire la configuration) ; [constraints] :
      * corrections du plan ; [defaultStyle] : style appliqué quand `--style` est absent (`--style none` n'en met aucun).
      */
-    internal fun montageOptions(constraints: MontageConstraints = MontageConstraints(), defaultStyle: String? = null) = MontageOptions(
+    internal fun montageOptions(constraints: MontageConstraints = MontageConstraints(), defaultStyle: String? = null, preset: ExportPreset? = null): MontageOptions {
+        val options = MontageOptions(
         formats = formats,
         platform = platform,
         outputDir = out,
@@ -446,10 +471,14 @@ class MontageCommand : PipelineCommand("montage") {
         fails = if (fails) true else null,
         fast = if (fast) true else null,
         fastParts = if (noFastParts) false else null,
-        style = style.let { if (it == "none") null else it ?: defaultStyle },
+        style = style.takeIf { it != "none" },
         constraints = constraints,
         thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail },
     )
+        val presetted = preset?.let(options::withPreset) ?: options
+        // --style passe devant le préréglage, qui passe devant le style par défaut ; « none » : aucun style du tout.
+        return presetted.copy(style = if (style == "none") null else presetted.style ?: defaultStyle)
+    }
 }
 
 class MusicCommand : PipelineCommand("music") {

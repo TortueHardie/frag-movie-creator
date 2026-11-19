@@ -220,7 +220,10 @@ Pistes, de la plus simple à la plus lourde :
 ## Flux de travail
 - [x] File d'attente de jobs (`JobQueue` : un traitement lourd à la fois, ordre modifiable, annulation, échecs lisibles).
 - [x] Dossier surveillé : monter seul chaque soirée finie, notifier (case « Monter chaque soirée finie », `app soiree`).
-- [ ] Préréglages d'export (« TikTok », « YouTube court », « complet »).
+- [x] Préréglages d'export (« TikTok », « YouTube court », « complet ») : `config/export-presets.yaml`, `--preset`,
+  puces en haut de la barre d'export et de la fenêtre de montage ; un réglage changé à la main passe devant.
+  - [ ] Valeurs à confirmer par l'utilisateur (durées 30 s / 60 s / 3 min, miniature, 16:9 du complet) :
+    `output/revue/prereglages-export/LOG.md`.
 
 ## Qualité de détection
 - [x] Jeu de vérité terrain versionné (`verite/`, timecodes validés par le joueur) + `app verite` (précision/rappel par

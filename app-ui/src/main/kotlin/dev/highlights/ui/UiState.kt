@@ -95,11 +95,19 @@ data class UiState(
 
     /** Plateformes proposées (config chargée). */
     val platforms: List<PlatformInfo> get() = (config as? ConfigStatus.Ready)?.platforms.orEmpty()
+    /** Préréglages d'export (`config/export-presets.yaml`), proposés en puces dans la barre d'export et la fenêtre de montage. */
+    val presets: List<dev.highlights.core.model.ExportPreset> get() = (config as? ConfigStatus.Ready)?.presets.orEmpty()
 }
 
 sealed interface ConfigStatus {
     data object Loading : ConfigStatus
-    data class Ready(val configFile: Path, val profilesDir: Path, val profiles: List<ProfileInfo>, val platforms: List<PlatformInfo> = emptyList()) : ConfigStatus
+    data class Ready(
+        val configFile: Path,
+        val profilesDir: Path,
+        val profiles: List<ProfileInfo>,
+        val platforms: List<PlatformInfo> = emptyList(),
+        val presets: List<dev.highlights.core.model.ExportPreset> = emptyList(),
+    ) : ConfigStatus
     data class Failed(val message: String) : ConfigStatus
 }
 
@@ -186,6 +194,12 @@ data class SettingsState(
     val outputDir: Path? = null,
     /** Plateforme visée (id) : impose le format et adapte volume, débit, textes ; null : les formats cochés. */
     val platform: String? = null,
+    /** Préréglage d'export choisi (voir [choosePreset]) ; null : « Personnalisé ». */
+    val preset: String? = null,
+    /** Réglages changés à la main sous le préréglage ([PresetKnob]) : un changement de préréglage ne les touche plus. */
+    val presetTouched: Set<String> = emptySet(),
+    /** Miniature YouTube écrite à côté de chaque vidéo. */
+    val thumbnail: Boolean = true,
 ) {
     val targetDuration: Duration? get() = I18n.parseDuration(durationText)?.takeIf { it.isPositive() }
     val topN: Int? get() = topNText.trim().toIntOrNull()?.takeIf { it > 0 }
@@ -323,6 +337,12 @@ data class MontageUiState(
     val formats: Set<OutputFormat> = setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
     /** Plateforme visée : impose le format, et sa durée maximale devient un plafond. */
     val platform: String? = null,
+    /** Préréglage d'export choisi (voir [choosePreset]) ; null : « Personnalisé ». */
+    val preset: String? = null,
+    /** Réglages changés à la main sous le préréglage ([PresetKnob]). */
+    val presetTouched: Set<String> = emptySet(),
+    /** Miniature YouTube écrite à côté de chaque vidéo du rendu final. */
+    val thumbnail: Boolean = true,
     /** Seulement ces moments (choisis dans la recherche) ; null : tous les kills des parties ouvertes. */
     val pick: dev.highlights.pipeline.MomentPick? = null,
     val density: EffectDensity = EffectDensity.BALANCED,

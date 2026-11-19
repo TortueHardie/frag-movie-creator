@@ -110,6 +110,8 @@ interface UiActions {
     /** Dossier de musiques où le montage choisit la sienne. */
     fun chooseMusicLibrary()
     fun updateMontage(change: (MontageUiState) -> MontageUiState)
+    /** Réglages d'export des highlights (préréglage, miniature…) ; la sélection est recalculée si la durée visée change. */
+    fun updateExportSettings(change: (SettingsState) -> SettingsState) {}
     fun createMontage()
 
     /** File des traitements (voir [JobQueue]) : annuler, avancer/reculer un traitement en attente, ouvrir un résultat. */
@@ -436,6 +438,8 @@ class AppController(
                         config = ConfigStatus.Ready(
                             b.configFile, p.profilesDir, p.profiles.all().map { ProfileInfo(it.id, it.displayName) },
                             p.platforms.map { (id, platform) -> PlatformInfo.of(id, platform) },
+                            // Fichier illisible : pas de préréglages, l'erreur est dans le journal.
+                            runCatching { p.exportPresets.presets }.onFailure { log.warn(it) { "Préréglages d'export illisibles" } }.getOrDefault(emptyList()),
                         ),
                         settings = s.settings.copy(outputDir = s.settings.outputDir ?: p.defaultOutputDir),
                         sources = s.sources.map { src -> src.copy(detectedProfileId = p.resolveProfile(src.path).id) },
@@ -515,7 +519,7 @@ class AppController(
                     sources = sources,
                     session = null,
                     lastExport = null,
-                    settings = s.settings.withProfileDefaults(profile).copy(profileId = null),
+                    settings = s.settings.withProfileDefaults(profile).copy(profileId = null).choosePreset(s.settings.preset, s.presets),
                 )
             }
         }
@@ -536,7 +540,7 @@ class AppController(
                     sources = entries.map { SourceInfo(it.session.media.path, it.session.media, p.resolveProfile(it.session.media.path).id) },
                     session = opened.copy(selectedId = opened.segments.firstOrNull()?.key),
                     lastExport = null,
-                    settings = s.settings.withProfileDefaults(profile).copy(profileId = profile.id),
+                    settings = s.settings.withProfileDefaults(profile).copy(profileId = profile.id).choosePreset(s.settings.preset, s.presets),
                 )
             }
             val openedFiles = files.map { it.toAbsolutePath().normalize() }.toSet()
@@ -562,19 +566,26 @@ class AppController(
         }
         _state.update { s ->
             s.copy(
-                settings = s.settings.withProfileDefaults(profile).copy(profileId = id),
+                settings = s.settings.withProfileDefaults(profile).copy(profileId = id).choosePreset(s.settings.preset, s.presets),
                 session = s.session?.let { it.copy(profileChanged = it.sessions.any { session -> session.profileId != profile.id }) },
             )
         }
     }
 
-    override fun setStyle(style: EditStyle) = _state.update { s -> s.copy(settings = s.settings.copy(style = style)) }
+    override fun setStyle(style: EditStyle) = _state.update { s -> s.copy(settings = s.settings.copy(style = style).presetTrackedFrom(s.settings, s.presets)) }
 
-    override fun setPlatform(id: String?) = _state.update { s -> s.copy(settings = s.settings.copy(platform = id)) }
+    override fun setPlatform(id: String?) = _state.update { s -> s.copy(settings = s.settings.copy(platform = id).presetTrackedFrom(s.settings, s.presets)) }
 
     override fun toggleFormat(format: OutputFormat) = _state.update { s ->
         val formats = if (format in s.settings.formats) s.settings.formats - format else s.settings.formats + format
-        s.copy(settings = s.settings.copy(formats = formats))
+        s.copy(settings = s.settings.copy(formats = formats).presetTrackedFrom(s.settings, s.presets))
+    }
+
+    override fun updateExportSettings(change: (SettingsState) -> SettingsState) {
+        val before = state.value.settings
+        val next = change(before).presetTrackedFrom(before, state.value.presets)
+        // Durée visée changée (préréglage) : les moments sont resélectionnés comme quand on tape la durée.
+        if (next.target != before.target) updateSelection { next } else _state.update { it.copy(settings = next) }
     }
 
     override fun setMomentMode(mode: MomentMode) = updateSelection { it.copy(momentMode = mode) }
@@ -595,7 +606,7 @@ class AppController(
 
     /** Seuil et cible s'appliquent instantanément à une analyse existante (recalcul sans réanalyser). */
     private fun updateSelection(change: (SettingsState) -> SettingsState) {
-        _state.update { it.copy(settings = change(it.settings)) }
+        _state.update { it.copy(settings = change(it.settings).presetTrackedFrom(it.settings, it.presets)) }
         val s = state.value
         val current = s.session ?: return
         val target = s.settings.target ?: return
@@ -667,7 +678,7 @@ class AppController(
         withMemory(title, MEMORY_EXPORT) {
             enqueue(title) { progress ->
                 saveNow(current)
-                val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform, thumbnail = ThumbnailStyle.DEFAULT), progress)
+                val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform, thumbnail = ThumbnailStyle.DEFAULT.takeIf { s.settings.thumbnail }), progress)
                 _state.update { it.copy(lastExport = result, lastUpload = null) }
                 result.videos.values.firstOrNull()
             }
@@ -870,7 +881,7 @@ class AppController(
                     platform = it.settings.platform,
                     styles = styles.styles,
                     profileKnobs = StyleKnobs.of(montage),
-                ).chooseStyle(styles.default),
+                ).chooseStyle(styles.default).choosePreset(it.settings.preset, it.presets),
             )
         }
     }
@@ -891,7 +902,7 @@ class AppController(
     }
 
     override fun updateMontage(change: (MontageUiState) -> MontageUiState) =
-        _state.update { s -> s.copy(montage = s.montage?.let { before -> change(before).trackedFrom(before) }) }
+        _state.update { s -> s.copy(montage = s.montage?.let { before -> change(before).trackedFrom(before).presetTrackedFrom(before, s.presets) }) }
 
     override fun createMontage() {
         val s = state.value
@@ -965,8 +976,8 @@ class AppController(
 
     /** Réglages du dialogue pour le pipeline : les mêmes pour la frise et pour le rendu, sinon le plan montré mentirait. */
     private fun montageOptions(montage: MontageUiState, s: UiState) = MontageOptions(
-        // Miniature (habillage par défaut) de chaque vidéo : prête dans la fenêtre de publication.
-        thumbnail = ThumbnailStyle.DEFAULT,
+        // Miniature (habillage par défaut) de chaque vidéo : prête dans la fenêtre de publication ; le préréglage peut l'ôter.
+        thumbnail = ThumbnailStyle.DEFAULT.takeIf { montage.thumbnail },
         formats = OutputFormat.entries.filter { it in montage.formats },
         outputDir = s.settings.outputDir,
         maxDuration = montage.maxDuration,
