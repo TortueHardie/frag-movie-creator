@@ -201,6 +201,10 @@ edit:
 montage:
   # Les instants des kills sont déjà corrigés du retard d'Outplayed (offsets de game-events) : rien à compenser.
   killOffset: 0ms
+  # Kills à la capacité (molly, flèche, drone…) écartés : la cible meurt hors du réticule, rien de lisible à l'image.
+  # Reconnus à l'absence de balle sur le compteur de munitions (ammo-counter) ; aucun kill à l'arme écarté sur 61
+  # mesurés (deux parties 854x480). Les statistiques et la recherche les gardent.
+  skipAbilityKills: true
   # Les clutchs annoncés par le jeu (game-events), plutôt que déduits : la déduction en comptait 3 pour 1 réel.
   killStyle:
     clutchEvent: clutch

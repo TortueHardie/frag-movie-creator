@@ -117,6 +117,12 @@ class CommandOptionsTest : FunSpec({
         options.platform shouldBe "tiktok"
     }
 
+    test("kills à la capacité : réglage du profil par défaut, --ability-kills les garde, --skip-ability-kills les écarte") {
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString()) { it.montageOptions().skipAbilityKills } shouldBe null
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--ability-kills") { it.montageOptions().skipAbilityKills } shouldBe false
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--skip-ability-kills") { it.montageOptions().skipAbilityKills } shouldBe true
+    }
+
     test("montage des morts : --fails, rien par défaut") {
         parse(MontageCommand(), "montage", session.toString(), "-m", music.toString()) { it.montageOptions().fails } shouldBe null
         parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--fails") { it.montageOptions().fails } shouldBe true

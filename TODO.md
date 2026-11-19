@@ -193,9 +193,15 @@ Pistes, de la plus simple à la plus lourde :
   raccord de plus sur trois musiques (2 → 3 sur « Rome Is Burning »), au prix d'un doublé de 11 temps et de ralentis à
   ×0,33 ; la plupart des coupes refusées manquent de pose d'un côté. Abandonné.
 - [ ] Clutch réel : compter les alliés en vie à partir des morts alliées du killfeed.
-- [ ] VALORANT : écarter du montage les kills à la capacité (molly, flèche, drone…), peu lisibles à l'image, sauf les
-  « beaux » kills aux ultis d'arme (couteaux de Jett, Tour de force de Chamber…). Piste : lire l'icône d'arme/capacité
-  de la ligne du killfeed (`KillfeedDetector`) et une liste blanche des capacités gardées dans le profil.
+- [x] VALORANT : écarter du montage les kills à la capacité (molly, flèche, drone…), peu lisibles à l'image
+  (`skipAbilityKills`, `AbilityKills` : aucune balle au compteur de munitions autour du kill). 0 kill au fusil écarté
+  sur 61 ; **rappel non mesuré** : aucune capture disponible n'a de kill à la capacité du joueur. Outplayed n'enregistre
+  pas l'arme (le « data » de ses kills est un compteur).
+  - [ ] Mesurer le rappel sur une partie avec des kills à la capacité (molly de Brimstone/Viper, flèche de Sova…) : le
+    compteur reste-t-il affiché, immobile, quand le joueur tient une capacité ?
+  - [ ] Ultis d'arme (couteaux de Jett, Tour de force de Chamber, Showstopper de Raze) : gardés s'ils font bouger le
+    compteur ; non vérifié. Sinon, lire l'icône de la ligne du killfeed (`KillfeedDetector`, 10 à 25 px en 480p) et une
+    liste blanche dans le profil.
 
 ## Interface : retoucher les moments
 - [x] Ajuster début/fin d'un moment (boutons ±0,5 s / ±1 s du moment sélectionné ; poignées à la souris : à faire,

@@ -508,6 +508,15 @@ détecte les kills). En ligne de commande :
   deux clips. Sans aucune mort annoncée (`deathEvent` vide, ou jeu sans Outplayed ni killfeed lu), rien de tout ça ne
   s'applique.
   Désactivable par une case de la fenêtre de montage ou `--no-rounds`.
+- **Kills à la capacité écartés** (`skipAbilityKills`, activé dans le profil VALORANT) : un kill fait avec une molly,
+  une flèche, un drone… ne montre ni le tir ni la cible sous le réticule. Il est reconnu à ce que le compteur de
+  munitions (détecteur `ammo-counter`) ne voit **aucune balle** de 1 s avant le kill à 0,3 s après ; un couteau aussi.
+  Sans compteur lu, rien n'est écarté (le son seul se trompait sur 1 kill au fusil sur 61). Mesuré sur 61 kills au fusil
+  de deux parties 854x480 : aucun écarté ; aucune de ces parties n'a de kill à la capacité du joueur, ce qui est
+  vraiment reconnu reste donc à mesurer. Les kills restent dans la session, les statistiques et la recherche ; un moment
+  choisi dans la recherche, ou un kill forcé ou épinglé dans la frise, est monté quand même. Un multi-kill garde son
+  importance et ses autres kills. Case « Écarter les kills à la capacité » de la fenêtre de montage (profils qui lisent
+  le compteur), `--ability-kills` pour les garder, `--skip-ability-kills` pour les écarter.
 - **Variantes** (`variants`) : une douzaine de plans sont calculés (échelle de la grille, place de la drop) et seul le
   mieux noté est rendu, à condition de garder presque tous les clips du plan de base et de le battre nettement.
 - **Accroche** : le meilleur groupe après celui de la drop ouvre le montage (`--no-hook`) : c'est dans les premières

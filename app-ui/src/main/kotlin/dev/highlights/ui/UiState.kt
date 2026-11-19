@@ -356,6 +356,10 @@ data class MontageUiState(
     val fast: Boolean = false,
     /** Rythme rapide sur les seules parties rapides et intenses de la musique (drop et après). */
     val fastParts: Boolean = true,
+    /** Kills à la capacité écartés (aucune balle au compteur de munitions), réglage du profil au départ. */
+    val skipAbilityKills: Boolean = false,
+    /** Le profil lit le compteur de munitions : sans lui, la case [skipAbilityKills] ne ferait rien et n'est pas montrée. */
+    val abilityKillsKnown: Boolean = false,
     /** Style de montage choisi (voir [chooseStyle]) ; null : réglages du profil seuls. */
     val style: String? = null,
     /** Styles proposés (`config/montage-styles.yaml`). */

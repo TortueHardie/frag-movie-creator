@@ -101,6 +101,13 @@ data class MontageSettings(
      */
     val skipDeathWithin: SerialDuration = Duration.ZERO,
     /**
+     * Écarter du montage les kills faits avec une capacité (molly, flèche, drone…) : à l'image, on ne voit ni le tir ni
+     * la cible tomber sous le réticule. Reconnus à ce que le compteur de munitions ne voit aucune balle autour du kill
+     * (voir `AbilityKills`) ; sans compteur lu, rien n'est écarté. Les kills restent dans la session, les statistiques
+     * et la recherche ; un moment choisi par l'utilisateur (recherche, kill forcé ou épinglé) est toujours monté.
+     */
+    val skipAbilityKills: Boolean = false,
+    /**
      * En dessous de ce nombre de kills trouvés dans les parties, le montage se fait quand même, mais avec un
      * avertissement : une partie VALORANT de 44 kills en donnait un seul (détection en défaut) et le montage de 2 s
      * sortait sans un mot. Zéro : jamais d'avertissement.
@@ -190,6 +197,8 @@ data class MontageSettings(
             hook = false,
             reactions = false,
             skipDeathWithin = Duration.ZERO,
+            // Une mort sans balle tirée n'est pas une capacité : le montage des morts les garde toutes.
+            skipAbilityKills = false,
             effectDensity = EffectDensity.HEAVY,
             length = length.copy(perClip = f.perClip, perExtraKill = Duration.ZERO, min = f.min),
             // Placement de la mort : la place du ralenti et du gel est réservée de part et d'autre (sinon, sur un plan de
