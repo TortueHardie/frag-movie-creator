@@ -1253,6 +1253,34 @@ joueur au lieu de ses kills, sur la musique, avec le même moteur : un plan par 
 & $app montage "Valorant- 44 kills.session.json" Valorant_game.session.json -m D:\Musique\R2D2.mp3 --fails -f 9:16
 ```
 
+## Montage des réactions
+
+Case « Réactions » du dialogue du montage (rubrique du rythme, réglages avancés) ou `montage --reaction-montage` : les
+moments où le joueur réagit au micro (rire, cri, coup de gueule), quelle qu'en soit la cause (un kill, une mort, rien
+du tout), montés sur la musique avec le même moteur : un plan par réaction, son début sur un temps.
+
+- Il faut une piste micro séparée (Outplayed en écrit trois : mix, jeu, micro ; OBS sait le faire). Sans elle, le
+  montage refuse plutôt que d'inventer des réactions (`error.montage.noMicTrack`). Dans `D:\Vidéo`, seules les captures
+  WARDOGS en ont une ; les vidéos VALORANT, CS2, Apex et Fortnite n'ont qu'une piste.
+- Les réactions viennent de la piste micro, décodée en entier (4 s pour 45 min) : les éclats de voix 10 dB au-dessus
+  de la voix habituelle du joueur dans la partie (médiane des passages où il parle), plus les rires et cris reconnus par
+  YAMNet. YAMNet seul n'en trouvait presque pas (un rire en 2 h 30 de WARDOGS : le joueur rit peu fort) ; les éclats en
+  donnent 53, que whisper confirme : au-dessus de +20 dB ce sont des réactions (« oh la pute, ah fait chier », « waouh,
+  putain ! », « c'est pas le moment ! »), entre +12 et +17 dB souvent de la conversation ou des annonces.
+- Classement par la force de la réaction : montée au-dessus de la voix habituelle, durée, rire reconnu, et un kill, une
+  mort ou une aide moins de 5 s avant (`montage.reactionMontage.causeBonus`). Deux réactions à moins de 8 s : la plus
+  forte seule.
+- Micro mixé par-dessus la piste du jeu (×2, +6 dB), musique baissée à 25 % sous la voix, plan prolongé jusqu'à la fin
+  de la phrase, et ce qui est dit en sous-titres (whisper, modèle de `edit.story.captions`, une phrase criée en rouge).
+  Ni ralenti ni image figée : ils déformeraient la voix. Pas de plans d'un temps sur les parties rapides de la musique.
+- Réglages : `montage.reactionMontage` du profil (`rise`, `preRoll`, `postRoll`, `perClip`, `spacing`, `micGain`,
+  `musicUnderVoice`, `captions`…). Fichiers : `<jeu>_<date>_reactions.mp4` ; le rapport liste toutes les réactions
+  trouvées (`reactions`, avec `used` pour celles montées).
+
+```powershell
+& $app montage WARDOGS_09-22-2026_22-55-31-983.session.json WARDOGS_09-23-2026_20-4-19-983.session.json -m D:\Musique\R2D2.mp3 --reaction-montage -f 9:16
+```
+
 ## Montage onetaps
 
 Case « Onetaps » du dialogue du montage kills, `montage --onetaps` ou `search --onetaps --montage` : que les kills

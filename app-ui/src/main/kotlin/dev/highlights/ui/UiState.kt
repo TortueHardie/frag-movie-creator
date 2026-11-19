@@ -352,6 +352,8 @@ data class MontageUiState(
     val reactions: Boolean = false,
     /** Montage « onetaps » : que les kills d'une balle à la tête, un plan très court chacun. */
     val oneTaps: Boolean = false,
+    /** Montage des réactions au micro (rires, cris), micro devant, sous-titres, à la place des kills. */
+    val reactionMontage: Boolean = false,
     /** Rythme rapide : un kill par temps de musique, sur chaque coup de basse. */
     val fast: Boolean = false,
     /** Rythme rapide sur les seules parties rapides et intenses de la musique (drop et après). */

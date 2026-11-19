@@ -240,6 +240,10 @@ class MontageCommand : PipelineCommand("montage") {
         help = "Pas de rythme rapide sur les parties rapides et intenses de la musique (drop et après) : tout le montage au rythme du style",
     ).flag()
     private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
+    private val reactionMontage by option(
+        "--reaction-montage",
+        help = "Montage des réactions du joueur au micro (rires, cris, coups de gueule), quelle qu'en soit la cause : micro devant, sous-titres. Demande une piste micro séparée",
+    ).flag()
     private val fails by option("--fails", help = "Montage des morts du joueur : les secondes d'avant, ralenti, image figée et petit texte (OUPS, RIP…), sur la musique").flag()
     private val style by option(
         "--style",
@@ -444,6 +448,7 @@ class MontageCommand : PipelineCommand("montage") {
         reactions = if (reactions) true else null,
         oneTaps = if (oneTaps) true else null,
         fails = if (fails) true else null,
+        reactionMontage = if (reactionMontage) true else null,
         fast = if (fast) true else null,
         fastParts = if (noFastParts) false else null,
         style = style.let { if (it == "none") null else it ?: defaultStyle },

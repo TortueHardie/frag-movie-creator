@@ -53,6 +53,8 @@ data class MontageRenderRequest(
     val whooshFiles: List<String> = emptyList(),
     /** Options de décodage ajoutées devant chaque extrait (aperçu : voir [MontagePreview.DECODE]). */
     val decodeOptions: List<String> = emptyList(),
+    /** Montage des réactions : sous-titres de chaque plan, en temps de la source (voir [ReactionRender.transcribe]). */
+    val captions: List<List<dev.highlights.editing.story.Caption>> = emptyList(),
 )
 
 /**
@@ -237,6 +239,7 @@ object MontageRenderBuilder {
                     }
                 }
             }
+            effects += ReactionRender.captionFilters(request.captions.getOrNull(i), clip, lead, length, request.edit, request.format, w, h)
             effects += KillCounter.filters(KillCounter.marks(clips, i, outKills, length, settings.text.killCounter), settings.text.font, request.format, h, request.edit.safeArea, edit.vertical)
             effects += "tpad=stop_mode=clone:stop_duration=${sec(clip.padAfter + 500.milliseconds)}"
             // Longueur en images, pas en durée : les horodatages de la source ne tombent pas sur la grille de sortie,
@@ -282,7 +285,7 @@ object MontageRenderBuilder {
             // --- audio du jeu : même découpe, volume adaptatif, posé à son décalage (peut déborder sur le clip suivant)
             // Les pistes sont choisies par leur rôle : une capture à pistes séparées (OBS) est mixée ici même.
             val streams = edit.audioIndices(AudioTracks.of(media.audio, request.audioLayout))
-            val source = when {
+            val source = ReactionRender.source(i, media, request.audioLayout, settings.reactionMontage, graph) ?: when {
                 streams.isEmpty() -> null
                 streams.size == 1 -> "[$i:a:${streams.first()}]"
                 else -> "[xa$i]".also {
