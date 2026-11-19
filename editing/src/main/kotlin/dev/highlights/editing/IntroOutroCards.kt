@@ -164,8 +164,11 @@ object IntroOutroCards {
         val length = duration(frames, fps)
         val cover = "scale=$w:$h:force_original_aspect_ratio=increase:flags=lanczos,crop=$w:$h,setsar=1"
         val image = s.image?.let(Path::of)?.takeIf { Files.isRegularFile(it) }
-        // Assombri pour que le logo et le pseudo se lisent sur n'importe quelle image.
+        // Image choisie : assombrie pour que le logo et le pseudo se lisent dessus.
         val dim = "eq=brightness=-0.12:saturation=0.8,vignette=a=PI/4"
+        // Image de la vidéo : ramenée à une plage fixe (noir → gris moyen) quelle que soit la scène. Assombrie comme une
+        // image choisie, une scène d'intérieur de WARDOGS (luminance moyenne 41) devenait un fond noir uni.
+        val level = "normalize=blackpt=black:whitept=0x8C8C8C:smoothing=0:strength=0.85,eq=saturation=0.85,vignette=a=PI/6"
         val background = when {
             s.background == CardBackground.IMAGE && image != null -> {
                 val i = input(args, listOf("-loop", "1", "-framerate", "$fps", "-t", sec(length), "-i", image.toString()))
@@ -175,7 +178,7 @@ object IntroOutroCards {
             s.background == CardBackground.BLUR && still != null -> {
                 val i = input(args, listOf("-ss", Durations.ffmpegSecondsPrecise(still.at), "-t", "1", "-i", still.file.toString()))
                 val sigma = (minOf(w, h) * 0.025).roundToInt().coerceAtLeast(4)
-                "[$i:v]trim=end_frame=1,$cover,gblur=sigma=$sigma,$dim,loop=loop=${frames - 1}:size=1"
+                "[$i:v]trim=end_frame=1,$cover,gblur=sigma=$sigma,$level,loop=loop=${frames - 1}:size=1"
             }
 
             else -> "color=c=0x${s.color.drop(1)}:s=${w}x$h:r=$fps"
