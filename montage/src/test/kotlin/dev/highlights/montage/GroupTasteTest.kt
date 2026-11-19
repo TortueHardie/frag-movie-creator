@@ -56,12 +56,13 @@ class GroupTasteTest : FunSpec({
     }
 
     test("goût caché retrouvé : flick préféré, échange écarté, le reste près de zéro") {
-        val learned = GroupTasteLearner.learn(edits(8, seed = 1))
+        val learned = GroupTasteLearner.learn(edits(20, seed = 1))
         learned.active shouldBe true
         (learned.bonus.getValue(GroupTrait.FLICK) > 0.25) shouldBe true
         (learned.bonus.getValue(GroupTrait.TRADED) < -0.1) shouldBe true
-        (kotlin.math.abs(learned.bonus[GroupTrait.HEADSHOT] ?: 0.0) < 0.15) shouldBe true
-        (kotlin.math.abs(learned.bonus[GroupTrait.MULTI_KILL] ?: 0.0) < 0.15) shouldBe true
+        // Neutres : sous le seuil du bruit, pas de bonus du tout.
+        learned.bonus[GroupTrait.HEADSHOT] shouldBe null
+        learned.bonus[GroupTrait.MULTI_KILL] shouldBe null
     }
 
     test("bornes : une sorte ±MAX_BONUS, un groupe ±MAX_TOTAL") {

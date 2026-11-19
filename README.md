@@ -1331,7 +1331,7 @@ proposé est gardé avec ses sortes (multi-kill, tout à la tête, one tap, flic
 en avez fait : écarté (−1), gardé de force ou épinglé (+1), rien (0). Dès 5 montages corrigés, une sorte qui compte au
 moins 3 groupes écartés ou gardés reçoit un bonus de rang : sa moyenne moins celle de tous les groupes (un utilisateur
 qui écarte beaucoup ne déteste pas toutes les sortes pour autant), ×1,5, borné à ±0,75 kill par sorte et ±1 kill par
-groupe. Un flick préféré passe donc devant un kill seul quand la place manque, jamais devant un groupe qui a un kill de
+groupe, nul sous 0,2 kill (bruit : une sorte neutre sort entre −0,18 et +0,12 sur la démonstration). Un flick préféré passe donc devant un kill seul quand la place manque, jamais devant un groupe qui a un kill de
 plus. Comptage simple, déterministe ; la distance du kill n'en fait pas partie (pas mesurée). `app gouts` les liste ;
 les corrections d'avant cette version (sans les groupes) restent gardées mais ne sont pas apprises.
 

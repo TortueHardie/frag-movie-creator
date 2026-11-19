@@ -3,6 +3,7 @@ package dev.highlights.montage
 import dev.highlights.core.serialization.roundTo
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
+import kotlin.math.abs
 import kotlin.time.Duration
 
 private val log = KotlinLogging.logger {}
@@ -86,7 +87,8 @@ data class LearnedGroupTaste(
  * groupe proposé vaut +1 s'il l'a gardé de force ou épinglé, −1 s'il en a écarté un kill, 0 s'il n'y a pas touché. Pour
  * une sorte, la moyenne de ces valeurs sur les groupes de cette sorte (rappelée vers 0 par [PRIOR] groupes neutres), moins
  * la même moyenne sur tous les groupes : un utilisateur qui écarte beaucoup n'en déteste pas pour autant toutes les
- * sortes, seule compte la différence. Le bonus est cette différence × [GAIN], borné à ±[MAX_BONUS] kill. Pas de
+ * sortes, seule compte la différence. Le bonus est cette différence × [GAIN], borné à ±[MAX_BONUS] kill, nul sous
+ * [MIN_BONUS] (bruit). Pas de
  * descente de gradient : un comptage, donc déterministe et explicable (« 4 flicks gardés, aucun écarté »).
  */
 object GroupTasteLearner {
@@ -108,6 +110,13 @@ object GroupTasteLearner {
     /** Bonus d'une sorte, en kills : une préférence ne fait jamais passer un kill seul devant un double kill. */
     const val MAX_BONUS = 0.75
 
+    /**
+     * En deçà, pas de bonus : c'est du bruit. Sur la démonstration synthétique (goût caché : flicks gardés, échanges
+     * écartés, 10 % d'actions au hasard), une sorte neutre (tête, multi-kill) sortait entre −0,18 et +0,12 kill de 5 à
+     * 100 corrections, quand les vraies préférences atteignaient ±0,3 dès 7 corrections et ±0,5 à 0,7 ensuite.
+     */
+    const val MIN_BONUS = 0.2
+
     /** Bonus d'un groupe (somme de ses sortes), en kills. */
     const val MAX_TOTAL = 1.0
 
@@ -120,7 +129,7 @@ object GroupTasteLearner {
         val baseline = mean(groups)
         val bonus = GroupTrait.entries.filter { actions.getValue(it) >= MIN_ACTIONS }.associateWith { t ->
             (GAIN * (mean(groups.filter { t.key in it.traits }) - baseline)).coerceIn(-MAX_BONUS, MAX_BONUS).roundTo(3)
-        }.filterValues { it != 0.0 }
+        }.filterValues { abs(it) >= MIN_BONUS }
         log.info { "Préférences de groupes apprises sur ${usable.size} corrections : $bonus" }
         return LearnedGroupTaste(bonus, actions, usable.size, active = true)
     }

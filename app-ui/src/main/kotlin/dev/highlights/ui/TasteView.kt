@@ -108,7 +108,7 @@ private fun GroupsCard(state: TasteState) {
             val actionsCount = groups.actions[t] ?: 0
             val value = when {
                 actionsCount < GroupTasteLearner.MIN_ACTIONS -> tr("ui.taste.groups.few", "count" to actionsCount)
-                bonus == null || abs(bonus) < 0.05 -> tr("ui.taste.groups.neutral")
+                bonus == null -> tr("ui.taste.groups.neutral")
                 bonus > 0 -> tr("ui.taste.groups.prefer")
                 else -> tr("ui.taste.groups.avoid")
             }
