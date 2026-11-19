@@ -1306,7 +1306,7 @@ VALORANT « 44 kills » 52,1 s → 28,4 s. La version choisie se rend toujours :
 Chaque fois qu'une version est rendue après les aperçus (`--pick`, « Rendre celle-ci »), le choix est gardé dans
 `<sortie>\sessions\taste-history.json` : les critères de la note de chaque version proposée (sur le temps, accent,
 sobriété, variété, durée, rythme, images gelées, ouverture, trous, action) et celle qui a été rendue. Les corrections de
-l'éditeur de plan (kills écartés, forcés, épinglés) y sont gardées aussi, pour plus tard.
+l'éditeur de plan (kills écartés, forcés, épinglés) y sont gardées aussi, avec les sortes de chaque groupe proposé.
 
 Dès 10 choix (`montage.learnTaste`, actif par défaut), les poids de ces critères s'ajustent pour que la
 version rendue batte les autres (préférence par paires) : un critère que vous préférez plus que le moteur ne le pensait
@@ -1325,6 +1325,19 @@ Démonstration sur données synthétiques (aucun vrai choix encore) : un goût c
 3 fois plus à l'ouverture, 4 fois moins à la sobriété, 10 % de choix au hasard. Après 25 choix : action +37 %,
 ouverture +13 %, sobriété −30 % ; sur 2000 choix tenus à l'écart, la version préférée est la mieux notée 83,6 % des fois
 contre 79,5 % avec les poids d'origine. Après 100 choix : action +59 %, ouverture +23 %, sobriété −29 %.
+
+**Sortes de kills préférées (corrections de l'éditeur).** À chaque montage rendu avec des corrections, chaque groupe
+proposé est gardé avec ses sortes (multi-kill, tout à la tête, one tap, flick, ace, clutch, kill échangé) et ce que vous
+en avez fait : écarté (−1), gardé de force ou épinglé (+1), rien (0). Dès 5 montages corrigés, une sorte qui compte au
+moins 3 groupes écartés ou gardés reçoit un bonus de rang : sa moyenne moins celle de tous les groupes (un utilisateur
+qui écarte beaucoup ne déteste pas toutes les sortes pour autant), ×1,5, borné à ±0,75 kill par sorte et ±1 kill par
+groupe. Un flick préféré passe donc devant un kill seul quand la place manque, jamais devant un groupe qui a un kill de
+plus. Comptage simple, déterministe ; la distance du kill n'en fait pas partie (pas mesurée). `app gouts` les liste ;
+les corrections d'avant cette version (sans les groupes) restent gardées mais ne sont pas apprises.
+
+**Dans l'application** : bouton « Goûts appris » dans la liste des analyses. Une barre par critère (écart à son poids
+d'origine) et par sorte de kill (préférée, évitée, pas de préférence, trop peu de corrections), grisées tant que
+l'apprentissage n'a pas assez de choix, et « Oublier ce qui a été appris » (après confirmation, comme `--reset`).
 
 ## Ligne de commande
 

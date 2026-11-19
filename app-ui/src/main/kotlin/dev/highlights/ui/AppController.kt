@@ -179,6 +179,12 @@ interface UiActions {
     fun toggleNewGameVerdict(method: String, index: Int) {}
     fun createNewGameProfile() {}
     fun closeStats()
+    /** Écran des goûts appris (TasteView) : ouvrir, fermer, oublier (après confirmation). */
+    fun showTaste() {}
+    fun closeTaste() {}
+    fun askResetTaste() {}
+    fun cancelResetTaste() {}
+    fun confirmResetTaste() {}
     fun setStatsGame(game: String)
     /** Réanalyse les parties analysées avec d'anciens réglages de détection, puis rouvre les statistiques. */
     fun refreshOutdated()
@@ -1158,7 +1164,7 @@ class AppController(
     }
 
     override fun openLibraryItem(sessionFile: Path) {
-        _state.update { it.copy(stats = null, search = null) }
+        _state.update { it.copy(stats = null, search = null, taste = null) }
         openSessions(listOf(sessionFile))
     }
 
@@ -1202,7 +1208,7 @@ class AppController(
 
     override fun showSearch() {
         val p = backend?.pipeline ?: return
-        _state.update { it.copy(search = SearchState(), stats = null) }
+        _state.update { it.copy(search = SearchState(), stats = null, taste = null) }
         scope.launch {
             try {
                 val moments = withContext(Dispatchers.IO) { p.search(dev.highlights.pipeline.MomentQuery()) }
@@ -1241,7 +1247,7 @@ class AppController(
 
     override fun showStats() {
         val p = backend?.pipeline ?: return
-        _state.update { it.copy(stats = StatsState(), search = null) }
+        _state.update { it.copy(stats = StatsState(), search = null, taste = null) }
         scope.launch {
             try {
                 val games = withContext(Dispatchers.IO) { p.statistics() }
@@ -1256,6 +1262,43 @@ class AppController(
     }
 
     override fun closeStats() = _state.update { it.copy(stats = null) }
+
+    // ---------------------------------------------------------------- goûts appris
+
+    override fun showTaste() {
+        _state.update { it.copy(taste = TasteUiState(), stats = null, search = null) }
+        loadTaste()
+    }
+
+    private fun loadTaste(resetDone: String? = null) {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            try {
+                val taste = withContext(Dispatchers.IO) { p.taste() }
+                _state.update { s -> s.copy(taste = s.taste?.copy(state = taste, confirmReset = false, resetDone = resetDone)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(taste = null) }
+                reportFailure(tr("ui.taste.title"), e)
+            }
+        }
+    }
+
+    override fun closeTaste() = _state.update { it.copy(taste = null) }
+
+    override fun askResetTaste() = _state.update { s -> s.copy(taste = s.taste?.copy(confirmReset = true, resetDone = null)) }
+
+    override fun cancelResetTaste() = _state.update { s -> s.copy(taste = s.taste?.copy(confirmReset = false)) }
+
+    /** Comme `app gouts --reset` : l'historique est mis de côté, pas effacé. */
+    override fun confirmResetTaste() {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            val aside = withContext(Dispatchers.IO) { p.tasteHistory.reset() }
+            loadTaste(resetDone = aside?.fileName?.toString())
+        }
+    }
 
     // ---------------------------------------------------------------- nouveau jeu
 
