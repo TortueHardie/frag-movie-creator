@@ -354,6 +354,8 @@ object MontagePlanner {
         val rounds = rounds(kills, deaths, style.roundGap)
         val clutches = if (style.clutchEvent.isEmpty()) null
         else timeline.events.filter { it.kind == style.clutchEvent }.map { it.at + settings.killOffset }.sorted()
+        // Sans clutch annoncé par le jeu dans la partie : le clutch réel, compté sur les morts des deux équipes du killfeed.
+        val known = clutches?.takeIf { it.isNotEmpty() } ?: TeamRounds.clutchTimes(timeline.events, deaths, style, settings.killOffset) ?: clutches
         val roundOf = rounds.flatMapIndexed { i, r -> r.kills.map { it to i } }.toMap()
         // Un groupe ne déborde jamais sur le round suivant : une mort entre deux kills les sépare.
         val grouped = mutableListOf<MutableList<Duration>>()
@@ -365,7 +367,7 @@ object MontagePlanner {
         // Un clutch annoncé par le jeu, lui, vaut même sans mort.
         val outcomes = grouped.map { g ->
             val base = if (deaths.isEmpty()) RoundOutcome.NONE else outcome(g, deaths, rounds, style)
-            if (clutches == null) base else base.copy(clutch = announcedClutch(g, clutches, kills, deaths, style.roundGap))
+            if (known == null) base else base.copy(clutch = announcedClutch(g, known, kills, deaths, style.roundGap))
         }
         if (outcomes.any { it != RoundOutcome.NONE }) {
             log.info {

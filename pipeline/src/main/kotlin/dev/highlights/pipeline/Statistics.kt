@@ -132,8 +132,13 @@ object Statistics {
             multiKills = groups.map { it.kills.size }.filter { it > 1 }.groupingBy { it }.eachCount(),
             aces = groups.count { it.outcome.ace },
             // Clutchs annoncés par le jeu : connus seulement d'une analyse à jour dont les kills viennent d'un détecteur
-            // qui les annonce ; sinon inconnus plutôt que 0. Clutchs déduits : toujours connus.
-            clutches = if (style.clutchEvent.isEmpty() || (!outdated && known(clutchSources))) groups.count { it.outcome.clutch } else null,
+            // qui les annonce ; sinon inconnus plutôt que 0. Clutchs déduits : toujours connus. Clutchs réels, comptés sur les
+            // morts des deux équipes lues dans le killfeed : connus dès que la partie en a.
+            clutches = if (style.clutchEvent.isEmpty() || (!outdated && (known(clutchSources) || events.any { it.kind == style.allyDeathEvent && it.kind.isNotEmpty() }))) {
+                groups.count { it.outcome.clutch }
+            } else {
+                null
+            },
             bestRound = if (deaths != null) rounds.maxOfOrNull { it.kills.size } ?: 0 else null,
             rounds = if (deaths != null) rounds.size else null,
             outdated = outdated,
