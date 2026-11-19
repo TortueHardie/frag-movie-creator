@@ -148,6 +148,10 @@ data class ExportOptions(
     val order: ClipOrder? = null,
     /** Miniature de chaque vidéo, dans cet habillage ([Thumbnails]) ; null : pas de miniature. */
     val thumbnail: ThumbnailStyle? = null,
+    /** Webcam en incrustation : un fichier, ou la recherche automatique ([Webcams]) ; null : pas de webcam. */
+    val webcam: dev.highlights.core.model.WebcamChoice? = null,
+    /** Décalage de la webcam réglé à la main ; null : celui du profil (`edit.webcam.offset`). */
+    val webcamOffset: Duration? = null,
 )
 
 /** Surcharges ponctuelles des réglages de montage du profil (null = valeur du profil). */
@@ -229,6 +233,10 @@ data class MontageOptions(
     val pick: VariantPick? = null,
     /** Miniature de chaque vidéo du rendu final, dans cet habillage ([Thumbnails]) ; jamais pour les aperçus ; null : aucune. */
     val thumbnail: ThumbnailStyle? = null,
+    /** Webcam en incrustation : un fichier, ou la recherche automatique ([Webcams]) ; null : pas de webcam. */
+    val webcam: dev.highlights.core.model.WebcamChoice? = null,
+    /** Décalage de la webcam réglé à la main ; null : celui du profil (`edit.webcam.offset`). */
+    val webcamOffset: Duration? = null,
 )
 
 /**
@@ -706,11 +714,13 @@ class HighlightPipeline(
             order = options.order ?: if (sessions.any { s -> s.highlights.any { it.enabled && it.order != null } }) ClipOrder.MANUAL else edit.order,
             story = options.music?.let { edit.story.copy(music = edit.story.music.copy(file = it.toAbsolutePath().toString())) } ?: edit.story,
         ).let { platform?.applyTo(it) ?: it }
+        val cams = Webcams(ffmpeg).setup(sessions.map { it.media }, options.webcam, options.webcamOffset, settings, profile.audio)
         return withJobDir { workDir ->
             exporter.export(
                 sessions,
                 ExportRequest(
-                    settings = settings,
+                    settings = cams.edit,
+                    webcams = cams.feeds,
                     outputDir = options.outputDir ?: config.outputDir,
                     workDir = workDir,
                     gameName = profile.id,
@@ -723,7 +733,7 @@ class HighlightPipeline(
                 ),
                 progress,
             )
-        }.let { result -> options.thumbnail?.let { result.copy(thumbnails = thumbnails.makeAll(result.videos.values, it)) } ?: result }
+        }.let { result -> result.copy(notices = result.notices + cams.notices) }.let { result -> options.thumbnail?.let { result.copy(thumbnails = thumbnails.makeAll(result.videos.values, it)) } ?: result }
     }
 
     /**
@@ -792,8 +802,18 @@ class HighlightPipeline(
     /** Miniature YouTube de [video] (highlights ou montage kills), d'après le rapport écrit avec elle ([Thumbnails]). */
     suspend fun miniature(video: Path, style: ThumbnailStyle = ThumbnailStyle.DEFAULT): Path = thumbnails.make(video, style)
 
+    /** Webcam trouvée et calée pour la capture [file] (aperçu de la disposition dans l'application) ; null si aucune. */
+    suspend fun webcamFor(file: Path, profileId: String?, choice: dev.highlights.core.model.WebcamChoice, offset: Duration?): dev.highlights.core.model.WebcamFeed? {
+        val media = ffmpeg.probe(file)
+        val profile = profiles.resolve(file, profileId)
+        return Webcams(ffmpeg).setup(listOf(media), choice, offset, profile.gradedEdit(), profile.audio).feeds[media.path]
+    }
+
     /** Aperçu PNG des formats de sortie à un instant donné, sans analyse. */
-    suspend fun preview(file: Path, at: Duration, profileId: String?, formats: List<OutputFormat>?, outputDir: Path?): List<Path> {
+    suspend fun preview(
+        file: Path, at: Duration, profileId: String?, formats: List<OutputFormat>?, outputDir: Path?,
+        webcam: dev.highlights.core.model.WebcamChoice? = null, webcamOffset: Duration? = null,
+    ): List<Path> {
         validateInput(file)
         val media = ffmpeg.probe(file)
         if (media.video == null) throw InputException(Message("error.input.noVideo", "file" to file))
@@ -802,9 +822,9 @@ class HighlightPipeline(
         }
         val profile = profiles.resolve(file, profileId)
         val edit = profile.gradedEdit()
-        val settings = formats?.let { edit.copy(formats = it) } ?: edit
+        val cams = Webcams(ffmpeg).setup(listOf(media), webcam, webcamOffset, formats?.let { edit.copy(formats = it) } ?: edit, profile.audio)
         return withJobDir { workDir ->
-            exporter.preview(media, at, settings, (outputDir ?: config.outputDir).resolve("previews"), workDir)
+            exporter.preview(media, at, cams.edit, (outputDir ?: config.outputDir).resolve("previews"), workDir, cams.feeds[media.path])
         }
     }
 
@@ -956,14 +976,17 @@ class HighlightPipeline(
     }
 
     /** Demande de rendu du montage [planned] ; [preview] : aperçu basse résolution ([MontagePreview]). */
-    private fun montageRequest(
+    private suspend fun montageRequest(
         planned: PlannedMontage, sessions: List<Session>, options: MontageOptions, workDir: Path, outputDir: Path,
         kind: String? = null, preview: Boolean = false, notices: List<Message> = emptyList(),
     ): MontageExportRequest {
         val profile = planned.profile
+        val edit = profile.gradedEdit().let { planned.platform?.applyTo(it) ?: it }
+        val cams = Webcams(ffmpeg).setup(sessions.map { it.media }, options.webcam, options.webcamOffset, edit, profile.audio)
         return MontageExportRequest(
             formats = planned.plan.settings.formats,
-            edit = profile.gradedEdit().let { planned.platform?.applyTo(it) ?: it },
+            edit = cams.edit,
+            webcams = cams.feeds,
             outputDir = outputDir,
             workDir = workDir,
             gameName = profile.id,
@@ -975,7 +998,7 @@ class HighlightPipeline(
             platform = options.platform,
             kind = kind ?: montageKind(options),
             preview = preview,
-            notices = notices,
+            notices = notices + cams.notices,
             reactions = planned.reactions,
             captionCache = config.workDir.resolve("cache").resolve("captions"),
         )

@@ -76,6 +76,7 @@ fun App(state: UiState, actions: UiActions) {
                 AppHeader(state.config, state.language, actions)
                 SourceSection(state, actions)
                 SettingsSection(state, actions)
+                WebcamSection(state, actions)
             }
             VerticalDivider(color = Palette.outline)
             Column(Modifier.weight(1f).fillMaxHeight().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {

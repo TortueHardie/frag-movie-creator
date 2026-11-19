@@ -67,6 +67,7 @@ fun main() {
             }
             App(state, controller)
             state.imagePreview?.let { VerticalPreviewWindow(it, state.busyVerticalPreview != null, controller) }
+            state.webcamPreview?.let { WebcamPreviewWindow(it, state.busyWebcamPreview, controller) }
         }
     }
 }

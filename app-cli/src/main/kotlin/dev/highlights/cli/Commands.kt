@@ -122,6 +122,8 @@ class ProcessCommand : PipelineCommand("process") {
     private val music by musicOption()
     private val out by option("-o", "--out", help = "Dossier de sortie").path(canBeFile = false)
     private val preset by presetOption()
+    private val webcam by webcamOption()
+    private val webcamOffset by webcamOffsetOption()
 
     override fun help(context: Context) =
         "Analyse une ou plusieurs vidéos puis exporte le montage des meilleurs moments. Avec plusieurs vidéos, la cible " +
@@ -133,7 +135,7 @@ class ProcessCommand : PipelineCommand("process") {
             val pipeline = Pipelines.create(env.config)
             val chosen = preset?.let { presetNamed(env.config, it) }
             val analyze = AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, reuse = !reanalyze)
-            val export = ExportOptions(formats, out, style, music, platform)
+            val export = ExportOptions(formats, out, style, music, platform, webcam = webcam, webcamOffset = webcamOffset)
             try {
                 pipeline.processAll(
                     files,
@@ -187,6 +189,8 @@ class ExportCommand : PipelineCommand("export") {
     private val thumbnail by thumbnailFlag()
     private val thumbnailStyle by thumbnailStyleOption()
     private val preset by presetOption()
+    private val webcam by webcamOption()
+    private val webcamOffset by webcamOffsetOption()
 
     override fun help(context: Context) =
         "Exporte le montage à partir d'une session (segments enabled uniquement), sans réanalyser. Avec --preset, la durée " +
@@ -207,7 +211,7 @@ class ExportCommand : PipelineCommand("export") {
 
     /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
     internal fun exportOptions(preset: ExportPreset? = null) =
-        ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail }).let { o -> preset?.let(o::withPreset) ?: o }
+        ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail }, webcam = webcam, webcamOffset = webcamOffset).let { o -> preset?.let(o::withPreset) ?: o }
 }
 
 class MontageCommand : PipelineCommand("montage") {
@@ -288,6 +292,8 @@ class MontageCommand : PipelineCommand("montage") {
     private val out by option("-o", "--out").path(canBeFile = false)
     private val thumbnail by thumbnailFlag()
     private val thumbnailStyle by thumbnailStyleOption()
+    private val webcam by webcamOption()
+    private val webcamOffset by webcamOffsetOption()
     private val variants by option(
         "--variants",
         help = "Aperçus de N variantes du montage (défaut 3), en 360p et vite, dans <sortie>/apercus avec un fichier *_variantes.json ; " +
@@ -478,6 +484,8 @@ class MontageCommand : PipelineCommand("montage") {
         fastParts = if (noFastParts) false else null,
         style = style.takeIf { it != "none" },
         constraints = constraints,
+        webcam = webcam,
+        webcamOffset = webcamOffset,
         thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail },
     )
         val presetted = preset?.let(options::withPreset) ?: options
@@ -558,12 +566,14 @@ class PreviewCommand : PipelineCommand("preview") {
     private val profile by option("-p", "--profile")
     private val formats by formatsOption()
     private val out by option("-o", "--out", help = "Dossier de sortie (les images vont dans <out>/previews)").path(canBeFile = false)
+    private val webcam by webcamOption()
+    private val webcamOffset by webcamOffsetOption()
 
     override fun help(context: Context) =
         "Génère une image PNG de chaque format à un instant donné, pour régler le recadrage et le HUD du profil sans rendu complet."
 
     override fun run() {
-        val images = execute { Pipelines.create(env.config).preview(file, at, profile, formats, out) }
+        val images = execute { Pipelines.create(env.config).preview(file, at, profile, formats, out, webcam, webcamOffset) }
         images.forEach { echo("  $it") }
     }
 }

@@ -79,6 +79,8 @@ data class EditSettings(
     val maxBitrate: String? = null,
     /** Clip « meilleur moment » d'un seul moment en 9:16 (voir [ClipSettings]). */
     val clip: ClipSettings = ClipSettings(),
+    /** Webcam en incrustation (bandeau du 9:16, coin du 16:9), voir [WebcamSettings]. */
+    val webcam: WebcamSettings = WebcamSettings(),
 ) {
     init {
         require(sourceHeight > 0 && sourceHeight % 2 == 0) { "sourceHeight doit être pair et > 0" }

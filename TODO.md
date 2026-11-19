@@ -329,7 +329,10 @@ Pistes, de la plus simple à la plus lourde :
   - Habillage possible : flash blanc ou punch-in sur l'impact, son du headshot mis en avant, compteur qui défile.
 
 ## Habillage
-- [ ] Webcam en incrustation : seconde source synchronisée, disposition 9:16 webcam au-dessus du jeu.
+- [x] Webcam en incrustation : seconde source synchronisée, disposition 9:16 webcam au-dessus du jeu (`WebcamLayout`,
+  `Webcams`, `--webcam FICHIER|auto --webcam-offset`, section Webcam de l'application).
+  - [ ] À vérifier sur une vraie webcam (OBS, fichier séparé et second flux) : calage au son, recherche « auto ».
+  - [ ] Goûts à trancher : hauteur du bandeau (30 %), liseré, coins arrondis, coin du 16:9 (bas gauche).
 - [ ] Compteur de kills à l'écran (« 1… 2… 3… ACE ») et bandeau de score de round.
 - [ ] Intro/outro personnalisées (logo, pseudo, fond) définies dans le profil.
 - [x] Miniature automatique : image du meilleur kill + punch-in + texte, PNG prêt pour YouTube (`--thumbnail`,
