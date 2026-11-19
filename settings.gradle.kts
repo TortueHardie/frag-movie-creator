@@ -25,6 +25,7 @@ include(
     "montage",
     "publish",
     "pipeline",
+    "assistant",
     "analysis-vision",
     "analysis-ml",
     "app-cli",

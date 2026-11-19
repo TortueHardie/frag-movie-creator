@@ -7,6 +7,7 @@ plugins {
 
 dependencies {
     implementation(project(":pipeline"))
+    implementation(project(":assistant"))
     implementation(compose.desktop.currentOs)
     implementation(libs.compose.material3)
     implementation(libs.coroutines.swing)
