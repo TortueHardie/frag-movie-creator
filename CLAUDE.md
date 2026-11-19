@@ -299,7 +299,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `TasteLearner.learn` (préférence par paires Bradley-Terry, `SHARPNESS` 30, rappel `REGULARIZATION` vers l'origine, poids bornés ×`MIN_FACTOR`..×`MAX_FACTOR`, somme constante,
   actif à partir de `MIN_CHOICES` 10) → `LearnedTaste`. `MontageSettings.learnTaste` (true par défaut, sans effet sous `MIN_CHOICES`) → `HighlightPipeline.withTaste` → `TasteLearner.applyTo` pose `MontageSettings.scoreWeights` ; seul `taste-history.json` est relu (mis de côté : `.reset-*`, `.qa-finale` ignorés) ;
   `killMontage` enregistre le choix (`--pick`) et les contraintes (`recordTaste`) ; `HighlightPipeline.taste()` → `TasteState` ; CLI `TasteCommand.kt` : `gouts [--reset --history]`.
-  `GroupTaste.kt` (branche `gouts-editeur`) : `GroupTrait` (multiKill, headshot, oneTap, flick, ace, clutch, traded ; `of(group)`), `GroupAction`, `GroupTasteLearner.learn`
+  `GroupTaste.kt` (branche `gouts-editeur`) : `GroupTrait` (multiKill, headshot, oneTap, flick, ace, clutch ; `of(group)` ; « échangé » retiré au choix du joueur), `GroupAction`, `GroupTasteLearner.learn`
   (moyenne ±1/0 par sorte − moyenne de tous, `PRIOR` 4, ×`GAIN` 1,5, ±`MAX_BONUS` 0,75 kill, nul sous `MIN_BONUS` 0,2, groupe ±`MAX_TOTAL` 1, `MIN_EDITS` 5, `MIN_ACTIONS` 3) → `LearnedGroupTaste.applyTo`
   pose `KillGroup.taste` (ajouté à `rank`) dans `planMontage` après `MontageEdits.apply` (`groupTaste`, si `learnTaste`) ; `TasteState.groups`.
   UI : `TasteView.kt` (`TasteUiState`, `UiState.taste`, bouton de `LibraryView`), actions `showTaste/closeTaste/askResetTaste/cancelResetTaste/confirmResetTaste`, clés `ui.taste.*`.

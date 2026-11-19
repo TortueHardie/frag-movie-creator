@@ -278,8 +278,8 @@ class UiSnapshotTest : FunSpec({
         val weights = base + mapOf("action" to 0.19, "opening" to 0.16, "restraint" to 0.09, "sync" to 0.21)
         val learned = dev.highlights.montage.LearnedTaste(weights, base, choices = 14, agreementBefore = 0.43, agreementAfter = 0.79, active = true)
         val groups = dev.highlights.montage.LearnedGroupTaste(
-            bonus = mapOf(dev.highlights.montage.GroupTrait.FLICK to 0.42, dev.highlights.montage.GroupTrait.TRADED to -0.31, dev.highlights.montage.GroupTrait.HEADSHOT to 0.08),
-            actions = mapOf(dev.highlights.montage.GroupTrait.FLICK to 9, dev.highlights.montage.GroupTrait.TRADED to 5, dev.highlights.montage.GroupTrait.HEADSHOT to 6, dev.highlights.montage.GroupTrait.MULTI_KILL to 4, dev.highlights.montage.GroupTrait.ACE to 1),
+            bonus = mapOf(dev.highlights.montage.GroupTrait.FLICK to 0.42, dev.highlights.montage.GroupTrait.ONE_TAP to -0.31, dev.highlights.montage.GroupTrait.HEADSHOT to 0.08),
+            actions = mapOf(dev.highlights.montage.GroupTrait.FLICK to 9, dev.highlights.montage.GroupTrait.ONE_TAP to 5, dev.highlights.montage.GroupTrait.HEADSHOT to 6, dev.highlights.montage.GroupTrait.MULTI_KILL to 4, dev.highlights.montage.GroupTrait.ACE to 1),
             edits = 7, active = true,
         )
         val taste = dev.highlights.pipeline.TasteState(

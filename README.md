@@ -1336,7 +1336,7 @@ ouverture +13 %, sobriété −30 % ; sur 2000 choix tenus à l'écart, la versi
 contre 79,5 % avec les poids d'origine. Après 100 choix : action +59 %, ouverture +23 %, sobriété −29 %.
 
 **Sortes de kills préférées (corrections de l'éditeur).** À chaque montage rendu avec des corrections, chaque groupe
-proposé est gardé avec ses sortes (multi-kill, tout à la tête, one tap, flick, ace, clutch, kill échangé) et ce que vous
+proposé est gardé avec ses sortes (multi-kill, tout à la tête, one tap, flick, ace, clutch) et ce que vous
 en avez fait : écarté (−1), gardé de force ou épinglé (+1), rien (0). Dès 5 montages corrigés, une sorte qui compte au
 moins 3 groupes écartés ou gardés reçoit un bonus de rang : sa moyenne moins celle de tous les groupes (un utilisateur
 qui écarte beaucoup ne déteste pas toutes les sortes pour autant), ×1,5, borné à ±0,75 kill par sorte et ±1 kill par

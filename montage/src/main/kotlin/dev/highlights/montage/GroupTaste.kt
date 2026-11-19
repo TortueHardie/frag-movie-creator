@@ -28,10 +28,9 @@ enum class GroupTrait(val key: String) {
 
     ACE("ace"),
     CLUTCH("clutch"),
-
-    /** Kill aussitôt payé ([RoundOutcome.traded]) : le joueur meurt juste après. */
-    TRADED("traded"),
     ;
+    // Pas de sorte « kill aussitôt payé » : retirée le 19/11 à la demande du joueur ; une vieille correction qui
+    // la porte la voit ignorée par [byKey].
 
     companion object {
         fun byKey(key: String): GroupTrait? = entries.firstOrNull { it.key == key }
@@ -44,7 +43,6 @@ enum class GroupTrait(val key: String) {
             if (group.traits.any { it.flick >= KillTraits.STRONG_FLICK }) add(FLICK)
             if (group.outcome.ace) add(ACE)
             if (group.outcome.clutch) add(CLUTCH)
-            if (group.outcome.traded || group.trade) add(TRADED)
         }
     }
 }
