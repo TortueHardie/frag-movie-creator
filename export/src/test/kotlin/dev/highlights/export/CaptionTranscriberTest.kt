@@ -49,7 +49,7 @@ class CaptionTranscriberTest : FunSpec({
         ffmpeg.runs shouldBe 0
     }
 
-    test("piste unique transcrite seulement si le profil le demande (withoutMic)") {
+    test("piste unique transcrite si le profil le force (withoutMic: true)") {
         val ffmpeg = FakeFfmpeg()
         val dir = tempdir().toPath()
         val captions = CaptionTranscriber(ffmpeg).transcribe(media("ISO Media file"), range, null, CaptionSettings(withoutMic = true), model, AudioLayout(), dir, null)
@@ -62,5 +62,28 @@ class CaptionTranscriberTest : FunSpec({
         val dir = tempdir().toPath()
         CaptionTranscriber(ffmpeg).transcribe(media("Game", "Mic"), range, null, CaptionSettings(), model, AudioLayout(), dir, null).size shouldBe 1
         ffmpeg.runs shouldBe 1
+    }
+
+    test("piste unique, réglage automatique : transcrite seulement là où l'analyse a trouvé la voix du joueur") {
+        val ffmpeg = FakeFfmpeg()
+        val dir = tempdir().toPath()
+        val voice = listOf(TimeRange(58.seconds, 61.seconds))
+        val transcriber = CaptionTranscriber(ffmpeg)
+        transcriber.transcribe(media("ISO Media file"), range, voice, emptyList(), CaptionSettings(), model, AudioLayout(), dir, null)
+            .map { it.text } shouldBe listOf("un ennemi")
+        // Voix ailleurs dans la capture : pas ici.
+        transcriber.transcribe(media("ISO Media file"), range, listOf(TimeRange(5.minutes, 6.minutes)), emptyList(), CaptionSettings(), model, AudioLayout(), dir, null)
+            .shouldBeEmpty()
+        // Désactivé : jamais, même avec de la voix.
+        transcriber.transcribe(media("ISO Media file"), range, voice, emptyList(), CaptionSettings(withoutMic = false), model, AudioLayout(), dir, null)
+            .shouldBeEmpty()
+        ffmpeg.runs shouldBe 1
+    }
+
+    test("répliques du jeu écartées sur le son complet seulement, pas sur le micro") {
+        val settings = CaptionSettings(withoutMic = true, ignore = listOf("ennemi"))
+        val dir = tempdir().toPath()
+        CaptionTranscriber(FakeFfmpeg()).transcribe(media("ISO Media file"), range, null, settings, model, AudioLayout(), dir, null).shouldBeEmpty()
+        CaptionTranscriber(FakeFfmpeg()).transcribe(media("Game", "Mic"), range, null, settings, model, AudioLayout(), dir, null).size shouldBe 1
     }
 })

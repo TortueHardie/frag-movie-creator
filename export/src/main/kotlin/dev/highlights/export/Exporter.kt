@@ -30,6 +30,7 @@ import dev.highlights.editing.WebcamLayout
 import dev.highlights.editing.RenderRequest
 import dev.highlights.editing.SourceCutter
 import dev.highlights.editing.story.Caption
+import dev.highlights.editing.story.Captions
 import dev.highlights.editing.story.SfxBank
 import dev.highlights.editing.story.StoryPlan
 import dev.highlights.editing.story.StoryPlanner
@@ -245,7 +246,12 @@ class Exporter(
         }
         progress.complete()
         log.info { "Sous-titres : ${result.values.sumOf { it.size }} sur ${plan.clips.size} moments" }
-        return result.mapValues { (_, list) -> list.sortedBy { it.range.start } }
+        // Sur le son complet, un texte redit d'un moment à l'autre est une réplique du jeu, pas le joueur.
+        val medias = plan.clips.associate { it.media.path to it.media }
+        return result.mapValues { (path, list) ->
+            val sorted = list.sortedBy { it.range.start }
+            if (transcriber.withoutMic(medias.getValue(path), settings, request.audioLayout)) Captions.withoutRecurring(sorted) else sorted
+        }
     }
 
     /**
