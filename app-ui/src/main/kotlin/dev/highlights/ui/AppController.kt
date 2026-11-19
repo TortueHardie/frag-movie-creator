@@ -52,7 +52,9 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.exists
 import kotlin.io.path.extension
 import kotlin.io.path.name
+import kotlin.math.roundToLong
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.microseconds
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -137,6 +139,11 @@ interface UiActions {
     fun replanMontage() {}
     /** Corrige un groupe : [kills], ses désignations « capture@instant » ([dev.highlights.montage.KillRef]). */
     fun editMontageKill(kills: List<String>, edit: KillEdit) {}
+    /**
+     * Épingle le groupe [kills] sur le temps du morceau le plus proche de [musicSeconds] (instant dans le morceau, en
+     * secondes : le pont le passe tel quel) et replanifie aussitôt.
+     */
+    fun pinMontageKill(kills: List<String>, musicSeconds: Double) {}
     /** Retire toutes les corrections. */
     fun resetMontagePlan() {}
 
@@ -1045,6 +1052,12 @@ class AppController(
 
     override fun editMontageKill(kills: List<String>, edit: KillEdit) =
         updateMontage { it.copy(constraints = it.constraints.edit(kills.map(dev.highlights.montage.KillRef::parse), edit)) }
+
+    override fun pinMontageKill(kills: List<String>, musicSeconds: Double) {
+        val at = (musicSeconds * 1_000_000).roundToLong().microseconds
+        updateMontage { it.copy(constraints = it.constraints.pinAt(kills.map(dev.highlights.montage.KillRef::parse), at)) }
+        replanMontage()
+    }
 
     override fun resetMontagePlan() = updateMontage { it.copy(constraints = dev.highlights.montage.MontageConstraints.NONE) }
 

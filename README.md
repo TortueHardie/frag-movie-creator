@@ -603,7 +603,11 @@ plan au lieu de tout relancer à l'aveugle.
   chaque temps, sections, drop) et les plans placés dessus, une vignette par groupe de kills, chaque kill en trait ; les
   groupes que le plan écarte sont listés dessous. Clic sur un plan : l'écarter ; clic sur un trait : écarter ce kill
   seul ; clic sur un groupe écarté : le forcer dans le montage ; glisser un groupe sur la drop : l'y épingler ; un
-  nouveau clic annule. **Replanifier** recalcule le plan sans réanalyser (inspection des kills en cache : quelques
+  nouveau clic annule. Glisser un groupe (placé ou écarté) sur **n'importe quel temps** de la frise l'y épingle : un
+  trait blanc et l'instant montrent le temps visé pendant le glisser, le plan est recalculé au lâcher et le kill tombe
+  sur ce temps (la tête ronde marque l'épingle). Chaque épingle est rappelée sous la frise ; un clic dessus la retire et
+  replanifie. Une épingle impossible (deux groupes sur le même temps, moment de la musique hors du montage) est dite en
+  rouge, le dernier plan reste affiché. **Replanifier** recalcule le plan sans réanalyser (inspection des kills en cache : quelques
   secondes). « Créer le montage » rend le plan corrigé.
 - **En ligne de commande** : `--plan` affiche le plan sans rendre, avec la désignation de chaque kill
   (`capture@instant`, à une seconde près) ; `--exclude`, `--force` (répétables), `--drop` et `--pin capture@instant=0:42`

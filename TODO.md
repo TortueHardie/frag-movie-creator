@@ -214,7 +214,7 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Ajouter un moment à la main (double-clic sur la courbe).
 - [x] Réordonner les clips (boutons « Plus tôt » / « Plus tard », `ClipOrder.MANUAL`) ; glisser-déposer : à faire.
 - [x] Exclure ou forcer un kill précis dans le montage kills (frise « Voir le plan… », `--exclude/--force/--drop/--pin`).
-- [ ] Frise du plan : épingler un groupe sur un temps quelconque à la souris (moteur et CLI le font déjà, `--pin`).
+- [x] Frise du plan : épingler un groupe sur un temps quelconque à la souris (moteur et CLI le font déjà, `--pin`).
 - [x] Supprimer / oublier une analyse dans `LibraryView`.
 
 ## Flux de travail
