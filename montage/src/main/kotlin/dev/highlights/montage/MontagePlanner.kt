@@ -327,7 +327,8 @@ object MontagePlanner {
 
     /** Regroupe les kills de chaque session (multi-kills) avec leurs segments de réaction. */
     fun groups(sessions: List<Session>, settings: MontageSettings): List<KillGroup> = sessions.flatMap { session ->
-        val timeline = session.timeline
+        // Morts de Phoenix pendant son ultime (« Run it Back ») retirées : le joueur revient, ce n'en sont pas.
+        val timeline = session.timeline.let { it.copy(events = TeamRounds.withoutRevived(it.events, settings.killStyle)) }
         val bounds = session.media.bounds
         val allKills = timeline.events.filter { it.kind == settings.killEvent || it.kind in settings.anchorEvents }.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
         // Rythme rapide : un kill aussitôt suivi de la mort du joueur ne montrerait que l'écran de mort.

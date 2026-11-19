@@ -773,6 +773,14 @@ class MontagePlannerTest : FunSpec({
         MontagePlanner.groups(listOf(notAlone), announced).map { it.outcome.clutch } shouldBe listOf(false, false, false)
     }
 
+    test("mort pendant l'ultime de Phoenix : le kill d'avant n'est pas « aussitôt payé »") {
+        val revived = withDeaths(session(listOf(100)), listOf(101.0)).let { s ->
+            s.copy(timeline = s.timeline.copy(events = (s.timeline.events + TimelineEvent(101.1.seconds, "ally-run-it-back", 1.0, "teams")).sortedBy { it.at }))
+        }
+        MontagePlanner.groups(listOf(withDeaths(session(listOf(100)), listOf(101.0))), settings).single().outcome.traded shouldBe true
+        MontagePlanner.groups(listOf(revived), settings).single().outcome.traded shouldBe false
+    }
+
     test("sans événement de mort : ni round, ni ace, ni clutch") {
         val off = settings.copy(killStyle = settings.killStyle.copy(deathEvent = ""))
         val groups = MontagePlanner.groups(listOf(withDeaths(session(listOf(100, 110, 120, 130, 140)), listOf(141.0))), off)

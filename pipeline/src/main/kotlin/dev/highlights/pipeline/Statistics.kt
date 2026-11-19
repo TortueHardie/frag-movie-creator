@@ -3,6 +3,7 @@ package dev.highlights.pipeline
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.session.Session
 import dev.highlights.montage.MontagePlanner
+import dev.highlights.montage.TeamRounds
 import java.nio.file.Path
 import java.time.Instant
 import java.time.LocalDate
@@ -104,7 +105,8 @@ object Statistics {
         clutchSources: Set<String>? = null,
     ): GameStats {
         val style = settings.killStyle
-        val events = session.timeline.events
+        // Morts de Phoenix pendant son ultime (« Run it Back ») retirées, comme au montage : le joueur revient.
+        val events = TeamRounds.withoutRevived(session.timeline.events, style)
         val killEvents = events.filter { it.kind == settings.killEvent }
         val kills = killEvents.map { it.at }.sorted()
         val killSources = killEvents.map { it.detectorId }.toSet()

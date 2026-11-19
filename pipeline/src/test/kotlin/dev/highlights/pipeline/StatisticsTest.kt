@@ -103,6 +103,11 @@ class StatisticsTest : FunSpec({
         Statistics.game(obs, settings, Path("e"), "VALORANT", outdated = true, clutchSources = emptySet()).clutches shouldBe 1
     }
 
+    test("une mort pendant l'ultime de Phoenix ne compte pas dans le K/D") {
+        val evs = listOf(ev(100, "kill", "killfeed"), ev(200, "death", "killfeed"), ev(300, "death", "killfeed"), ev(300, "ally-run-it-back", "teams"))
+        Statistics.game(session("2026-09-27T21:00:00Z", events = evs), settings, Path("p"), "VALORANT", setOf("killfeed")).deaths shouldBe 1
+    }
+
     test("soirées : une partie après minuit compte pour la veille, un jeu par soirée") {
         fun game(at: String, name: String, kills: Int, deaths: Int?, headshots: Int? = null) = GameStats(
             Path("${at.replace(':', '-')}.json"), Path("${at.replace(':', '-')}.mp4"), name.lowercase(), name, Instant.parse(at), 40.minutes, kills, deaths, headshots, emptyMap(), 0, 0, null, null,

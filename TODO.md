@@ -10,7 +10,8 @@ Pistes pour le montage « tous les kills », dans l'ordre où on compte les trai
 Un kill suivi de sa propre mort recule dans le classement ; les aces et les clutchs montent. Voir `RoundOutcome` et
 `MontagePlanner.rounds` ; réglages dans `KillStyle` (`deathPenalty`, `aceBonus`, `clutchBonus`, `roundGap`).
 
-- Clutch : annoncé par le jeu quand il le transmet (VALORANT via Outplayed, `killStyle.clutchEvent`) ; sinon déduit
+- Clutch : annoncé par le jeu quand il le transmet (VALORANT via Outplayed, `killStyle.clutchEvent`) ; sans Outplayed,
+  réel, compté sur les morts des deux équipes lues dans le killfeed (`killfeed-teams`, `TeamRounds`) ; sinon déduit
   (round survécu, fini sur un multi-kill), qui en compte trop.
 
 ## 2. Transitions dans le sens du mouvement (fait)
@@ -192,7 +193,9 @@ Pistes, de la plus simple à la plus lourde :
 - Fin du plan sortant : coupe avancée de 1 à 3 temps quand la pose finit trop tôt pour raccorder : essayé, un seul
   raccord de plus sur trois musiques (2 → 3 sur « Rome Is Burning »), au prix d'un doublé de 11 temps et de ralentis à
   ×0,33 ; la plupart des coupes refusées manquent de pose d'un côté. Abandonné.
-- [ ] Clutch réel : compter les alliés en vie à partir des morts alliées du killfeed.
+- [x] Clutch réel : compter les alliés en vie à partir des morts alliées du killfeed (`killfeed-teams`, `TeamRounds`).
+  Mesuré en 854x480 seulement (output/revue/clutch-reel/). Restent : rounds gagnés au spike (désamorcé ou explosé),
+  invisibles dans le killfeed, donc leurs clutchs manqués ; vérifier en 1080p et 1440p.
 - [ ] VALORANT : écarter du montage les kills à la capacité (molly, flèche, drone…), peu lisibles à l'image, sauf les
   « beaux » kills aux ultis d'arme (couteaux de Jett, Tour de force de Chamber…). Piste : lire l'icône d'arme/capacité
   de la ligne du killfeed (`KillfeedDetector`) et une liste blanche des capacités gardées dans le profil.
@@ -267,7 +270,9 @@ Pistes, de la plus simple à la plus lourde :
     20 s à l'écran. Sous-titres à couper quand la piste n'est pas celle du micro ?
 - [x] Récap de soirée : plusieurs captures, intercalaire par partie (« Partie 3 – 14 kills ») : `app recap`, bouton « Récap de la soirée » des statistiques.
 - [x] Montage « fails / morts » : morts du killfeed/Outplayed, ralenti sur la mort, image figée, texte (`--fails`).
-- [ ] Morts pendant l'ultime de Phoenix (icône verte dans le killfeed) : les écarter du montage des morts ? À décider.
+- [x] Morts pendant l'ultime de Phoenix (cercle de « Run it Back » dans le killfeed) : écartées partout (montage des
+  morts, rounds, clutchs, statistiques ; `killfeed-teams` → `ally-run-it-back`, `TeamRounds.withoutRevived`). Décidé
+  par l'utilisateur le 19/11. Sans Outplayed seulement (avec Outplayed : non vérifié, pas de capture).
 - [ ] Montage « réactions » : segments `laughter`/`shout` de YAMNet, micro en avant, sous-titres whisper.
 - [ ] Montage « onetaps » : que des kills en un seul tir à la tête, enchaînés très vite comme les edits TikTok. Toutes
   les armes comptent : un tir, un headshot, un kill.

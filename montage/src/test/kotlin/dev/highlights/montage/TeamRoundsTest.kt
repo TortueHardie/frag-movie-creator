@@ -52,6 +52,20 @@ class TeamRoundsTest : FunSpec({
         clutches(allies, enemies).shouldBeEmpty()
     }
 
+    test("une mort pendant l'ultime de Phoenix n'en est pas une, partout") {
+        val style = KillStyle()
+        val events = listOf(
+            TimelineEvent(100.seconds, "death", 1.0, "killfeed"),
+            TimelineEvent(100.2.seconds, "ally-run-it-back", 1.0, "teams"),
+            TimelineEvent(200.seconds, "death", 1.0, "killfeed"),
+        )
+        TeamRounds.withoutRevived(events, style).map { it.at } shouldBe listOf(100.2.seconds, 200.seconds)
+        // Montage des morts (deathEvent vidé, morts montées comme des kills) : retirée aussi.
+        TeamRounds.withoutRevived(events, style.copy(deathEvent = "")).count { it.kind == "death" } shouldBe 1
+        // Réglage vidé : gardée.
+        TeamRounds.withoutRevived(events, style.copy(revivedEvent = "")) shouldBe events
+    }
+
     test("clutchTimes : rien sans morts lues dans le killfeed, sinon l'instant juste après le dernier adversaire") {
         val style = KillStyle()
         TeamRounds.clutchTimes(emptyList(), emptyList(), style, Duration.ZERO) shouldBe null

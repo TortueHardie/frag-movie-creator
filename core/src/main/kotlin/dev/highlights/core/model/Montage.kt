@@ -624,6 +624,12 @@ data class KillStyle(
      * qui n'affiche « CLUTCH » qu'à partir d'un 1 contre 2 (un 1 contre 1 gagné y reste « WON », vu sur deux parties).
      */
     val clutchMinEnemies: Int = 2,
+    /**
+     * Ligne du killfeed où le joueur (ou un allié) meurt pendant l'ultime de Phoenix (« Run it Back ») : il revient
+     * aussitôt, ce n'est pas une mort. Une mort du joueur lue à moins de 1,5 s de cet événement est retirée partout
+     * (rounds, clutchs, morts aussitôt payées, montage des morts, statistiques). Vide : gardée.
+     */
+    val revivedEvent: String = "ally-run-it-back",
 ) {
     init {
         require(flickTo > flickFrom) { "montage.killStyle.flickTo doit dépasser flickFrom" }

@@ -29,6 +29,26 @@ object TeamRounds {
      */
     val AFTER_LAST: Duration = 300.milliseconds
 
+    /**
+     * [events] sans les morts du joueur pendant l'ultime de Phoenix : chaque événement [KillStyle.revivedEvent] (ligne
+     * du killfeed marquée du cercle de « Run it Back ») retire la mort la plus proche à moins de [SAME_DEATH], qu'elle
+     * vienne du détecteur `killfeed` ou d'Outplayed. Les morts sont celles de [KillStyle.deathEvent], « death » quand il
+     * est vide (montage des morts, qui les vide pour les monter comme des kills).
+     */
+    fun withoutRevived(events: List<TimelineEvent>, style: KillStyle): List<TimelineEvent> {
+        if (style.revivedEvent.isEmpty()) return events
+        val revived = events.filter { it.kind == style.revivedEvent }
+        if (revived.isEmpty()) return events
+        val kind = style.deathEvent.ifEmpty { "death" }
+        val dropped = HashSet<TimelineEvent>()
+        for (r in revived) {
+            events.filter { it.kind == kind && it !in dropped && (it.at - r.at).absoluteValue <= SAME_DEATH }
+                .minByOrNull { (it.at - r.at).absoluteValue }
+                ?.let { dropped += it }
+        }
+        return if (dropped.isEmpty()) events else events.filter { it !in dropped }
+    }
+
     /** Un clutch : quand le joueur est resté seul, face à combien d'adversaires, et quand le dernier est tombé. */
     data class Clutch(val alone: Duration, val enemies: Int, val won: Duration)
 

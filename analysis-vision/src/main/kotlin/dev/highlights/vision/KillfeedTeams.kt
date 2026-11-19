@@ -21,10 +21,12 @@ import dev.highlights.core.video.ZoneFrame
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.DurationUnit
 
 private val log = KotlinLogging.logger {}
 
@@ -85,6 +87,24 @@ data class KillfeedTeamsParams(
     /** Événements émis : mort d'un allié (le joueur compris : le montage le retire), mort d'un adversaire. */
     val allyKind: String = "ally-death",
     val enemyKind: String = "enemy-death",
+    /**
+     * Ligne marquée d'un grand cercle blanc entre le tueur et la victime : Phoenix mort pendant son ultime (« Run it
+     * Back »), qui revient aussitôt. Ce n'est pas une mort : émise sous ces sortes à la place de [allyKind] et
+     * [enemyKind] (le montage retire aussi la mort du joueur lue au même instant). Vide : comptée comme une mort.
+     * Mesuré sur la partie « Valorant- 44 kills » : les 4 morts du joueur marquées ainsi sont celles où il revient à
+     * l'image (4:26, 9:30, 15:13, 23:36), aucune autre de ses lignes ne l'est.
+     */
+    val allyRevivedKind: String = "ally-run-it-back",
+    val enemyRevivedKind: String = "enemy-run-it-back",
+    /**
+     * Le cercle déborde de la ligne en haut et en bas (2 px en 480p, rien d'autre ne dépasse) : arcs blancs cherchés
+     * dans cette hauteur au-dessus et au-dessous, en pixels de référence. Vu sur au moins [ringShare] des images d'une
+     * ligne et pendant [ringSeen] : 21 à 60 % pour les 4 morts de Phoenix, 4 à 17 % au plus pour les autres (icône de
+     * tir à la tête, plus petite, et décor clair qui passe).
+     */
+    val ringMargin: Int = 6,
+    val ringShare: Double = 0.2,
+    val ringSeen: SerialDuration = 800.milliseconds,
     /** Décalage ajouté à l'instant d'apparition, le même que celui du détecteur `killfeed` (kills et morts du joueur). */
     val offset: SerialDuration = (-150).milliseconds,
 ) {
@@ -93,25 +113,48 @@ data class KillfeedTeamsParams(
         require(victimFrom > victimTo && victimTo >= 0) { "victimFrom doit dépasser victimTo" }
         require(minShare in 0.0..1.0 && minKillerShare in 0.0..1.0) { "parts entre 0 et 1" }
         require(rowPitch > 0 && pitchTolerance in 0.0..0.5 && maxRows >= 1) { "pas des lignes invalide" }
+        require(ringMargin >= 1 && ringShare in 0.0..1.0) { "ringMargin ≥ 1, ringShare entre 0 et 1" }
     }
 
     companion object {
-        /** Sarcelle des alliés : vert et bleu nettement au-dessus du rouge (107/186/165 clair, 58/103/90 sombre en 480p). */
-        const val TEAL = "gt(g(X,Y)-r(X,Y),30)*gt(b(X,Y)-r(X,Y),15)*gt(g(X,Y),60)"
+        /**
+         * Sarcelle des alliés : vert et bleu au-dessus du rouge (107/186/165 clair, 58/103/90 sombre en 480p). La ligne
+         * de la mort du joueur est plus terne (98/131/115) : avec 30 et 15 au lieu de 20 et 5, sa bande se coupait.
+         */
+        const val TEAL = "gt(g(X,Y)-r(X,Y),20)*gt(b(X,Y)-r(X,Y),5)*gt(g(X,Y),60)"
 
         /** Rouge des adversaires (245/90/85 clair, 107/37/28 sombre). */
         const val RED = "gt(r(X,Y)-g(X,Y),40)*gt(r(X,Y)-b(X,Y),30)*gt(r(X,Y),80)"
 
-        /** Un octet par pixel : 255 allié, 128 adversaire, 0 sinon. */
-        fun classes(ally: String, enemy: String) = "if($ally,255,if($enemy,128,0))"
+        /** Blanc (cercle de Phoenix, texte) ; clair : le nom de la victime fondu dans son fond (125/145/144). */
+        const val WHITE = "gt(min(min(r(X,Y),g(X,Y)),b(X,Y)),150)"
+        const val LIGHT = "gt(min(min(r(X,Y),g(X,Y)),b(X,Y)),110)"
+
+        /** Un octet par pixel : 255 allié, 191 adversaire, 127 blanc, 63 clair, 0 sinon (voir [PixelClass]). */
+        fun classes(ally: String, enemy: String) = "if($ally,255,if($enemy,191,if($WHITE,127,if($LIGHT,63,0))))"
     }
 }
 
 /** Équipe de la victime d'une ligne du killfeed. */
 enum class FeedTeam { ALLY, ENEMY }
 
-/** Ligne du killfeed : équipe de la victime, centre vertical en pixels de la zone lue. */
-internal data class TeamRow(val team: FeedTeam, val center: Double)
+/** Ligne du killfeed : équipe de la victime, centre vertical en pixels de la zone lue, cercle de Phoenix vu. */
+internal data class TeamRow(val team: FeedTeam, val center: Double, val ring: Boolean = false)
+
+/** Classe d'un pixel de la zone lue (octet de [KillfeedTeamsParams.classes]). */
+internal enum class PixelClass {
+    ALLY, ENEMY, WHITE, LIGHT, OTHER;
+
+    companion object {
+        fun of(v: Int) = when {
+            v >= 223 -> ALLY
+            v >= 159 -> ENEMY
+            v >= 95 -> WHITE
+            v >= 32 -> LIGHT
+            else -> OTHER
+        }
+    }
+}
 
 /**
  * Lecture d'une image du killfeed déjà réduite aux classes de couleur ([KillfeedTeamsParams.classes]). Dans VALORANT,
@@ -129,30 +172,40 @@ internal class TeamRowReader(
     private val tolerance: Double = 0.35,
     private val maxRows: Int = 6,
     private val minKillerShare: Double = 0.08,
+    /** Hauteur où chercher les arcs du cercle de Phoenix au-dessus et au-dessous de la ligne, en pixels de la zone. */
+    private val ringMargin: Int = 2,
 ) {
+    private companion object {
+        /** Part minimale de la colonne de couleur franche : le nom de la victime (blanc, clair) n'en prend pas plus. */
+        const val MIN_COLORED = 0.2
+    }
+
     fun rows(frame: ZoneFrame): List<TeamRow> {
         val w = frame.width
         val h = frame.height
         val x0 = (w - from).coerceIn(0, w)
         val x1 = (w - to).coerceIn(x0, w)
         if (x1 - x0 == 0) return emptyList()
-        val px = frame.pixels
-        fun team(v: Int) = when {
-            v >= 192 -> FeedTeam.ALLY
-            v in 64..191 -> FeedTeam.ENEMY
-            else -> null
-        }
+        val cls = Array(h) { y -> Array(w) { x -> PixelClass.of(frame.pixels[y * w + x].toInt() and 0xFF) } }
         val label = arrayOfNulls<FeedTeam>(h)
         for (y in 0 until h) {
             var ally = 0
             var enemy = 0
-            for (x in x0 until x1) when (team(px[y * w + x].toInt() and 0xFF)) {
-                FeedTeam.ALLY -> ally++
-                FeedTeam.ENEMY -> enemy++
-                null -> {}
+            var text = 0
+            for (x in x0 until x1) when (cls[y][x]) {
+                PixelClass.ALLY -> ally++
+                PixelClass.ENEMY -> enemy++
+                PixelClass.WHITE, PixelClass.LIGHT -> text++
+                PixelClass.OTHER -> {}
             }
-            val need = minShare * (x1 - x0)
-            label[y] = if (ally >= need) FeedTeam.ALLY else if (enemy >= need) FeedTeam.ENEMY else null
+            // Le nom de la victime passe dans la colonne : ses lettres ne comptent ni pour ni contre.
+            val need = minShare * (x1 - x0 - text)
+            val colored = MIN_COLORED * (x1 - x0)
+            label[y] = when {
+                ally >= need && ally >= colored -> FeedTeam.ALLY
+                enemy >= need && enemy >= colored -> FeedTeam.ENEMY
+                else -> null
+            }
         }
         val out = mutableListOf<TeamRow>()
         var y = 0
@@ -167,29 +220,52 @@ internal class TeamRowReader(
             val height = y - start
             val n = (height / pitch).roundToInt()
             if (n !in 1..maxRows || abs(height - n * pitch) > tolerance * pitch) continue
+            val killer = if (t == FeedTeam.ALLY) PixelClass.ENEMY else PixelClass.ALLY
             for (k in 0 until n) {
                 val a = start + height * k / n
                 val b = start + height * (k + 1) / n
-                if (killerShare(frame, a, b, x0, if (t == FeedTeam.ALLY) FeedTeam.ENEMY else FeedTeam.ALLY, ::team) >= minKillerShare) {
-                    out += TeamRow(t, (a + b) / 2.0)
-                }
+                if (killerShare(cls, a, b, x0, killer) >= minKillerShare) out += TeamRow(t, (a + b) / 2.0, ring(cls, a, b, x0))
             }
         }
         return out
     }
 
-    /** Part des colonnes à gauche de [x0] dont la moitié au moins des lignes [a, b[ est de la couleur [other]. */
-    private fun killerShare(frame: ZoneFrame, a: Int, b: Int, x0: Int, other: FeedTeam, team: (Int) -> FeedTeam?): Double {
+    /** Part des colonnes à gauche de [x0] dont la moitié au moins des lignes [a, b[ est de la classe [other]. */
+    private fun killerShare(cls: Array<Array<PixelClass>>, a: Int, b: Int, x0: Int, other: PixelClass): Double {
         if (x0 == 0 || b <= a) return 0.0
         var columns = 0
         for (x in 0 until x0) {
             var n = 0
-            for (y in a until b) if (team(frame.pixels[y * frame.width + x].toInt() and 0xFF) == other) n++
+            for (y in a until b) if (cls[y][x] == other) n++
             if (n * 2 >= b - a) columns++
         }
         return columns.toDouble() / x0
     }
+
+    /**
+     * Cercle de Phoenix sur la ligne [a, b[ : un arc blanc dépasse au-dessus et au-dessous d'elle, sur les mêmes
+     * colonnes (au moins 0,3 hauteur de ligne). Un décor clair derrière l'écart entre deux lignes (ciel) en allume bien
+     * plus : au-delà de 2,5 hauteurs de ligne de colonnes blanches, ce n'en est pas un.
+     */
+    private fun ring(cls: Array<Array<PixelClass>>, a: Int, b: Int, x0: Int): Boolean {
+        val height = b - a
+        if (a - ringMargin < 0 || b + ringMargin > cls.size || x0 == 0) return false
+        var top = 0
+        var bottom = 0
+        var both = 0
+        for (x in 0 until x0) {
+            val up = (a - ringMargin until a).any { cls[it][x] == PixelClass.WHITE }
+            val down = (b until b + ringMargin).any { cls[it][x] == PixelClass.WHITE }
+            if (up) top++
+            if (down) bottom++
+            if (up && down) both++
+        }
+        return top + bottom <= 2.5 * height && both >= 0.3 * height
+    }
 }
+
+/** Mort lue : équipe de la victime, instant d'apparition de sa ligne, Phoenix revenu (« Run it Back »). */
+internal data class TeamDeath(val team: FeedTeam, val at: Duration, val revived: Boolean = false)
 
 /**
  * Suivi des lignes d'une image à l'autre (comme [FeedTracker] : une ligne ne fait que monter). Chaque ligne suivie
@@ -201,8 +277,11 @@ internal class TeamTracker(
     private val maxGap: Duration,
     private val pendingGap: Duration,
     private val minSightings: Int = 3,
+    /** Images où le cercle de Phoenix doit être vu, et leur part parmi celles de la ligne. */
+    private val ringSightings: Int = 4,
+    private val ringShare: Double = 0.2,
 ) {
-    private class Track(val team: FeedTeam, var center: Double, val first: Duration, var last: Duration, var sightings: Int)
+    private class Track(val team: FeedTeam, var center: Double, val first: Duration, var last: Duration, var sightings: Int, var rings: Int)
 
     private val tracks = mutableListOf<Track>()
 
@@ -217,18 +296,21 @@ internal class TeamTracker(
                     at - it.last <= (if (it.confirmed()) maxGap else pendingGap)
             }
             if (match == null) {
-                tracks += Track(row.team, row.center, at, at, 1).also { used += it }
+                tracks += Track(row.team, row.center, at, at, 1, if (row.ring) 1 else 0).also { used += it }
             } else {
                 match.center = row.center
                 match.last = at
                 match.sightings++
+                if (row.ring) match.rings++
                 used += match
             }
         }
     }
 
-    /** Morts vues, dans l'ordre : (équipe de la victime, instant d'apparition). */
-    fun deaths(): List<Pair<FeedTeam, Duration>> = tracks.filter { it.confirmed() }.sortedBy { it.first }.map { it.team to it.first }
+    /** Morts vues, dans l'ordre : équipe de la victime, instant d'apparition, mort de Phoenix pendant son ultime. */
+    fun deaths(): List<TeamDeath> = tracks.filter { it.confirmed() }.sortedBy { it.first }.map {
+        TeamDeath(it.team, it.first, it.rings >= ringSightings && it.rings >= ringShare * it.sightings)
+    }
 }
 
 /**
@@ -239,6 +321,11 @@ internal class TeamTracker(
  */
 class KillfeedTeamsDetector(override val id: String, private val params: KillfeedTeamsParams) : SignalDetector {
     private class Prepared(val subscription: FrameSampler.Subscription, val rows: MutableList<List<TeamRow>>, val tolerance: Int)
+
+    private fun kindOf(death: TeamDeath): String {
+        val revived = if (death.team == FeedTeam.ALLY) params.allyRevivedKind else params.enemyRevivedKind
+        return if (death.revived && revived.isNotEmpty()) revived else if (death.team == FeedTeam.ALLY) params.allyKind else params.enemyKind
+    }
 
     @Volatile
     private var prepared: Prepared? = null
@@ -263,7 +350,10 @@ class KillfeedTeamsDetector(override val id: String, private val params: Killfee
         if (zone.width < px(params.victimFrom) || zone.height < params.rowPitch * k) {
             throw ConfigException(Message("error.detector.zoneTooSmall", "id" to id, "size" to "${zone.width}x${zone.height}"))
         }
-        val reader = TeamRowReader(px(params.victimFrom), px(params.victimTo), params.rowPitch * k, params.minShare, params.pitchTolerance, params.maxRows, params.minKillerShare)
+        val reader = TeamRowReader(
+            px(params.victimFrom), px(params.victimTo), params.rowPitch * k, params.minShare, params.pitchTolerance, params.maxRows,
+            params.minKillerShare, px(params.ringMargin),
+        )
         val rows = mutableListOf<List<TeamRow>>()
         log.info { "$id : équipes du killfeed ${cw}x$ch à ($cx, $cy), lu en ${zone.width}x${zone.height}, ${params.fps} img/s" }
         val subscription = ctx.frames.subscribe(
@@ -284,12 +374,13 @@ class KillfeedTeamsDetector(override val id: String, private val params: Killfee
         val times = state.subscription.await()
         val count = minOf(times.size, state.rows.size)
         if (count == 0) return SignalTrack.missing(id, ctx.grid.count, Message("notice.noFrames"))
-        val tracker = TeamTracker(state.tolerance, params.minSeen, params.maxGap, params.pendingGap)
+        val tracker = TeamTracker(
+            state.tolerance, params.minSeen, params.maxGap, params.pendingGap,
+            ringSightings = ceil(params.ringSeen.toDouble(DurationUnit.SECONDS) * params.fps).toInt().coerceAtLeast(1), ringShare = params.ringShare,
+        )
         for (i in 0 until count) tracker.add(times[i], state.rows[i])
         val end = ctx.media.duration
-        val events = tracker.deaths().map { (team, at) ->
-            SignalEvent((at + params.offset).coerceIn(Duration.ZERO, end), if (team == FeedTeam.ALLY) params.allyKind else params.enemyKind, 1.0)
-        }
+        val events = tracker.deaths().map { SignalEvent((it.at + params.offset).coerceIn(Duration.ZERO, end), kindOf(it), 1.0) }
         log.info { "$id : ${events.groupingBy { it.kind }.eachCount()} : " + events.joinToString { "${it.kind} ${Durations.format(it.at)}" } }
         return SignalTrack(id, DoubleArray(ctx.grid.count) { Double.NaN }, events)
     }
