@@ -891,13 +891,18 @@ Jeu en anglais (`language: en-US`).
   secousse du mode story. Ni ace ni clutch déduits (escouades de trois, pas de rounds).
 - 9:16 : compteur (escouades restantes, kills, dégâts) et killfeed, en haut à droite, sont replacés en haut à gauche ;
   rien en bas, pour ne pas couvrir la notification.
-- Mesuré sur « Apex 53 kills octane » (compilation YouTube de trois parties, 854x480, image teintée) contre le
-  compteur de kills du HUD, relevé à l'œil (`verite/apex/`) : 33 kills sur 56 crédits, aucun en trop. Le reste est
-  surtout crédité d'un coup par un « SQUAD WIPE » (dernier de l'escouade à terre : les ennemis que le joueur avait mis
-  à terre meurent avec lui, 2 ou 3 kills sous une seule notification). Deuxième capture, relevée après le réglage
-  (« Apex 37 kills revenant », une partie, autre légende) : 27 kills sur 36, aucun en trop ; la notification « SQUAD
-  WIPE » y arrive jusqu'à 4,5 s après le crédit (le joueur ouvre une death box au moment du kill : notification
-  cachée), d'où une tolérance de 5 s pour cette vérité. Le compteur lui-même (chiffres de ~6 px en
+- « SQUAD WIPE » (`credits` du détecteur, `LogCredit`) : le dernier de l'escouade tombe et les ennemis que le joueur
+  avait mis à terre meurent avec lui, 2 ou 3 kills sous une seule notification, qui arrive parfois jusqu'à 4,5 s après
+  (death box ouverte au moment du kill : notification cachée, le montage coupait 4 s trop tard). Le kill est daté de
+  la dernière mise à terre (6 s au plus avant), et compté autant de fois qu'il y a eu de mises à terre depuis le kill
+  précédent (30 s au plus) ; une même notification relue sans mise à terre entre les deux est écartée. Le compte est
+  une estimation : juste pour 15 « SQUAD WIPE » sur 24, un de moins pour 5 (mise à terre non lue), un de plus pour 1.
+  Les libellés DOUBLÉ / TRIPLÉ du montage et les statistiques en profitent.
+- Mesuré contre le compteur de kills du HUD, relevé à l'œil (`verite/apex/`, tolérance 3 s), sur deux compilations
+  YouTube en 854x480, image teintée : « Apex 53 kills octane » (trois parties) 43 kills sur 56, 1 en trop (33 et 0
+  avant le calage des SQUAD WIPE) ; « Apex 37 kills revenant » (une partie, relevée après le premier réglage) 29 sur
+  36, 2 en trop (22 et 5 avant). Les « en trop » sont de vrais kills mal datés : une deuxième « ELIMINATED » vue 4 s
+  après un crédit double, ou une mise à terre de trop dans un SQUAD WIPE. Le compteur lui-même (chiffres de ~6 px en
   480p) n'est pas lisible par l'OCR de Windows ; une lecture par modèles d'image n'a pas été tentée. Morts du joueur
   non lues : aucune dans cette capture.
 

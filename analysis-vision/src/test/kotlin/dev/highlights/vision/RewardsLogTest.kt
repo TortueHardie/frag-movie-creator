@@ -63,6 +63,33 @@ class RewardsLogTest : FunSpec({
         tracker.update(31.seconds, listOf(row(0, "kill"))).map { it.at } shouldBe listOf(30.seconds)
     }
 
+    test("SQUAD WIPE (Apex) : daté de la dernière mise à terre, compté par mise à terre, relecture écartée") {
+        fun e(at: Double, kind: String, text: String) = LogEvent(at.seconds, kind, text)
+        val credit = LogCredit(listOf("SQUADWIPE"), to = "knock", within = 6.seconds, countSince = 30.seconds)
+        // Lectures de « Apex 37 kills revenant » (texte de l'OCR tel quel).
+        val read = listOf(
+            e(204.0, "knock", "KNOCKED DOWN"),
+            e(208.0, "knock", "KNOCKED DOWN • tso"),
+            e(223.5, "knock", "KNOCKED DOWN •150 e."),
+            // Death box ouverte au moment du kill : notification vue 4 s plus tard. Trois mises à terre → 3 kills.
+            e(227.5, "kill", "SQUAD WIPE • 100"),
+            e(443.0, "knock", "\"(NOCKED DOWN -"),
+            e(446.5, "knock", "KNOCKED DOWN • tsot•"),
+            e(449.0, "kill", "SQUAD WIPE • 100"),
+            // La même relue 1,5 s plus tard, sans mise à terre entre : écartée.
+            e(450.5, "kill", "SQUAO WIPE • 100"),
+            e(466.0, "knock", "KNOCKED DOWN • 150"),
+            // Élimination ordinaire : inchangée, et elle borne le compte du SQUAD WIPE suivant.
+            e(481.5, "kill", "e ELIMINATED"),
+            e(571.5, "knock", "KNOCKED OOWN"),
+            e(575.0, "kill", "SQUAD WIPE • 100"),
+        )
+        LogCredits.apply(read, listOf(credit)).filter { it.kind == "kill" }.map { it.at.inWholeMilliseconds / 1000.0 } shouldBe
+            listOf(223.5, 223.5, 223.5, 446.5, 446.5, 481.5, 571.5)
+        // Sans countSince : daté, mais compté une fois.
+        LogCredits.apply(read, listOf(credit.copy(countSince = null))).count { it.kind == "kill" } shouldBe 4
+    }
+
     test("notifications empilées (Apex) : la ligne poussée d'un cran vers le bas n'est pas recomptée") {
         fun row(y: Int, kind: String) = Triple(y, kind, kind)
         // Relevé de « Apex 53 kills octane » à 1:30-1:32 : « ELIMINATED » à y 99, puis « KNOCKED DOWN » s'insère

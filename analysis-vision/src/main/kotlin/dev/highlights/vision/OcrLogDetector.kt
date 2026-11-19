@@ -57,6 +57,8 @@ data class OcrLogParams(
      * des anciennes (Apex). 0 : journal qui ne fait que remonter (Wardogs). Voir [LogTracker].
      */
     val maxDrop: Int = 0,
+    /** Notifications qui créditent des kills en retard ou en rafale (Apex : « SQUAD WIPE ») : voir [LogCredit]. */
+    val credits: List<LogCredit> = emptyList(),
     /** Une ligne non relue depuis cette durée est oubliée (une ligne reste affichée une dizaine de secondes). */
     val hold: SerialDuration = 6.seconds,
     /** Lectures nécessaires avant de compter une ligne. */
@@ -175,7 +177,7 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
                 emptyMap()
             }
             val tracker = LogTracker(params.hold, params.rowPitch, params.minSightings, params.maxDrop)
-            val logEvents = mutableListOf<LogEvent>()
+            val tracked = mutableListOf<LogEvent>()
             var readable = 0
             for (index in times.indices) {
                 val file = state.images[index] ?: continue
@@ -185,9 +187,11 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
                     val kind = RewardsLog.classify(text, params.rules)
                     if (kind.isNullOrEmpty()) null else Triple(y, kind, text)
                 }
-                logEvents += tracker.update(times[index], rows)
+                tracked += tracker.update(times[index], rows)
             }
-            log.info { "$id : texte lu sur $readable/${times.size} images ; journal : " + logEvents.joinToString { "${it.kind} ${Durations.format(it.at)} « ${it.text} »" } }
+            log.info { "$id : texte lu sur $readable/${times.size} images ; journal : " + tracked.joinToString { "${it.kind} ${Durations.format(it.at)} « ${it.text} »" } }
+            val logEvents = LogCredits.apply(tracked, params.credits)
+            if (params.credits.isNotEmpty()) log.info { "$id : après crédits : " + logEvents.joinToString { "${it.kind} ${Durations.format(it.at)}" } }
 
             val notice = params.notice
             val noticeReads = if (notice == null) emptyList() else times.indices.mapNotNull { index ->

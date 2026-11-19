@@ -9,7 +9,7 @@ capture: { name: Apex 53 kills octane.mp4, sizeBytes: 353057515, duration: 2259.
 profile: apex
 tolerance: 3s
 validated: null
-note: "Relevé du compteur par Claude le 18/11/2026, à faire valider par le joueur. Les kills crédités en rafale par un SQUAD WIPE n'ont qu'une notification à l'écran : ils limitent le rappel à ~0,57."
+note: "Relevé du compteur par Claude le 18/11/2026, à faire valider par le joueur. Les kills crédités en rafale par un SQUAD WIPE n'ont qu'une notification à l'écran : comptés par les mises à terre qui la précèdent (credits du profil), estimation."
 kinds: [kill]
 events:
   - { at: "0:22", kind: kill, note: "partie 1, compteur 1" }
@@ -68,6 +68,7 @@ events:
   - { at: "35:50", kind: kill, note: "partie 3, compteur 11" }
   - { at: "36:27", kind: kill, note: "partie 3, compteur 12" }
   - { at: "36:27", kind: kill, note: "partie 3, compteur 13" }
-# Seuils = état mesuré au relevé (app verite, 18/11) : 33 kills sur 56, aucun en trop.
+# Seuils = état mesuré (app verite, 19/11) : 43 kills sur 56, 1 en trop (24:11.5 : une mise à terre de trop
+# comptée dans un SQUAD WIPE ; le kill de 24:06 n'a pas de notification). Avant le calage : 33 vrais, 0 faux.
 thresholds:
-  game-events: { kill: { precision: 0.95, recall: 0.55 } }
+  game-events: { kill: { precision: 0.95, recall: 0.75 } }
