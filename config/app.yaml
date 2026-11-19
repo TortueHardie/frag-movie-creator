@@ -60,3 +60,12 @@ publish:
 #     maxBitrate: 16M
 #     fps: 60
 #     safeArea: { top: 0.10, bottom: 0.22, left: 0.05, right: 0.14 }
+
+# Cartes d'ouverture et de fin de toutes les vidéos (un profil peut avoir les siennes, prioritaires) : logo, pseudo,
+# fond flouté de la vidéo (blur), uni (color) ou image. Dans l'application : « Ouverture et fin ». --intro / --no-intro
+# en ligne de commande. Exemple :
+# intro:
+#   enabled: true
+#   logo: images/logo.png
+#   name: MonPseudo
+#   background: blur

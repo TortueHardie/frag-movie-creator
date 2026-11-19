@@ -10,6 +10,8 @@ import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.TimeRange
 import dev.highlights.core.serialization.Durations
+import dev.highlights.editing.CardRequest
+import dev.highlights.editing.IntroOutroCards
 import dev.highlights.editing.RenderCommand
 import dev.highlights.editing.RenderCommandBuilder
 import dev.highlights.editing.SourceCut
@@ -161,7 +163,7 @@ object StoryRenderBuilder {
         graph += shots.indices.joinToString("") { "[v$it][a$it]" } + "concat=n=${shots.size}:v=1:a=1[vcat][acat]"
 
         val fadeOut = minOf(story.fadeOut, total / 4)
-        graph += "[vcat]" + (if (fadeOut.isPositive()) "fade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)}," else "") + "format=yuv420p[vout]"
+        graph += "[vcat]" + (if (fadeOut.isPositive()) "fade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)}," else "") + "format=yuv420p[vstory]"
 
         // --- bruitages : whoosh sur chaque changement de moment, impact sous chaque secousse
         val mixInputs = mutableListOf("[acat]")
@@ -183,13 +185,17 @@ object StoryRenderBuilder {
             mixInputs += "[music]"
         }
 
-        val audioTail = (if (fadeOut.isPositive()) "afade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)}," else "") +
-            (edit.loudnessLufs?.let { "loudnorm=I=${fmt(it, 1)}:TP=-1.5:LRA=11," } ?: "") + "aresample=48000[aout]"
+        val audioTail = (if (fadeOut.isPositive()) "afade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)}," else "") + "anull[astory]"
         graph += if (mixInputs.size == 1) {
             "[acat]$audioTail"
         } else {
             mixInputs.joinToString("") + "amix=inputs=${mixInputs.size}:normalize=0:duration=first,$audioTail"
         }
+        // Cartes d'ouverture et de fin, avant la normalisation : le volume se juge sur la vidéo entière.
+        val (introStill, outroStill) = IntroOutroCards.stills(plan.moments)
+        val cards = IntroOutroCards.append(args, graph, "vstory", "astory", CardRequest.of(edit, w, h, introStill, outroStill))
+        graph += "[${cards.video}]format=yuv420p[vout]"
+        graph += "[${cards.audio}]" + (edit.loudnessLufs?.let { "loudnorm=I=${fmt(it, 1)}:TP=-1.5:LRA=11," } ?: "") + "aresample=48000[aout]"
 
         args += listOf(request.filterScriptOption, request.filterScript.toString(), "-map", "[vout]", "-map", "[aout]")
         args += request.encoder.videoArgs
@@ -197,7 +203,7 @@ object StoryRenderBuilder {
         return RenderCommand(
             FfmpegCommand(args, "rendu story ${request.format.label} (${plan.moments.size} moments, ${shots.size} plans, ${request.encoder.name})"),
             graph.joinToString(";\n") + "\n",
-            total,
+            total + cards.added,
         )
     }
 

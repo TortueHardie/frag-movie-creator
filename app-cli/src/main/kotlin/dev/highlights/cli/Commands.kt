@@ -9,6 +9,7 @@ import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.groups.mutuallyExclusiveOptions
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.options.nullableFlag
 import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.nullableFlag
@@ -75,6 +76,10 @@ private fun PipelineCommand.platformOption() = option(
     help = "Plateforme visée : tiktok, shorts, reels, youtube (ou définie dans app.yaml) — format, volume, débit, textes hors de l'interface de l'appli, durée maximale",
 )
 
+private fun PipelineCommand.introOption() = option(
+    "--intro",
+    help = "Cartes d'ouverture et de fin (logo, pseudo, fond : section intro du profil ou d'app.yaml) ; --no-intro : sans elles. Défaut : intro.enabled",
+).nullableFlag("--no-intro")
 /** `--preset <id>` : préréglage d'export de `config/export-presets.yaml` (voir [presetNamed]). */
 internal fun PipelineCommand.presetOption() = option(
     "--preset",
@@ -120,6 +125,7 @@ class ProcessCommand : PipelineCommand("process") {
     private val platform by platformOption()
     private val style by styleOption()
     private val music by musicOption()
+    private val intro by introOption()
     private val out by option("-o", "--out", help = "Dossier de sortie").path(canBeFile = false)
     private val preset by presetOption()
 
@@ -133,7 +139,7 @@ class ProcessCommand : PipelineCommand("process") {
             val pipeline = Pipelines.create(env.config)
             val chosen = preset?.let { presetNamed(env.config, it) }
             val analyze = AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, reuse = !reanalyze)
-            val export = ExportOptions(formats, out, style, music, platform)
+            val export = ExportOptions(formats, out, style, music, platform, intro = intro)
             try {
                 pipeline.processAll(
                     files,
@@ -183,6 +189,7 @@ class ExportCommand : PipelineCommand("export") {
     private val platform by platformOption()
     private val style by styleOption()
     private val music by musicOption()
+    private val intro by introOption()
     private val out by option("-o", "--out").path(canBeFile = false)
     private val thumbnail by thumbnailFlag()
     private val thumbnailStyle by thumbnailStyleOption()
@@ -207,7 +214,7 @@ class ExportCommand : PipelineCommand("export") {
 
     /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
     internal fun exportOptions(preset: ExportPreset? = null) =
-        ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail }).let { o -> preset?.let(o::withPreset) ?: o }
+        ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail }, intro = intro).let { o -> preset?.let(o::withPreset) ?: o }
 }
 
 class MontageCommand : PipelineCommand("montage") {
@@ -263,6 +270,7 @@ class MontageCommand : PipelineCommand("montage") {
         help = "Pas de rythme rapide sur les parties rapides et intenses de la musique (drop et après) : tout le montage au rythme du style",
     ).flag()
     private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
+    private val intro by introOption()
     private val reactionMontage by option(
         "--reaction-montage",
         help = "Montage des réactions du joueur au micro (rires, cris, coups de gueule), quelle qu'en soit la cause : micro devant, sous-titres. Demande une piste micro séparée",
@@ -479,6 +487,7 @@ class MontageCommand : PipelineCommand("montage") {
         style = style.takeIf { it != "none" },
         constraints = constraints,
         thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail },
+        intro = intro,
     )
         val presetted = preset?.let(options::withPreset) ?: options
         // --style passe devant le préréglage, qui passe devant le style par défaut ; « none » : aucun style du tout.

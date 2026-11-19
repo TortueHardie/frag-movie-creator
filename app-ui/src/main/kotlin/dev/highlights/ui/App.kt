@@ -112,6 +112,7 @@ fun App(state: UiState, actions: UiActions) {
         }
         }
         state.montage?.let { MontageDialog(it, state, actions) }
+        state.introDialog?.let { IntroDialog(it, state.introCards, actions) }
         state.quitConfirm?.let { QuitDialog(it, actions) }
         state.variants?.let { VariantsWindow(it, state.job != null, actions) }
         state.player?.let { p -> actions.videoPlayer?.let { dev.highlights.ui.player.VideoPlayerWindow(p, it, actions) } }

@@ -22,6 +22,7 @@ import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.Highlight
+import dev.highlights.core.model.IntroOutroSettings
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.OutputFormat
@@ -39,6 +40,7 @@ import dev.highlights.core.session.Session
 import dev.highlights.core.session.SessionStore
 import dev.highlights.core.serialization.toTimecode
 import dev.highlights.core.video.FrameSampler
+import dev.highlights.editing.CardStill
 import dev.highlights.export.OutputNamer
 import dev.highlights.export.RecapCard
 import dev.highlights.export.RecapPart
@@ -144,6 +146,10 @@ data class ExportOptions(
     val music: Path? = null,
     /** Plateforme visée (tiktok, shorts, reels, youtube…) : format, volume, débit, zone sûre et durée maximale. */
     val platform: String? = null,
+    /** Cartes d'ouverture et de fin (`--intro` / `--no-intro`) ; null : réglage `intro.enabled`. */
+    val intro: Boolean? = null,
+    /** Réglages des cartes choisis dans l'application, à la place de ceux du profil et d'app.yaml. */
+    val introSettings: IntroOutroSettings? = null,
     /** Ordre des moments ; null = ordre manuel si l'interface en a fixé un ([ClipOrder.MANUAL]), sinon celui du profil. */
     val order: ClipOrder? = null,
     /** Miniature de chaque vidéo, dans cet habillage ([Thumbnails]) ; null : pas de miniature. */
@@ -217,6 +223,10 @@ data class MontageOptions(
     val reactionMontage: Boolean? = null,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
+    /** Cartes d'ouverture et de fin (`--intro` / `--no-intro`) ; null : réglage `intro.enabled`. */
+    val intro: Boolean? = null,
+    /** Réglages des cartes choisis dans l'application, à la place de ceux du profil et d'app.yaml. */
+    val introSettings: IntroOutroSettings? = null,
     /** Kills à la capacité écartés ([MontageSettings.skipAbilityKills]) ; null : réglage du profil. */
     val skipAbilityKills: Boolean? = null,
     /** Rythme rapide sur les parties rapides de la musique ([dev.highlights.core.model.FastParts]) ; null : réglage du profil. */
@@ -705,6 +715,7 @@ class HighlightPipeline(
             style = options.style ?: edit.style,
             order = options.order ?: if (sessions.any { s -> s.highlights.any { it.enabled && it.order != null } }) ClipOrder.MANUAL else edit.order,
             story = options.music?.let { edit.story.copy(music = edit.story.music.copy(file = it.toAbsolutePath().toString())) } ?: edit.story,
+            intro = IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings),
         ).let { platform?.applyTo(it) ?: it }
         return withJobDir { workDir ->
             exporter.export(
@@ -719,7 +730,7 @@ class HighlightPipeline(
                     audioLayout = profile.audio,
                     captionCache = config.workDir.resolve("cache").resolve("captions"),
                     platform = options.platform,
-                    maxDuration = platform?.maxDuration,
+                    maxDuration = platform?.maxDuration?.let { it - IntroOutroSupport.reserved(settings.intro) },
                 ),
                 progress,
             )
@@ -789,6 +800,18 @@ class HighlightPipeline(
         }
     }
 
+    /**
+     * Aperçu PNG d'une carte d'ouverture ([intro]) ou de fin, avec les réglages [settings] (chemins relatifs résolus
+     * comme dans un export) ; fond flouté pris sur [still] s'il y en a un.
+     */
+    suspend fun introPreview(settings: IntroOutroSettings, format: OutputFormat, intro: Boolean, output: Path, still: CardStill? = null): Path {
+        val resolved = IntroOutroSupport.resolve(config, null, true, settings) ?: throw InputException(Message("error.intro.empty"))
+        return withJobDir { workDir -> IntroOutroSupport.preview(ffmpeg, resolved, format, intro, output, workDir, still) }
+    }
+
+    /** Réglages des cartes d'ouverture et de fin d'app.yaml, ou du profil [profileId] s'il en a ; null : aucun. */
+    fun introSettings(profileId: String? = null): IntroOutroSettings? =
+        profileId?.let { runCatching { profiles.byId(it) }.getOrNull()?.intro } ?: config.app.intro
     /** Miniature YouTube de [video] (highlights ou montage kills), d'après le rapport écrit avec elle ([Thumbnails]). */
     suspend fun miniature(video: Path, style: ThumbnailStyle = ThumbnailStyle.DEFAULT): Path = thumbnails.make(video, style)
 
@@ -963,7 +986,9 @@ class HighlightPipeline(
         val profile = planned.profile
         return MontageExportRequest(
             formats = planned.plan.settings.formats,
-            edit = profile.gradedEdit().let { planned.platform?.applyTo(it) ?: it },
+            // Cartes d'ouverture et de fin : rendu final seulement, les aperçus servent à comparer les coupes.
+            edit = profile.gradedEdit().let { planned.platform?.applyTo(it) ?: it }
+                .copy(intro = if (preview) null else IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings)),
             outputDir = outputDir,
             workDir = workDir,
             gameName = profile.id,
@@ -1167,7 +1192,9 @@ class HighlightPipeline(
         val profile = profiles.byId(sessions.first().profileId)
         val base = profile.montage
         val platform = platform(options.platform)
-        val maxDuration = (options.maxDuration ?: base.maxDuration).let { d -> platform?.maxDuration?.let { minOf(it, d) } ?: d }
+        val intro = IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings)
+        // Les cartes comptent dans la durée maximale de la plateforme : le montage se planifie dans ce qui reste.
+        val maxDuration = (options.maxDuration ?: base.maxDuration).let { d -> platform?.maxDuration?.let { minOf(it - IntroOutroSupport.reserved(intro, montage = true), d) } ?: d }
         val settings = base.copy(
             formats = platform?.let { listOf(it.format) } ?: options.formats ?: base.formats,
             maxDuration = maxDuration,

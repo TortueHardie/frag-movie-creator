@@ -51,6 +51,11 @@ data class UiState(
     val busyVerticalPreview: String? = null,
     /** Fenêtre de réglage du montage kills (null = fermée). */
     val montage: MontageUiState? = null,
+    /** Cartes d'ouverture et de fin (logo, pseudo, fond) ; [introCustom] : réglées dans l'application. */
+    val introCards: dev.highlights.core.model.IntroOutroSettings = dev.highlights.core.model.IntroOutroSettings(),
+    val introCustom: Boolean = false,
+    /** Fenêtre de réglage des cartes (null = fermée). */
+    val introDialog: IntroUiState? = null,
     /** Fenêtre de publication sur YouTube (null = fermée). */
     val publish: PublishUiState? = null,
     /** Dernière vidéo mise en ligne. */

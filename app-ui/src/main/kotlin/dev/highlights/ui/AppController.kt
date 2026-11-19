@@ -113,6 +113,16 @@ interface UiActions {
     /** Dossier de musiques où le montage choisit la sienne. */
     fun chooseMusicLibrary()
     fun updateMontage(change: (MontageUiState) -> MontageUiState)
+
+    // Cartes d'ouverture et de fin (logo, pseudo, fond).
+    fun setIntroEnabled(enabled: Boolean)
+    fun openIntro()
+    fun closeIntro()
+    fun updateIntro(change: (dev.highlights.core.model.IntroOutroSettings) -> dev.highlights.core.model.IntroOutroSettings)
+    fun chooseIntroLogo()
+    fun chooseIntroImage()
+    /** Carte montrée en aperçu : l'ouverture ou la fin ([outro]), dans [format]. */
+    fun setIntroPreview(format: OutputFormat, outro: Boolean)
     /** Réglages d'export des highlights (préréglage, miniature…) ; la sélection est recalculée si la durée visée change. */
     fun updateExportSettings(change: (SettingsState) -> SettingsState) {}
     fun createMontage()
@@ -320,6 +330,7 @@ class AppController(
     private val watchPrefs: WatchPrefsStore = WatchPrefsStore(WatchPrefsStore.DEFAULT_FILE),
     private val musicPrefs: MusicPrefsStore = MusicPrefsStore(MusicPrefsStore.DEFAULT_FILE),
     private val languagePrefs: LanguagePrefsStore = LanguagePrefsStore(LanguagePrefsStore.DEFAULT_FILE),
+    private val introPrefs: IntroPrefsStore = IntroPrefsStore(IntroPrefsStore.DEFAULT_FILE),
     /** Intervalle entre deux passages sur le dossier surveillé, et temps sans écriture avant qu'une capture soit prise. */
     private val watchInterval: Duration = 5.seconds,
     private val watchSettle: Duration = 15.seconds,
@@ -339,6 +350,7 @@ class AppController(
 
     @Volatile
     private var backend: Backend? = null
+    private val intro = IntroController(scope, platform, introPrefs, _state) { backend?.pipeline }
     private var mainJob: Job? = null
 
     // ---------------------------------------------------------------- file des traitements lourds
@@ -469,6 +481,7 @@ class AppController(
                     )
                 }
                 refreshLibrary()
+                intro.load()
                 if (watchJob == null) watchPrefs.load()?.let { startWatching(it) }
             } catch (e: CancellationException) {
                 throw e
@@ -701,7 +714,15 @@ class AppController(
         withMemory(title, MEMORY_EXPORT) {
             enqueue(title) { progress ->
                 saveNow(current)
-                val result = p.export(current.sessions, ExportOptions(s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform, thumbnail = ThumbnailStyle.DEFAULT.takeIf { s.settings.thumbnail }), progress)
+                val (introOn, introCards) = intro.exportChoice()
+                val result = p.export(
+                    current.sessions,
+                    ExportOptions(
+                        s.settings.orderedFormats, s.settings.outputDir, s.settings.style, platform = s.settings.platform,
+                        thumbnail = ThumbnailStyle.DEFAULT.takeIf { s.settings.thumbnail }, intro = introOn, introSettings = introCards,
+                    ),
+                    progress,
+                )
                 _state.update { it.copy(lastExport = result, lastUpload = null) }
                 result.videos.values.firstOrNull()
             }
@@ -928,6 +949,14 @@ class AppController(
     override fun updateMontage(change: (MontageUiState) -> MontageUiState) =
         _state.update { s -> s.copy(montage = s.montage?.let { before -> change(before).trackedFrom(before).presetTrackedFrom(before, s.presets) }) }
 
+    override fun setIntroEnabled(enabled: Boolean) = intro.setEnabled(enabled)
+    override fun openIntro() = intro.open()
+    override fun closeIntro() = intro.close()
+    override fun updateIntro(change: (dev.highlights.core.model.IntroOutroSettings) -> dev.highlights.core.model.IntroOutroSettings) = intro.update(change)
+    override fun chooseIntroLogo() = intro.chooseLogo()
+    override fun chooseIntroImage() = intro.chooseImage()
+    override fun setIntroPreview(format: OutputFormat, outro: Boolean) = intro.setPreview(format, outro)
+
     override fun createMontage() {
         val s = state.value
         val montage = s.montage ?: return
@@ -1036,6 +1065,8 @@ class AppController(
         // Les cases de la fenêtre sont déjà passées ; le style garde ce qu'elle ne montre pas (accroche, rampes…).
         style = montage.style,
         constraints = montage.constraints,
+        intro = intro.exportChoice().first,
+        introSettings = intro.exportChoice().second,
     )
 
     // ---------------------------------------------------------------- frise du plan de montage

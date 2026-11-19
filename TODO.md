@@ -331,7 +331,10 @@ Pistes, de la plus simple à la plus lourde :
 ## Habillage
 - [ ] Webcam en incrustation : seconde source synchronisée, disposition 9:16 webcam au-dessus du jeu.
 - [ ] Compteur de kills à l'écran (« 1… 2… 3… ACE ») et bandeau de score de round.
-- [ ] Intro/outro personnalisées (logo, pseudo, fond) définies dans le profil.
+- [x] Intro/outro personnalisées (logo, pseudo, fond) définies dans le profil. `IntroOutroCards` (editing), section `intro:`
+  d'app.yaml ou du profil, « Ouverture et fin » dans l'application, `--intro/--no-intro`. Montage : ouverture en temps
+  entiers sur l'amorce de la musique, kills inchangés sur leurs temps.
+  - [ ] À trancher par l'utilisateur : durées (1,5 s / 2 s), animation, activé ou non par défaut.
 - [x] Miniature automatique : image du meilleur kill + punch-in + texte, PNG prêt pour YouTube (`--thumbnail`,
   `app thumbnail`, fenêtre de publication).
 - [x] Choisir l'habillage de miniature par défaut : le vif (18/11), `ThumbnailStyle.DEFAULT`.

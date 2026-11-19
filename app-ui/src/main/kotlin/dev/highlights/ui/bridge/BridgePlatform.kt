@@ -38,6 +38,9 @@ class BridgePlatform(private val real: Platform) : Platform {
     override fun chooseAudio(initialDir: Path?): Path? =
         script?.let { it.record("chooseAudio → ${it.paths.firstOrNull()}"); it.paths.firstOrNull() } ?: real.chooseAudio(initialDir)
 
+    override fun chooseImage(initialDir: Path?): Path? =
+        script?.let { it.record("chooseImage → ${it.paths.firstOrNull()}"); it.paths.firstOrNull() } ?: real.chooseImage(initialDir)
+
     override fun chooseSessions(initialDir: Path?): List<Path> =
         script?.let { it.record("chooseSessions → ${it.paths}"); it.paths } ?: real.chooseSessions(initialDir)
 

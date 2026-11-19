@@ -6,6 +6,7 @@ import com.charleskorn.kaml.YamlConfiguration
 import com.charleskorn.kaml.YamlException
 import dev.highlights.core.ConfigException
 import dev.highlights.core.ffmpeg.Hwaccel
+import dev.highlights.core.model.IntroOutroSettings
 import dev.highlights.core.model.ExportPresets
 import dev.highlights.core.model.MontageStyles
 import dev.highlights.core.model.PlatformProfile
@@ -30,6 +31,8 @@ data class AppConfig(
     val publish: PublishSettings = PublishSettings(),
     /** Plateformes : ajoutées à celles connues ([PlatformProfile.DEFAULTS]) ou les remplaçant, par identifiant. */
     val platforms: Map<String, PlatformProfile> = emptyMap(),
+    /** Cartes d'ouverture et de fin de tous les jeux ; un profil qui a les siennes (`intro:`) les remplace. */
+    val intro: IntroOutroSettings? = null,
     /** Styles de montage kills (`--style`, choix en haut de la fenêtre de montage) ; fichier absent : aucun style. */
     val montageStyles: String = "montage-styles.yaml",
     /** Préréglages d'export (`--preset`, puces en haut de la barre d'export et de la fenêtre de montage) ; fichier absent : aucun. */

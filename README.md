@@ -742,6 +742,40 @@ commande pour `export`, `process` et `montage`) adapte l'export à là où la vi
 & $app export output\sessions\partie.session.json --platform shorts
 ```
 
+## Ouverture et fin (logo, pseudo)
+
+Une courte carte ouvre et ferme chaque vidéo — highlights simples, story et montages kills — avec le logo et le pseudo
+du joueur sur un fond au choix. Désactivée par défaut.
+
+- **Où la régler** : section `intro:` d'`app.yaml` (tous les jeux) ou d'un profil (ce jeu-là, prioritaire) ; dans
+  l'application, **Ouverture et fin** dans les réglages, bouton **Personnaliser…** (logo, pseudo, fond, aperçu en 16:9
+  et 9:16). Les réglages faits dans l'application sont gardés dans `~/.highlights/intro.json` et remplacent alors ceux
+  des fichiers pour les exports lancés depuis l'application.
+- **Fond** : `blur` (une image de la vidéo floutée et assombrie : le meilleur moment en ouverture, le dernier plan en
+  fin), `color` (`color: "#RRGGBB"`) ou `image` (`image: chemin`, recadrée pour remplir l'écran).
+- **Animation** : le logo apparaît en montant légèrement (0,35 s), le pseudo « pop » juste après ; l'ouverture sort du
+  noir et coupe franc sur la vidéo, la fin entre et sort par le noir.
+- **Montage kills** : l'ouverture dure un nombre entier de temps de la musique (1,5 s demandée → 3 temps à 120 BPM) et
+  joue l'amorce de la musique, ce qui précède le passage choisi, en montée de volume ; le premier plan arrive sur un
+  temps et chaque kill reste sur le sien (vidéo et son reculent ensemble d'autant). Si la musique démarre trop tôt
+  pour avoir une amorce, du silence la précède.
+- **Plateformes** : logo et pseudo restent dans la zone sûre ; le pseudo prend une police qui a tous ses caractères
+  (comme les autres textes incrustés). Les cartes comptent dans la durée maximale de la plateforme.
+- **Ligne de commande** : `--intro` / `--no-intro` sur `export`, `process` et `montage` (sans l'option : `intro.enabled`).
+
+```yaml
+intro:
+  enabled: true
+  logo: images/logo.png        # relatif au fichier de configuration
+  name: ZeroX
+  background: blur             # blur, color ou image
+  color: "#101820"             # fond uni, et fond de secours
+  introLength: 1500ms          # 0,5 à 5 s
+  outroLength: 2s
+  intro: true                  # carte d'ouverture
+  outro: true                  # carte de fin
+```
+
 ## Préréglages d'export (TikTok, YouTube court, vidéo complète)
 
 Un préréglage choisit d'un clic **ce qu'on fabrique**, pour les highlights comme pour le montage kills : puces en haut

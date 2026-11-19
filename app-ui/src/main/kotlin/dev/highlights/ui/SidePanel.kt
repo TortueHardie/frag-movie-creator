@@ -283,6 +283,10 @@ fun SettingsSection(state: UiState, actions: UiActions) {
             }
         }
 
+        // Ouverture et fin
+        Spacer(Modifier.height(2.dp))
+        IntroSection(state, actions)
+
         // Cible
         Spacer(Modifier.height(2.dp))
         Text(tr("ui.settings.moments"), style = MaterialTheme.typography.labelLarge)

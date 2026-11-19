@@ -142,7 +142,7 @@ class MontageRenderBuilderTest : FunSpec({
         val cut = p.clipOffsets()[1].inWholeMilliseconds - 300
         (kotlin.math.abs(delay - cut) <= 20) shouldBe true
         lines.none { it.startsWith("[whs1]") } shouldBe true
-        lines.single { it.endsWith("[aout]") } shouldContain "[game][music][wh0]amix=inputs=3"
+        lines.single { it.trimEnd(';').endsWith("[amontage]") } shouldContain "[game][music][wh0]amix=inputs=3"
 
         // Souffle coupé, ou pas de whip : le mélange d'avant.
         for (s in listOf(settings.copy(whip = WhipPanEffect(whoosh = 0.0)), settings.copy(whip = WhipPanEffect(enabled = false)))) {
