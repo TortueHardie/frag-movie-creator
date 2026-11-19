@@ -217,12 +217,12 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Jeu de vérité terrain versionné (`verite/`, timecodes validés par le joueur) + `app verite` (précision/rappel par
   détecteur, échec sous les seuils), lancé à la main (`gradlew :app-cli:verite`).
 - [ ] Vérité terrain VALORANT (killfeed, compteur de munitions, `kill-confirm`) : aucune capture VALORANT sur le disque.
-- [ ] Valider avec le joueur la vérité provisoire de `verite/wardogs/` (planches dans `output/revue/verite-terrain/`) et y
+- [x] (validée le 19/11 pour 18-23-47, 20-4-19 et 22-55-31 ; 18-53-18, sans partie, reste provisoire) Valider avec le joueur la vérité provisoire de `verite/wardogs/` (planches dans `output/revue/verite-terrain/`) et y
   ajouter les morts.
 - [x] Wardogs `ocr-log` : « AIDE : ÉLIMINATION » lue comme kill (22-55-31 à 38:37) et « UN PASSAGER A SURVÉCU » lu
   comme aide (18-23-47 à 15:14), corrigés par le libellé de la notification (`notice`) ; « EN ATTENTE DE RÉANIMATION »
   → événement `downed`.
-- [ ] Décider si « à terre » compte comme une mort (`montage.killStyle.downedAsDeath`, faux par défaut) : rounds,
+- [x] (19/11 : non, « à terre » reste à part, choix du joueur ; `downedAsDeath` faux) Décider si « à terre » compte comme une mort (`montage.killStyle.downedAsDeath`, faux par défaut) : rounds,
   kill aussitôt payé, statistiques K/D.
 - [x] Profil Apex Legends (`config/profiles/apex.yaml`) : notifications KNOCKED DOWN / ELIMINATED / SQUAD WIPE lues
   par `ocr-log` (`maxDrop` pour les notifications empilées) ; vérité `verite/apex/` (compteur du HUD) : 33 kills sur 56

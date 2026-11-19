@@ -1,12 +1,10 @@
-# Vérité terrain PROVISOIRE : ce sont les détections de game-events (profil wardogs avec le libellé des
-# notifications et « downed », analyse du 18/11/2026), pas encore validées par le joueur. Elle sert déjà de test
-# de non-régression : tout changement de détection la fait échouer. downed = à terre (« EN ATTENTE DE
-# RÉANIMATION »), pas une mort. À la validation (planches dans output/revue/verite-terrain/), corriger les
-# événements, ajouter les morts si le joueur en distingue, remplir validated.
+# Vérité terrain validée par le joueur le 19/11/2026 sur les planches de output/revue/verite-terrain/
+# (détections de game-events, profil wardogs, analyse du 18/11/2026). downed = à terre (« EN ATTENTE DE
+# RÉANIMATION ») : compté à part, pas une mort (choix du joueur).
 capture: { name: WARDOGS_09-22-2026_22-55-31-983.mp4, sizeBytes: 16244722666, duration: 6362.986s }
 profile: wardogs
 tolerance: 3s
-validated: null
+validated: utilisateur, 2026-11-19
 note: "Soirée de 1 h 46, plusieurs parties : la plus riche en kills. Planche de validation : output/revue/verite-terrain/22-55-31/."
 kinds: [kill, assist, revive, downed]
 events:
