@@ -14,6 +14,7 @@ import dev.highlights.vision.RewardsLog
 import dev.highlights.vision.WindowsOcr
 import dev.highlights.core.serialization.Durations
 import io.github.oshai.kotlinlogging.KotlinLogging
+import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.nio.file.Path
 import java.text.Normalizer
@@ -97,7 +98,7 @@ class NewGameAssistant(private val config: LoadedConfig, private val ffmpeg: Pro
         val id = request.profileId
         template(id, pairs, boxes, video.width, video.height)?.let { candidates += it }
         colorLine(pairs, boxes, video.width, video.height).let { (c, why) -> if (c != null) candidates += c else skipped[CueMethod.COLOR_LINE] = why }
-        candidates += counter(boxes, video.width, video.height)
+        candidates += learnedCounter(id, request, boxes, video.width, video.height) ?: counter(boxes, video.width, video.height)
         ocr(workDir, frames, request, pairs, boxes, media).let { (c, why) -> if (c != null) candidates += c else skipped[CueMethod.OCR] = why }
         prepare.complete()
 
@@ -182,7 +183,7 @@ class NewGameAssistant(private val config: LoadedConfig, private val ffmpeg: Pro
             appendLine("  priority: 10")
             appendLine()
             appendLine("# Profil écrit par l'assistant « nouveau jeu » le ${java.time.LocalDate.now()} depuis « ${r.video.name} »")
-            appendLine("# (${video?.width}x${video?.height}) et ${r.marks.size} kill(s) marqué(s) : $marks. Méthode : ${c.method.type} ${c.detail}.")
+            appendLine("# (${video?.width}x${video?.height}) et ${r.marks.size} kill(s) marqué(s) : $marks. Méthode : ${c.detectorType} ${c.detail}.")
             appendLine("# Sur cette capture : ${choice.result.kills.size} kills trouvés, précision estimée ${(choice.precision * 100).roundToInt()} %")
             appendLine("# d'après les vignettes confirmées. Les tailles sont en pixels de cette capture (reference).")
             appendLine("window: { size: 1s, hop: 500ms }")
@@ -306,6 +307,34 @@ class NewGameAssistant(private val config: LoadedConfig, private val ffmpeg: Pro
             |""".trimMargin()
         val detail = "(teinte ${color.c1.roundToInt()}/${color.c2.roundToInt()}, ligne de $height px)"
         return Candidate(CueMethod.COLOR_LINE, "c-line", yaml, detail = detail) to Message.raw("")
+    }
+
+    /**
+     * Compteur lu chiffre par chiffre (`hud-counter`), avec les chiffres appris sur la vidéo ([DigitLearner]) ; null si
+     * rien n'a pu être appris (le compteur est alors comparé d'une image à l'autre, [counter]).
+     */
+    private suspend fun learnedCounter(id: String, request: NewGameRequest, boxes: List<PixelBox>, w: Int, h: Int): Candidate? {
+        val learned = DigitLearner.learn(ffmpeg, request.video, w, h, boxes.reduce { a, b -> union(a, b) }) ?: return null
+        val dir = "templates/$id/chiffres"
+        val files = learned.digits.map { (d, img) ->
+            val out = BufferedImage(img.width, img.height, BufferedImage.TYPE_BYTE_GRAY)
+            out.raster.setDataElements(0, 0, img.width, img.height, img.pixels)
+            "$dir/digit_$d.png" to ByteArrayOutputStream().also { ImageIO.write(out, "png", it) }.toByteArray()
+        }.toMap()
+        val yaml = """
+            |  - id: c-counter
+            |    type: hud-counter
+            |    weight: 0
+            |    eventBoosts: { kill: 0.8 }
+            |    params:
+            |      region: ${region(learned.region)}
+            |      referenceWidth: $w
+            |      referenceHeight: $h
+            |      anchor: right
+            |      digits: $dir
+            |      kind: kill
+            |""".trimMargin()
+        return Candidate(CueMethod.COUNTER, "c-counter", yaml, files, detail = learned.detail)
     }
 
     /** Compteur : la zone marquée, comparée d'une image à l'autre sans lire les chiffres. */

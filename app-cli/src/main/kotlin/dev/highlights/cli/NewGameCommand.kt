@@ -81,7 +81,7 @@ class NewGameCommand : PipelineCommand("nouveau-jeu") {
         }
         val file = execute { assistant.write(scan, choice) }
         echo("")
-        echo("Méthode retenue : ${choice.result.candidate.method.name.lowercase()} (${choice.result.candidate.method.type}), " +
+        echo("Méthode retenue : ${choice.result.candidate.method.name.lowercase()} (${choice.result.candidate.detectorType}), " +
             "${choice.result.kills.size} kills, précision estimée ${(choice.precision * 100).toInt()} %")
         echo("Profil écrit : $file")
     }

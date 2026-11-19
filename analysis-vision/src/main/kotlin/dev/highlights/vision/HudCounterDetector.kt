@@ -224,6 +224,9 @@ data class KnockPairing(val kills: List<Duration>, val paired: Int, val wipes: I
     }
 }
 
+/** Chiffres lus : dizaines (null : un seul chiffre), unités, corrélation du moins sûr. */
+data class DigitPair(val tens: Int?, val units: Int, val score: Double)
+
 /** Nombre lu sur une image et corrélation du chiffre le moins sûr. */
 data class CounterRead(val value: Int, val score: Double)
 
@@ -267,6 +270,15 @@ class CounterReader(private val digits: Map<Int, GrayImage>, private val thresho
     }
 
     fun read(image: GrayImage): CounterRead? {
+        val pair = readPair(image) ?: return null
+        return CounterRead(pair.units + 10 * (pair.tens ?: 0), pair.score)
+    }
+
+    /**
+     * Les deux chiffres lus, tels quels (clés de [digits]) : l'assistant « nouveau jeu » lit avec des groupes de chiffres
+     * pas encore nommés et ne compose le nombre qu'après les avoir étiquetés. Pas de dizaine avec la clé [noTens] (« 0 »).
+     */
+    fun readPair(image: GrayImage, noTens: Int? = 0): DigitPair? {
         if (image.height < height) return null
         // Unités : bord droit du chiffre (avant sa colonne de marge) sur les dernières colonnes de la zone.
         var best: Triple<Prepared, Int, Int>? = null
@@ -285,7 +297,7 @@ class CounterReader(private val digits: Map<Int, GrayImage>, private val thresho
         var tens: Prepared? = null
         var tensScore = -1.0
         for (t in prepared) {
-            if (t.digit == 0) continue
+            if (t.digit == noTens) continue
             for (r in left - 3..left - 2) {
                 val x = r + 2 - t.width
                 if (x < 0) continue
@@ -294,15 +306,22 @@ class CounterReader(private val digits: Map<Int, GrayImage>, private val thresho
             }
         }
         return if (tens != null && tensScore >= threshold) {
-            CounterRead(tens.digit * 10 + units.digit, minOf(bestScore, tensScore))
+            DigitPair(tens.digit, units.digit, minOf(bestScore, tensScore))
         } else {
-            CounterRead(units.digit, bestScore)
+            DigitPair(null, units.digit, bestScore)
         }
     }
 
     companion object {
-        fun load(dir: java.nio.file.Path, threshold: Double, slack: Int): CounterReader =
-            CounterReader((0..9).associateWith { GrayImage.load(dir.resolve("digit_$it.png")) }, threshold, slack)
+        /**
+         * Chiffres `digit_0.png` … `digit_9.png` de [dir]. Un chiffre absent (jamais vu par l'assistant : une partie qui
+         * n'est pas allée jusqu'à lui) est simplement illisible ; il en faut au moins un.
+         */
+        fun load(dir: java.nio.file.Path, threshold: Double, slack: Int): CounterReader {
+            val files = (0..9).associateWith { dir.resolve("digit_$it.png") }.filterValues { it.toFile().isFile }
+            if (files.isEmpty()) GrayImage.load(dir.resolve("digit_0.png"))
+            return CounterReader(files.mapValues { GrayImage.load(it.value) }, threshold, slack)
+        }
     }
 }
 

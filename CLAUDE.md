@@ -185,6 +185,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   → un événement `kind` par unité gagnée. Réglé sur une vidéo 480p (31/31). Utilisé par fortnite.yaml (`game-events`).
   `knocks: KnockSettings` (avec `dependsOn` sur le détecteur des mises à terre) : `KnockPairing.pair` rattache chaque +1 à la plus ancienne mise à terre libre
   (30 s avant) → `kind` à l'instant de la mise à terre, +k d'un coup = k au compteur (mises à terre absorbées), mises à terre libres = kills ; `eliminationKind` au compteur.
+  `CounterReader.readPair` (clés brutes, pour l'assistant), `load` tolère des chiffres absents (jamais vus par l'assistant).
 - `FrameSampling.kt` : `chooseSampling` (images clés vs fps selon intervalle mesuré).
 
 ### analysis-ml
@@ -362,9 +363,14 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   dans un profil d'essai `assistant-essai` d'une config copiée, une seule analyse ; `Hit`, `CandidateResult(sample, sheet)`), `choose(scan, verdicts)`
   (précision des vignettes jugées, max vrais − faux, au moins un kill marqué retrouvé), `write` (jamais par-dessus un profil ou un modèle), `profile`
   (en-tête + son + détecteur `game-events`/`killfeed` + fin de `default.yaml`), `preview`. `KillMark(at, box)`, `NewGameRequest`, `CueMethod`.
-- `Candidates.kt` : `Candidate` (bloc YAML + fichiers), `LineColor.find/expression` (teinte r−g, g−b apparue au kill), `measureLine` (hauteur de ligne → tailles `outline`).
+- `DigitLearner.kt` : chiffres d'un compteur appris sur la vidéo (`learn` → `LearnedCounter(region, digits)` : zone lue à 2 img/s sur la grille paire, `unitsRight`,
+  graines = formes binaires exactes des unités (≥ 15 images), groupes (moyennes proches, puis formes qui alternent ≥ 10 fois), relecture `CounterReader.readPair`
+  avec un modèle par groupe, `steadyValues`, `bestLabelings` (ordre du compteur + 3 × `fontLikeness` polices grasses, essai exhaustif), puis 2 tours de
+  `recut` (images calmes) + `fillGaps` (chiffre jamais regroupé : entre v et v+2) sur 10 affectations, gardée = meilleure `objective` du décodage).
+  `NewGameAssistant.learnedCounter` en fait le candidat compteur (`hud-counter`, `templates/<id>/chiffres/digit_N.png`), sinon `counter` (`hud-change`).
+- `Candidates.kt` : `Candidate` (bloc YAML + fichiers, `detectorType` lu dans le YAML), `LineColor.find/expression` (teinte r−g, g−b apparue au kill), `measureLine` (hauteur de ligne → tailles `outline`).
 - `Frames.kt` (`FrameGrabber.at`, `RgbFrame`, `PixelBox`), `ContactSheet.write` (planche numérotée par méthode).
-- Mesure : `output/revue/assistant-nouveau-jeu/LOG.md` (CS2 et Fortnite refaits depuis 3 kills, `app verite`).
+- Mesure : `output/revue/assistant-nouveau-jeu/LOG.md` (CS2 et Fortnite refaits depuis 3 kills, `app verite`) ; chiffres appris : `output/revue/assistant-chiffres/LOG.md`.
 
 ### app-cli (`dev.highlights.cli`)
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
