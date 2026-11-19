@@ -190,6 +190,8 @@ data class MontageOptions(
     val text: Boolean? = null,
     /** Compteur de kills à l'écran ([KillCounterMode]) ; null : réglage du profil (désactivé par défaut). */
     val killCounter: dev.highlights.core.model.KillCounterMode? = null,
+    /** Bandeau du score des rounds (`TextEffect.roundScore`) ; null : réglage du profil (désactivé par défaut). */
+    val roundScore: Boolean? = null,
     /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */
     val audioBalance: Double? = null,
     val gameAudio: GameAudio? = null,
@@ -1003,6 +1005,7 @@ class HighlightPipeline(
             notices = notices,
             reactions = planned.reactions,
             captionCache = config.workDir.resolve("cache").resolve("captions"),
+            roundScores = dev.highlights.montage.RoundScores.from(sessions),
         )
     }
 
@@ -1231,7 +1234,7 @@ class HighlightPipeline(
             killStyle = if (options.rounds == false) base.killStyle.copy(deathEvent = "") else base.killStyle,
             slowMotion = base.slowMotion.copy(enabled = options.slowMotion ?: base.slowMotion.enabled),
             speedRamp = base.speedRamp.copy(enabled = options.speedRamp ?: base.speedRamp.enabled),
-            text = base.text.copy(enabled = options.text ?: base.text.enabled, killCounter = options.killCounter ?: base.text.killCounter),
+            text = base.text.copy(enabled = options.text ?: base.text.enabled, killCounter = options.killCounter ?: base.text.killCounter, roundScore = options.roundScore ?: base.text.roundScore),
             showcase = base.showcase.copy(enabled = options.showcase ?: base.showcase.enabled),
             fastParts = base.fastParts.copy(enabled = options.fastParts ?: base.fastParts.enabled),
             reactions = options.reactions ?: base.reactions,

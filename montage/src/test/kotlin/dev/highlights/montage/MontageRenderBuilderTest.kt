@@ -452,6 +452,21 @@ class MontageRenderBuilderTest : FunSpec({
         numbers(dev.highlights.core.model.KillCounterMode.MONTAGE) shouldBe listOf("1", "2", "2", "3")
     }
 
+    test("bandeau de score : absent par défaut ; activé, le score du round de chaque plan, rien sans score lu") {
+        val on = plan(settings.copy(text = settings.text.copy(roundScore = true)))
+        fun e(at: Int, kind: String) = dev.highlights.core.model.TimelineEvent(at.seconds, kind, 1.0, "score")
+        // 4-6 au doublé (100 s), 5-6 au kill seul (500 s).
+        val events = List(4) { e(0, RoundScore.WON) } + List(6) { e(0, RoundScore.LOST) } + e(300, RoundScore.WON)
+        fun graph(p: MontagePlan, scores: RoundScores) = MontageRenderBuilder.build(
+            MontageRenderRequest(p, OutputFormat.VERTICAL, edit, EncoderProfile("h264_amf", listOf("-c:v", "h264_amf"), true), Path("out.mp4"), Path("f.txt"), roundScores = scores),
+        ).filterGraph
+        val scores = RoundScores(mapOf(media.path to events))
+        graph(plan(), scores) shouldNotContain "drawbox"
+        val g = graph(on, scores)
+        Regex("""text='ROUND (\d+)'""").findAll(g).map { it.groupValues[1] }.toList() shouldBe listOf("11", "12")
+        graph(on, RoundScores.NONE) shouldNotContain "drawbox"
+    }
+
     test("chaque plan coupé à son nombre d'images, posé sur la grille : la vidéo ne dérive pas du son") {
         val g = build(plan(), OutputFormat.SOURCE).filterGraph
         g shouldNotContain ",trim=duration"

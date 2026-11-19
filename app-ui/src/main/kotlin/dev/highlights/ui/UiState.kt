@@ -372,6 +372,10 @@ data class MontageUiState(
     val text: Boolean = true,
     /** Compteur de kills à l'écran : aucun, par plan ou cumulé (voir [dev.highlights.core.model.KillCounterMode]). */
     val killCounter: dev.highlights.core.model.KillCounterMode = dev.highlights.core.model.KillCounterMode.OFF,
+    /** Bandeau du score des rounds ([dev.highlights.core.model.TextEffect.roundScore]). */
+    val roundScore: Boolean = false,
+    /** Le profil lit le score des rounds (détecteur `round-score`) : sinon la case ne servirait à rien. */
+    val roundScoreKnown: Boolean = false,
     /** Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant). */
     val balance: Double = 0.0,
     val gameAudio: GameAudio = GameAudio.FULL,

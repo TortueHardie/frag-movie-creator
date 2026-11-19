@@ -330,7 +330,8 @@ Pistes, de la plus simple à la plus lourde :
 
 ## Habillage
 - [ ] Webcam en incrustation : seconde source synchronisée, disposition 9:16 webcam au-dessus du jeu.
-- [ ] Compteur de kills à l'écran (« 1… 2… 3… ACE ») et bandeau de score de round.
+- [x] Compteur de kills à l'écran (« 1… 2… 3… ACE ») et bandeau de score de round (`KillCounter`, `RoundScoreBanner`,
+  score lu dans le HUD par `round-score` ; mesuré en 854x480 seulement, `output/revue/bandeau-score/`).
 - [x] Intro/outro personnalisées (logo, pseudo, fond) définies dans le profil. `IntroOutroCards` (editing), section `intro:`
   d'app.yaml ou du profil, « Ouverture et fin » dans l'application, `--intro/--no-intro`. Montage : ouverture en temps
   entiers sur l'amorce de la musique, kills inchangés sur leurs temps.
