@@ -181,4 +181,62 @@ class CaptionsTest : FunSpec({
         Captions.drawLabel("DOUBLÉ", ms(0, 1000), CaptionSettings().font, 0.08, "yellow", 1080, 1920, 0.3, 200.milliseconds, safe) shouldContain
             "x='w*0.0500+(w*0.8100-text_w)/2'"
     }
+
+    /** Répliques de l'annonceur du profil VALORANT (story.captions.ignore). */
+    val gameLines = listOf("enemy", "enemies", "spotted", "spike", "attacker", "remaining", "remains", "ultimates")
+
+    test("son complet VALORANT : répliques du jeu écartées avec leurs morceaux, descriptions de sons aussi") {
+        // Sortie réelle de whisper sur « Valorant_game » (piste unique), clip autour de 4:30.
+        val raw = listOf(
+            Caption(ms(257281, 258281), "- Bravo!"),
+            Caption(ms(269281, 270381), "- Enemies spotted."),
+            Caption(ms(270381, 270791), "- Spike down,"),
+            Caption(ms(270791, 271281), "attacker spawned."),
+            Caption(ms(272281, 273821), "- Enemy A. - Ultimates"),
+            Caption(ms(273821, 274281), "ready."),
+            Caption(ms(274281, 275691), "- Unh! - One"),
+            Caption(ms(275691, 277261), "enemy remains."),
+            Caption(ms(277268, 279268), "*Bruit de feu*"),
+            Caption(ms(279268, 281268), "*Bruit de feu*"),
+        )
+        // « ready. » et « Unh! - One » ne contiennent aucune réplique, mais finissent une phrase qui en contient une.
+        Captions.clean(raw, emptyList(), gameLines).map { it.text } shouldContainExactly listOf("Bravo!")
+        // Sans liste de répliques (micro), seules les descriptions de sons sautent.
+        Captions.clean(raw, emptyList()).size shouldBe 8
+    }
+
+    test("texte sans lettre écarté : points de suspension, nombre seul") {
+        Captions.clean(listOf(Caption(ms(0, 2000), "..."), Caption(ms(3000, 4000), "501"), Caption(ms(5000, 6000), "63 la tête")), emptyList())
+            .map { it.text } shouldContainExactly listOf("63 la tête")
+    }
+
+    test("même texte redit en moins de 10 s : boucle de whisper, gardé une fois") {
+        val captions = listOf(
+            Caption(ms(0, 1000), "Enemies spotted."), Caption(ms(2000, 3000), "enemies spotted"), Caption(ms(15000, 16000), "Enemies spotted."),
+        )
+        Captions.withoutRepeats(captions).map { it.range.start } shouldContainExactly listOf(0.milliseconds, 15000.milliseconds)
+    }
+
+    test("son complet : un texte redit d'un moment à l'autre est une réplique du jeu") {
+        val captions = listOf(Caption(ms(0, 1000), "C'est parti !"), Caption(ms(5000, 6000), "Bravo"), Caption(ms(90000, 91000), "c'est parti"))
+        Captions.withoutRecurring(captions).map { it.text } shouldContainExactly listOf("Bravo")
+    }
+
+    test("segment étiré sur 14 s : ramené à la parole détectée au lieu d'être jeté") {
+        // Micro WARDOGS : « Essaye de ping » de 52:15,465 à 52:29,465, parole détectée de 52:27,634 à 52:31,628.
+        val speech = listOf(ms(3147634, 3151628))
+        val caption = Captions.clean(listOf(Caption(ms(3135465, 3149465), "Essaye de ping")), speech).single()
+        caption.range shouldBe ms(3147334, 3149465)
+        // Sans parole détectée, rien ne dit où est la voix : jeté.
+        Captions.clean(listOf(Caption(ms(3135465, 3149465), "Essaye de ping")), emptyList()).shouldBeEmpty()
+    }
+
+    test("pas affiché après la fin de la parole, sauf le temps de le lire") {
+        // Micro WARDOGS : « moi jean » donné par whisper jusqu'à 52:38,387, parole finie à 52:36,426.
+        val speech = listOf(ms(3154547, 3156426))
+        Captions.readable(listOf(Caption(ms(3155807, 3158387), "moi jean")), speech).single().range shouldBe ms(3155807, 3156676)
+        // Mot dit plus vite qu'il ne se lit : il garde son temps de lecture (0,4 s + 9 × 45 ms).
+        Captions.readable(listOf(Caption(ms(1000, 1100), "bâtiment."), Caption(ms(500, 900), "du")), listOf(ms(400, 1200)))
+            .last().range shouldBe ms(1000, 1805)
+    }
 })

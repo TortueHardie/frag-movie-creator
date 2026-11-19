@@ -334,9 +334,15 @@ meilleurs moments ne sont plus posés bout à bout : chacun est remonté comme l
   [`ggml-large-v3-turbo-q5_0.bin`](https://huggingface.co/ggerganov/whisper.cpp) (~574 Mo) dans `config/models/`
   (`story.captions.model`). Sans lui, le montage sort sans sous-titres.
   Une capture **sans piste micro séparée** (une seule piste « tout le son », comme les vidéos VALORANT téléchargées)
-  n'est pas sous-titrée : whisper y transcrivait l'annonceur du jeu (« REMAINING. - LES », « 1 ENNEMI »).
-  `story.captions.withoutMic: true` force la transcription du son complet (désactivé par défaut). Un sous-titre reste
-  affiché 3 s au plus (ou son temps de lecture) : whisper étirait parfois un mot sur 7 s de silence.
+  n'est sous-titrée que là où l'analyse a trouvé la voix du joueur : whisper y transcrit sinon l'annonceur et les
+  personnages du jeu (« Enemies spotted », « Spike down », « One enemy remains »). Sans détecteur qui isole cette voix
+  sur la piste unique, pas de sous-titres. `story.captions.withoutMic: true` force la transcription du son complet,
+  `false` l'interdit. Sur le son complet, les répliques du jeu (`story.captions.ignore`, liste du profil VALORANT) sont
+  écartées avec toute leur phrase, et un texte redit d'un moment à l'autre aussi.
+  Partout : les descriptions de sons (« \*Bruit de feu\* »), les textes sans lettre (« ... », « 501 ») et un même texte
+  redit en moins de 10 s (boucle de whisper) sautent. Un sous-titre ne reste pas affiché après la fin de la parole
+  détectée, sauf le temps de le lire, et 3 s au plus ; un segment de whisper étiré sur plus de 8 s est ramené à la
+  parole qu'il recouvre (« Essaye de ping » : 14 s → 2 s) au lieu d'être jeté.
 - Son adouci à chaque coupe, fondu au noir final, normalisation EBU R128.
 
 ```powershell

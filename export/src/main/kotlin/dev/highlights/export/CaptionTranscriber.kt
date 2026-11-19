@@ -72,18 +72,12 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         workDir: Path,
         cacheDir: Path?,
     ): List<Caption> {
-        val tracks = AudioTracks.of(media.audio, layout)
-        // Pas de piste de la voix du joueur : le son complet mêle l'annonceur et les voix du jeu, que whisper transcrit
-        // aussi. Pas de sous-titres, sauf si le profil le demande (withoutMic).
-        val own = tracks.indexOf(settings.role)
-        if (own == null && !settings.withoutMic) {
-            log.info { "Pas de piste ${settings.role} séparée dans ${media.path.name} : pas de sous-titres (story.captions.withoutMic pour transcrire le son complet)" }
-            return emptyList()
-        }
-        val audio = own ?: tracks.indexOf(AudioRole.MIX) ?: tracks.mixIndices().firstOrNull() ?: return emptyList()
+        val audio = trackFor(media, settings, layout, voice, range) ?: return emptyList()
         val segments = voice
         // L'analyse a cherché la voix et n'en a pas trouvé ici : rien à transcrire (et rien à inventer pour whisper).
         if (segments.isNotEmpty() && segments.none { it.isWithin(range) }) return emptyList()
+        // Sur le son complet passent aussi les répliques du jeu ; sur le micro, le joueur a le droit de dire « spike ».
+        val ignore = if (withoutMic(media, settings, layout)) settings.ignore else emptyList()
 
         val padded = TimeRange((range.start - context).coerceAtLeast(Duration.ZERO), (range.end + context).coerceAtMost(media.duration))
         val raw = try {
@@ -95,9 +89,34 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
             return emptyList()
         }
         // Une phrase criée (elle recouvre un cri détecté) s'affiche plus grosse, en couleur.
-        return Captions.readable(Captions.clean(Captions.parse(raw, padded.start), segments)).map { c ->
+        return Captions.readable(Captions.clean(Captions.parse(raw, padded.start), segments, ignore), segments).map { c ->
             if (shouts.any { it.isWithin(c.range) }) c.copy(loud = true) else c
         }
+    }
+
+    /** Vrai si la capture n'a pas de piste du rôle transcrit ([CaptionSettings.role]) : seul le son complet est là. */
+    fun withoutMic(media: MediaInfo, settings: CaptionSettings, layout: AudioLayout): Boolean =
+        AudioTracks.of(media.audio, layout).indexOf(settings.role) == null
+
+    /**
+     * Piste à transcrire pour l'extrait [range], ou null pour ne rien sous-titrer. La piste du joueur si elle existe.
+     * Sinon le son complet, selon [CaptionSettings.withoutMic] : jamais (false), toujours (true), ou, par défaut,
+     * seulement si l'analyse a trouvé la voix du joueur dans l'extrait ([voice]) : sur une capture à piste unique sans
+     * détecteur qui isole cette voix, whisper ne transcrirait que l'annonceur et les personnages du jeu.
+     */
+    private fun trackFor(media: MediaInfo, settings: CaptionSettings, layout: AudioLayout, voice: List<TimeRange>, range: TimeRange): Int? {
+        val tracks = AudioTracks.of(media.audio, layout)
+        tracks.indexOf(settings.role)?.let { return it }
+        val transcribe = when (settings.withoutMic) {
+            true -> true
+            false -> false
+            null -> voice.any { it.isWithin(range) }
+        }
+        if (!transcribe) {
+            log.info { "Pas de piste ${settings.role} séparée dans ${media.path.name} ni de voix du joueur détectée en $range : pas de sous-titres (story.captions.withoutMic: true pour transcrire le son complet)" }
+            return null
+        }
+        return tracks.indexOf(AudioRole.MIX) ?: tracks.mixIndices().firstOrNull()
     }
 
     private suspend fun rawTranscript(

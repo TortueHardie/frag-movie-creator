@@ -195,11 +195,20 @@ data class CaptionSettings(
     /** Piste transcrite : la voix du joueur (mic). */
     val role: AudioRole = AudioRole.MIC,
     /**
-     * Transcrire le son complet quand la capture n'a pas de piste micro séparée ([role] absent). Désactivé : whisper y
-     * transcrit l'annonceur et les voix du jeu (« REMAINING. - LES », « 1 ENNEMI » sur une partie VALORANT à piste
-     * unique). À n'activer que pour un jeu sans voix, où le son complet est surtout celui du joueur.
+     * Transcrire le son complet quand la capture n'a pas de piste micro séparée ([role] absent). Sur le son complet,
+     * whisper transcrit surtout l'annonceur et les voix du jeu : sur « Valorant- 44 kills » (piste unique), « Enemies
+     * spotted », « Spike down, attacker spawned », « One enemy remains », « *Bruit de feu* », et aucune phrase du joueur.
+     * - null (défaut, automatique) : seulement là où l'analyse a trouvé la voix du joueur (segments `speech`, `laughter`
+     *   ou `shout`, d'un détecteur qui l'isole) ; sans détecteur de ce genre sur une piste unique, pas de sous-titres ;
+     * - true : toujours (jeu sans voix, où le son complet est surtout celui du joueur) ;
+     * - false : jamais.
      */
-    val withoutMic: Boolean = false,
+    val withoutMic: Boolean? = null,
+    /**
+     * Répliques du jeu à ne jamais sous-titrer (fragments, comparés sans casse ni accents, mot entier) : annonceur et
+     * voix des personnages, que whisper transcrit dès qu'elles passent dans la piste transcrite.
+     */
+    val ignore: List<String> = emptyList(),
     /** Police des sous-titres et libellés, remplacée par un repli de Windows pour les caractères qu'elle n'a pas (`VideoFonts`). */
     val font: String = "C:/Windows/Fonts/impact.ttf",
     /** Taille du texte, en part de la hauteur de l'image. */

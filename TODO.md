@@ -277,8 +277,10 @@ Pistes, de la plus simple à la plus lourde :
 ## Nouveaux types de montage
 - [x] Clip unique « meilleur moment » : une vidéo 9:16 de 15 à 30 s par moment (accroche, sous-titres, punch-in).
   `app clip SESSION [--moment h003] [--platform tiktok]`, bouton « Clip 9:16 » sur le moment sélectionné.
-  - [ ] Capture sans piste micro séparée (VALORANT 480p) : whisper transcrit la voix du jeu, un même sous-titre reste
-    20 s à l'écran. Sous-titres à couper quand la piste n'est pas celle du micro ?
+  - [x] Capture sans piste micro séparée (VALORANT 480p) : whisper transcrivait la voix du jeu, un même sous-titre
+    restait 20 s à l'écran. Piste unique : sous-titres seulement là où la voix du joueur est détectée (`withoutMic`
+    automatique) ; répliques du jeu (`captions.ignore`), répétitions et descriptions de sons écartées ; fin bornée par
+    la parole. Preuves : `output/revue/sous-titres-sans-micro/`.
 - [x] Récap de soirée : plusieurs captures, intercalaire par partie (« Partie 3 – 14 kills ») : `app recap`, bouton « Récap de la soirée » des statistiques.
 - [x] Montage « fails / morts » : morts du killfeed/Outplayed, ralenti sur la mort, image figée, texte (`--fails`).
 - [x] Morts pendant l'ultime de Phoenix (cercle de « Run it Back » dans le killfeed) : écartées partout (montage des

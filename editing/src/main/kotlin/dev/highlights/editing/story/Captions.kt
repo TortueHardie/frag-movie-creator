@@ -77,31 +77,101 @@ object Captions {
         if (text.isEmpty() || end < start) null else Caption(TimeRange(offset + start.milliseconds, offset + end.milliseconds), text)
     }
 
+    /** Fin de parole tolérée après la prise de parole détectée : la détection coupe parfois la dernière syllabe. */
+    private val SPEECH_TAIL = 250.milliseconds
+
     /**
-     * Garde ce qui a vraiment été dit : pas d'hallucination connue, pas de texte étiré sur plusieurs secondes, et, si
-     * l'analyse a détecté des prises de parole ([speech] non vide), un recouvrement avec l'une d'elles. Les bornes
-     * sont resserrées sur la parole détectée.
+     * Même texte redit dans cet intervalle : une boucle de whisper (« Sous-titrage ST' », « 501 », trois fois de suite
+     * sur 1 min de micro WARDOGS) ou une réplique du jeu répétée (« Enemies spotted » deux fois en 3 s, VALORANT).
      */
-    fun clean(captions: List<Caption>, speech: List<TimeRange>): List<Caption> = captions.mapNotNull { c ->
-        val text = c.text.removePrefix("-").trim()
-        val lower = text.lowercase(Locale.ROOT)
-        if (text.isEmpty() || HALLUCINATIONS.any { it in lower } || c.range.length > MAX_LENGTH) return@mapNotNull null
-        if (text.none { it.isLetterOrDigit() }) return@mapNotNull null
-        if (speech.isEmpty()) return@mapNotNull c.copy(text = text)
+    private val REPEAT_WINDOW = 10.seconds
+
+    /** Descriptions de sons que whisper écrit entre astérisques, crochets ou parenthèses (« *Bruit de feu* », « [Musique] »). */
+    private val SOUND_TAG = Regex("""\*[^*]*\*|\[[^\]]*]|\([^)]*\)|♪""")
+
+    /**
+     * Garde ce qui a vraiment été dit : pas d'hallucination connue, pas de description de son, pas de réplique du jeu
+     * ([ignore], comparée mot à mot sans casse ni accents), pas de texte sans lettre (« ... », « 501 »), pas de
+     * répétition rapprochée du même texte, et, si l'analyse a détecté des prises de parole ([speech] non vide), un
+     * recouvrement avec l'une d'elles. Les bornes sont resserrées sur la parole détectée : un sous-titre commence avec
+     * elle et ne dure pas plus qu'elle.
+     *
+     * Un segment étiré sur plus de [MAX_LENGTH] est une hallucination quand rien ne dit où est la voix ; avec la
+     * parole détectée, il est ramené à la dernière prise de parole qu'il recouvre (whisper fait commencer le segment
+     * dans le silence qui précède) : « Essaye de ping » durait 14 s sur le micro WARDOGS, pour 1,5 s de parole.
+     */
+    fun clean(captions: List<Caption>, speech: List<TimeRange>, ignore: List<String> = emptyList()): List<Caption> {
         val around = speech.map { TimeRange((it.start - SPEECH_SLACK).coerceAtLeast(Duration.ZERO), it.end + SPEECH_SLACK) }
-        // whisper rend souvent des segments de durée nulle : le recouvrement se mesure alors sur un minimum de durée à
-        // partir de leur début, sans quoi un segment vide ne recouvrirait jamais rien (ou passerait sans rien recouvrir).
-        val probe = TimeRange(c.range.start, maxOf(c.range.end, c.range.start + MIN_OVERLAP))
-        val overlaps = around.mapNotNull { s ->
-            val from = maxOf(s.start, probe.start)
-            val to = minOf(s.end, probe.end)
-            if (to > from) TimeRange(from, to) else null
+        val sorted = captions.sortedBy { it.range.start }
+        val ignored = gameLines(sorted, ignore)
+        val kept = sorted.mapIndexedNotNull { i, c ->
+            val text = c.text.replace(SOUND_TAG, " ").trim().removePrefix("-").trim().replace(Regex("\\s+"), " ")
+            val lower = text.lowercase(Locale.ROOT)
+            if (text.none { it.isLetter() } || HALLUCINATIONS.any { it in lower } || i in ignored) return@mapIndexedNotNull null
+            if (around.isEmpty()) return@mapIndexedNotNull if (c.range.length > MAX_LENGTH) null else c.copy(text = text)
+            // whisper rend souvent des segments de durée nulle : le recouvrement se mesure alors sur un minimum de durée
+            // à partir de leur début, sans quoi un segment vide ne recouvrirait jamais rien.
+            val probe = TimeRange(c.range.start, maxOf(c.range.end, c.range.start + MIN_OVERLAP))
+            var overlaps = around.mapNotNull { s -> overlap(s, probe)?.let { s to it } }
+            if (c.range.length > MAX_LENGTH) overlaps = overlaps.takeLast(1)
+            val total = overlaps.fold(Duration.ZERO) { acc, (_, r) -> acc + r.length }
+            if (overlaps.isEmpty() || total < minOf(MIN_OVERLAP, probe.length * 0.4)) return@mapIndexedNotNull null
+            // whisper fait souvent commencer un segment dès la fin du précédent : on le cale sur le début de la parole,
+            // et il s'arrête avec elle.
+            val start = maxOf(c.range.start, overlaps.first().second.start - LEAD)
+            val end = minOf(maxOf(start, c.range.end), overlaps.last().first.end - SPEECH_SLACK + SPEECH_TAIL)
+            if (end - start > MAX_LENGTH) return@mapIndexedNotNull null
+            Caption(TimeRange(start, maxOf(start, end)), text)
         }
-        val total = overlaps.fold(Duration.ZERO) { acc, r -> acc + r.length }
-        if (overlaps.isEmpty() || total < minOf(MIN_OVERLAP, probe.length * 0.4)) return@mapNotNull null
-        // whisper fait souvent commencer un segment dès la fin du précédent : on le cale sur le début de la parole.
-        val start = maxOf(c.range.start, overlaps.first().start - LEAD)
-        Caption(TimeRange(start, maxOf(start, c.range.end)), text)
+        return withoutRepeats(kept)
+    }
+
+    /**
+     * Index des segments qui appartiennent à une réplique du jeu ([ignore]). whisper coupe une phrase en morceaux de
+     * [CaptionSettings.maxChars] caractères : « Enemies spotted à » puis « l'endroit. », « - Unh! - One » puis « enemy
+     * remains. ». Les morceaux qui se suivent sans ponctuation finale ni pause forment une phrase, écartée en entier
+     * dès qu'un de ses morceaux est une réplique : sinon « l'endroit. » ou « ready. » restaient seuls à l'écran.
+     */
+    private fun gameLines(sorted: List<Caption>, ignore: List<String>): Set<Int> {
+        if (ignore.isEmpty()) return emptySet()
+        val sentences = mutableListOf(mutableListOf<Int>())
+        sorted.forEachIndexed { i, c ->
+            val previous = sorted.getOrNull(i - 1)
+            val ended = previous == null || previous.text.trim().lastOrNull() in SENTENCE_END || c.range.start - previous.range.end > SENTENCE_GAP
+            if (ended && sentences.last().isNotEmpty()) sentences += mutableListOf<Int>()
+            sentences.last() += i
+        }
+        return sentences.filter { indices -> indices.any { emphasized(sorted[it].text.split(' '), ignore).any { m -> m } } }.flatten().toSet()
+    }
+
+    private val SENTENCE_END = setOf('.', '!', '?', '…')
+
+    /** Pause au-delà de laquelle deux segments de whisper ne sont plus la même phrase. */
+    private val SENTENCE_GAP = 300.milliseconds
+
+    /** Écarte un sous-titre qui redit le texte d'un sous-titre gardé moins de [REPEAT_WINDOW] avant lui. */
+    internal fun withoutRepeats(captions: List<Caption>): List<Caption> {
+        val last = mutableMapOf<String, Duration>()
+        return captions.filter { c ->
+            val key = normalizeText(c.text)
+            val seen = last[key]
+            if (seen != null && c.range.start - seen < REPEAT_WINDOW) return@filter false
+            last[key] = c.range.end
+            true
+        }
+    }
+
+    /**
+     * Écarte les textes dits à plusieurs endroits de l'export (plus de [REPEAT_WINDOW] d'écart) : sur le son complet,
+     * ce sont les répliques du jeu (« Enemies spotted » à chaque round), pas le joueur. À n'appliquer qu'à une
+     * transcription du son complet : sur le micro, le joueur a le droit de redire « ouais ».
+     */
+    fun withoutRecurring(captions: List<Caption>): List<Caption> {
+        val places = captions.groupBy { normalizeText(it.text) }
+        return captions.filter { c ->
+            val same = places.getValue(normalizeText(c.text))
+            same.none { it !== c && (it.range.start - c.range.start).absoluteValue >= REPEAT_WINDOW }
+        }
     }
 
     /**
@@ -110,17 +180,36 @@ object Captions {
      * chacun commence au plus tôt quand le précédent a fini, et dure au moins [MIN_READ] plus un temps par caractère
      * (à peu près le temps de prononcer la phrase, si bien que le décalage ne s'accumule pas), et au plus
      * [MAX_SHOWN] (ou son temps de lecture, s'il est plus long).
+     *
+     * Avec la parole détectée ([speech]), un sous-titre ne reste pas affiché après elle : il s'efface [SPEECH_TAIL]
+     * après la fin de la dernière prise de parole qu'il recouvre, sauf s'il lui faut plus pour être lu (phrase dite
+     * plus vite qu'elle ne se lit : « bâtiment. » 0,4 s après la fin de la phrase, micro WARDOGS). Borner à la parole
+     * sans ce plancher laissait 0,4 s aux derniers morceaux d'une phrase rapide ; les poser chacun à son instant, 0,6 s
+     * pour lire « de ce côté-là du ».
      */
-    fun readable(captions: List<Caption>): List<Caption> {
+    fun readable(captions: List<Caption>, speech: List<TimeRange> = emptyList()): List<Caption> {
         var cursor = Duration.ZERO
         return captions.sortedBy { it.range.start }.map { c ->
             val start = maxOf(c.range.start, cursor)
             val read = MIN_READ + PER_CHAR * c.text.length
-            val end = minOf(maxOf(c.range.end, start + read), start + maxOf(MAX_SHOWN, read))
+            var end = minOf(maxOf(c.range.end, start + read), start + maxOf(MAX_SHOWN, read))
+            val probe = TimeRange(c.range.start - SPEECH_SLACK, maxOf(c.range.end, c.range.start + MIN_OVERLAP) + SPEECH_SLACK)
+            speech.filter { it.isWithin(probe) }.maxOfOrNull { it.end }?.let { spoken ->
+                end = minOf(end, maxOf(spoken + SPEECH_TAIL, start + read))
+            }
             cursor = end
             c.copy(range = TimeRange(start, end))
         }
     }
+
+    private fun overlap(a: TimeRange, b: TimeRange): TimeRange? {
+        val from = maxOf(a.start, b.start)
+        val to = minOf(a.end, b.end)
+        return if (to > from) TimeRange(from, to) else null
+    }
+
+    /** Texte comparable : mots sans casse, accents ni ponctuation. */
+    internal fun normalizeText(text: String): String = text.split(' ').map(::normalize).filter { it.isNotEmpty() }.joinToString(" ")
 
     /** Sous-titres visibles dans le plan [range], relatifs à son début. */
     fun inShot(captions: List<Caption>, range: TimeRange): List<Caption> = captions.mapNotNull { c ->
