@@ -18,10 +18,12 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
 - **Profils par jeu** (`config/profiles/`) : LoL, VALORANT, Counter-Strike 2, Wardogs, Fortnite, Apex Legends, et un profil par défaut.
   - **Fortnite** (`fortnite.yaml`, fichiers dont le chemin contient « Fortnite ») : les éliminations du joueur sont lues
     sur son compteur en haut à droite (détecteur `hud-counter` : chiffres comparés à `config/templates/fortnite/digit_*.png`,
-    deux images par seconde, puis suite croissante la plus probable, remise à zéro à chaque partie). Les mises à terre
-    (« KNOCKED! ») sont relevées à part (`knock`) et ne font un plan du montage que si `montage.anchorEvents: [knock]`.
-    Réglé et vérifié sur une seule vidéo YouTube 854x480 de trois parties en escouade : 31 éliminations sur 31
-    (`verite/fortnite/`), aucune en trop. Non vérifié : captures 1080p, HUD déplacé dans les options du jeu, parties
+    deux images par seconde, puis suite croissante la plus probable, remise à zéro à chaque partie : `elimination`).
+    **Mettre à terre, c'est le kill** : le `kill` du montage est la notification « KNOCKED! » que l'élimination achève
+    (rattachement sur 30 s, `params.knocks`), sans second plan quand l'adversaire est achevé ; une élimination sans
+    mise à terre reste un kill à son instant, une équipe éliminée d'un coup reste un multi-kill (« QUADRUPLÉ »), une
+    mise à terre jamais créditée au joueur reste un kill. Réglé et vérifié sur une seule vidéo YouTube 854x480 de trois
+    parties en escouade : 31 éliminations sur 31 et 33 kills sur 33 (`verite/fortnite/`), aucun en trop. Non vérifié : captures 1080p, HUD déplacé dans les options du jeu, parties
     où le joueur meurt et regarde un coéquipier (son compteur s'affiche alors à la place).
 - **Mémoire des analyses** : une capture déjà analysée n'est pas réanalysée. La rechoisir (application ou ligne de
   commande) reprend son analyse instantanément, moments décochés compris ; seule la sélection (seuil, cible) est
