@@ -791,6 +791,41 @@ pas d'Outplayed (OBS…), le signal est simplement absent.
   mesuré sur une partie complète : l'instant tombe alors sur l'image où le kill apparaît dans le killfeed).
 - Sur une partie VALORANT de 50 min : 22 kills, 22 morts, 8 assistances, exactement le tableau de fin.
 
+## Ajouter un jeu : l'assistant « nouveau jeu »
+
+Pour un jeu sans profil, l'assistant écrit `config/profiles/<jeu>.yaml` à partir d'une vidéo et de 1 à 3 kills
+marqués. Dans l'application : « Nouveau jeu… » dans la liste des analyses. En ligne de commande :
+
+```powershell
+& $app nouveau-jeu "D:\Vidéo\partie.mp4" --game "Counter-Strike 2" --mark "3:48.5@0.903,0.063,0.095,0.042" --mark "4:57.5@0.875,0.096,0.125,0.042"
+```
+
+1. Pour chaque kill marqué : l'instant où le repère apparaît, et un cadre autour de ce repère (notification, ligne du
+   killfeed, compteur). Dans l'application, on affiche l'image et on trace le cadre à la souris ; en ligne de commande,
+   `@x,y,largeur,hauteur` en fractions de l'image (ou `--box` pour tous).
+2. L'assistant construit un détecteur par méthode et les fait tourner ensemble sur toute la vidéo (un seul décodage) :
+   - **image du repère** (`hud-template`) : le cadre découpé sur le kill marqué où il change le plus ; seuil choisi
+     d'après les scores des kills marqués ;
+   - **ligne de couleur** (`killfeed`, mode `outline`) : la teinte qui apparaît dans le cadre au kill et la hauteur de
+     la ligne, mesurée sur ses traits, fixent couleur et tailles ;
+   - **compteur** (`hud-change`, nouveau) : chaque nouvelle valeur stable du compteur est un kill, sans lire les chiffres
+     (seule la colonne des unités est comparée, le fond d'un HUD transparent change sans cesse) ;
+   - **texte** (`ocr-log`) : le mot lu par l'OCR de Windows sur les kills marqués et jamais ailleurs.
+3. Une planche par méthode (12 détections) : on décoche celles qui ne sont pas des kills. La méthode retenue garde le
+   plus de vrais kills moins de faux, et doit retrouver au moins un kill marqué. Le profil est écrit (son, le
+   détecteur choisi, puis sélection et montage du profil par défaut), jamais par-dessus un profil existant.
+
+Mesuré (18-19/11, `app verite`, CS2 et Fortnite refaits depuis 3 kills chacun) :
+
+| Jeu | Méthode retenue | Profil de l'assistant | Profil fait main |
+|---|---|---|---|
+| CS2 (33 kills, 14 morts) | ligne de couleur | 32 kills (8 faux), 14 morts (1 fausse) | 32 kills (10 faux), 13 morts |
+| Fortnite (31 kills) | compteur | 23 kills (19 faux) | 31 kills (0 faux) |
+
+Fortnite échoue face au profil fait main : celui-ci lit les chiffres (modèles découpés à la main, décodage d'une suite
+qui ne fait que monter) ; l'assistant ne fait que comparer des images de 6x6 px sur un fond qui bouge, et une équipe
+entière éliminée d'un coup (0 → 4) ne compte qu'un kill. Apprendre les chiffres reste à faire (TODO).
+
 ## Killfeed (sans Outplayed)
 
 Une capture VALORANT enregistrée par OBS, ShadowPlay ou autre n'a pas d'événements Outplayed : le détecteur `killfeed`

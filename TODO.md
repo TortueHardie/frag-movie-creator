@@ -239,7 +239,11 @@ Pistes, de la plus simple à la plus lourde :
     `hud-counter` (compteur d'éliminations), mises à terre `knock` ; 31/31 sur `verite/fortnite/` (le « 81 » du titre
     compte l'escouade). Reste : capture 1080p, joueur mort qui regarde un coéquipier, décider si les mises à terre
     font des plans (`montage.anchorEvents: [knock]`).
-- [ ] Assistant « nouveau jeu » : marquer un kill dans une vidéo → modèle du HUD découpé, profil proposé et testé.
+- [x] Assistant « nouveau jeu » : marquer un kill dans une vidéo → modèle du HUD découpé, profil proposé et testé
+  (`app nouveau-jeu`, bouton « Nouveau jeu… » de l'application ; module `assistant`). Mesuré : CS2 refait aussi bien
+  que le profil fait main (32/33), Fortnite non (23/31 contre 31/31 : le compteur est comparé, pas lu).
+  - [ ] Compteur : apprendre les chiffres (modèles `hud-counter`) au lieu de comparer des images.
+  - [ ] Assistances CS2 : les distinguer des kills.
 - [ ] Aperçus quasi instantanés : copies basse définition des parties, faites une fois.
 - [ ] Ressenti par musique : 👍/👎 sur le rythme rapide après chaque montage, mémorisé, puis mesure apprise.
 

@@ -163,6 +163,19 @@ interface UiActions {
 
     /** Statistiques des parties analysées, par soirée. */
     fun showStats()
+
+    // Assistant « nouveau jeu » (NewGameView) : défauts vides pour les faux contrôleurs des tests.
+    fun showNewGame() {}
+    fun closeNewGame() {}
+    fun chooseNewGameVideo() {}
+    fun updateNewGame(game: String? = null, time: String? = null) {}
+    fun showNewGameFrame() {}
+    fun setNewGameBox(x: Double, y: Double, width: Double, height: Double) {}
+    fun addNewGameMark() {}
+    fun removeNewGameMark(index: Int) {}
+    fun scanNewGame() {}
+    fun toggleNewGameVerdict(method: String, index: Int) {}
+    fun createNewGameProfile() {}
     fun closeStats()
     fun setStatsGame(game: String)
     /** Réanalyse les parties analysées avec d'anciens réglages de détection, puis rouvre les statistiques. */
@@ -1222,6 +1235,24 @@ class AppController(
     }
 
     override fun closeStats() = _state.update { it.copy(stats = null) }
+
+    // ---------------------------------------------------------------- nouveau jeu
+
+    private val newGame by lazy {
+        NewGameController(_state, scope, platform, { backend?.configFile }, { title, block -> runTask(title, block = block) }, ::reportFailure)
+    }
+
+    override fun showNewGame() = newGame.show()
+    override fun closeNewGame() = newGame.close()
+    override fun chooseNewGameVideo() = newGame.chooseVideo()
+    override fun updateNewGame(game: String?, time: String?) = newGame.update(game, time)
+    override fun showNewGameFrame() = newGame.showFrame()
+    override fun setNewGameBox(x: Double, y: Double, width: Double, height: Double) = newGame.setBox(x, y, width, height)
+    override fun addNewGameMark() = newGame.addMark()
+    override fun removeNewGameMark(index: Int) = newGame.removeMark(index)
+    override fun scanNewGame() = newGame.scan()
+    override fun toggleNewGameVerdict(method: String, index: Int) = newGame.toggleVerdict(method, index)
+    override fun createNewGameProfile() = newGame.create()
 
     override fun setStatsGame(game: String) = _state.update { s -> s.copy(stats = s.stats?.copy(game = game)) }
 

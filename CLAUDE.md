@@ -32,7 +32,7 @@ incrustés) passe par les bundles `core/src/main/resources/i18n/messages*.proper
 core  ← ffmpeg, analysis, analysis-vision, analysis-ml, scoring, editing
 editing ← export (api core+editing), montage (api core+editing+export)
 publish (api core) : YouTube (OAuth bureau + envoi reprenable + textes), sans dépendance au montage
-pipeline (api core, ffmpeg, scoring, editing, export, montage, publish) ← app-cli, app-ui
+pipeline (api core, ffmpeg, scoring, editing, export, montage, publish) ← assistant (+ analysis-vision en compilation) ← app-cli, app-ui
 analysis / analysis-vision / analysis-ml : runtimeOnly dans app-cli, app-ui, tests pipeline (ServiceLoader, pas de dépendance de compilation)
 ```
 Plugins de convention : `highlights.kotlin-library` (kotlin jvm + serialization, toolchain 21, kotest), `highlights.kotlin-app`,
@@ -175,6 +175,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `TemplateMatcher.kt` : `GrayImage`, `PreparedTemplate`, `TemplateMatcher.match` (NCC), `BrightTemplate/BrightMatcher`.
 - `WindowsOcr.kt` : lance `resources/.../windows-ocr.ps1` (Windows.Media.Ocr) par lots ; `WindowsOcr.supported`.
 - `AmmoCounterDetector.kt` — type **`ammo-counter`** : compteur de munitions du HUD relu à 60 img/s autour de chaque kill (`ctx.events`, `dependsOn`) via `frames.extractRange` → events `hud-shot` ; `changes` (paliers : affichage stable `minPlateau` qui change, palier sans blanc `minDigits` = compteur absent, ignoré), `refills` (recharge animée du Combat à mort, zone `TEAL`, ignorée), `windows`.
+- `HudChangeDetector.kt` — type **`hud-change`** (assistant nouveau jeu) : compteur du HUD comparé sans lire ses chiffres ; `ChangeTracker` (nouvelle image stable jamais vue depuis le zéro = kill, revoir le zéro = nouvelle partie), `UnitsFinder` (colonne des unités : bloc clair qui varie, le plus à droite).
 - `HudCounterDetector.kt` — type **`hud-counter`** : nombre du HUD (éliminations Fortnite) lu par modèles de chiffres (`digit_0..9.png`, chiffre + 1 px de marge, largeur variable)
   calé à droite (`CounterReader` : unités sur les `slack` dernières colonnes, dizaines juste à gauche), puis `CounterDecoder` (Viterbi : reste, +1..`maxStep`, remise à 0 = nouvelle partie)
   → un événement `kind` par unité gagnée. Réglé sur une vidéo 480p (31/31). Utilisé par fortnite.yaml (`game-events`).
@@ -342,9 +343,18 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `Redactor(homes, userNames)` : dossier personnel (toutes écritures : `\`, `/`, `\\` du JSON, casse ignorée) → `~`, tout autre `X:\Users\<nom>` → `~`, jetons/secrets/e-mails masqués, puis nom d'utilisateur → `<user>` ; `forThisMachine()`.
 - `SystemInfo.kt` : `windowsVersion` (build via `ver`), `graphics` (CIM, délai 15 s), `totalMemory/availableMemory`, `describe` (system.txt), `appState`, `diagnostics(pipeline)` ; `HighlightPipeline.diagnostics()`.
 
+### assistant (`dev.highlights.assistant`) — assistant « nouveau jeu »
+- `NewGameAssistant` : `scan(request, workDir, progress)` (candidats `template`/`colorLine`/`counter`/`ocr` construits sur les kills marqués, tous
+  dans un profil d'essai `assistant-essai` d'une config copiée, une seule analyse ; `Hit`, `CandidateResult(sample, sheet)`), `choose(scan, verdicts)`
+  (précision des vignettes jugées, max vrais − faux, au moins un kill marqué retrouvé), `write` (jamais par-dessus un profil ou un modèle), `profile`
+  (en-tête + son + détecteur `game-events`/`killfeed` + fin de `default.yaml`), `preview`. `KillMark(at, box)`, `NewGameRequest`, `CueMethod`.
+- `Candidates.kt` : `Candidate` (bloc YAML + fichiers), `LineColor.find/expression` (teinte r−g, g−b apparue au kill), `measureLine` (hauteur de ligne → tailles `outline`).
+- `Frames.kt` (`FrameGrabber.at`, `RgbFrame`, `PixelBox`), `ContactSheet.write` (planche numérotée par méthode).
+- Mesure : `output/revue/assistant-nouveau-jeu/LOG.md` (CS2 et Fortnite refaits depuis 3 kills, `app verite`).
+
 ### app-cli (`dev.highlights.cli`)
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
-- `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `ClipCommand.kt` : `clip SESSION [--moment --platform -o]` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
+- `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `ClipCommand.kt` : `clip SESSION [--moment --platform -o]` ; `NewGameCommand.kt` : `nouveau-jeu VIDEO --game --mark t[@x,y,l,h] [--box --id --answers-from --work]` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
   `--variants N --pick N --variants-file` (aperçus puis choix), `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --whoosh-dir --showcase --colors --no-motion-blur --fast --onetaps --plan --exclude --force --drop --pin --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --kill-counter --balance --reactions --game-audio --style --out`.
   `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `TasteCommand.kt` : `gouts [--reset --history]`. `EveningCommand.kt` : `soiree [--date --game --music --list -f --platform --style -o]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;
@@ -370,6 +380,9 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   la fenêtre s'ouvre dès le premier aperçu prêt (`total`/`pending`, `variantsFile` null tant que tous ne sont pas faits).
 - Recherche : `SearchView.kt` (`SearchState` : moments chargés une fois, filtres, `unpicked`, `results/picked` ; `SearchPeriod`), actions `showSearch/closeSearch/updateSearch/toggleMoment/montageFromSearch`
   (ouvre les parties via `openSessions(files, then)` puis `openMontage` avec `MontageUiState.pick`).
+- Nouveau jeu : `NewGameView.kt` (`NewGameState`, `NewGameMarkUi`, `NewGameResultUi` ; cadre tracé à la souris sur l'image), `NewGameController.kt` (logique, dernier balayage gardé),
+  actions `showNewGame/closeNewGame/chooseNewGameVideo/updateNewGame/showNewGameFrame/setNewGameBox/addNewGameMark/removeNewGameMark/scanNewGame/toggleNewGameVerdict/createNewGameProfile`
+  (défauts vides dans `UiActions`), `UiState.newGame`, bouton dans `LibraryView`.
 - Statistiques : `StatsView.kt` (`StatsState` : games, jeu choisi, `evenings/gameNames/shown`), actions `showStats/closeStats/setStatsGame`, `UiState.stats` (remplace la liste des analyses).
 - Vues : `App.kt` (layout, drop de fichiers), `SidePanel.kt` (`AppHeader, SourceSection, SettingsSection`), `SessionViews.kt` (`JobCard, SessionHeader, TimelineCard, SegmentList, ExportBar`),
   `LibraryView.kt` (analyses enregistrées + `WatchCard` + `ForgetDialog`, actions `askForget/confirmForget/cancelForget`, `UiState.forget`),

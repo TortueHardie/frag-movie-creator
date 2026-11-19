@@ -54,6 +54,8 @@ data class UiState(
     val lastMusic: Path? = null,
     /** Vue des statistiques, à la place des analyses enregistrées (null = fermée). */
     val stats: StatsState? = null,
+    /** Écran « Nouveau jeu » ouvert (remplace la liste des analyses). */
+    val newGame: NewGameState? = null,
     /** Vue de recherche de moments, à la place des analyses enregistrées (null = fermée). */
     val search: SearchState? = null,
     /** Analyses déjà faites, la plus récente d'abord. */

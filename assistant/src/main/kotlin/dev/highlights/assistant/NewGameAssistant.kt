@@ -4,6 +4,7 @@ import dev.highlights.core.InputException
 import dev.highlights.core.config.LoadedConfig
 import dev.highlights.ffmpeg.ProcessFfmpegService
 import dev.highlights.core.i18n.Message
+import dev.highlights.core.i18n.tr
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.progress.ProgressReporter
 import dev.highlights.pipeline.AnalyzeOptions
@@ -59,7 +60,7 @@ data class CandidateResult(
 }
 
 /** Balayage : un résultat par méthode essayée, et les méthodes écartées avant (raison en clair). */
-data class NewGameScan(val request: NewGameRequest, val media: MediaInfo, val results: List<CandidateResult>, val skipped: Map<CueMethod, String>)
+data class NewGameScan(val request: NewGameRequest, val media: MediaInfo, val results: List<CandidateResult>, val skipped: Map<CueMethod, Message>)
 
 /** Choix fait par l'assistant, d'après les vignettes confirmées. */
 data class Choice(val result: CandidateResult, val precision: Double, val estimatedKills: Double)
@@ -73,16 +74,25 @@ data class Choice(val result: CandidateResult, val precision: Double, val estima
  */
 class NewGameAssistant(private val config: LoadedConfig, private val ffmpeg: ProcessFfmpegService) {
 
+    /** Image de la capture à [at], en PNG dans [out] : l'écran où l'utilisateur trace le cadre du repère. */
+    suspend fun preview(video: Path, at: Duration, out: Path): Path {
+        val stream = ffmpeg.probe(video).video ?: throw InputException(Message("error.newgame.noVideo", "file" to video))
+        val frame = FrameGrabber(ffmpeg, video, stream.width, stream.height).at(at)
+        out.parent?.createDirectories()
+        ImageIO.write(frame.toImage(), "png", out.toFile())
+        return out
+    }
+
     /** Fait tourner toutes les méthodes applicables ; [workDir] reçoit la configuration d'essai et les planches. */
     suspend fun scan(request: NewGameRequest, workDir: Path, progress: ProgressReporter): NewGameScan {
         val media = ffmpeg.probe(request.video)
         val video = media.video ?: throw InputException(Message("error.newgame.noVideo", "file" to request.video))
         val frames = FrameGrabber(ffmpeg, request.video, video.width, video.height)
-        val prepare = progress.child("prepare", 0.1)
+        val prepare = progress.child(tr("progress.newgame.prepare"), 0.1)
         // Pour chaque kill : l'image où le repère est affiché (0,6 s après son apparition) et une image d'avant.
         val pairs = request.marks.map { m -> frames.at(m.at - 2.seconds) to frames.at(m.at + CUE_DELAY) }
         val boxes = request.marks.map { m -> pairs[0].second.pixelsOf(m.box) }
-        val skipped = linkedMapOf<CueMethod, String>()
+        val skipped = linkedMapOf<CueMethod, Message>()
         val candidates = mutableListOf<Candidate>()
         val id = request.profileId
         template(id, pairs, boxes, video.width, video.height)?.let { candidates += it }
@@ -102,10 +112,10 @@ class NewGameAssistant(private val config: LoadedConfig, private val ffmpeg: Pro
             null,
         )
         val outcome = Pipelines.create(trialConfig, ffmpeg)
-            .analyze(request.video, AnalyzeOptions(profileId = TRIAL_ID, outputDir = trial.resolve("sortie"), reuse = false), progress.child("scan", 0.75))
+            .analyze(request.video, AnalyzeOptions(profileId = TRIAL_ID, outputDir = trial.resolve("sortie"), reuse = false), progress.child(tr("progress.newgame.scan"), 0.75))
         val events = outcome.session.timeline.events
 
-        val sheets = progress.child("sheets", 0.15)
+        val sheets = progress.child(tr("progress.newgame.sheets"), 0.15)
         val results = candidates.mapIndexed { i, c ->
             var hits = events.filter { it.detectorId == c.detectorId }.map { Hit(it.at, it.kind, it.confidence) }
             // Modèle d'image : seuil fixé d'après les kills marqués (un peu sous le plus faible), jamais sous 0,6.
@@ -251,12 +261,12 @@ class NewGameAssistant(private val config: LoadedConfig, private val ffmpeg: Pro
     }
 
     /** Ligne de couleur : la teinte qui apparaît au kill, et la hauteur de la ligne mesurée sur ses traits. */
-    private fun colorLine(pairs: List<Pair<RgbFrame, RgbFrame>>, boxes: List<PixelBox>, w: Int, h: Int): Pair<Candidate?, String> {
+    private fun colorLine(pairs: List<Pair<RgbFrame, RgbFrame>>, boxes: List<PixelBox>, w: Int, h: Int): Pair<Candidate?, Message> {
         val grown = boxes.map { it.grow(it.width / 10, it.height / 3, w, h) }
         var k = 0
-        val color = LineColor.find(pairs) { grown[k++ % grown.size] } ?: return null to "aucune couleur nouvelle dans le cadre"
+        val color = LineColor.find(pairs) { grown[k++ % grown.size] } ?: return null to Message("notice.newgame.noColor")
         val lines = pairs.indices.mapNotNull { measureLine(pairs[it].second, grown[it], color) }
-        if (lines.isEmpty()) return null to "pas de ligne de couleur mesurable dans le cadre"
+        if (lines.isEmpty()) return null to Message("notice.newgame.noLine")
         val height = lines.map { it.height }.sorted()[lines.size / 2]
         val right = lines.maxOf { it.right }
         val top = lines.minOf { it.top }
@@ -295,7 +305,7 @@ class NewGameAssistant(private val config: LoadedConfig, private val ffmpeg: Pro
             |        newLineGrowth: ${px(45.0)}
             |""".trimMargin()
         val detail = "(teinte ${color.c1.roundToInt()}/${color.c2.roundToInt()}, ligne de $height px)"
-        return Candidate(CueMethod.COLOR_LINE, "c-line", yaml, detail = detail) to ""
+        return Candidate(CueMethod.COLOR_LINE, "c-line", yaml, detail = detail) to Message.raw("")
     }
 
     /** Compteur : la zone marquée, comparée d'une image à l'autre sans lire les chiffres. */
@@ -319,9 +329,9 @@ class NewGameAssistant(private val config: LoadedConfig, private val ffmpeg: Pro
      * Texte : la zone lue par l'OCR de Windows (agrandie 3 fois) sur chaque kill marqué et sur quelques images prises au
      * hasard. Le mot (5 lettres au moins) lu sur la plupart des kills et sur aucune des autres images devient la règle.
      */
-    private suspend fun ocr(workDir: Path, frames: FrameGrabber, request: NewGameRequest, pairs: List<Pair<RgbFrame, RgbFrame>>, boxes: List<PixelBox>, media: MediaInfo): Pair<Candidate?, String> {
-        if (!WindowsOcr.supported) return null to "OCR de Windows indisponible"
-        val video = media.video ?: return null to ""
+    private suspend fun ocr(workDir: Path, frames: FrameGrabber, request: NewGameRequest, pairs: List<Pair<RgbFrame, RgbFrame>>, boxes: List<PixelBox>, media: MediaInfo): Pair<Candidate?, Message> {
+        if (!WindowsOcr.supported) return null to Message("notice.ocr.unavailable")
+        val video = media.video ?: return null to Message("notice.noVideo")
         val dir = workDir.resolve("ocr").createDirectories()
         val box = boxes.reduce { a, b -> union(a, b) }.let { it.grow(it.width / 10, it.height / 4, video.width, video.height) }
         fun save(frame: RgbFrame, name: String): Path {
@@ -343,7 +353,7 @@ class NewGameAssistant(private val config: LoadedConfig, private val ffmpeg: Pro
         val inOthers = others.flatMap(::words).toSet()
         val counts = inMarks.flatten().groupingBy { it }.eachCount()
         val word = counts.filter { (w, n) -> n >= ceil(marked.size / 2.0) && w !in inOthers }.maxByOrNull { it.value }?.key
-            ?: return null to "aucun mot lu sur les kills marqués (${inMarks.joinToString { it.joinToString(" ").ifEmpty { "rien" } }})"
+            ?: return null to Message("notice.newgame.noWord", "read" to inMarks.joinToString(" | ") { it.joinToString(" ").ifEmpty { "–" } })
         val zone = box.toRegion(video.width, video.height)
         val yaml = """
             |  - id: c-ocr
@@ -364,7 +374,7 @@ class NewGameAssistant(private val config: LoadedConfig, private val ffmpeg: Pro
             |        - kind: kill
             |          match: [$word]
             |""".trimMargin()
-        return Candidate(CueMethod.OCR, "c-ocr", yaml, detail = "(mot « $word »)") to ""
+        return Candidate(CueMethod.OCR, "c-ocr", yaml, detail = "(mot « $word »)") to Message.raw("")
     }
 
     private fun sampleOf(hits: List<Hit>): List<Hit> {

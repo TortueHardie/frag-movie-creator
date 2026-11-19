@@ -73,7 +73,7 @@ class NewGameCommand : PipelineCommand("nouveau-jeu") {
                 ),
             )
         }
-        scan.skipped.forEach { (m, why) -> echo("%-13s écartée : %s".format(m.name.lowercase(), why)) }
+        scan.skipped.forEach { (m, why) -> echo("%-13s écartée : %s".format(m.name.lowercase(), why.text())) }
         val choice = assistant.choose(scan, verdicts)
         if (choice == null) {
             echo("Aucune méthode ne retrouve les kills marqués : profil non écrit. Planches dans $dir", err = true)

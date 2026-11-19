@@ -60,6 +60,8 @@ fun LibraryView(state: UiState, actions: UiActions, modifier: Modifier = Modifie
                 OutlinedButton(onClick = actions::showStats) { Text(tr("ui.library.stats")) }
             }
             Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = actions::showNewGame) { Text(tr("ui.newgame.open")) }
+            Spacer(Modifier.width(8.dp))
             val selected = state.librarySelection.size
             if (selected > 0) {
                 Button(onClick = actions::openLibrarySelection, enabled = state.job == null) {

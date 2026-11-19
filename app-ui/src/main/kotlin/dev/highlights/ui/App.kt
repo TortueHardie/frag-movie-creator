@@ -88,6 +88,7 @@ fun App(state: UiState, actions: UiActions) {
                     if (state.job == null) {
                         when {
                             state.search != null -> SearchView(state.search, actions, busy = state.job != null, modifier = Modifier.weight(1f))
+                            state.newGame != null -> NewGameView(state.newGame, actions, busy = state.job != null, modifier = Modifier.weight(1f))
                             state.stats != null -> StatsView(state.stats, actions, Modifier.weight(1f))
                             else -> LibraryView(state, actions, Modifier.weight(1f))
                         }
