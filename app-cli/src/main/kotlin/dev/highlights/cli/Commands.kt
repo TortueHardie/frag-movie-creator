@@ -11,6 +11,7 @@ import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.options.nullableFlag
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.split
 import com.github.ajalt.clikt.parameters.types.choice
@@ -220,6 +221,7 @@ class MontageCommand : PipelineCommand("montage") {
         .choice("boost" to true, "natural" to false)
     private val noMatchCut by option("--no-match-cut", help = "Sans raccord sur la pose de l'arme (visée ou arme au repos, qui reste en place par-dessus la coupe)").flag()
     private val noRounds by option("--no-rounds", help = "Sans classement selon le round (mort juste après, ace, clutch)").flag()
+    private val abilityKills by option("--ability-kills", help = "Garder les kills à la capacité (molly, flèche, drone…), que le profil VALORANT écarte").nullableFlag("--skip-ability-kills")
     private val noSlowmo by option("--no-slowmo", help = "Sans ralenti").flag()
     private val noRamp by option("--no-ramp", help = "Sans rampe de vitesse entre les kills d'un multi-kill").flag()
     private val noText by option("--no-text", help = "Sans textes (DOUBLÉ, TRIPLÉ…)").flag()
@@ -432,6 +434,7 @@ class MontageCommand : PipelineCommand("montage") {
         motionBlur = if (noMotionBlur) false else null,
         matchCut = if (noMatchCut) false else null,
         rounds = if (noRounds) false else null,
+        skipAbilityKills = abilityKills?.not(),
         slowMotion = if (noSlowmo) false else null,
         speedRamp = if (noRamp) false else null,
         text = if (noText) false else null,

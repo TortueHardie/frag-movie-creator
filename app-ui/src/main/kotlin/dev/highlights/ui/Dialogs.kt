@@ -292,6 +292,9 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                         MontageToggle(tr("ui.montage.motionBlur"), montage.motionBlur) { v -> actions.updateMontage { it.copy(motionBlur = v) } }
                         MontageToggle(tr("ui.montage.matchCut"), montage.matchCut) { v -> actions.updateMontage { it.copy(matchCut = v) } }
                         MontageToggle(tr("ui.montage.rounds"), montage.rounds) { v -> actions.updateMontage { it.copy(rounds = v) } }
+                        if (montage.abilityKillsKnown) {
+                            MontageToggle(tr("ui.montage.skipAbilityKills"), montage.skipAbilityKills) { v -> actions.updateMontage { it.copy(skipAbilityKills = v) } }
+                        }
                         MontageToggle(tr("ui.montage.slowMotion"), montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
                         MontageToggle(tr("ui.montage.text", "double" to tr("video.streak.2"), "triple" to tr("video.streak.3")), montage.text) { v -> actions.updateMontage { it.copy(text = v) } }
                         KillCounterPicker(montage.killCounter) { mode -> actions.updateMontage { it.copy(killCounter = mode) } }

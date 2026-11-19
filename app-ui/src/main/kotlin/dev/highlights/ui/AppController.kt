@@ -857,6 +857,8 @@ class AppController(
                     formats = montage?.formats?.toSet() ?: setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
                     rounds = montage?.killStyle?.deathEvent?.isNotEmpty() ?: true,
                     fastParts = montage?.fastParts?.enabled ?: true,
+                    skipAbilityKills = montage?.skipAbilityKills ?: false,
+                    abilityKillsKnown = runCatching { p.profiles.byId(profileId).detectors.any { d -> d.enabled && d.type == "ammo-counter" } }.getOrDefault(false),
                     balance = montage?.audio?.balance ?: 0.0,
                     killCounter = montage?.text?.killCounter ?: dev.highlights.core.model.KillCounterMode.OFF,
                     platform = it.settings.platform,
@@ -988,6 +990,7 @@ class AppController(
         oneTaps = montage.oneTaps,
         fast = montage.fast,
         fastParts = montage.fastParts,
+        skipAbilityKills = montage.skipAbilityKills,
         // Les cases de la fenêtre sont déjà passées ; le style garde ce qu'elle ne montre pas (accroche, rampes…).
         style = montage.style,
         constraints = montage.constraints,

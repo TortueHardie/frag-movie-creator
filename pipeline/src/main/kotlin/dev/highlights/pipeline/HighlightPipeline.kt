@@ -205,6 +205,8 @@ data class MontageOptions(
     val fails: Boolean? = null,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
+    /** Kills à la capacité écartés ([MontageSettings.skipAbilityKills]) ; null : réglage du profil. */
+    val skipAbilityKills: Boolean? = null,
     /** Rythme rapide sur les parties rapides de la musique ([dev.highlights.core.model.FastParts]) ; null : réglage du profil. */
     val fastParts: Boolean? = null,
     /** Style de montage ([dev.highlights.core.model.MontageStyle]) : remplit les réglages laissés à null ci-dessus. */
@@ -1052,6 +1054,21 @@ class HighlightPipeline(
         return tasted
     }
 
+    /**
+     * Kills à la capacité écartés ([MontageSettings.skipAbilityKills], voir [dev.highlights.montage.AbilityKills]), sauf
+     * ceux que l'utilisateur a forcés ou épinglés dans l'éditeur.
+     */
+    private fun withoutAbilityKills(groups: List<KillGroup>, sessions: List<Session>, settings: MontageSettings, options: MontageOptions): List<KillGroup> {
+        if (!settings.skipAbilityKills) return groups
+        val chosen = options.constraints.forced + options.constraints.pins.keys
+        val ability = dev.highlights.montage.AbilityKills.find(groups, sessions, settings)
+        val kept = dev.highlights.montage.AbilityKills.remove(groups, ability) { g, kill -> chosen.any { it.matches(g.media, kill) } }
+        val removed = groups.sumOf { it.kills.size } - kept.sumOf { it.kills.size }
+        if (removed > 0) log.info { "$removed kill(s) à la capacité (aucune balle au compteur) écarté(s) du montage : ${ability.joinToString { (f, at) -> "${f.fileName}@${at.toTimecode()}" }}" }
+        // Tout serait écarté : mieux vaut un montage de ces kills que pas de montage du tout.
+        return kept.ifEmpty { groups }
+    }
+
     private fun normalized(p: Path) = p.toAbsolutePath().normalize().toString().lowercase()
 
     /** Choix enregistré à côté du rapport du rendu final ([MontageChoiceRecord]). */
@@ -1131,6 +1148,7 @@ class HighlightPipeline(
             showcase = base.showcase.copy(enabled = options.showcase ?: base.showcase.enabled),
             fastParts = base.fastParts.copy(enabled = options.fastParts ?: base.fastParts.enabled),
             reactions = options.reactions ?: base.reactions,
+            skipAbilityKills = options.skipAbilityKills ?: base.skipAbilityKills,
             audio = base.audio.copy(
                 balance = options.audioBalance ?: base.audio.balance,
                 game = options.gameAudio ?: base.audio.game,
@@ -1151,7 +1169,7 @@ class HighlightPipeline(
         val feels = MusicFeels(musicFeelStore).let { f -> musics.associate { it.file to f.resolve(it) } }
         feels.forEach { (file, r) -> if (r.source != FeelSource.DEFAULT) log.info { "Ressenti de ${file.fileName} : ${r.feel} (${r.source}${r.probability?.let { p -> ", %.2f".format(p) } ?: ""})" } }
         fun feelOf(file: Path) = feels[file]?.feel ?: MusicFeel.AUTO
-        val picked = MontagePlanner.groups(sessions, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: all }
+        val picked = MontagePlanner.groups(sessions, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: withoutAbilityKills(all, sessions, settings, options) }
         if (options.fails == true && picked.isEmpty()) throw InputException(Message("error.montage.noDeaths"))
         if (picked.isEmpty()) throw InputException(Message("error.montage.pickedMissing"))
         // Une capture effacée ou déplacée depuis l'analyse : ses kills ne se rendraient pas, et FFmpeg ferait échouer
