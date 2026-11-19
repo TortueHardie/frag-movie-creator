@@ -146,6 +146,11 @@ data class MusicAnalysis(
     val salience: DoubleArray = DoubleArray(0),
     /** Mesures du contenu de la partie d'après la drop ([MusicFeatures]), pour apprendre le ressenti. Null : inconnues. */
     val features: MusicFeatures? = null,
+    /**
+     * Décalage appris des kills par rapport aux temps de ce morceau ([KillTimingLearner] : corrections de l'utilisateur
+     * concordantes sur ce morceau), appliqué aux kills sans décalage posé à la main. Jamais enregistré avec l'analyse.
+     */
+    val killShift: Duration = Duration.ZERO,
 ) {
     /** Force musicale d'un temps : son attaque, ou sa saillance si elle le distingue davantage. */
     fun strength(beat: Int): Double = maxOf(beatAccent.getOrElse(beat) { 0.0 }, salience.getOrElse(beat) { 0.0 })

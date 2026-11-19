@@ -79,26 +79,48 @@ sealed interface MontagePin {
  * Corrections de l'utilisateur sur le plan automatique : kills [excluded] (retirés de leur groupe, le groupe disparaît
  * s'il n'en reste aucun), groupes [forced] (gardés même si le plan les aurait écartés), groupes épinglés ([pins]). Un
  * groupe forcé ou épinglé est désigné par n'importe lequel de ses kills.
+ *
+ * Calage à l'image : [anchors], l'instant de la capture où le kill a vraiment lieu, choisi image par image (il remplace
+ * celui de la détection et du recalage, c'est lui qui tombe sur le temps) ; [beatShifts], le kill posé un peu après (+)
+ * ou avant (−) son temps dans le montage, quand le temps détecté de la musique est lui-même un peu décalé. Les coupes
+ * restent sur les temps : la longueur de chaque plan ne bouge pas. Un décalage de temps désigne le groupe par n'importe
+ * lequel de ses kills. Ces deux réglages s'ajoutent aux autres corrections (un kill épinglé peut aussi être calé).
  */
 data class MontageConstraints(
     val excluded: Set<KillRef> = emptySet(),
     val forced: Set<KillRef> = emptySet(),
     val pins: Map<KillRef, MontagePin> = emptyMap(),
+    val anchors: Map<KillRef, Duration> = emptyMap(),
+    val beatShifts: Map<KillRef, Duration> = emptyMap(),
 ) {
-    val isEmpty: Boolean get() = excluded.isEmpty() && forced.isEmpty() && pins.isEmpty()
+    val isEmpty: Boolean get() = excluded.isEmpty() && forced.isEmpty() && pins.isEmpty() && anchors.isEmpty() && beatShifts.isEmpty()
 
-    /** Le kill n'a plus aucune contrainte (avant de lui en donner une autre : elles s'excluent). */
-    fun clear(ref: KillRef) = MontageConstraints(excluded - ref, forced - ref, pins - ref)
+    /** Nombre de corrections posées (ce que la ligne du dialogue de montage annonce). */
+    val count: Int get() = excluded.size + forced.size + pins.size + anchors.size + beatShifts.size
 
-    fun exclude(ref: KillRef) = clear(ref).copy(excluded = excluded + ref)
+    /** Le kill n'a plus ni exclusion, ni forçage, ni épingle (avant de lui en donner une autre : elles s'excluent). Son calage reste. */
+    fun clear(ref: KillRef) = copy(excluded = excluded - ref, forced = forced - ref, pins = pins - ref)
 
-    fun force(ref: KillRef) = clear(ref).copy(forced = forced + ref)
+    /** Un kill écarté perd aussi son calage : il ne serait plus montré. */
+    fun exclude(ref: KillRef) = clear(ref).clearTiming(ref).let { it.copy(excluded = it.excluded + ref) }
+
+    fun force(ref: KillRef) = clear(ref).let { it.copy(forced = it.forced + ref) }
 
     /** Une seule drop : l'épingler ailleurs la retire au groupe qui l'avait. */
     fun pin(ref: KillRef, pin: MontagePin): MontageConstraints {
         val others = if (pin == MontagePin.Drop) pins.filterValues { it != MontagePin.Drop } else pins
         return clear(ref).copy(pins = others - ref + (ref to pin))
     }
+
+    /** Le kill [ref] a lieu à [at] dans sa capture (voir [anchors]). */
+    fun anchor(ref: KillRef, at: Duration) = copy(anchors = anchors - ref + (ref to at))
+
+    /** Kill de [ref] posé à [shift] de son temps (voir [beatShifts]) ; zéro retire le décalage. */
+    fun shiftBeat(ref: KillRef, shift: Duration) =
+        copy(beatShifts = if (shift == Duration.ZERO) beatShifts - ref else beatShifts - ref + (ref to shift))
+
+    /** Retire le calage du kill (instant choisi et décalage du temps) : la détection reprend la main. */
+    fun clearTiming(ref: KillRef) = copy(anchors = anchors - ref, beatShifts = beatShifts - ref)
 
     companion object {
         val NONE = MontageConstraints()
@@ -114,17 +136,24 @@ object MontageEdits {
      */
     fun apply(groups: List<KillGroup>, constraints: MontageConstraints, style: KillStyle): List<KillGroup> {
         if (constraints.isEmpty) return groups
-        val all = constraints.excluded + constraints.forced + constraints.pins.keys
+        val all = constraints.excluded + constraints.forced + constraints.pins.keys + constraints.anchors.keys + constraints.beatShifts.keys
         // Chaque désignation vise un seul kill, le plus proche : deux kills recalés à 0,1 s ne sont pas écartés ensemble.
         val target = all.associateWith { designated(it, groups) }
         target.entries.firstOrNull { it.value == null }?.let {
             throw InputException(Message("error.montage.edit.notFound", "kill" to it.key.toString()))
         }
         fun hit(refs: Collection<KillRef>, g: KillGroup, kill: Duration) = refs.any { r -> target[r]?.let { (p, k) -> p == g.media.path && k == kill } == true }
-        all.firstOrNull { ref -> listOf(ref in constraints.excluded, ref in constraints.forced, ref in constraints.pins).count { it } > 1 }?.let {
+        (constraints.excluded + constraints.forced + constraints.pins.keys).firstOrNull { ref -> listOf(ref in constraints.excluded, ref in constraints.forced, ref in constraints.pins).count { it } > 1 }?.let {
             throw InputException(Message("error.montage.edit.conflict", "kill" to it.toString()))
         }
         if (constraints.pins.values.count { it == MontagePin.Drop } > 1) throw InputException(Message("error.montage.edit.twoDrops"))
+        // Un calage loin de la détection désigne sans doute un autre instant que le kill : mieux vaut le dire.
+        constraints.anchors.entries.firstOrNull { (ref, at) -> target[ref]?.let { (_, k) -> (at - k).absoluteValue > MAX_ANCHOR } == true }?.let {
+            throw InputException(Message("error.montage.edit.anchorFar", "kill" to it.key.toString(), "time" to KillRef.precise(it.value)))
+        }
+        constraints.beatShifts.entries.firstOrNull { it.value.absoluteValue > MAX_BEAT_SHIFT }?.let {
+            throw InputException(Message("error.montage.edit.beatShiftFar", "kill" to it.key.toString(), "ms" to it.value.inWholeMilliseconds))
+        }
         return groups.mapNotNull { g ->
             val kept = g.kills.indices.filter { i -> !hit(constraints.excluded, g, g.kills[i]) }
             if (kept.isEmpty()) return@mapNotNull null
@@ -136,9 +165,46 @@ object MontageEdits {
             fun designates(ref: KillRef) = trimmed.kills.any { hit(listOf(ref), g, it) }
             val pins = constraints.pins.filterKeys(::designates).values.distinct()
             if (pins.size > 1) throw InputException(Message("error.montage.edit.conflict", "kill" to label(trimmed)))
-            trimmed.copy(forced = constraints.forced.any(::designates), pin = pins.firstOrNull())
+            val shifts = constraints.beatShifts.filterKeys(::designates).values.distinct()
+            if (shifts.size > 1) throw InputException(Message("error.montage.edit.conflict", "kill" to label(trimmed)))
+            val marked = trimmed.copy(forced = constraints.forced.any(::designates), pin = pins.firstOrNull(), beatShift = shifts.firstOrNull() ?: trimmed.beatShift)
+            anchored(marked, g, constraints, ::hit)
         }
     }
+
+    /**
+     * Les kills calés à la main prennent l'instant choisi (dans la capture), ordre des kills et particularités suivant ;
+     * l'instant d'avant est gardé ([KillGroup.retimed]) : la frise désigne toujours le kill par lui, et un décalage appris
+     * ne touche jamais un kill calé à la main.
+     */
+    private fun anchored(
+        group: KillGroup,
+        original: KillGroup,
+        constraints: MontageConstraints,
+        hit: (Collection<KillRef>, KillGroup, Duration) -> Boolean,
+    ): KillGroup {
+        if (constraints.anchors.isEmpty()) return group
+        val moved = group.kills.associateWith { k -> constraints.anchors.entries.firstOrNull { (r, _) -> hit(listOf(r), original, k) }?.value }
+        if (moved.values.all { it == null }) return group
+        val bounds = group.media.bounds
+        val pairs = group.kills.mapIndexed { i, k ->
+            val at = moved[k]?.coerceIn(bounds.start, bounds.end) ?: k
+            Triple(at, group.traits.getOrNull(i), k)
+        }.sortedBy { it.first }
+        val kept = pairs.map { it.first }.toSet()
+        val retimed = group.retimed + pairs.filter { moved[it.third] != null }.associate { (at, _, k) -> at to KillRetime(group.detectedOf(k), byHand = true) }
+        return group.copy(
+            kills = pairs.map { it.first },
+            traits = if (group.traits.isEmpty()) group.traits else pairs.map { it.second ?: KillTraits.NONE },
+            retimed = retimed.filterKeys { it in kept },
+        )
+    }
+
+    /** Écart au kill détecté au-delà duquel un calage est refusé : la frise propose ±0,5 s, la désignation tolère 1 s. */
+    val MAX_ANCHOR = 1.seconds
+
+    /** Décalage du temps au-delà duquel c'est un autre temps qu'on vise (un temps fait 0,4 s à 150 BPM) : l'épingler plutôt. */
+    val MAX_BEAT_SHIFT = 250.milliseconds
 
     /**
      * Le kill que vise [ref] : le plus proche de son instant parmi ceux de sa capture, à [KillRef.TOLERANCE] au plus ;
@@ -175,6 +241,13 @@ object MontageEdits {
                     }
                 }
                 null -> if (clip == null) throw HighlightsException(Message("error.montage.edit.notPlaced", "kill" to label(g)))
+            }
+        }
+        // Décalage du temps posé à la main : un plan d'un temps (le kill l'ouvre) ne laisse pas le kill passer avant sa coupe.
+        for (clip in plan.clips) {
+            val wanted = clip.group.beatShift ?: continue
+            if ((clip.beatShift - wanted).absoluteValue > 1.milliseconds) {
+                throw HighlightsException(Message("error.montage.edit.beatShiftMissed", "kill" to label(clip.group), "ms" to wanted.inWholeMilliseconds))
             }
         }
     }

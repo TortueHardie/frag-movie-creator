@@ -6,6 +6,7 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
 import dev.highlights.montage.GroupTasteLearner
 import dev.highlights.montage.GroupTrait
+import dev.highlights.montage.KillTimingLearner
 import dev.highlights.montage.MontageScorer
 import dev.highlights.montage.TasteHistory
 import dev.highlights.montage.TasteLearner
@@ -19,6 +20,7 @@ import java.nio.file.Path
  */
 class TasteCommand : PipelineCommand("gouts") {
     private val reset by option("--reset", help = "Oublier ce qui a été appris : l'historique est mis de côté (taste-history.reset-<date>.json), pas effacé").flag()
+    private val resetTiming by option("--reset-timing", help = "Oublier les calages appris (kill-timing.json mis de côté, pas effacé)").flag()
     private val history by option("--history", help = "Lire cet historique au lieu de <sortie>\\sessions\\taste-history.json").path(mustExist = true, canBeDir = false)
 
     override fun help(context: Context) =
@@ -28,6 +30,11 @@ class TasteCommand : PipelineCommand("gouts") {
     override fun run() {
         val pipeline = Pipelines.create(env.config)
         val file: Path = history ?: pipeline.tasteHistory.file
+        if (resetTiming) {
+            val aside = pipeline.timingHistory.reset()
+            echo(if (aside == null) "Rien à oublier : ${pipeline.timingHistory.file} n'existe pas." else "Calages oubliés. Historique mis de côté : $aside.")
+            if (!reset) return
+        }
         if (reset) {
             val aside = TasteHistory(file).reset()
             echo(if (aside == null) "Rien à oublier : $file n'existe pas." else "Goûts oubliés. Historique mis de côté : $aside (le renommer en ${file.fileName} le rétablit).")
@@ -69,6 +76,20 @@ class TasteCommand : PipelineCommand("gouts") {
             val bonus = groups.bonus[t]
             echo("  %-10s %3d écarté(s) ou gardé(s)  %s".format(t.key, groups.actions[t] ?: 0, if (bonus == null) "-" else "%+.2f kill".format(bonus)))
         }
+        val timing = state.timing
+        echo("")
+        echo(
+            "Calages à l'image (${timing.corrections} kill(s) calé(s) ; une source à partir de ${KillTimingLearner.MIN_SOURCE} calages concordants, " +
+                "un morceau à partir de ${KillTimingLearner.MIN_SONG}) :",
+        )
+        if (timing.isEmpty) echo("  rien encore (frise du plan, ou montage --anchor / --beat-shift)")
+        timing.sources.forEach { o ->
+            echo("  détection %-40s %+5d ms  %2d calage(s), écart %3d ms  %s".format(o.key, o.offset.inWholeMilliseconds, o.count, o.spread.inWholeMilliseconds, if (o.active) "appliqué" else "pas encore"))
+        }
+        timing.songs.forEach { o ->
+            echo("  morceau   %-40s %+5d ms  %2d calage(s), écart %3d ms  %s".format(o.key.substringBefore('|'), o.offset.inWholeMilliseconds, o.count, o.spread.inWholeMilliseconds, if (o.active) "appliqué" else "pas encore"))
+        }
+        if (!timing.isEmpty) echo("  pour les oublier : app gouts --reset-timing")
         val last = state.last ?: return
         echo("")
         echo("Dernier choix (${last.at}, ${Path.of(last.music).fileName}) : variante ${last.chosen + 1} rendue")
