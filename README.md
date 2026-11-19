@@ -244,7 +244,7 @@ Dans l'application :
 1. choisir ou glisser une ou plusieurs captures (« Ajouter des vidéos » pour compléter la liste) ;
 2. régler le profil, les formats, la durée et le seuil ;
 3. cliquer sur « Analyser » ;
-4. relire les segments : timeline, vignettes, « ▶ Revoir » ouvre un extrait dans le lecteur, « 9:16 » affiche l'aperçu vertical avec le HUD ;
+4. relire les segments : timeline (glisser le long de la courbe parcourt la capture dans le lecteur intégré), vignettes, « ▶ Revoir » ouvre un extrait dans le lecteur, « 9:16 » affiche l'aperçu vertical avec le HUD ;
 5. décocher les segments à retirer (le seuil et la durée se recalculent sans réanalyser) ;
 6. retoucher à la main si besoin (voir ci-dessous) ;
 7. cliquer sur « Exporter le montage ».
@@ -256,6 +256,16 @@ le montage (n° affiché sur chaque ligne) : l'export suit alors cet ordre manue
 soirée confondues. Un double-clic sur la courbe ajoute un moment de 8 s centré à cet endroit, marqué « ajouté à la
 main ». Ces retouches sont enregistrées dans la session (`origin`, `order` de chaque moment) et survivent au changement
 de seuil ou de durée : un moment détecté qui recouvre un moment retouché laisse la place à la retouche.
+**Lecteur intégré.** Les vidéos se lisent dans l'application : « Lire » d'une variante, « ▶ Lire » d'un export fini
+(sous le résultat et dans la file des traitements), « ▶ Revoir » d'un moment, et la frise d'une session (glisser le
+long de la courbe montre l'image de la capture à cet endroit, une ligne blanche marque la tête de lecture). Lecture/pause,
+barre de position (image par image pendant le glissement), temps écoulé et total ; clavier : Espace (ou K) lecture/pause,
+← / → (ou J / L) 5 s en arrière ou en avant, Échap ferme. « Lecteur du système » reste à côté, en secours.
+Aucune dépendance nouvelle : le FFmpeg livré décode les images réduites à 720p (RGBA brut) et le son (PCM 48 kHz vers
+Java Sound) ; le son est l'horloge maîtresse, une image en retard de plus d'une trame et demie est sautée. Décodage
+matériel (`-hwaccel auto`) avec repli logiciel au premier échec ; sans sortie son, lecture muette sur l'horloge murale.
+Mesures (montage 1080×1920 60 img/s) : voir `output/revue/lecteur-video/LOG.md`.
+
 **Oublier une analyse.** Dans la liste des analyses, « Oublier » (après confirmation) retire l'analyse de la mémoire
 et efface sa session ; la vidéo n'est jamais touchée et peut être réanalysée.
 
@@ -1377,7 +1387,7 @@ VALORANT « 44 kills » 52,1 s → 28,4 s. La version choisie se rend toujours :
   suivantes doivent s'écarter d'au moins 0,25 de toutes les précédentes : un quart des plans changent de clip ou de
   place, ou un quart des coupes tombent ailleurs (à un temps près), ou la musique part d'un quart de montage plus loin.
   Moins de trois versions quand les autres se ressemblent trop.
-- **Choisir** : dans l'application, chaque version a sa vignette animée, « Lire » (lecteur du système) et « Rendre
+- **Choisir** : dans l'application, chaque version a sa vignette animée, « Lire » (lecteur intégré, lecteur du système en secours) et « Rendre
   celle-ci ». En ligne de commande, la même commande avec `--pick <n>` à la place de `--variants` (fichier des
   versions : le plus récent pour ces parties et cette musique, ou `--variants-file`). Rien n'est réanalysé ; le montage
   recalculé doit avoir la même empreinte que l'aperçu regardé, sinon il est refusé (réglages ou analyses changés).

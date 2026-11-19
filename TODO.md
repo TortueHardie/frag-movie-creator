@@ -173,7 +173,7 @@ Pistes, de la plus simple à la plus lourde :
 ## Montage kills : pistes ouvertes
 - [x] Aperçus de variantes : 3 versions du montage en 360p, vite, au même calage que le rendu final, puis la choisie
   rendue en pleine qualité (`--variants` / `--pick`, bouton « Aperçu de 3 versions »). Choix gardés dans `*.choix.json`.
-  - [ ] Lecteur vidéo dans l'application (aujourd'hui : vignettes animées et lecteur du système).
+  - [x] Lecteur vidéo dans l'application (`ui/player/`, FFmpeg + Java Sound, son maître ; lecteur du système en secours).
   - [x] Apprendre des choix : historique `taste-history.json` (choix de variantes et corrections de l'éditeur), poids des
     critères appris par préférence par paires, `montage.learnTaste` (actif par défaut depuis `gouts-actifs`, sans effet avant 10 choix), `app gouts`, `--reset`.
     - [ ] Valider sur de vrais choix de l'utilisateur (démonstration sur données synthétiques seulement).
@@ -364,4 +364,4 @@ Pistes, de la plus simple à la plus lourde :
 
 ## Plus ambitieux
 - [ ] Modèle ML personnalisé entraîné sur les moments gardés/décochés des sessions.
-- [ ] Lecteur intégré : aperçu vidéo, scrubbing sur la timeline (le rendu d'aperçu basse résolution du montage kills existe : `MontagePreview`).
+- [x] Lecteur intégré : aperçu vidéo, scrubbing sur la timeline (le rendu d'aperçu basse résolution du montage kills existe : `MontagePreview`).

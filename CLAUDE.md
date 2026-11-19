@@ -459,6 +459,12 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   répondus par `paths`, open/reveal/browse notés pendant une action pilotée), `BridgeWindows` (capture `SkiaLayer.screenshot`, arbre d'accessibilité AWT de Compose,
   événements AWT `dispatchEvent`, jamais Robot). Branché dans `Main.kt` (`ControlBridge.platform` + `startIfEnabled`), sans toucher aux composables.
   Garde-fou de construction : `createDistributable` vérifie que `Highlights.cfg` ne pose pas `highlights.bridge`. Test : `ControlBridgeTest`.
+- Lecteur intégré `player/` : `VideoPlayer` (moteur : deux FFmpeg, images RGBA réduites par `DecodeSize.fit` ≤ 1280×720 + PCM 48 kHz ; file de commandes
+  `Open/Play/Pause/Toggle/Seek/Scrub/EndScrub/Stop`, glissements fusionnés ; `PlaybackClock` = son maître puis horloge murale ; image > 1,5 trame en retard sautée ;
+  `SyncMeter`/`SyncStats` ; `BitmapRing` 8 images Skia recyclées ; `-hwaccel auto` puis repli logiciel), `AudioSink`/`JavaSoundSink` (null = muet),
+  `PlayerController` (dans `AppController` : moteur sur `Backend.ffmpeg`, sans lui `platform.open` ; recopie `UiState.player` à 0,5 s près),
+  `PlayerWindow.kt` (`VideoPlayerWindow`, `VideoSurface` : image lue en phase de dessin). Actions `videoPlayer` (propriété), `playVideo, scrubSource/scrubSourceEnd`
+  (frise : `TimelineCard(playhead)`), `playerToggle/Seek/Scrub/ScrubEnd, closePlayer`. Branché : `VariantsView` « Lire », `ExportBar`, `JobsView`, `previewClip`. Test : `VideoPlayerTest`.
 - Signaler un problème : `ReportDialog.kt` (`ReportDialog`, `CrashDialog`, `MemoryDialog`), menu « ? » `HelpMenu` dans `AppHeader` (signaler, dossier des journaux), bouton dans `ErrorDialog`.
   `AppController` : `ReportEnvironment` (logsDir, crashDirs, redactor, version, system, mémoire ; `forThisApp()` passé par `Main`, le défaut des tests ne touche à rien de réel),
   actions `openReport/reportError/reportCrash/dismissCrash/closeReport/saveReport/openIssuePage/revealReport/openLogsFolder` ; `UiState.report` (`ReportUiState`, `ReportItem`), `UiState.crash`.
