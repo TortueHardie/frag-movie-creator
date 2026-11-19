@@ -126,7 +126,7 @@ class GameSoundsTest : FunSpec({
         read.last() shouldBe 40_000f
     }
 
-    test("profil VALORANT : tirs toujours cherchés, son du tir à la tête en secours d'Outplayed") {
+    test("profil VALORANT : tirs toujours cherchés, son du tir à la tête gardé mais éteint (l'icône du killfeed le remplace)") {
         val profile = ProfileRepository.loadDirectory(Path("../config/profiles")).byId("valorant")
         val configs = profile.detectors.filter { it.type == "game-sounds" }.associateBy { it.id }
         val shots = configs.getValue("game-shots").detectorParams().decode(GameSoundsParams.serializer()) { GameSoundsParams() }
@@ -134,6 +134,7 @@ class GameSoundsTest : FunSpec({
         shots.sounds shouldBe emptyMap()
         val headshot = configs.getValue("headshot-sound")
         headshot.fallbackFor shouldBe "game-events"
+        headshot.enabled shouldBe false
         val params = headshot.detectorParams().decode(GameSoundsParams.serializer()) { GameSoundsParams() }
         params.shots shouldBe null
         params.sounds.keys shouldBe setOf("headshot")

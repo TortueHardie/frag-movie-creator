@@ -297,7 +297,7 @@ Pistes, de la plus simple à la plus lourde :
     Testé sur des signaux synthétiques seulement.
   - Fait : gabarit `config/templates/valorant/headshot.wav` tiré d'une vraie capture, seuil 0,7 : 4 headshots sur 8
     reconnus, aucun faux sur 14 kills au corps (deux parties du 25/09).
-    - [ ] Le revoir sur d'autres parties (pris dans l'une des deux mesurées) ; la moitié des headshots manqués.
+    - Revu le 19/11 sur les deux parties 854x480 : 2 headshots sur 27, 4 faux. Éteint, remplacé par l'icône du killfeed.
       Revu sur une partie du 01/10 sans Outplayed (killfeed) : 14 sons reconnus en 3 min, presque tous loin d'un kill
       (impacts à la tête sans kill), aucun à moins de 250 ms des 4 kills : les 2 kills à la tête manqués, aucun faux.
   - Mesuré sur deux parties : les tirs isolés sont entendus, pas les rafales du Vandal (jusqu'à 4 balles sur 5
@@ -309,11 +309,14 @@ Pistes, de la plus simple à la plus lourde :
     et les deux faux écartés. Recherche, stats et montage s'en servent.
     - Corrigé : en Combat à mort, la recharge animée du chargeur à chaque kill comptait trois balles de plus (aucun
       one tap trouvé dans ce mode) ; elle est reconnue à son turquoise et ignorée.
-    - [ ] Zone mesurée en 3440x1440 : vérifier en 16:9.
+    - Fait : zone vérifiée en 16:9 (854x480, planche de 8 instants : les chiffres y tiennent, 1 et 2 chiffres).
     - [ ] WARDOGS et captures sans compteur lisible : rester sur le son, moins sûr dans les rafales.
-  - [ ] Peu de one taps (2 dans une partie) : la durée minimale (`oneTaps.min`, 6 s) étire les plans sur une grille
-    grossière ; baisser le minimum ou garder des plans courts quitte à faire un montage de 2 s.
-  - [ ] Icône headshot du killfeed : le profil la dit absente des lignes du joueur, à revérifier.
+  - Fait : peu de one taps : `oneTaps.min` passé de 6 s à 1 s (les plans ne s'étirent plus), avertissement sous
+    `oneTaps.few` (3). L'élan de la drop (4 à 8 temps avant le premier kill) reste : à trancher avec l'utilisateur,
+    comme le ralenti rejoué du one tap ou l'ajout des meilleurs autres headshots (signalé).
+  - Fait : icône headshot du killfeed : elle est bien sur les lignes du joueur (planche de 46 kills, 854x480).
+    Détecteur `killfeed-headshot` (profil : `headshot-icon`), son du headshot éteint (2 sur 27, 4 faux) ; l'icône : 26 sur 27, aucun faux.
+    - [ ] Non vérifié en 1080p ni 1440p (gabarit pris en 480p).
   - Sans source fiable pour le headshot, repli sur « un seul tir » : le montage reste possible, un peu moins strict
     (un one-shot au corps à l'Operator passerait). Le dire dans l'interface plutôt que de ne rien proposer.
   - Fait : filtre « One taps » de la recherche (`MomentQuery.oneTaps`, `search --onetaps`) et montage onetaps

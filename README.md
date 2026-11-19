@@ -1168,8 +1168,27 @@ ou le killfeed d'une capture OBS). La balle qui tue est la dernière vue entre 1
   33 vraies balles sur 33 dans les deux cas, 29 fausses avant, 3 après (`minPlateau`, `minDigits`).
 - Zone mesurée en 3440x1440 et vérifiée en 854x480 (16:9). Une partie analysée avant ce détecteur (ou avant la correction du Combat à mort)
   est à mettre à jour (**Mettre à jour les analyses**, ou `--reanalyze`).
-- Le gabarit du son headshot livré reconnaît la moitié des headshots (0,72 à 0,78) sans aucun faux (kills au corps à
-  0,64 au plus), au seuil 0,7. Un premier réglage, pris dans l'une de ces deux parties : à revoir sur d'autres.
+- Le gabarit du son headshot livré reconnaissait la moitié des headshots de deux parties du 25/09, sans faux. Revu le
+  19/11 sur deux autres parties : 2 kills à la tête sur 27, et 4 kills au corps dits à la tête. Il est éteint dans le
+  profil VALORANT (`headshot-sound`, `enabled: false`) : l'icône du killfeed le remplace (ci-dessous).
+
+## Tirs à la tête lus dans le killfeed
+
+Sans Outplayed, le détecteur `killfeed-headshot` (VALORANT, `headshot-icon` du profil) relit 2 s du killfeed autour de
+chaque kill (0,4 s avant, 1,6 s après, 10 images/s) : il y retrouve la ligne du joueur comme le détecteur `killfeed`
+(même zone, même lecteur), cherche le début du fond rouge de la victime à droite de son portrait, et juste avant lui
+l'icône de la cible que VALORANT met entre l'arme et la victime d'un kill à la tête (corrélation avec
+`templates/valorant/killfeed_headshot.png`, seuil 0,6). Événement `headshot` à l'instant du kill. Avec Outplayed, qui
+donne déjà les tirs à la tête, il ne relit rien.
+
+- Le profil disait l'icône absente des lignes du joueur : c'était faux. Planche des 46 kills de « Valorant- 44 kills »
+  (854x480) : l'icône est là sur 18 d'entre eux.
+- Mesuré à l'image sur les deux captures 854x480 du disque (61 kills, 27 à la tête) : 26 retrouvés, aucun faux
+  (seuil 0,6 ; les kills sans icône restent sous 0,45). Voir le journal de l'atelier,
+  `output\revue\onetaps-finition\LOG.md`. Gabarit moyen de 9 icônes nettes de la première partie.
+- La ligne se pose en glissant (0,4 s) : la note retenue est la meilleure image de la ligne apparue le plus près du
+  kill ; deux kills à 0,4 s d'écart ont chacun la leur. Une ligne déjà là avant le kill ne compte pas.
+- Non vérifié en 1080p ni en 1440p (gabarit pris en 480p, agrandi à la taille de la ligne).
 
 ## Monter sur la musique : les notes qui ressortent
 
@@ -1433,8 +1452,11 @@ La drop garde son plan d'élan, le premier plan en fait deux. Fichiers `…_onet
   analysée avant eux est à réanalyser. Une capacité ou le couteau (compteur immobile) n'est jamais un one tap. Un
   profil qui n'a ni l'un ni l'autre (WARDOGS) ne peut pas faire de montage onetaps, et le message le dit au lieu de
   proposer une réanalyse ; « aucun one tap » donne le nombre de kills trouvés.
-- Sans tirs à la tête connus (ni Outplayed, ni gabarit du son), tout kill d'une balle compte, et le journal le dit ;
+- Sans tirs à la tête connus (ni Outplayed, ni icône du killfeed), tout kill d'une balle compte, et le journal le dit ;
   `montage.oneTaps.allowWithoutHeadshots: false` refuse plutôt.
+- Peu de one taps : le montage dure ce que durent ses one taps (plus l'élan de la drop), sans durée minimale qui étire
+  les plans (`oneTaps.min`, 1 s ; à 6 s, deux one taps à 130 BPM faisaient un second plan de 4 temps au lieu de 2).
+  Sous `oneTaps.few` (3) one taps, le montage se fait et prévient qu'il sera très court.
 
 ## Aperçus : choisir parmi plusieurs versions du montage
 
