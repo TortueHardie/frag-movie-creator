@@ -250,6 +250,24 @@ class UiSnapshotTest : FunSpec({
         render("13_plateforme_reglages", state.copy(montage = null)).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("préréglages d'export : puces en haut de la barre d'export et de la fenêtre de montage") {
+        val presets = listOf(
+            dev.highlights.core.model.ExportPreset("tiktok", platform = "tiktok", length = 30.seconds, montageStyle = "tiktok", thumbnail = false),
+            dev.highlights.core.model.ExportPreset("shorts", platform = "shorts", length = 60.seconds, montageStyle = "cinematique", thumbnail = false),
+            dev.highlights.core.model.ExportPreset("complet", format = OutputFormat.LANDSCAPE, length = 3.minutes, montageStyle = "cinematique", thumbnail = true),
+        )
+        val platforms = dev.highlights.core.model.PlatformProfile.DEFAULTS.map { (id, p) -> PlatformInfo.of(id, p) }
+        val state = UiState(
+            config = ready.copy(platforms = platforms, presets = presets),
+            sources = listOf(source),
+            settings = settings.choosePreset("tiktok", presets).copy(durationText = "45s", presetTouched = setOf(PresetKnob.LENGTH)),
+            session = SessionState(session, Path("D:/Highlights/sessions/x.session.json")),
+        )
+        render("18_prereglages_export", state).fileSize() shouldBeGreaterThan 0L
+        val montage = MontageUiState(music = Path("D:/Musique/phonk_128.mp3")).choosePreset("shorts", presets)
+        render("19_prereglages_montage", state.copy(montage = montage)).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("statistiques par soirée") {
         fun game(at: String, name: String, kills: Int, deaths: Int?, hs: Int?, best: Int?, multi: Map<Int, Int> = emptyMap(), clutches: Int = 0) =
             dev.highlights.pipeline.GameStats(

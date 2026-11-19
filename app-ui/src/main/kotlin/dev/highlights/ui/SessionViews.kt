@@ -540,6 +540,7 @@ private fun ScoreBar(score: Double, modifier: Modifier) {
 fun ExportBar(state: UiState, session: SessionState, actions: UiActions) {
     Surface(shape = RoundedCornerShape(10.dp), color = Palette.surface, border = BorderStroke(1.dp, Palette.outline)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            ExportBarPresets(state, actions)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(tr("ui.export.title"), style = MaterialTheme.typography.titleMedium)

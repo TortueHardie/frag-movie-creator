@@ -118,6 +118,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   loudnessLufs, audio, audioStreams, formats, sourceHeight, landscape, vertical, grade, fps; `audioIndices(tracks)`), `AudioSelection`,
   `GradeSettings(lut, saturation, contrast, vignette, vibrance, brightness)`, `ClipOrder`, `TransitionSettings`, `OutputFormat{SOURCE,LANDSCAPE "16:9",VERTICAL "9:16"}`, `ClipOrder{CHRONOLOGICAL,SCORE,MANUAL}` (`DefaultEditPlanner.order` ; MANUAL par défaut à l'export si un moment coché a un `order`),
   `FrameSize`, `VerticalSettings(size, cropRegion, hud, reference)`, `HudOverlay`, `OverlayTarget`, `CropRegion` (coords normalisées 0..1).
+- `model/ExportPreset.kt` : `ExportPreset(id, platform | format, length, highlightsStyle, montageStyle, thumbnail ; name/shownDescription = clés `preset.<id>`)`, `ExportPresets` ;
+  fichier `config/export-presets.yaml` (`AppConfig.exportPresets`, `LoadedConfig.loadExportPresets`).
 - `model/Platform.kt` : `SafeArea(top, bottom, left, right ; width, centerY)`, `PlatformProfile(name, format, maxDuration, loudnessLufs, maxBitrate, fps, safeArea ; applyTo(EditSettings))`,
   `DEFAULTS` (tiktok, shorts, reels, youtube), `parseBitrate` ; `LoadedConfig.platforms` = DEFAULTS + `AppConfig.platforms` ; `EncoderProfile.withMaxBitrate`.
   `EditSettings.safeArea/maxBitrate` : textes (Captions.drawText/drawLabel, MontageRenderBuilder.drawText) centrés dans la largeur utile et bornés en y ; sortie inchangée sans plateforme.
@@ -352,6 +354,9 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `platforms` ; `montagePreviews(sessions, music, options, count)` → `MontagePreviews(variantsFile, VariantPreview…)`, `MontageOptions.pick` (`VariantPick(index, variantsFile)`),
   `latestVariantsFile`, `PREVIEW_DIR` (« apercus ») ; `MontageOptions.fromStartMusics` (réglage « depuis le début » par musique en mode bibliothèque) ; `ExportResult.music` = musique utilisée ;
   `library`, `previewDir`, `withJobDir` (workDir/job-UUID, gardé si échec).
+- `ExportPresets.kt` : `ExportPresetRules.resolve` (préréglage vérifié contre plateformes et styles), `ExportOptions/AnalyzeOptions/MontageOptions.withPreset`
+  (ne remplit que les null ; un format choisi écarte la plateforme du préréglage) ; `HighlightPipeline.exportPresets/exportPreset(id)`.
+  CLI : `--preset` (`presetOption`, `presetNamed`) sur export, process, montage, search ; `export` n'applique pas la durée (moments de la session gardés).
 - `Pipelines.kt` : câblage manuel (pas de DI) `Pipelines.ffmpeg(config)`, `Pipelines.create(config)`.
 - `ConfigLocator.locate` : explicite > env `HIGHLIGHTS_CONFIG` > prop `highlights.config` > `./config/app.yaml` > `<install>/config/app.yaml`.
 - `AnalysisLibrary.entries()` recompte les événements d'une session réécrite depuis son comptage (`LibraryEntry.eventsCountedAt`, `countEvents`) : la bibliothèque affiche les kills de la partie.
@@ -443,6 +448,9 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   échec sans bloquer la suite ; `submit(auto = false)` se place derrière le dernier manuel en attente (`manualSlot`), devant les automatiques : dossier surveillé, soirées ; libellé `ui.jobs.auto` dans `JobsView.JobTitle`) ; `AppController.enqueue` (bloquant : analyse, réanalyse → `UiState.job` avec `queueId`, l'écran attend ; sinon libre), `describeFailure`,
   `watchJobs`/`queuedEvenings` (dossier surveillé, soirées) ; `UiState.jobs`, `quitConfirm` ; `JobsView.kt` (`JobsCard` bornée : 360 dp et `weight(1f, fill = false)` dans App, attente et finis qui défilent ; `QuitDialog`), le clip 9:16 aussi passe par la file ; actions `cancelQueuedJob/moveQueuedJob/openJobResult/showJobError/clearFinishedJobs/confirmQuit/cancelQuit`,
   `requestQuit()` (Main) ; tests `JobQueueTest`, capture `16_file_des_traitements`.
+- Préréglages d'export : `ExportPresetUi.kt` (`choosePreset/presetTrackedFrom/resetToPreset` pour `SettingsState` et `MontageUiState`, `PresetKnob`,
+  `ExportPresetPicker` + case miniature ; `ExportBarPresets` en haut de `ExportBar`, `MontagePresets` en haut de `MontageDialog`) ; action `updateExportSettings`
+  (resélectionne si la durée change), `UiState.presets` (`ConfigStatus.Ready.presets`), `SettingsState/MontageUiState.preset/presetTouched/thumbnail`. Test : `ExportPresetUiTest`.
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).
 - Pont de pilotage (dev seulement) `bridge/` : `ControlBridge` (HttpServer 127.0.0.1, port+jeton dans `~/.highlights/control-bridge.json` ; `enabled` = `-Dhighlights.bridge=true`
@@ -466,6 +474,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `app.yaml` → `AppConfig`. Installée : `%APPDATA%\Highlights\config`, sortie `~/Videos/Highlights` (filtre au packaging).
 - `profiles/{apex,default,lol,valorant,cs2,wardogs,fortnite}.yaml` → `GameProfile`. Sections : `id, displayName, match{pathContains, priority}, window{size,hop}, audio{mix,game,mic}, detectors[], selection, edit{style, story, grade, vertical{reference, hud[]}, formats…}, montage{…}`.
   YAML strict : une clé inconnue = `ConfigException`. Profils : wardogs (ocr-log + icônes + gate hud-template, pose `aim`), valorant (outplayed-events avec offsets −390 ms, killfeed en secours et `kill-confirm` toujours, `matchCut.pose: rest`, weapon ammo_icon, `vertical` : recadrage sous le bandeau du haut + bandeau `topbar` replacé, mesuré en 16:9, test `ValorantVerticalTest`), cs2 (killfeed `outline` + `player` : kills/morts/assistances (pseudo appris + récompense du chat) ; `vertical` : bandeau, killfeed, mini-carte et vie/munitions replacés, mesuré en 854x480), lol (audio+voix+rires), fortnite (hud-template « KNOCKED! » → `knock`, puis hud-counter `dependsOn: [knocks]` : `elimination` au compteur, `kill` à la mise à terre que l'élimination achève ; vérité 31/31 et 33/33), apex (ocr-log sur la notification sous le réticule : `kill` = KNOCKED DOWN (mise à terre = kill, choix du joueur), ELIMINATED/SQUAD WIPE en `finish` écartés par `finishes` s'ils achèvent une mise à terre, `maxDrop: 1` notifications empilées ; 9:16 compteur + killfeed en haut à gauche, vie + arme en bas sous la notification ; ni ace ni clutch ; vérité `verite/apex/` avec `lead: 30s` : 47/56 et 35/36), default.
+- `export-presets.yaml` : préréglages d'export (tiktok, shorts, complet ; `--preset`, puces).
 - `templates/<jeu>/*.png` (modèles HUD), `models/yamnet.onnx` + `yamnet_class_map.csv` ; `models/ggml-*.bin` (whisper) hors dépôt et hors installeur.
 - Chemins relatifs dans les profils → résolus par `LoadedConfig.resolve` (dans `gradedEdit`, `killMontage` pour `matchCut.weapon.template`, et `ctx.configDir` pour les détecteurs).
 

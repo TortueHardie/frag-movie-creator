@@ -725,6 +725,38 @@ commande pour `export`, `process` et `montage`) adapte l'export à là où la vi
 & $app export output\sessions\partie.session.json --platform shorts
 ```
 
+## Préréglages d'export (TikTok, YouTube court, vidéo complète)
+
+Un préréglage choisit d'un clic **ce qu'on fabrique**, pour les highlights comme pour le montage kills : puces en haut
+de la barre d'export et de la fenêtre de montage, `--preset <id>` en ligne de commande (`export`, `process`, `montage`,
+`search --montage`). Ils sont dans `config/export-presets.yaml` (YAML strict, comme les styles) : on peut les modifier,
+en ajouter ou en retirer.
+
+| | Plateforme / format | Durée | Highlights | Style du montage kills | Miniature |
+|---|---|---|---|---|---|
+| `tiktok` (TikTok) | `tiktok` (9:16) | 30 s | story | `tiktok` | non (TikTok choisit la couverture à la publication) |
+| `shorts` (YouTube court) | `shorts` (9:16) | 60 s | story | `cinematique` | non (un Short ne prend pas de miniature envoyée) |
+| `complet` (vidéo complète) | 16:9 | 3 min | story | `cinematique` | oui |
+
+- **Durée** : durée cible des highlights (les moments sont resélectionnés aussitôt dans l'application, comme quand on
+  tape la durée) et durée maximale du montage kills (la durée adaptée au nombre de kills reste un plafond).
+  `export` repart des moments déjà choisis dans la session : la durée du préréglage n'y change rien.
+- **Personnalisé** : aucun préréglage, les réglages restent tels qu'ils sont.
+- **Ce qu'on choisit à la main passe devant** : un réglage changé sous un préréglage (plateforme, formats, durée, style,
+  miniature) est noté (« 1 réglage modifié à la main ») et ne bouge plus quand on change de préréglage ; « Revenir au
+  préréglage » l'oublie. En ligne de commande, `--platform`, `-f`, `--max`, `--duration`, `--style`, `--thumbnail`
+  passent devant `--preset` ; un format choisi (`-f`) écarte la plateforme du préréglage, qui imposerait le sien.
+- Montage kills : le style du préréglage passe devant le style par défaut de `montage-styles.yaml` ; les cases d'un
+  style modifiées à la main restent.
+- La case **Miniature YouTube** (sous les puces) est posée par le préréglage et se change à la main.
+- Un préréglage qui vise une plateforme ou un style inconnus est refusé au choix, avec la liste de ceux qui existent.
+
+```powershell
+& $app montage output\sessions\partie.session.json --music D:\Musique --preset tiktok
+& $app process D:\Vidéo\partie.mp4 --preset complet
+& $app search --min-kills 2 --montage D:\Musique --preset shorts
+```
+
 ## Miniature YouTube
 
 Chaque export lancé depuis l'application écrit aussi une miniature PNG prête pour YouTube, à côté de la vidéo
@@ -1438,6 +1470,7 @@ Un fichier existant n'est jamais écrasé (suffixe `_2`, `_3`…), et les source
 
 - `config/app.yaml` : FFmpeg, dossiers, préférence d'encodeur, parallélisme.
 - `config/montage-styles.yaml` : styles du montage kills (`--style`, puces de la fenêtre de montage) et style par défaut.
+- `config/export-presets.yaml` : préréglages d'export (`--preset`, puces de la barre d'export et de la fenêtre de montage).
 - `config/profiles/*.yaml` : un fichier par jeu. Il définit les fenêtres d'analyse, les détecteurs (type, poids, normalisation, paramètres), la sélection (seuil, marges, durée cible) et le montage. Le profil est choisi d'après le chemin du fichier (`match.pathContains`), sinon c'est `default`. `--profile` force un profil.
 
 Pistes audio : un détecteur demande un rôle (`role: game`, `role: mic`…) et non un numéro de piste ; l'index reste

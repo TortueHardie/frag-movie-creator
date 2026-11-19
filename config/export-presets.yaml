@@ -1,0 +1,48 @@
+# Préréglages d'export : ce qu'on fabrique, choisi d'un clic (puces en haut de la barre d'export et de la fenêtre de
+# montage, --preset <id> en ligne de commande) pour les highlights comme pour le montage kills. Un préréglage ne dit que
+# ce qu'il change ; un réglage modifié à la main, ou une option de la ligne de commande, passe devant lui.
+# « Personnalisé » (aucun préréglage) laisse tous les réglages tels qu'ils sont.
+#
+# Champs possibles :
+#   platform        plateforme visée (tiktok, shorts, reels, youtube, ou une plateforme d'app.yaml) : impose le format,
+#                   le volume, le débit, la zone sûre des textes, et sa durée maximale sert de plafond ;
+#   format          format sans plateforme : source, "16:9" ou "9:16" (pas avec platform) ;
+#   length          durée visée (30s, 1m30s…) : durée cible des highlights, durée maximale du montage kills ;
+#   highlightsStyle montage des highlights : simple ou story ;
+#   montageStyle    style du montage kills (identifiant de montage-styles.yaml) ;
+#   thumbnail       miniature YouTube à côté de chaque vidéo (true / false).
+# Nom et description affichés : traduits pour les préréglages livrés (clés preset.<id>), sinon displayName et
+# description ci-dessous. On peut en ajouter, en retirer ou les modifier.
+
+presets:
+  # Vidéo verticale courte, rythmée : un kill par temps de musique. TikTok choisit la couverture dans l'application
+  # au moment de publier : pas de miniature.
+  - id: tiktok
+    displayName: TikTok
+    description: Vertical 9:16, 30 seconds, one kill on every beat. No thumbnail (TikTok picks the cover when you post).
+    platform: tiktok
+    length: 30s
+    highlightsStyle: story
+    montageStyle: tiktok
+    thumbnail: false
+
+  # Short YouTube : vertical, un peu plus long, montage qui monte jusqu'au meilleur kill. YouTube ne prend pas de
+  # miniature envoyée pour un Short : pas de miniature.
+  - id: shorts
+    displayName: YouTube Short
+    description: Vertical 9:16, up to 60 seconds, building up to the best kill. No thumbnail (Shorts don't take uploaded ones).
+    platform: shorts
+    length: 60s
+    highlightsStyle: story
+    montageStyle: cinematique
+    thumbnail: false
+
+  # Vidéo YouTube classique : en largeur, plus longue, avec sa miniature.
+  - id: complet
+    displayName: Full video
+    description: Widescreen 16:9, up to 3 minutes, with a YouTube thumbnail.
+    format: "16:9"
+    length: 3m
+    highlightsStyle: story
+    montageStyle: cinematique
+    thumbnail: true
