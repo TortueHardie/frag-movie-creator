@@ -9,8 +9,8 @@ import kotlin.time.Duration.Companion.milliseconds
 /**
  * Clutchs réels, comptés à partir des morts des deux équipes lues dans le killfeed (détecteur `killfeed-teams`) :
  * dans un round, le joueur se retrouve seul de son équipe en vie face à au moins [KillStyle.clutchMinEnemies]
- * adversaires, puis l'équipe adverse est éliminée sans qu'il meure. C'est la règle du jeu, qui affiche alors
- * « CLUTCH » en fin de round. Sans Outplayed, c'était jusqu'ici déduit des seuls kills et morts du joueur (round
+ * adversaires (1 par défaut : un 1 contre 1 gagné compte ; le jeu, lui, n'affiche « CLUTCH » qu'à partir d'un 1
+ * contre 2), puis l'équipe adverse est éliminée sans qu'il meure. Sans Outplayed, c'était jusqu'ici déduit des seuls kills et morts du joueur (round
  * survécu fini sur un multi-kill), ce qui en comptait trois pour un vrai.
  *
  * Limite : un round gagné au désamorçage du spike (ou à son explosion) ne passe pas par le killfeed, ses clutchs sont

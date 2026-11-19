@@ -11,7 +11,7 @@ import kotlin.time.Duration.Companion.seconds
 class TeamRoundsTest : FunSpec({
     val gap = 40.seconds
     fun s(vararg v: Int) = v.map { it.seconds }
-    fun clutches(allies: List<Duration>, enemies: List<Duration>, player: List<Duration> = emptyList(), min: Int = 2) =
+    fun clutches(allies: List<Duration>, enemies: List<Duration>, player: List<Duration> = emptyList(), min: Int = 1) =
         TeamRounds.clutches(allies, enemies, player, gap, teamSize = 5, minEnemies = min)
 
     test("seul face à trois, le joueur élimine l'équipe adverse : clutch") {
@@ -20,11 +20,26 @@ class TeamRoundsTest : FunSpec({
         out shouldBe listOf(TeamRounds.Clutch(alone = 120.seconds, enemies = 3, won = 140.seconds))
     }
 
-    test("un 1 contre 1 gagné n'est un clutch qu'avec clutchMinEnemies = 1, comme dans le jeu") {
+    test("un 1 contre 1 gagné est un clutch par défaut ; avec clutchMinEnemies = 2 (comme le bandeau du jeu), non") {
         val allies = s(110, 112, 115, 135)
         val enemies = s(100, 105, 120, 130, 140)
-        clutches(allies, enemies).shouldBeEmpty()
-        clutches(allies, enemies, min = 1).size shouldBe 1
+        TeamRounds.clutchTimes(
+            allies.map { TimelineEvent(it, "ally-death", 1.0, "teams") } + enemies.map { TimelineEvent(it, "enemy-death", 1.0, "teams") },
+            emptyList(), KillStyle(), Duration.ZERO,
+        ) shouldBe listOf(140.seconds + TeamRounds.AFTER_LAST)
+        clutches(allies, enemies, min = 2).shouldBeEmpty()
+    }
+
+    test("le 1 contre 1 de la partie « Valorant- 44 kills » (19:07), tel que lu par killfeed-teams") {
+        // Round commencé à 1078,4 s (barres de vie pleines) : trois alliés tombent, puis quatre adversaires, le dernier
+        // allié à 1145 s ; le joueur, seul contre un, tue le dernier à 1147 s. Bandeau de fin de round : « WON ».
+        val events = listOf(1078.4 to "round-start") +
+            listOf(1083.25, 1091.45, 1094.05, 1145.05).map { it to "ally-death" } +
+            listOf(1099.45, 1101.85, 1127.25, 1142.65, 1147.05).map { it to "enemy-death" } +
+            // Fin du round précédent (perdu) : ses morts ne comptent pas dans celui-ci.
+            listOf(1052.65, 1056.45).map { it to "ally-death" }
+        val timeline = events.map { (t, k) -> TimelineEvent(t.seconds, k, 1.0, "teams") }.sortedBy { it.at }
+        TeamRounds.clutchTimes(timeline, listOf(1055.25.seconds), KillStyle(), Duration.ZERO) shouldBe listOf(1147.05.seconds + TeamRounds.AFTER_LAST)
     }
 
     test("la ligne de la mort du joueur n'est pas celle d'un allié, et sa mort empêche le clutch") {

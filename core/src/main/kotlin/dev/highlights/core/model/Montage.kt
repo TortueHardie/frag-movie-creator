@@ -629,10 +629,11 @@ data class KillStyle(
     /** Joueurs par équipe (5 dans VALORANT). */
     val teamSize: Int = 5,
     /**
-     * Adversaires encore en vie quand le joueur se retrouve seul : à partir de combien c'est un clutch. 2 comme le jeu,
-     * qui n'affiche « CLUTCH » qu'à partir d'un 1 contre 2 (un 1 contre 1 gagné y reste « WON », vu sur deux parties).
+     * Adversaires encore en vie quand le joueur se retrouve seul : à partir de combien c'est un clutch. 1 : un 1 contre
+     * 1 gagné en est un (choix de l'utilisateur, 19/11), bien que le jeu n'affiche « CLUTCH » qu'à partir d'un 1 contre 2
+     * (un 1 contre 1 gagné y reste « WON », vu sur deux parties). 2 pour suivre le jeu.
      */
-    val clutchMinEnemies: Int = 2,
+    val clutchMinEnemies: Int = 1,
     /**
      * Ligne du killfeed où le joueur (ou un allié) meurt pendant l'ultime de Phoenix (« Run it Back ») : il revient
      * aussitôt, ce n'est pas une mort. Une mort du joueur lue à moins de 1,5 s de cet événement est retirée partout
