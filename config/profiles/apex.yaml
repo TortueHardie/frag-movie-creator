@@ -23,21 +23,17 @@ detectors:
     normalization: { lowPercentile: 0.8, highPercentile: 0.99, minSpread: 12 }
     params: { role: mic, optional: true }
 
-  # Kills et ennemis mis à terre lus dans la notification sous le réticule, par l'OCR de Windows :
-  # « KNOCKED DOWN <pseudo> » (ennemi à terre : c'est la fusillade), « ELIMINATED <pseudo> » (achevé ou mort
-  # au sol), « SQUAD WIPE » (dernier de l'escouade : toute l'escouade tombe d'un coup). Les notifications
-  # s'empilent : la nouvelle s'insère au-dessus et pousse les autres d'une ligne (maxDrop).
-  # Mesuré sur « Apex 53 kills octane » (compilation YouTube de 3 parties en 854x480, image teintée) contre le
-  # compteur de kills du HUD, lu à l'œil (verite/apex/) : 33 kills sur 56 crédits du compteur, aucun en trop,
-  # tous à moins de 3 s (avant credits). Les crédits manqués sont surtout ceux d'un « SQUAD WIPE » : le jeu y crédite d'un coup
-  # 2 ou 3 kills (les ennemis déjà mis à terre par le joueur) sous une seule notification. 51 « knock ».
-  # Deuxième capture, relevée après ce réglage (« Apex 37 kills revenant », une partie, autre légende) : 22 kills sur
-  # 36 à 3 s, et 5 vus 4 s en retard (« SQUAD WIPE » derrière une death box). Calage et compte des SQUAD WIPE : credits.
-  # Pas de mort du joueur dans cette capture : « death » n'est pas lu (rien à mesurer).
+  # Kills lus dans la notification sous le réticule, par l'OCR de Windows : « KNOCKED DOWN <pseudo> » (ennemi à
+  # terre : la fusillade, c'est le kill), « ELIMINATED <pseudo> » (achevé ou mort au sol) et « SQUAD WIPE » (dernier
+  # de l'escouade : toute l'escouade tombe), qui ne comptent que sans mise à terre avant elles (finishes). Les
+  # notifications s'empilent : la nouvelle s'insère au-dessus et pousse les autres d'une ligne (maxDrop).
+  # Mesuré sur deux compilations YouTube en 854x480, image teintée (verite/apex/, compteur de kills du HUD relevé à
+  # l'œil) : « Apex 53 kills octane » 53 kills pour 56 crédits, « Apex 37 kills revenant » 37 pour 36.
+  # Pas de mort du joueur dans ces captures : « death » n'est pas lu (rien à mesurer).
   - id: game-events
     type: ocr-log
     weight: 0
-    eventBoosts: { kill: 0.8, knock: 0.5 }
+    eventBoosts: { kill: 0.8 }
     params:
       # Bande des notifications, sous le réticule : deux lignes empilées (y 0,66 à 0,83 d'une capture 16:9).
       # referenceHeight fixe aussi l'agrandissement avant l'OCR : 1920 = ×4 en 480p, ×1,8 en 1080p (texte de
@@ -50,24 +46,21 @@ detectors:
       language: en-US
       rules:
         - match: [CRATEREVEAL]
-        - kind: kill
+        - kind: finish
           match: [SQUADWIPE, ELIMINATED]
-        - kind: knock
+        - kind: kill
           match: [KNOCKEDDOWN]
       # Écart entre deux lignes empilées, en pixels de la zone agrandie (mesuré : 99 puis 239).
       rowPitch: 130
       rowTolerance: 12
       maxDrop: 1
-      # « SQUAD WIPE » crédite d'un coup les ennemis que le joueur avait mis à terre, et arrive jusqu'à 4,5 s après
-      # la dernière mise à terre (death box ouverte : notification cachée). Daté de la dernière « knock » (6 s au
-      # plus avant), compté autant de fois qu'il y a eu de « knock » depuis le kill précédent (30 s au plus).
-      # Mesuré à 3 s sur verite/apex/ : octane 33 vrais / 0 faux → 43 / 1 ; revenant 22 / 5 → 29 / 2 (les faux
-      # restants sont de vrais kills dont la deuxième notification « ELIMINATED » arrive 4 s après le crédit).
-      credits:
-        - match: [SQUADWIPE]
-          to: knock
-          within: 6s
-          countSince: 30s
+      # Le kill, c'est la mise à terre (choix du joueur, 19/11) : « KNOCKED DOWN » donne le kill et date le plan du
+      # montage. « ELIMINATED » / « SQUAD WIPE » qui achève un ennemi déjà mis à terre (30 s au plus avant) ne compte pas
+      # en plus ; « SQUAD WIPE » referme toutes les mises à terre ouvertes. Sans mise à terre lue avant (achèvement
+      # hors champ, tiers), l'élimination compte, à son instant. Mesuré : 53 kills pour 56 crédits du compteur
+      # (octane), 37 pour 36 (revenant). Datés de la mise à terre, ils précèdent le crédit du compteur, qui tombe à
+      # l'élimination : app verite (3 s) n'en retrouve que 24 et 16 au même instant (voir verite/apex/).
+      finishes: { finish: finish, hit: kill, within: 30s, all: [SQUADWIPE] }
       # Une notification reste 2 à 4 s ; deux kills de suite la remplacent au même endroit. Une lecture suffit
       # (« ELIMINATED » souvent lu une seule fois sur ciel clair) et un trou d'une seconde fait une nouvelle ligne.
       # Simulé : 2 lectures et 2 s d'oubli → 28 kills ; 1 lecture et 1 s → 32 (33 par app verite), toujours sans faux positif.
@@ -111,7 +104,7 @@ edit:
     jumpCuts: { minGap: 2s, breath: 300ms, deadScore: 0.35, alternateZoom: 1.08 }
     coldOpen: { enabled: true, length: 3s }
     punchIn: { amount: 0.15, on: [laughter, shout] }
-    shake: { amplitude: 0.012, events: [kill, knock] }
+    shake: { amplitude: 0.012, events: [kill] }
     sfx: { enabled: true, whooshVolume: 0.35, impactVolume: 0.5 }
     labels: { enabled: true }
     slowMo: { enabled: true, factor: 0.5, onlyStrong: true }
@@ -121,10 +114,10 @@ edit:
   loudnessLufs: -14
   audio: mix
   formats: ["source"]
-  # Vertical 9:16 : le recadrage au centre perd tout le HUD de droite. Le compteur (escouades restantes, kills,
+  # Vertical 9:16 : le recadrage au centre perd tout le HUD des côtés. Le compteur (escouades restantes, kills,
   # dégâts) et le killfeed, en haut à droite, sont replacés en haut à gauche, hors des boutons des applications
-  # verticales (à droite). Rien n'est replacé en bas : la notification KNOCKED DOWN / ELIMINATED (y 0,66 à 0,83,
-  # au centre) reste dans l'image recadrée et ne doit pas être couverte. Mesuré en 16:9 (854x480).
+  # verticales (à droite) ; vie et arme en bas, sous la notification KNOCKED DOWN / ELIMINATED (y 0,66 à 0,83, au
+  # centre), qui reste dans l'image recadrée et n'est pas couverte. Mesuré en 16:9 (854x480).
   vertical:
     size: { width: 1080, height: 1920 }
     reference: { width: 1920, height: 1080 }
@@ -136,6 +129,17 @@ edit:
       - name: killfeed
         source: { x: 0.70, y: 0.125, width: 0.255, height: 0.165 }
         target: { x: 0.05, y: 0.135, width: 0.62 }
+        anchor: right
+      # Vie / boucliers et arme / munitions (choix du joueur, 19/11), replacés en bas, sous la bande de la notification
+      # KNOCKED DOWN / ELIMINATED (y 0,66 à 0,83 de la capture, reprise telle quelle par le recadrage 9:16) : ils
+      # commencent à y 0,85. Mesuré en 16:9 (854x480).
+      - name: health
+        source: { x: 0.008, y: 0.845, width: 0.22, height: 0.11 }
+        target: { x: 0.03, y: 0.85, width: 0.46 }
+        anchor: left
+      - name: weapon
+        source: { x: 0.78, y: 0.88, width: 0.195, height: 0.10 }
+        target: { x: 0.55, y: 0.85, width: 0.42 }
         anchor: right
 
 montage:

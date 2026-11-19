@@ -63,6 +63,34 @@ class RewardsLogTest : FunSpec({
         tracker.update(31.seconds, listOf(row(0, "kill"))).map { it.at } shouldBe listOf(30.seconds)
     }
 
+    test("mise à terre = kill (Apex) : l'achèvement d'un ennemi déjà à terre ne compte pas en plus") {
+        fun e(at: Double, kind: String, text: String) = LogEvent(at.seconds, kind, text)
+        val finish = LogFinish(finish = "finish", hit = "kill", within = 30.seconds, all = listOf("SQUADWIPE"))
+        // Lectures de « Apex 37 kills revenant » (texte de l'OCR tel quel), règles du profil apex.
+        val read = listOf(
+            e(17.5, "kill", "KNOCKED DOWN"),
+            e(24.5, "finish", "ELIMINATED"), // achève la mise à terre de 17.5
+            e(204.0, "kill", "KNOCKED DOWN"),
+            e(208.0, "kill", "KNOCKED DOWN • tso"),
+            e(223.5, "kill", "KNOCKED DOWN •150 e."),
+            e(227.5, "finish", "SQUAD WIPE • 100"), // referme les trois
+            e(337.5, "kill", "KNOCKED DOWN"),
+            e(341.0, "kill", "KNOCKED DOWN"),
+            e(346.0, "finish", "e ELIMINATED"), // achève 337.5
+            e(349.5, "finish", "e ELIMINATED"), // achève 341
+            e(443.0, "kill", "\"(NOCKED DOWN -"),
+            e(446.5, "kill", "KNOCKED DOWN • tsot•"),
+            e(449.0, "finish", "SQUAD WIPE • 100"),
+            e(450.5, "finish", "SQUAO WIPE • 100"), // relue : rien à refermer, écartée
+            e(667.5, "finish", "ELIMINATEb"), // aucune mise à terre lue avant : compte
+        )
+        val out = LogFinishes.apply(read, finish)
+        out.all { it.kind == "kill" } shouldBe true
+        out.map { it.at.inWholeMilliseconds / 1000.0 } shouldBe listOf(17.5, 204.0, 208.0, 223.5, 337.5, 341.0, 443.0, 446.5, 667.5)
+        // Une mise à terre trop ancienne (au-delà de within) ne retient pas l'achèvement : il compte.
+        LogFinishes.apply(listOf(e(0.0, "kill", "KNOCKED DOWN"), e(40.0, "finish", "ELIMINATED")), finish).size shouldBe 2
+    }
+
     test("SQUAD WIPE (Apex) : daté de la dernière mise à terre, compté par mise à terre, relecture écartée") {
         fun e(at: Double, kind: String, text: String) = LogEvent(at.seconds, kind, text)
         val credit = LogCredit(listOf("SQUADWIPE"), to = "knock", within = 6.seconds, countSince = 30.seconds)

@@ -6,6 +6,7 @@ import java.text.Normalizer
 import kotlin.math.abs
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
+import kotlin.time.Duration.Companion.seconds
 
 /** Ligne de texte reconnue sur une image, position en pixels de la zone. */
 data class OcrLine(val text: String, val x: Int, val y: Int, val width: Int, val height: Int)
@@ -50,6 +51,68 @@ data class LogCredit(
             "libellés en majuscules sans accents ni ponctuation attendus : $match"
         }
         require(within.isPositive() && (countSince == null || countSince.isPositive())) { "durées positives attendues : $this" }
+    }
+}
+
+/**
+ * Coups de grâce (Apex : « ELIMINATED », « SQUAD WIPE ») qui ne comptent pas en plus du coup qui a mis l'ennemi à terre
+ * (« KNOCKED DOWN »). Le joueur l'a voulu ainsi : le kill, c'est la mise à terre, pas l'achèvement (souvent 2 à 10 s plus
+ * tard, ou jamais montré). Les lignes [finish] sont rapprochées des lignes [hit] encore ouvertes (lues au plus [within]
+ * avant elles) :
+ * - une ligne [finish] referme la plus ancienne mise à terre ouverte, et ne donne rien de plus ;
+ * - une ligne dont le texte correspond à l'un des libellés [all] (« SQUAD WIPE » : toute l'escouade tombe) les referme
+ *   toutes ;
+ * - sans mise à terre ouverte (achèvement d'un ennemi mis à terre hors champ, tiers qui passe), elle devient un [hit] à
+ *   son propre instant, sauf si la même notification vient d'être lue moins de [repeat] avant (relecture : deux
+ *   « SQUAD WIPE » à 1,5 s, « Apex 37 kills revenant » à 7:29).
+ * Les lignes [finish] ne sortent pas du détecteur. Mesuré sur deux captures : 53 kills pour 56 crédits du compteur du
+ * HUD, 37 pour 36 (une mise à terre relevée par les alliés compte ; un ennemi achevé sans mise à terre lue aussi).
+ */
+@Serializable
+data class LogFinish(
+    val finish: String,
+    val hit: String,
+    val within: SerialDuration,
+    val all: List<String> = emptyList(),
+    val repeat: SerialDuration = 3.seconds,
+) {
+    init {
+        require(finish.isNotEmpty() && hit.isNotEmpty() && finish != hit) { "finish et hit distincts attendus : $this" }
+        require(all.all { RewardsLog.letters(it) == it && it.isNotEmpty() }) { "libellés en majuscules sans accents ni ponctuation attendus : $all" }
+        require(within.isPositive() && !repeat.isNegative()) { "durées positives attendues : $this" }
+    }
+}
+
+/** Application d'un [LogFinish] aux événements lus. */
+object LogFinishes {
+    fun apply(events: List<LogEvent>, finish: LogFinish?): List<LogEvent> {
+        if (finish == null) return events
+        // À instant égal, la mise à terre d'abord : « SQUAD WIPE » et « KNOCKED DOWN » du dernier ennemi s'affichent ensemble.
+        val sorted = events.sortedWith(compareBy({ it.at }, { if (it.kind == finish.hit) 0 else 1 }))
+        val open = ArrayDeque<Duration>()
+        val out = mutableListOf<LogEvent>()
+        val lastRead = mutableMapOf<Boolean, Duration>()
+        for (e in sorted) {
+            while (open.isNotEmpty() && e.at - open.first() > finish.within) open.removeFirst()
+            when (e.kind) {
+                finish.hit -> {
+                    open.addLast(e.at)
+                    out += e
+                }
+                finish.finish -> {
+                    val wipe = finish.all.isNotEmpty() && RewardsLog.classify(e.text, listOf(LogRule(e.kind, finish.all))) == e.kind
+                    val previous = lastRead[wipe]
+                    lastRead[wipe] = e.at
+                    when {
+                        open.isNotEmpty() -> if (wipe) open.clear() else open.removeFirst()
+                        previous != null && e.at - previous <= finish.repeat -> Unit
+                        else -> out += e.copy(kind = finish.hit)
+                    }
+                }
+                else -> out += e
+            }
+        }
+        return out.sortedBy { it.at }
     }
 }
 

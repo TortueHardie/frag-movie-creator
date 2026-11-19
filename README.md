@@ -916,30 +916,34 @@ Windows (rien à installer), par lots et en parallèle pendant le décodage de l
 
 ## Notifications de kill (Apex Legends)
 
-Le profil `apex` lit avec `ocr-log` la notification affichée sous le réticule, au lieu d'un journal : « KNOCKED DOWN
-<pseudo> » donne un événement `knock` (ennemi mis à terre : la fusillade), « ELIMINATED <pseudo> » et « SQUAD WIPE »
-un `kill`. Les notifications s'empilent, la nouvelle au-dessus des autres : `maxDrop: 1` laisse une ligne déjà vue
-descendre d'un cran sans la recompter (sans lui, une élimination poussée par un « KNOCKED DOWN » comptait deux fois).
-Jeu en anglais (`language: en-US`).
+Le profil `apex` lit avec `ocr-log` la notification affichée sous le réticule, au lieu d'un journal. Les notifications
+s'empilent, la nouvelle au-dessus des autres : `maxDrop: 1` laisse une ligne déjà vue descendre d'un cran sans la
+recompter (sans lui, une élimination poussée par un « KNOCKED DOWN » comptait deux fois). Jeu en anglais
+(`language: en-US`).
 
-- Le montage s'ancre sur les `kill` ; les `knock` comptent pour les moments forts des highlights (`eventBoosts`) et la
-  secousse du mode story. Ni ace ni clutch déduits (escouades de trois, pas de rounds).
-- 9:16 : compteur (escouades restantes, kills, dégâts) et killfeed, en haut à droite, sont replacés en haut à gauche ;
-  rien en bas, pour ne pas couvrir la notification.
-- « SQUAD WIPE » (`credits` du détecteur, `LogCredit`) : le dernier de l'escouade tombe et les ennemis que le joueur
-  avait mis à terre meurent avec lui, 2 ou 3 kills sous une seule notification, qui arrive parfois jusqu'à 4,5 s après
-  (death box ouverte au moment du kill : notification cachée, le montage coupait 4 s trop tard). Le kill est daté de
-  la dernière mise à terre (6 s au plus avant), et compté autant de fois qu'il y a eu de mises à terre depuis le kill
-  précédent (30 s au plus) ; une même notification relue sans mise à terre entre les deux est écartée. Le compte est
-  une estimation : juste pour 15 « SQUAD WIPE » sur 24, un de moins pour 5 (mise à terre non lue), un de plus pour 1.
-  Les libellés DOUBLÉ / TRIPLÉ du montage et les statistiques en profitent.
-- Mesuré contre le compteur de kills du HUD, relevé à l'œil (`verite/apex/`, tolérance 3 s), sur deux compilations
-  YouTube en 854x480, image teintée : « Apex 53 kills octane » (trois parties) 43 kills sur 56, 1 en trop (33 et 0
-  avant le calage des SQUAD WIPE) ; « Apex 37 kills revenant » (une partie, relevée après le premier réglage) 29 sur
-  36, 2 en trop (22 et 5 avant). Les « en trop » sont de vrais kills mal datés : une deuxième « ELIMINATED » vue 4 s
-  après un crédit double, ou une mise à terre de trop dans un SQUAD WIPE. Le compteur lui-même (chiffres de ~6 px en
-  480p) n'est pas lisible par l'OCR de Windows ; une lecture par modèles d'image n'a pas été tentée. Morts du joueur
-  non lues : aucune dans cette capture.
+- **Le kill, c'est la mise à terre** (choix du joueur) : « KNOCKED DOWN <pseudo> » donne le `kill`, et le plan du
+  montage est calé dessus. « ELIMINATED <pseudo> » et « SQUAD WIPE » (`finishes` du détecteur, `LogFinish`) qui
+  achèvent un ennemi déjà mis à terre (30 s au plus avant) ne font ni un deuxième plan ni un deuxième kill ;
+  « SQUAD WIPE » referme toutes les mises à terre ouvertes. Une élimination sans mise à terre lue avant (achèvement
+  hors champ, tiers qui passe) compte, à son instant ; une même notification relue est écartée. Les libellés
+  DOUBLÉ / TRIPLÉ et les statistiques suivent les mises à terre.
+- Ni ace ni clutch déduits (escouades de trois, pas de rounds).
+- 9:16 : compteur (escouades restantes, kills, dégâts) et killfeed, en haut à droite, replacés en haut à gauche ; vie
+  et arme replacées en bas (à partir de y 0,85), sous la bande de la notification (y 0,66 à 0,83), qui reste visible.
+- Mesuré contre le compteur de kills du HUD, relevé à l'œil (`verite/apex/`), sur deux compilations YouTube en
+  854x480, image teintée. Le compteur crédite le kill à l'élimination, 2 à 30 s après la mise à terre : la vérité
+  le dit (`lead: 30s` : une détection peut précéder le relevé de 30 s, `GroundTruth.lead`). « Apex 53 kills octane »
+  (trois parties) : 54 kills pour 56 crédits, 47 retrouvés ; « Apex 37 kills revenant » : 37 pour 36, 35 retrouvés.
+  Les kills sans crédit sont des mises à terre d'ennemis relevés par leurs alliés (le jeu ne les compte pas) ou
+  achevés par un autre. Avant (kill = élimination, SQUAD WIPE compté par mise à terre avec `credits`) : 43 et 29
+  vrais à 3 s.
+- Statistiques : les « kills » sont les mises à terre, comme le montage. Leur total est plus proche du compteur du jeu
+  (54 pour 56, 37 pour 36) que celui des éliminations lues (44 et 31) : une élimination de SQUAD WIPE en cache
+  plusieurs.
+- `credits` (`LogCredit`, datation et compte des notifications en rafale) reste disponible pour un jeu dont le kill
+  est l'élimination.
+- Le compteur lui-même (chiffres de ~6 px en 480p) n'est pas lisible par l'OCR de Windows. Morts du joueur non lues :
+  aucune dans ces captures.
 
 ## Voix et rires
 

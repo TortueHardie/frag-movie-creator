@@ -142,7 +142,7 @@ class VeriteCommand : PipelineCommand("verite") {
 
     private fun printScores(truth: GroundTruth, scores: List<DetectorScore>) {
         val counts = truth.kinds.joinToString { k -> "${truth.events.count { it.kind == k }} $k" }
-        echo("  vérité : $counts (tolérance ${truth.tolerance.toShortText()})")
+        echo("  vérité : $counts (tolérance ${truth.tolerance.toShortText()}${if (truth.lead.isPositive()) ", avance ${truth.lead.toShortText()}" else ""})")
         echo("  %-16s %-8s %5s %5s %5s %9s %7s  %s".format("détecteur", "sorte", "vrais", "faux", "manqués", "précision", "rappel", "seuil"))
         scores.forEach { s ->
             val threshold = truth.thresholds[s.detector]?.get(s.kind)

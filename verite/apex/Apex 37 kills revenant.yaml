@@ -9,6 +9,9 @@ profile: apex
 # arrivait jusqu'à 4,5 s après le crédit (3:43 : death box ouverte au moment du kill, notification vue à 3:47). Datée
 # de la dernière mise à terre, elle tombe à moins de 3 s.
 tolerance: 3s
+# Le kill est la mise à terre (KNOCKED DOWN, choix du joueur du 19/11) ; le compteur le crédite à l'élimination,
+# 2 à 30 s plus tard (achèvement, saignement, SQUAD WIPE) : une détection peut précéder le relevé de 30 s.
+lead: 30s
 validated: null
 note: "Relevé du compteur par Claude le 18/11/2026, à faire valider par le joueur. Deuxième capture, relevée après le réglage du profil sur la première : elle mesure s'il tient sur une autre vidéo."
 kinds: [kill]
@@ -49,7 +52,7 @@ events:
   - { at: "16:21", kind: kill, note: "compteur 34" }
   - { at: "16:57", kind: kill, note: "compteur 35" }
   - { at: "17:01", kind: kill, note: "compteur 36" }
-# Seuils = état mesuré (app verite, 19/11, à 3 s) : 29 kills sur 36, 2 en trop (5:49.5 et 14:22 : deuxième
-# « ELIMINATED » vue 4 s après un crédit double ; de vrais kills, mal datés). Avant le calage : 22 vrais, 5 faux.
+# Seuils = état mesuré (app verite, 19/11, kill = mise à terre, avance 30 s) : 37 kills pour 36 crédits, 35 retrouvés,
+# 2 sans crédit. À 3 s sans avance : 16. Avant (kill = élimination) : 29 vrais, 2 faux à 3 s.
 thresholds:
-  game-events: { kill: { precision: 0.9, recall: 0.75 } }
+  game-events: { kill: { precision: 0.9, recall: 0.9 } }

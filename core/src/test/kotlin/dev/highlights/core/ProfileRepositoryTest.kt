@@ -148,6 +148,6 @@ class ProfileRepositoryTest : FunSpec({
         repo.resolve(Path("D:/Vidéo/APEX LEGENDS 2026-11-18 21-04-11.mp4"), null).id shouldBe "apex"
         val events = repo.byId("apex").detectors.single { it.id == "game-events" }
         events.type shouldBe "ocr-log"
-        events.eventBoosts.keys shouldBe setOf("kill", "knock")
+        events.eventBoosts.keys shouldBe setOf("kill")
     }
 })
