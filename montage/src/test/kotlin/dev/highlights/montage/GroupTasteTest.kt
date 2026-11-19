@@ -23,7 +23,7 @@ class GroupTasteTest : FunSpec({
 
     /**
      * Corrections d'un utilisateur au goût caché : il garde de force les flicks que le plan avait laissés et écarte les
-     * kills aussitôt payés ; le reste, il n'y touche pas, sauf [noise] fois sur 1 où il écarte ou garde au hasard.
+     * one taps ; le reste, il n'y touche pas, sauf [noise] fois sur 1 où il écarte ou garde au hasard.
      */
     fun edits(n: Int, seed: Int, noise: Double = 0.1): List<TasteEdit> {
         val random = Random(seed)
@@ -31,14 +31,14 @@ class GroupTasteTest : FunSpec({
             val groups = List(12) {
                 val traits = buildList {
                     if (random.nextDouble() < 0.3) add(GroupTrait.FLICK.key)
-                    if (random.nextDouble() < 0.2) add(GroupTrait.TRADED.key)
+                    if (random.nextDouble() < 0.2) add(GroupTrait.ONE_TAP.key)
                     if (random.nextDouble() < 0.3) add(GroupTrait.MULTI_KILL.key)
                     if (random.nextDouble() < 0.4) add(GroupTrait.HEADSHOT.key)
                 }
                 val action = when {
                     random.nextDouble() < noise -> GroupAction.entries[random.nextInt(3)]
                     GroupTrait.FLICK.key in traits && random.nextDouble() < 0.5 -> GroupAction.FORCED
-                    GroupTrait.TRADED.key in traits && random.nextDouble() < 0.6 -> GroupAction.EXCLUDED
+                    GroupTrait.ONE_TAP.key in traits && random.nextDouble() < 0.6 -> GroupAction.EXCLUDED
                     else -> GroupAction.NONE
                 }
                 TasteGroup(traits.sorted(), action)
@@ -47,7 +47,7 @@ class GroupTasteTest : FunSpec({
         }
     }
 
-    test("sortes d'un groupe : multi-kill, tête, one tap, flick, ace, clutch, échange") {
+    test("sortes d'un groupe : multi-kill, tête, one tap, flick, ace, clutch") {
         GroupTrait.of(group(10)) shouldBe emptySet()
         GroupTrait.of(group(10, listOf(KillTraits(headshot = true, shots = 1), KillTraits(headshot = true, flick = 0.6)), RoundOutcome(ace = true, clutch = true, traded = true))) shouldBe
             GroupTrait.entries.toSet()
@@ -55,11 +55,11 @@ class GroupTasteTest : FunSpec({
         GroupTrait.of(group(10, listOf(KillTraits(headshot = true), plain))) shouldBe setOf(GroupTrait.MULTI_KILL)
     }
 
-    test("goût caché retrouvé : flick préféré, échange écarté, le reste près de zéro") {
+    test("goût caché retrouvé : flick préféré, one tap écarté, le reste près de zéro") {
         val learned = GroupTasteLearner.learn(edits(20, seed = 1))
         learned.active shouldBe true
         (learned.bonus.getValue(GroupTrait.FLICK) > 0.25) shouldBe true
-        (learned.bonus.getValue(GroupTrait.TRADED) < -0.1) shouldBe true
+        (learned.bonus.getValue(GroupTrait.ONE_TAP) < -0.1) shouldBe true
         // Neutres : sous le seuil du bruit, pas de bonus du tout.
         learned.bonus[GroupTrait.HEADSHOT] shouldBe null
         learned.bonus[GroupTrait.MULTI_KILL] shouldBe null
