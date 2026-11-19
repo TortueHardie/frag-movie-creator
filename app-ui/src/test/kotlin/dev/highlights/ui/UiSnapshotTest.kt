@@ -193,6 +193,12 @@ class UiSnapshotTest : FunSpec({
         render("06_montage", state).fileSize() shouldBeGreaterThan 0L
     }
 
+    test("ouverture et fin : réglages du logo, du pseudo et du fond") {
+        val cards = dev.highlights.core.model.IntroOutroSettings(enabled = true, logo = "D:/Images/logo.png", name = "ZeroX")
+        val state = UiState(config = ready, settings = settings, introCards = cards, introCustom = true, introDialog = IntroUiState())
+        render("16_ouverture_fin", state).fileSize() shouldBeGreaterThan 0L
+    }
+
     test("publication sur YouTube : champs proposés, puis sans identifiant configuré, puis lien de la vidéo en ligne") {
         val video = Path("D:/Highlights/valorant_2026-09-27_killmontage_9x16.mp4")
         val suggested = dev.highlights.publish.YouTubeMetadata(
@@ -365,6 +371,13 @@ private object NoopActions : UiActions {
     override fun openYouTubeUpload() = Unit
     override fun copyToClipboard(text: String) = Unit
     override fun updateMontage(change: (MontageUiState) -> MontageUiState) = Unit
+    override fun setIntroEnabled(enabled: Boolean) = Unit
+    override fun openIntro() = Unit
+    override fun closeIntro() = Unit
+    override fun updateIntro(change: (dev.highlights.core.model.IntroOutroSettings) -> dev.highlights.core.model.IntroOutroSettings) = Unit
+    override fun chooseIntroLogo() = Unit
+    override fun chooseIntroImage() = Unit
+    override fun setIntroPreview(format: OutputFormat, outro: Boolean) = Unit
     override fun createMontage() = Unit
     override fun open(path: Path) = Unit
     override fun reveal(path: Path) = Unit

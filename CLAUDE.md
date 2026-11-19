@@ -119,6 +119,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `model/Story.kt` : `EditStyle{SIMPLE,STORY}`, `StorySettings{jumpCuts, coldOpen, punchIn, shake, transition, sfx, music, captions, labels, slowMo, scenes, fadeOut}` et sous-classes.
 - `model/Montage.kt` : `MontageSettings` (voir §6) + `MontageLength, CutSettings, ShotAlign, KillStyle, SlowAudio, EffectDensity{SOBER,BALANCED,HEAVY},
   MontageOrder{BUILD_UP,CHRONOLOGICAL}, ZoomEffect, FlashEffect, WhipPanEffect, ColorBoost (couleurs boostées → `GradeSettings`), MotionBlur (`shutter` → tmix, `cuts` → flou radial), WeaponHud, PoseKind{AIM,REST}, MatchCut, SlowMotionEffect, SpeedRampEffect, TextEffect, GameAudio{FULL,KILLS}, MontageAudio`.
+- `model/IntroOutro.kt` : `IntroOutroSettings` (enabled, intro/outro, introLength/outroLength, logo, name, `CardBackground{COLOR,IMAGE,BLUR}`, color, image, font, textColor ; `hasContent`) :
+  section `intro:` d'`AppConfig` et de `GameProfile` (prioritaire), posée résolue dans `EditSettings.intro` (`@Transient`, jamais lue dans `edit:`) par le pipeline.
 - `model/ScreenGeometry.kt` : `RegionAnchor{LEFT,CENTER,RIGHT,AUTO}`, `ScreenGeometry.rescale/forVideo` (zones HUD mesurées en 21:9 → 16:9 etc.), `aspectLabel`.
 - `model/TimeRange.kt`, `model/WindowGrid.kt` (`count`, `rangeOf`, `centerOf`, `indicesCovering`).
 - `profile/GameProfile.kt` : `GameProfile(id, displayName, match, window, audio, detectors, selection, edit, montage)` (`name` / `localizedName(id)` = `profile.<id>` traduit, sinon displayName : interface, titres YouTube), `DetectorConfig(id, type=id, enabled,
@@ -179,6 +181,10 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 ### editing
 - `EditPlan.kt` : `PlannedClip`, `EditPlan(clips, settings, fade)`, `DefaultEditPlanner`.
 - `RenderCommandBuilder.kt` : rendu simple (une entrée par clip, xfade, loudnorm, recadrage 9:16 + HUD crop-and-replace, grade). `geometry`, `outputSize`, `pixelScale` (pixels de sortie par pixel de capture), `cropBox`, `grade`, `buildPreview`.
+- `IntroOutroCards.kt` : cartes d'ouverture et de fin, étage ajouté en fin de graphe par les trois builders (`append` sur la vidéo et le son
+  non normalisé → concat, `asetpts=N/SR/TB` sur le son du montage sinon concat refuse au hasard), `CardRequest.of(edit, w, h, stills, leadIn, introLength)`,
+  `CardStill` (image floutée : `stills` = meilleur moment / dernier), `MusicLeadIn` (montage : amorce de la musique avant `musicStart`), `beatLength` (temps entiers),
+  `layout` (zone sûre, logo lu par ImageIO, pseudo `VideoFonts.forText` + `Captions.fit`), `preview` (PNG). Test : `IntroOutroIT` (montage).
 - `SourceCuts.kt` : `SourceCut`, `CutInput`, `SourceCuts.input`, `SourceCutter.prepare` (MIN_CUTS=12 ; découpe si ≥ ; vérif espace disque).
 - `story/StoryPlanner.kt` : `StoryShot`, `ShotRole{COLD_OPEN,OPENING,JUMP}`, `StoryPlan`, `plan()` (accroche → scènes → `liveRanges` jump cuts → `decorate` punch/shake/slow/labels), `streakLabels`, `withCaptions`.
 - `story/StoryRenderBuilder.kt` : graphe story (framing zoom/shake, slowVideo, SFX générés `WHOOSH_SOURCE_*`/`IMPACT_SOURCE_*` ou `SfxBank` dossiers, musique `musicVolume`, `envelope`).
@@ -256,6 +262,8 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
   `refreshOutdated(progress)` les réanalyse (`reuse = false`).
 - `LibrarySearch.kt` : `MomentQuery(game, from, to, minKills, ace, clutch, allHeadshots ; matches)`, `FoundMoment` (groupe de kills d'une partie), `MomentPick(kills par capture ; keeps(group) à 1 s près)`.
   `HighlightPipeline.search(query)` (mêmes parties que `statistics`, via `analyzedGames`) ; `MontageOptions.onlyKills` filtre les groupes de `killMontage`.
+- `IntroOutroSupport.kt` : `resolve(config, profile, enabled, override)` (application > profil > app.yaml ; chemins résolus ; `error.intro.*`),
+  `reserved` (place dans la durée max d'une plateforme), `preview` ; `HighlightPipeline.introPreview/introSettings`, `ExportOptions/MontageOptions.intro/introSettings`.
 - `Diagnostics.kt` : `run(file?)` → sections (environnement, FFmpeg, encodeurs, détecteurs, profils, capture) ; `render()`.
 - `ProblemReport.kt` : rapport de problème (ZIP, rien d'envoyé). `ISSUES_URL` (seule ligne à changer si le dépôt est renommé), `issueUrl(title, body)` (≤ `MAX_URL` 2000, corps raccourci par la fin),
   `Part` (rubriques du résumé), `Sources(texts, logsDir, crashDirs, sessions, reports)` → `collect` → `Entry` déjà expurgées → `write` (.part puis move).
@@ -267,7 +275,7 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - `Main.kt` → `HighlightsCli` (+ sous-commandes). `CliSupport.kt` : `PipelineCommand` (options globales `--config`, `-v`, crée le pipeline), `ConsoleProgress`, `LogFiles`.
 - `Commands.kt` : `process, analyze, export, montage, music, preview, probe, doctor, encoders, score` ; `PublishCommand.kt` : `publish VIDEO [--title --description(-file) --tags --privacy --category --language --kids --no-notify --publish-at --dry-run] | --login | --logout`. Options montage :
   `--music --max --fill --chronological --effects --no-hook --from-start --no-zoom --no-flash --flash-every-cut --no-whip --no-whoosh --showcase --colors --no-motion-blur --fast --onetaps --no-match-cut --no-rounds --no-slowmo --no-ramp --no-text --balance --reactions --game-audio --out`.
-  `--platform` : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
+  `--platform` : `export`, `process`, `montage`. `--intro/--no-intro` (cartes d'ouverture et de fin) : `export`, `process`, `montage`. `StatsCommand.kt` : `stats [--game --games --last]`. `SearchCommand.kt` : `search [--game --from --to --last --min-kills --ace --clutch --headshots --limit --onetaps --montage MUSIQUE --max --platform --colors -o]`.
   Communes : `-c/--config`, `-v/--verbose`, `-f/--format`, `-p/--profile`, `-o/--out`, `--style`, `--music`, `--top|--duration|--all`, `--kills`, `--threshold`, `--reanalyze` ;
   `music` : `--max --clips` ; `preview` : `--at`.
 - Logs : `~/.highlights/logs/highlights.log` (logback.xml).
@@ -283,6 +291,9 @@ Un seul job long à la fois (`runTask`). Sauvegarde session différée (`schedul
 - Vues : `App.kt` (layout, drop de fichiers), `SidePanel.kt` (`AppHeader, SourceSection, SettingsSection`), `SessionViews.kt` (`JobCard, SessionHeader, TimelineCard, SegmentList, ExportBar`),
   `LibraryView.kt` (analyses enregistrées + `WatchCard`), `Dialogs.kt` (`ErrorDialog, VerticalPreviewWindow, MontageDialog`), `Theme.kt` (`Palette`, `HighlightsTheme`, `UiFonts` : famille système de Windows (SystemFont) pour zh/ja/ko).
 - `Platform.kt` (`DesktopPlatform` : FileDialog/JFileChooser, open/reveal/edit), `Installation.kt`, prefs : `WatchPrefs.kt` (`~/.highlights/watch.json`), `MusicPrefs.kt` (`~/.highlights/music.json` : fromStart par musique, dossier `library` + `useLibrary` ; ajouter un Path à un Set avec `plusElement`, un Path est itérable).
+- Ouverture et fin : `IntroView.kt` (`IntroUiState`, `IntroPrefsStore` `~/.highlights/intro.json`, `IntroController` délégué par `AppController`,
+  `IntroSection` dans `SettingsSection`, `IntroDialog` avec aperçu), actions `setIntroEnabled/openIntro/closeIntro/updateIntro/chooseIntroLogo/chooseIntroImage/setIntroPreview`,
+  `UiState.introCards/introCustom/introDialog`, `Platform.chooseImage`.
 - Langue : `LanguagePrefs.kt` (`~/.highlights/language.json`, lu dans `main` avant la fenêtre ; `LanguagePicker` dans `AppHeader`), action
   `setLanguage`, `UiState.language` (la racine de `App` est sous `key(language)` : tout se recompose dans la nouvelle langue).
 - Pont de pilotage (dev seulement) `bridge/` : `ControlBridge` (HttpServer 127.0.0.1, port+jeton dans `~/.highlights/control-bridge.json` ; `enabled` = `-Dhighlights.bridge=true`
