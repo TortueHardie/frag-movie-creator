@@ -1205,7 +1205,7 @@ sa durée cible (43 s contre 22). Il perd un peu en creux et en action : des pla
 
 ## Montage des morts
 
-`montage --fails` (ou la case « Montage des morts » de la fenêtre de montage, réglages avancés) monte les morts du
+`montage --fails` (en ligne de commande seulement : retiré de l'application, jugé sans usage) monte les morts du
 joueur au lieu de ses kills, sur la musique, avec le même moteur : un plan par mort, la mort sur un temps.
 
 - Chaque plan montre les 3 secondes qui précèdent la mort, une image figée (0,7 s, son du jeu coupé, la musique
