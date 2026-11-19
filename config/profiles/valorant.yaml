@@ -121,7 +121,7 @@ detectors:
   # Tirs à la tête sans Outplayed, lus dans le killfeed : l'icône de la cible entre l'arme et la victime, présente sur
   # les lignes du joueur (revérifié le 19/11 sur deux parties 854x480, à l'image : 27 icônes sur 61 kills). Relit
   # 2 s autour de chaque kill. Bien plus sûr que le son (headshot-sound) : sur les deux parties, le son reconnaissait 2
-  # headshots sur 27 et en inventait 4, l'icône 25 sur 27 sans faux (seuil 0,6). Avec Outplayed, ne relit rien. Non vérifié en 1080p
+  # headshots sur 27 et en inventait 4, l'icône 26 sur 27 sans faux (seuil 0,6). Avec Outplayed, ne relit rien. Non vérifié en 1080p
   # ni 1440p (gabarit pris en 480p, agrandi).
   - id: headshot-icon
     type: killfeed-headshot

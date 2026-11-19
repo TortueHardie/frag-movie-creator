@@ -41,9 +41,9 @@ private val log = KotlinLogging.logger {}
  * retrouvée comme le fait le killfeed ([killfeed], même zone, même lecteur), le début de la victime (fond rouge de
  * l'adversaire) y est cherché à droite du portrait, et l'icône juste avant lui, par corrélation avec [template].
  *
- * Mesuré à l'image sur les 46 kills de la première partie (gabarit moyen de 9 icônes nettes de cette partie) : icônes
- * à 0,70-0,95, kills sans icône à 0,45 au plus. Seuil 0,6 : 17 sur 18, aucun faux (le manqué : ligne mal suivie, 0,24).
- * Sur la seconde partie, jamais vue pour le régler : 8 sur 9, aucun faux (le manqué à 0,52, sous trois autres lignes).
+ * Mesuré à l'image sur les 46 kills de la première partie (gabarit moyen de 9 icônes nettes de cette partie), analyse
+ * complète : icônes à 0,69-0,94, kills sans icône à 0,45 au plus. Seuil 0,6 : 18 sur 18, aucun faux. Sur la seconde
+ * partie, jamais vue pour le régler : 8 sur 9, aucun faux (le manqué à 0,57, sous trois autres lignes).
  *
  * Avec Outplayed (événements [kind] déjà donnés par les détecteurs dont il dépend), ne relit rien.
  */

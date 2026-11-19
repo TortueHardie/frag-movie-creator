@@ -1083,7 +1083,7 @@ donne déjà les tirs à la tête, il ne relit rien.
 
 - Le profil disait l'icône absente des lignes du joueur : c'était faux. Planche des 46 kills de « Valorant- 44 kills »
   (854x480) : l'icône est là sur 18 d'entre eux.
-- Mesuré à l'image sur les deux captures 854x480 du disque (61 kills, 27 à la tête) : 25 retrouvés, aucun faux
+- Mesuré à l'image sur les deux captures 854x480 du disque (61 kills, 27 à la tête) : 26 retrouvés, aucun faux
   (seuil 0,6 ; les kills sans icône restent sous 0,45). Voir le journal de l'atelier,
   `output\revue\onetaps-finition\LOG.md`. Gabarit moyen de 9 icônes nettes de la première partie.
 - La ligne se pose en glissant (0,4 s) : la note retenue est la meilleure image de la ligne apparue le plus près du

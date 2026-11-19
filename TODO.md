@@ -315,7 +315,7 @@ Pistes, de la plus simple à la plus lourde :
     `oneTaps.few` (3). L'élan de la drop (4 à 8 temps avant le premier kill) reste : à trancher avec l'utilisateur,
     comme le ralenti rejoué du one tap ou l'ajout des meilleurs autres headshots (signalé).
   - Fait : icône headshot du killfeed : elle est bien sur les lignes du joueur (planche de 46 kills, 854x480).
-    Détecteur `killfeed-headshot` (profil : `headshot-icon`), son du headshot éteint (2 sur 27, 4 faux) ; l'icône : 25 sur 27, aucun faux.
+    Détecteur `killfeed-headshot` (profil : `headshot-icon`), son du headshot éteint (2 sur 27, 4 faux) ; l'icône : 26 sur 27, aucun faux.
     - [ ] Non vérifié en 1080p ni 1440p (gabarit pris en 480p).
   - Sans source fiable pour le headshot, repli sur « un seul tir » : le montage reste possible, un peu moins strict
     (un one-shot au corps à l'Operator passerait). Le dire dans l'interface plutôt que de ne rien proposer.
