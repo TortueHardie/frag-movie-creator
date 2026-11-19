@@ -558,7 +558,7 @@ détecte les kills). En ligne de commande :
   corrige les lectures ratées sur un ciel clair, un flash ou l'écran de fin. Il émet un `round-won` ou `round-lost` par
   round. Mesuré sur deux parties 854x480 (`output/revue/bandeau-score/`) : 98 à 99 % des images lues d'un côté disent le
   score décodé, 48 changements de score sur 48 justes (vérifiés à l'œil avant et après chacun), aucun faux, fins 13-10
-  et 12-13 comme les tableaux de fin ; mêmes résultats avec une image toutes les 2 s. Images clés, décodage logiciel.
+  et 12-13 comme les tableaux de fin ; mêmes résultats avec une image toutes les 2 s. 2 img/s en décodage logiciel (images clés si elles tombent chaque seconde).
   Non vérifié en 1080p ni 1440p. En 9:16, centré en haut sous la barre du HUD recollée, à 10 % du haut au moins et dans
   la zone sûre, entre le compteur de kills (coin) et les libellés DOUBLÉ/TRIPLÉ (25 %) ; dans les autres formats, posé
   sur le chrono du jeu. Rien pour une capture sans score lu ni pour l'ouverture vitrine.

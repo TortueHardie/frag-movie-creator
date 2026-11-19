@@ -16,6 +16,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import kotlin.io.path.Path
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -33,7 +34,7 @@ class RoundScoreBannerTest : FunSpec({
         RoundScore.at(listOf(e(10, "kill")), 50.seconds) shouldBe null
     }
 
-    test("plan : le score au premier kill (le round qu'il joue), rien pour une capture sans score ni pour la vitrine") {
+    test("plan : le score du HUD au fil du plan (celui du round que le kill joue, puis le suivant s'il change), rien sans score ni pour la vitrine") {
         val media = MediaInfo(Path("partie.mp4"), 1, 30.minutes)
         val other = MediaInfo(Path("autre.mp4"), 1, 30.minutes)
         fun clip(m: MediaInfo, kills: List<Duration>, showcase: Boolean = false) = MontageClip(
@@ -42,11 +43,16 @@ class RoundScoreBannerTest : FunSpec({
             padBefore = Duration.ZERO, padAfter = Duration.ZERO, speeds = emptyList(), outputLength = 4.seconds, showcase = showcase,
         )
         val scores = RoundScores(mapOf(media.path to events))
-        // Kill qui gagne le round à 98 s : le HUD passe à 3-1 à 100 s, le plan montre 2-1.
-        scores.forClip(clip(media, listOf(97.seconds, 98.seconds))) shouldBe RoundScore(2, 1)
-        scores.forClip(clip(media, listOf(120.seconds))) shouldBe RoundScore(3, 1)
-        scores.forClip(clip(other, listOf(120.seconds))) shouldBe null
-        scores.forClip(clip(media, listOf(120.seconds), showcase = true)) shouldBe null
+        // Plan de 93 à 99 s, kills à 95 et 97 s : 2-1 tout le plan (le HUD ne change qu'à 100 s).
+        scores.marks(clip(media, listOf(95.seconds, 97.seconds)), Duration.ZERO, 6.seconds) shouldBe
+            listOf(RoundScores.Mark(RoundScore(2, 1), Duration.ZERO, 6.seconds))
+        // Plan de 96 à 101 s, kill à 98 s qui gagne le round : 2-1, puis 3-1 à 100 s (4 s dans le plan, + 0,2 s de coupe avancée).
+        scores.marks(clip(media, listOf(98.seconds, 99.seconds)), 200.milliseconds, 5.seconds) shouldBe listOf(
+            RoundScores.Mark(RoundScore(2, 1), Duration.ZERO, 4.2.seconds),
+            RoundScores.Mark(RoundScore(3, 1), 4.2.seconds, 5.seconds),
+        )
+        scores.marks(clip(other, listOf(120.seconds)), Duration.ZERO, 4.seconds) shouldBe emptyList()
+        scores.marks(clip(media, listOf(120.seconds), showcase = true), Duration.ZERO, 4.seconds) shouldBe emptyList()
     }
 
     test("place en 9:16 : sous la barre du haut recollée de VALORANT, à 10 % au moins, dans la zone sûre") {
@@ -65,15 +71,22 @@ class RoundScoreBannerTest : FunSpec({
         RoundScoreBanner.top(OutputFormat.LANDSCAPE, SafeArea.NONE, valorant) shouldBe 0.012
     }
 
-    test("filtres : cartouche, numéro du round, score aux couleurs des équipes, tenus tout le plan") {
-        val f = RoundScoreBanner.filters(RoundScore(7, 5), 3.seconds, "C:/Windows/Fonts/impact.ttf", OutputFormat.VERTICAL, 1080, 1920)
-        f.size shouldBe 5
+    test("filtres : cartouche tout le plan, numéro du round et score aux couleurs des équipes, sur leur ligne de base") {
+        val marks = listOf(RoundScores.Mark(RoundScore(7, 5), Duration.ZERO, 2.seconds), RoundScores.Mark(RoundScore(8, 5), 2.seconds, 3.seconds))
+        val f = RoundScoreBanner.filters(marks, 3.seconds, "C:/Windows/Fonts/impact.ttf", OutputFormat.VERTICAL, 1080, 1920)
+        f.size shouldBe 9
         f[0] shouldContain "drawbox="
         f[0] shouldContain "y=192:"
+        f[0] shouldContain "enable='between(t\\,0.000\\,3.000)'"
         f[1] shouldContain "text='ROUND 13'"
         f[2] shouldContain "text='7'"
         f[4] shouldContain "text='5'"
-        f.forEach { it shouldContain "enable='between(t\\,0\\,3.000)'" }
-        RoundScoreBanner.filters(null, 3.seconds, "C:/Windows/Fonts/impact.ttf", OutputFormat.VERTICAL, 1080, 1920) shouldBe emptyList()
+        // Tiret et chiffres sur la même ligne de base : le tiret ne monte plus en haut des chiffres.
+        f[3] shouldContain "-max_glyph_a"
+        f[2].substringAfter(":y=").substringBefore(":") shouldBe f[3].substringAfter(":y=").substringBefore(":")
+        (1..4).forEach { f[it] shouldContain "enable='between(t\\,0.000\\,2.000)'" }
+        f[5] shouldContain "text='ROUND 14'"
+        f[6] shouldContain "text='8'"
+        RoundScoreBanner.filters(emptyList(), 3.seconds, "C:/Windows/Fonts/impact.ttf", OutputFormat.VERTICAL, 1080, 1920) shouldBe emptyList()
     }
 })

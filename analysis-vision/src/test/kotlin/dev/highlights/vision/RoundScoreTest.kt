@@ -42,17 +42,17 @@ class RoundScoreTest : FunSpec({
         changes(decoder.decode(ally, enemy)) shouldBe listOf(0 to 0, 1 to 0)
     }
 
-    test("événements : score de départ à la première image, puis un par round, et la remise à zéro") {
+    test("événements : score de départ à la première image, puis un par round entre les deux images qui l'encadrent, et la remise à zéro") {
         val path = listOf(2 to 1, 2 to 1, 3 to 1, 3 to 2, 0 to 0, 1 to 0)
         val times = List(path.size) { (it * 10).seconds }
         ScoreDecoder.events(path, times, "won", "lost", "reset") shouldBe listOf(
             SignalEvent(0.seconds, "won", 1.0),
             SignalEvent(0.seconds, "won", 1.0),
             SignalEvent(0.seconds, "lost", 1.0),
-            SignalEvent(20.seconds, "won", 1.0),
-            SignalEvent(30.seconds, "lost", 1.0),
-            SignalEvent(40.seconds, "reset", 1.0),
-            SignalEvent(50.seconds, "won", 1.0),
+            SignalEvent(15.seconds, "won", 1.0),
+            SignalEvent(25.seconds, "lost", 1.0),
+            SignalEvent(35.seconds, "reset", 1.0),
+            SignalEvent(45.seconds, "won", 1.0),
         )
     }
 

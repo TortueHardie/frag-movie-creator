@@ -29,34 +29,53 @@ data class RoundScore(val ally: Int, val enemy: Int) {
          * Score affiché à l'instant [at] : le compte des rounds gagnés et perdus jusque-là, depuis le dernier retour à 0-0.
          * null si la capture n'a aucun score lu (autre jeu, analysée sans `round-score`, HUD illisible).
          */
-        fun at(events: List<TimelineEvent>, at: Duration): RoundScore? {
+        fun at(events: List<TimelineEvent>, at: Duration): RoundScore? =
+            timeline(events)?.let { t -> t.lastOrNull { it.first <= at }?.second ?: RoundScore(0, 0) }
+
+        /** Scores successifs de la capture : (instant où il s'affiche, score), dans l'ordre ; null sans score lu. */
+        fun timeline(events: List<TimelineEvent>): List<Pair<Duration, RoundScore>>? {
             val score = events.filter { it.kind == WON || it.kind == LOST || it.kind == RESET }.sortedBy { it.at }
             if (score.isEmpty()) return null
             var ally = 0
             var enemy = 0
+            val out = mutableListOf<Pair<Duration, RoundScore>>()
             for (e in score) {
-                if (e.at > at) break
                 when (e.kind) {
                     WON -> ally++
                     LOST -> enemy++
                     else -> { ally = 0; enemy = 0 }
                 }
+                if (out.lastOrNull()?.first == e.at) out.removeAt(out.lastIndex)
+                out += e.at to RoundScore(ally, enemy)
             }
-            return RoundScore(ally, enemy)
+            return out
         }
     }
 }
 
 /** Événements de score de chaque capture d'un montage, pour retrouver le score d'un plan. */
 class RoundScores(private val byMedia: Map<Path, List<TimelineEvent>>) {
+    /** Un score affiché de [from] à [to], en temps du plan. */
+    data class Mark(val score: RoundScore, val from: Duration, val to: Duration)
+
     /**
-     * Score au premier kill du plan (au moment du tir : le round que le kill joue, pas celui qu'il fait peut-être gagner,
-     * le HUD ne change que quelques secondes après). null pour un plan sans kill (ouverture vitrine) ou sans score lu.
+     * Ce que le plan affiche : le score du HUD à chaque instant de ce qu'il montre (au moment du tir, celui du round que
+     * le kill joue ; le HUD ne change que quelques secondes après le kill qui le gagne). S'il change pendant le plan, le
+     * bandeau change avec lui : la barre du HUD recollée en haut du 9:16 le montre aussi, et un score figé au premier
+     * kill disait 9-9 sous un HUD passé à 10-9. [lead] : décalage du plan (coupe avancée), [length] : sa longueur. Rien
+     * pour l'ouverture vitrine ni pour une capture sans score lu.
      */
-    fun forClip(clip: MontageClip): RoundScore? {
-        if (clip.showcase) return null
-        val events = byMedia[clip.group.media.path] ?: return null
-        return RoundScore.at(events, clip.kills.firstOrNull() ?: clip.anchor)
+    fun marks(clip: MontageClip, lead: Duration, length: Duration): List<Mark> {
+        if (clip.showcase) return emptyList()
+        val timeline = byMedia[clip.group.media.path]?.let { RoundScore.timeline(it) } ?: return emptyList()
+        val first = timeline.lastOrNull { it.first <= clip.start }?.second ?: RoundScore(0, 0)
+        val changes = timeline.filter { it.first > clip.start && it.first < clip.end }
+            .map { (clip.toOutput(it.first) + lead).coerceIn(Duration.ZERO, length) to it.second }
+        val starts = listOf(Duration.ZERO to first) + changes
+        return starts.mapIndexedNotNull { i, (from, score) ->
+            val to = starts.getOrNull(i + 1)?.first ?: length
+            if (to > from) Mark(score, from, to) else null
+        }
     }
 
     companion object {
@@ -101,9 +120,9 @@ object RoundScoreBanner {
         return maxOf(safe.top, 0.10, below)
     }
 
-    /** Filtres du bandeau d'un plan de [length], [w]x[h] pixels ; rien sans [score]. */
+    /** Filtres du bandeau d'un plan de [length], [w]x[h] pixels : le cartouche tout le plan, chaque score de [marks]. */
     fun filters(
-        score: RoundScore?,
+        marks: List<RoundScores.Mark>,
         length: Duration,
         font: String,
         format: OutputFormat,
@@ -112,7 +131,7 @@ object RoundScoreBanner {
         safe: SafeArea = SafeArea.NONE,
         vertical: VerticalSettings = VerticalSettings(),
     ): List<String> {
-        if (score == null) return emptyList()
+        if (marks.isEmpty()) return emptyList()
         val size = (h * SIZE).roundToInt().coerceAtLeast(8)
         val small = (size * 0.5).roundToInt().coerceAtLeast(6)
         val pad = (size * 0.18).roundToInt().coerceAtLeast(2)
@@ -121,18 +140,23 @@ object RoundScoreBanner {
         val y0 = (top(format, safe, vertical) * h).roundToInt()
         val cx = "(w*${num(safe.left)}+w*${num(safe.width)}/2)"
         val boxX = (w * (safe.left + safe.width / 2)).roundToInt() - boxW / 2
-        val enable = "enable='between(t\\,0\\,${Durations.ffmpegSeconds(length)})'"
+        fun enable(from: Duration, to: Duration) = "enable='between(t\\,${Durations.ffmpegSeconds(from)}\\,${Durations.ffmpegSeconds(to)})'"
         val border = (size * 0.06).roundToInt().coerceAtLeast(1)
-        val label = tr("video.score.round", "round" to score.round)
-        val scoreY = y0 + pad * 2 + small
+        // Textes posés sur leur ligne de base (`max_glyph_a` : hauteur des glyphes tracés au-dessus d'elle) : posé par son
+        // haut, le tiret, sans rien au-dessus de lui, montait en haut des chiffres.
+        val labelBase = y0 + pad + (small * 0.8).roundToInt()
+        val scoreBase = y0 + pad * 2 + small + (size * 0.8).roundToInt()
         val gap = (size * 0.42).roundToInt()
-        return listOf(
-            "drawbox=x=$boxX:y=$y0:w=$boxW:h=$boxH:color=black@0.55:t=fill:$enable",
-            draw(font, label, small, border, "$cx-text_w/2", "${y0 + pad}", "0xD8D8D8", enable),
-            draw(font, score.ally.toString(), size, border, "$cx-$gap-text_w", "$scoreY", ALLY, enable),
-            draw(font, "–", size, border, "$cx-text_w/2", "$scoreY", "white", enable),
-            draw(font, score.enemy.toString(), size, border, "$cx+$gap", "$scoreY", ENEMY, enable),
-        )
+        val box = "drawbox=x=$boxX:y=$y0:w=$boxW:h=$boxH:color=black@0.55:t=fill:${enable(Duration.ZERO, marks.maxOf { it.to })}"
+        return listOf(box) + marks.flatMap { m ->
+            val on = enable(m.from, m.to)
+            listOf(
+                draw(font, tr("video.score.round", "round" to m.score.round), small, border, "$cx-text_w/2", "$labelBase-max_glyph_a", "0xD8D8D8", on),
+                draw(font, m.score.ally.toString(), size, border, "$cx-$gap-text_w", "$scoreBase-max_glyph_a", ALLY, on),
+                draw(font, "–", size, border, "$cx-text_w/2", "$scoreBase-max_glyph_a", "white", on),
+                draw(font, m.score.enemy.toString(), size, border, "$cx+$gap", "$scoreBase-max_glyph_a", ENEMY, on),
+            )
+        }
     }
 
     private fun draw(font: String, text: String, size: Int, border: Int, x: String, y: String, color: String, enable: String): String {

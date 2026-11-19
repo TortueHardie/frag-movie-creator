@@ -63,11 +63,13 @@ data class RoundScoreParams(
     val sampling: Sampling = Sampling.AUTO,
     /**
      * Décodage logiciel : le matériel ternit les traits d'un pixel des petites vidéos (voir `killfeed-teams`). Le score
-     * change une fois par round, une image toutes les 2 s suffit (mesuré : mêmes 23 changements qu'à 2 img/s).
+     * change une fois par round : 2 img/s suffisent. Les images clés seulement si elles tombent au moins chaque seconde :
+     * celles de « Valorant- 44 kills », mesurées à moins de 2 s au milieu mais irrégulières, dataient les changements
+     * jusqu'à 7 s en retard et perdaient le dernier round (13-10, 16 s avant la fin).
      */
     val hwaccel: String? = null,
     val fps: Double = 2.0,
-    val maxKeyframeInterval: SerialDuration = 2.seconds,
+    val maxKeyframeInterval: SerialDuration = 1.seconds,
     /** Round gagné par l'équipe du joueur, perdu, retour à 0-0. */
     val wonKind: String = "round-won",
     val lostKind: String = "round-lost",
@@ -235,7 +237,7 @@ class ScoreDecoder(
     companion object {
         /**
          * Événements d'une suite de scores ([times] : instant de chaque image) : le score de départ (rounds déjà joués,
-         * capture commencée en cours de partie) à la première image, puis chaque round à l'image où il change, et
+         * capture commencée en cours de partie) à la première image, puis chaque round entre les deux images qui l'encadrent, et
          * [resetKind] à chaque retour à 0-0. Le score à un instant est le compte de ces événements jusque-là.
          */
         fun events(path: List<Pair<Int, Int>>, times: List<Duration>, wonKind: String, lostKind: String, resetKind: String): List<SignalEvent> {
@@ -247,10 +249,13 @@ class ScoreDecoder(
             for (i in 1 until path.size) {
                 val (pa, pb) = path[i - 1]
                 val (a, b) = path[i]
+                // Au milieu des deux images qui encadrent le changement : datée à la première image qui le montre, la
+                // bascule du bandeau suivait celle du HUD recollé jusqu'à une demi-seconde plus tard (vu à 2 img/s).
+                val at = times[i - 1] + (times[i] - times[i - 1]) / 2
                 when {
-                    a == pa + 1 && b == pb -> out += SignalEvent(times[i], wonKind, 1.0)
-                    b == pb + 1 && a == pa -> out += SignalEvent(times[i], lostKind, 1.0)
-                    a == 0 && b == 0 && (pa != 0 || pb != 0) -> out += SignalEvent(times[i], resetKind, 1.0)
+                    a == pa + 1 && b == pb -> out += SignalEvent(at, wonKind, 1.0)
+                    b == pb + 1 && a == pa -> out += SignalEvent(at, lostKind, 1.0)
+                    a == 0 && b == 0 && (pa != 0 || pb != 0) -> out += SignalEvent(at, resetKind, 1.0)
                 }
             }
             return out
