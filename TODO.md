@@ -227,7 +227,9 @@ Pistes, de la plus simple à la plus lourde :
   et 27 sur 36 (deux vidéos), aucun faux.
 - [x] Apex : « SQUAD WIPE » daté de la dernière mise à terre et compté par mise à terre (`credits` d'`ocr-log`,
   `LogCredit`) : octane 33 → 43 kills sur 56, revenant 22 → 29 sur 36, à 3 s.
-- [ ] Apex : deuxième « ELIMINATED » vue 4 s après un crédit double (revenant 5:49, 14:22) : mal datée ; compte des
+- [x] Apex : le kill est la mise à terre (`finishes` d'`ocr-log`, `LogFinish`), vie et arme replacées en bas en 9:16 ;
+  vérité avec avance de 30 s (`GroundTruth.lead`) : 47 sur 56 et 35 sur 36.
+- [ ] Apex (ancien kill = élimination, sans objet depuis les mises à terre) : deuxième « ELIMINATED » vue 4 s après un crédit double (revenant 5:49, 14:22) : mal datée ; compte des
   SQUAD WIPE approché (mises à terre non lues) — le compteur du HUD, illisible en 480p, serait exact sur une capture
   1080p brute. Lire les morts du joueur, vérifier sur une capture non montée.
 - [x] Profils pour d'autres jeux (CS2, Apex, Fortnite) avec `hud-template` / `killfeed` / `ocr-log`.

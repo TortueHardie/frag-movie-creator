@@ -64,6 +64,15 @@ class GroundTruthTest : FunSpec({
         s.recall shouldBe 1.0 / 3
     }
 
+    test("avance permise (Apex) : la détection peut précéder le relevé, jamais le suivre au-delà de la tolérance") {
+        // Mise à terre à 100 s, crédit du compteur à l'élimination, 20 s plus tard.
+        val s = TruthScoring.match("d", "kill", listOf(120.seconds, 200.seconds), listOf(100.seconds, 210.seconds), 3.seconds, lead = 30.seconds)
+        s.hits shouldContainExactly listOf(120.seconds to 100.seconds)
+        // 210 s suit le relevé de 200 s de 10 s : au-delà de la tolérance, pas retrouvé.
+        s.falseAlarms shouldContainExactly listOf(210.seconds)
+        TruthScoring.match("d", "kill", listOf(120.seconds), listOf(100.seconds), 3.seconds).hits.shouldBeEmpty()
+    }
+
     test("rien à trouver et rien trouvé : ni précision ni rappel, et pas d'échec") {
         val s = TruthScoring.match("d", "death", emptyList(), emptyList(), 2.seconds)
         s.precision shouldBe null

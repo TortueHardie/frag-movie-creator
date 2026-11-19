@@ -25,6 +25,12 @@ data class GroundTruth(
     val profile: String,
     /** Écart toléré entre l'instant relevé et l'instant détecté. */
     val tolerance: SerialDuration = 3.seconds,
+    /**
+     * Avance permise : un événement détecté peut précéder l'événement relevé jusqu'à cette durée (au moins [tolerance]).
+     * Apex : le kill est la mise à terre, le compteur du HUD (la vérité) le crédite à l'élimination, 2 à 30 s plus tard.
+     * Zéro : écart symétrique, [tolerance] des deux côtés.
+     */
+    val lead: SerialDuration = Duration.ZERO,
     /** Qui a validé la liste, et quand ; null = pas encore validée (la mesure le dit). */
     val validated: String? = null,
     /** Sortes d'événements relevées sans en oublier aucune. */
@@ -38,6 +44,7 @@ data class GroundTruth(
         require(kinds.isNotEmpty()) { "kinds vide : la vérité ne dit pas ce qu'elle relève" }
         events.forEach { require(it.kind in kinds) { "événement ${it.kind} à ${it.at.toTimecode()} hors des sortes relevées $kinds" } }
         require(tolerance.isPositive()) { "tolerance doit être > 0" }
+        require(!lead.isNegative()) { "lead ne peut pas être négatif" }
     }
 
     companion object {
@@ -104,14 +111,17 @@ object TruthScoring {
                     truth.events.filter { it.kind == kind }.map { it.at },
                     detected.filter { it.detectorId == detector && it.kind == kind }.map { it.at },
                     truth.tolerance,
+                    truth.lead,
                 )
             }
         }
     }
 
-    fun match(detector: String, kind: String, expected: List<Duration>, found: List<Duration>, tolerance: Duration): DetectorScore {
-        val pairs = expected.indices.flatMap { i -> found.indices.map { j -> Triple(i, j, abs((expected[i] - found[j]).inWholeMilliseconds)) } }
-            .filter { it.third <= tolerance.inWholeMilliseconds }
+    fun match(detector: String, kind: String, expected: List<Duration>, found: List<Duration>, tolerance: Duration, lead: Duration = Duration.ZERO): DetectorScore {
+        val before = maxOf(tolerance, lead).inWholeMilliseconds
+        val pairs = expected.indices.flatMap { i -> found.indices.map { j -> Triple(i, j, (expected[i] - found[j]).inWholeMilliseconds) } }
+            .filter { it.third in -tolerance.inWholeMilliseconds..before }
+            .map { Triple(it.first, it.second, abs(it.third)) }
             .sortedWith(compareBy({ it.third }, { it.first }, { it.second }))
         val usedExpected = BooleanArray(expected.size)
         val usedFound = BooleanArray(found.size)

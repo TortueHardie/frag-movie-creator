@@ -59,6 +59,8 @@ data class OcrLogParams(
     val maxDrop: Int = 0,
     /** Notifications qui créditent des kills en retard ou en rafale (Apex : « SQUAD WIPE ») : voir [LogCredit]. */
     val credits: List<LogCredit> = emptyList(),
+    /** Coups de grâce qui ne comptent pas en plus de la mise à terre (Apex) : voir [LogFinish]. Appliqué après [credits]. */
+    val finishes: LogFinish? = null,
     /** Une ligne non relue depuis cette durée est oubliée (une ligne reste affichée une dizaine de secondes). */
     val hold: SerialDuration = 6.seconds,
     /** Lectures nécessaires avant de compter une ligne. */
@@ -190,8 +192,8 @@ class OcrLogDetector(override val id: String, private val params: OcrLogParams) 
                 tracked += tracker.update(times[index], rows)
             }
             log.info { "$id : texte lu sur $readable/${times.size} images ; journal : " + tracked.joinToString { "${it.kind} ${Durations.format(it.at)} « ${it.text} »" } }
-            val logEvents = LogCredits.apply(tracked, params.credits)
-            if (params.credits.isNotEmpty()) log.info { "$id : après crédits : " + logEvents.joinToString { "${it.kind} ${Durations.format(it.at)}" } }
+            val logEvents = LogFinishes.apply(LogCredits.apply(tracked, params.credits), params.finishes)
+            if (params.credits.isNotEmpty() || params.finishes != null) log.info { "$id : après crédits : " + logEvents.joinToString { "${it.kind} ${Durations.format(it.at)}" } }
 
             val notice = params.notice
             val noticeReads = if (notice == null) emptyList() else times.indices.mapNotNull { index ->

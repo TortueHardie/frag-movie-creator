@@ -8,6 +8,9 @@
 capture: { name: Apex 53 kills octane.mp4, sizeBytes: 353057515, duration: 2259.116s }
 profile: apex
 tolerance: 3s
+# Le kill est la mise à terre (KNOCKED DOWN, choix du joueur du 19/11) ; le compteur le crédite à l'élimination,
+# 2 à 30 s plus tard (achèvement, saignement, SQUAD WIPE) : une détection peut précéder le relevé de 30 s.
+lead: 30s
 validated: null
 note: "Relevé du compteur par Claude le 18/11/2026, à faire valider par le joueur. Les kills crédités en rafale par un SQUAD WIPE n'ont qu'une notification à l'écran : comptés par les mises à terre qui la précèdent (credits du profil), estimation."
 kinds: [kill]
@@ -68,7 +71,8 @@ events:
   - { at: "35:50", kind: kill, note: "partie 3, compteur 11" }
   - { at: "36:27", kind: kill, note: "partie 3, compteur 12" }
   - { at: "36:27", kind: kill, note: "partie 3, compteur 13" }
-# Seuils = état mesuré (app verite, 19/11) : 43 kills sur 56, 1 en trop (24:11.5 : une mise à terre de trop
-# comptée dans un SQUAD WIPE ; le kill de 24:06 n'a pas de notification). Avant le calage : 33 vrais, 0 faux.
+# Seuils = état mesuré (app verite, 19/11, kill = mise à terre, avance 30 s) : 54 kills pour 56 crédits, 47 retrouvés,
+# 7 sans crédit (mises à terre d'ennemis relevés par leurs alliés, ou achevés hors du compteur du joueur). À 3 s sans
+# avance : 25 seulement, la mise à terre précédant le crédit. Avant (kill = élimination) : 43 vrais, 1 faux à 3 s.
 thresholds:
-  game-events: { kill: { precision: 0.95, recall: 0.75 } }
+  game-events: { kill: { precision: 0.85, recall: 0.8 } }
