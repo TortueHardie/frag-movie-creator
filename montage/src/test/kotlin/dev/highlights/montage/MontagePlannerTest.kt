@@ -773,6 +773,18 @@ class MontagePlannerTest : FunSpec({
         MontagePlanner.groups(listOf(notAlone), announced).map { it.outcome.clutch } shouldBe listOf(false, false, false)
     }
 
+    test("bandeau « CLUTCH » : il revient au groupe du joueur qui finit le round, pas au clutch d'un coéquipier") {
+        val announced = settings.copy(killStyle = settings.killStyle.copy(clutchEvent = "clutch"))
+        fun withBanner(s: Session, at: Double) =
+            s.copy(timeline = s.timeline.copy(events = (s.timeline.events + TimelineEvent(at.seconds, "clutch-banner", 1.0, "teams")).sortedBy { it.at }))
+        // Spike désamorcé 12 s après le dernier kill du joueur : clutch.
+        val spike = withBanner(withDeaths(session(listOf(100, 130, 132)), listOf(300.0)), 144.0)
+        MontagePlanner.groups(listOf(spike), announced).map { it.outcome.clutch } shouldBe listOf(false, true)
+        // Le joueur meurt à 135 s, un coéquipier clutche à 150 s : pas le clutch du joueur.
+        val mate = withBanner(withDeaths(session(listOf(100, 130, 132)), listOf(135.0)), 150.0)
+        MontagePlanner.groups(listOf(mate), announced).map { it.outcome.clutch } shouldBe listOf(false, false)
+    }
+
     test("mort pendant l'ultime de Phoenix : le kill d'avant n'est pas « aussitôt payé »") {
         val revived = withDeaths(session(listOf(100)), listOf(101.0)).let { s ->
             s.copy(timeline = s.timeline.copy(events = (s.timeline.events + TimelineEvent(101.1.seconds, "ally-run-it-back", 1.0, "teams")).sortedBy { it.at }))

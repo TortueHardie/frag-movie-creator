@@ -510,7 +510,11 @@ détecte les kills). En ligne de commande :
   joueur, rouge pour l'adversaire). Le joueur, resté seul de son équipe face à au moins un adversaire, gagne le round
   en les éliminant (`TeamRounds`) : un 1 contre 1 gagné compte (`clutchMinEnemies: 2` pour suivre le bandeau « CLUTCH »
   du jeu, qui n'apparaît qu'à partir d'un 1 contre 2). Un round
-  gagné au spike (désamorcé, explosé) ne se voit pas dans le killfeed : son clutch est manqué. Les rounds sont séparés
+  gagné au spike (désamorcé, explosé) ne se voit pas dans le killfeed : le bandeau « CLUTCH » de fin de round, lu au
+  centre de l'écran (gabarit du mot, `templates/valorant/banner_clutch.png`), le rattrape. Gris pour les deux équipes,
+  il est rattaché comme un clutch annoncé : au groupe du joueur dont le dernier kill le précède sans mort entre les
+  deux (le clutch d'un coéquipier, joueur mort, n'est pas le sien). Un 1 contre 1 gagné au spike reste manqué (pas de
+  bandeau). Les rounds sont séparés
   par l'élimination d'une équipe, un silence de 40 s, et surtout le retour des cinq barres de vie alliées pleines en haut
   de l'écran (`round-start`) : dans une vidéo montée, phases d'achat coupées, deux rounds se suivent à 10 s. Mesuré sur
   deux parties en 854x480 (`output/revue/clutch-reel/`, vérité `verite/valorant/`) : morts alliées précision 0,92,

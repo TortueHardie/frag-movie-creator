@@ -116,6 +116,13 @@ data class KillfeedTeamsParams(
      * deux parties : 22 débuts trouvés pour 23 rounds au score (13-10), 23 pour 25 (12-13). null : pas de lecture.
      */
     val roundBar: RoundBarParams? = RoundBarParams(),
+    /**
+     * Bandeau « CLUTCH » de fin de round, lu au centre de l'écran : il attrape les clutchs gagnés au spike (désamorcé,
+     * explosé), que le killfeed ne voit pas finir. Son panneau est gris quelle que soit l'équipe (vu pour un coéquipier
+     * et pour l'adversaire) : le montage le rattache, comme un clutch annoncé par Outplayed, au groupe du joueur dont le
+     * dernier kill le précède sans mort entre les deux. null : pas de lecture.
+     */
+    val clutchBanner: BannerParams? = BannerParams(),
 ) {
     init {
         require(fps > 0 && scale > 0 && scale <= 1) { "fps > 0 et scale dans ]0, 1]" }
@@ -163,6 +170,58 @@ data class RoundBarParams(
     init {
         require(white in 1..255 && fullShare in 0.0..1.0) { "roundBar : white entre 1 et 255, fullShare entre 0 et 1" }
     }
+}
+
+/**
+ * Lecture d'un mot de bandeau de fin de round ([KillfeedTeamsParams.clutchBanner]) : les lettres blanches de la zone,
+ * comparées au gabarit du mot (corrélation, la meilleure position dans la zone). Mesuré sur deux parties en 854x480 :
+ * 0,79 à 1,00 sur les 3 bandeaux « CLUTCH », 0,34 au plus sur tout le reste (WON, LOST, ACE, FLAWLESS, BUY PHASE…).
+ */
+@Serializable
+data class BannerParams(
+    /** Gabarit du mot (blanc sur noir, à l'échelle de [referenceHeight]), relatif au dossier de configuration. */
+    val template: String = "templates/valorant/banner_clutch.png",
+    /** Zone où le chercher : le mot et 8 px de marge (le bandeau glisse en apparaissant), mesurée en 854x480. */
+    val region: CropRegion = CropRegion(0.4286, 0.1458, 0.1393, 0.1083),
+    val referenceWidth: Int = 854,
+    val referenceHeight: Int = 480,
+    val anchor: RegionAnchor = RegionAnchor.CENTER,
+    /** Lettres : les trois composantes au-dessus de ce niveau. */
+    val white: Int = 200,
+    val minScore: Double = 0.5,
+    /** Vu aussi longtemps (le bandeau reste 4 à 5 s) : un passage blanc de l'image ne suffit pas. */
+    val held: SerialDuration = 1.seconds,
+    /** Un même bandeau reconnu à nouveau avant ce délai n'en est pas un autre (perdu une seconde sous un éclat : vu). */
+    val apart: SerialDuration = 10.seconds,
+    val kind: String = "clutch-banner",
+) {
+    init {
+        require(white in 1..255 && minScore in 0.0..1.0) { "clutchBanner : white entre 1 et 255, minScore entre 0 et 1" }
+    }
+}
+
+/**
+ * Apparitions d'un bandeau : début de chaque suite d'images où il est reconnu, longue d'au moins [held], à plus de
+ * [apart] de la précédente.
+ */
+internal fun bannerAppearances(times: List<Duration>, seen: List<Boolean>, held: Duration, apart: Duration = Duration.ZERO): List<Duration> {
+    val out = mutableListOf<Duration>()
+    var start: Duration? = null
+    var counted = false
+    for (i in times.indices) {
+        if (seen[i]) {
+            val first = start ?: times[i].also { start = it }
+            if (!counted && times[i] - first >= held) {
+                val last = out.lastOrNull()
+                if (last == null || first - last > apart) out += first
+                counted = true
+            }
+        } else {
+            start = null
+            counted = false
+        }
+    }
+    return out
 }
 
 /**
@@ -387,6 +446,8 @@ class KillfeedTeamsDetector(override val id: String, private val params: Killfee
         val tolerance: Int,
         /** Par image lue : barres de vie alliées pleines (début de round), si elles sont lues. */
         val bars: MutableMap<Int, Boolean>,
+        /** Par image lue : bandeau « CLUTCH » reconnu, s'il est lu. */
+        val banners: MutableMap<Int, Boolean>,
     )
 
     private fun kindOf(death: TeamDeath): String {
@@ -434,22 +495,42 @@ class KillfeedTeamsDetector(override val id: String, private val params: Killfee
             FrameZone(bx, by, bw, bh, (bw * shrink).roundToInt().coerceAtLeast(1), (bh * shrink).roundToInt().coerceAtLeast(1), "gt(min(min(r(X,Y),g(X,Y)),b(X,Y)),${b.white})*255")
         }
         val bars = java.util.concurrent.ConcurrentHashMap<Int, Boolean>()
+        val banner = params.clutchBanner
+        val bannerTemplate = banner?.let { PreparedTemplate(GrayImage.load(ctx.configDir.resolve(it.template)), it.template) }
+        val bannerZone = banner?.let { b ->
+            val r = ScreenGeometry.rescale(b.region, b.referenceWidth.toDouble() / b.referenceHeight, video.width.toDouble() / video.height, b.anchor)
+            val bx = (r.x * video.width).roundToInt().coerceIn(0, video.width - 1)
+            val by = (r.y * video.height).roundToInt().coerceIn(0, video.height - 1)
+            val bw = (r.width * video.width).roundToInt().coerceIn(1, video.width - bx)
+            val bh = (r.height * video.height).roundToInt().coerceIn(1, video.height - by)
+            // Lue à l'échelle du gabarit (480p).
+            val shrink = b.referenceHeight.toDouble() / video.height
+            FrameZone(bx, by, bw, bh, (bw * shrink).roundToInt().coerceAtLeast(1), (bh * shrink).roundToInt().coerceAtLeast(1), "gt(min(min(r(X,Y),g(X,Y)),b(X,Y)),${b.white})*255")
+        }
+        val banners = java.util.concurrent.ConcurrentHashMap<Int, Boolean>()
         log.info { "$id : équipes du killfeed ${cw}x$ch à ($cx, $cy), lu en ${zone.width}x${zone.height}, ${params.fps} img/s" }
         val subscription = ctx.frames.subscribe(
             spec = FrameSpec.fps(params.fps, params.hwaccel),
-            zones = listOfNotNull(zone, barZone),
+            zones = listOfNotNull(zone, barZone, bannerZone),
             label = id,
             progress = ctx.progress,
             onReset = {
                 rows.clear()
                 bars.clear()
+                banners.clear()
             },
             onFrame = { index, frames ->
                 rows += reader.rows(frames[0])
-                if (bar != null && frames.size > 1) bars[index] = fullBar(frames[1], bar.fullShare)
+                if (barZone != null && bar != null) bars[index] = fullBar(frames[1], bar.fullShare)
+                if (bannerZone != null && banner != null && bannerTemplate != null) {
+                    val f = frames[if (barZone != null) 2 else 1]
+                    val roi = GrayImage(f.width, f.height, f.pixels)
+                    banners[index] = roi.width >= bannerTemplate.width && roi.height >= bannerTemplate.height &&
+                        TemplateMatcher.match(roi, bannerTemplate).score >= banner.minScore
+                }
             },
         )
-        prepared = Prepared(subscription, rows, px(params.matchTolerance), bars)
+        prepared = Prepared(subscription, rows, px(params.matchTolerance), bars, banners)
     }
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
@@ -471,7 +552,11 @@ class KillfeedTeamsDetector(override val id: String, private val params: Killfee
         val starts = if (bar == null || state.bars.isEmpty()) emptyList() else {
             roundStarts(times.take(count), (0 until count).map { state.bars[it] ?: false }, bar.held, bar.before).map { SignalEvent(it, bar.kind, 1.0) }
         }
-        val events = (deaths + starts).sortedBy { it.at }
+        val bannerParams = params.clutchBanner
+        val clutches = if (bannerParams == null || state.banners.isEmpty()) emptyList() else {
+            bannerAppearances(times.take(count), (0 until count).map { state.banners[it] ?: false }, bannerParams.held, bannerParams.apart).map { SignalEvent(it, bannerParams.kind, 1.0) }
+        }
+        val events = (deaths + starts + clutches).sortedBy { it.at }
         log.info { "$id : ${events.groupingBy { it.kind }.eachCount()} : " + events.joinToString { "${it.kind} ${Durations.format(it.at)}" } }
         return SignalTrack(id, DoubleArray(ctx.grid.count) { Double.NaN }, events)
     }

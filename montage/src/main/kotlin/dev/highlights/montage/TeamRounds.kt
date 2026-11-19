@@ -58,12 +58,18 @@ object TeamRounds {
      * (celui des kills, `killOffset`).
      */
     fun clutchTimes(events: List<TimelineEvent>, playerDeaths: List<Duration>, style: KillStyle, offset: Duration): List<Duration>? {
-        if (style.allyDeathEvent.isEmpty()) return null
-        val allies = events.filter { it.kind == style.allyDeathEvent }.map { it.at + offset }
-        if (allies.isEmpty()) return null
-        val enemies = if (style.enemyDeathEvent.isEmpty()) emptyList() else events.filter { it.kind == style.enemyDeathEvent }.map { it.at + offset }
-        val starts = if (style.roundStartEvent.isEmpty()) emptyList() else events.filter { it.kind == style.roundStartEvent }.map { it.at + offset }
-        return clutches(allies, enemies, playerDeaths, style.roundGap, style.teamSize, style.clutchMinEnemies, starts).map { it.won + AFTER_LAST }
+        fun times(kind: String) = if (kind.isEmpty()) emptyList() else events.filter { it.kind == kind }.map { it.at + offset }
+        val allies = if (style.allyDeathEvent.isEmpty()) emptyList() else times(style.allyDeathEvent)
+        // Bandeau « CLUTCH » de fin de round : une source de plus, pour les rounds gagnés au spike. Il ne dit pas de
+        // quelle équipe est le clutch ; rattaché comme un clutch annoncé, il ne revient qu'au joueur dont le dernier kill
+        // le précède sans mort entre les deux (un coéquipier n'a clutché qu'une fois le joueur mort).
+        val banners = times(style.clutchBannerEvent)
+        if (allies.isEmpty() && banners.isEmpty()) return null
+        val fromFeed = if (allies.isEmpty()) emptyList() else {
+            clutches(allies, times(style.enemyDeathEvent), playerDeaths, style.roundGap, style.teamSize, style.clutchMinEnemies, times(style.roundStartEvent))
+                .map { it.won + AFTER_LAST }
+        }
+        return (fromFeed + banners).sorted()
     }
 
     private enum class Kind { ALLY, ENEMY, PLAYER }

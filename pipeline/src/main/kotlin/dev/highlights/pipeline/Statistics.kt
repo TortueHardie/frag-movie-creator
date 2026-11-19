@@ -136,7 +136,7 @@ object Statistics {
             // Clutchs annoncés par le jeu : connus seulement d'une analyse à jour dont les kills viennent d'un détecteur
             // qui les annonce ; sinon inconnus plutôt que 0. Clutchs déduits : toujours connus. Clutchs réels, comptés sur les
             // morts des deux équipes lues dans le killfeed : connus dès que la partie en a.
-            clutches = if (style.clutchEvent.isEmpty() || (!outdated && (known(clutchSources) || events.any { it.kind == style.allyDeathEvent && it.kind.isNotEmpty() }))) {
+            clutches = if (style.clutchEvent.isEmpty() || (!outdated && (known(clutchSources) || events.any { it.kind.isNotEmpty() && (it.kind == style.allyDeathEvent || it.kind == style.clutchBannerEvent) }))) {
                 groups.count { it.outcome.clutch }
             } else {
                 null

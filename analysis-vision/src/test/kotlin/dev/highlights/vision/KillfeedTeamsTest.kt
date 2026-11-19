@@ -108,4 +108,15 @@ class KillfeedTeamsTest : FunSpec({
         fullBar(f, 0.5) shouldBe true
         fullBar(f, 0.7) shouldBe false
     }
+
+    test("bandeau : compté une fois, s'il reste reconnu au moins 1 s") {
+        val times = (0 until 40).map { (it * 200).milliseconds }
+        // Reconnu de 1 à 2,4 s (le bandeau), puis un éclair de 0,4 s à 5 s.
+        val seen = times.map { it in 1.seconds..2.4.seconds || it in 5.seconds..5.4.seconds }
+        bannerAppearances(times, seen, 1.seconds) shouldBe listOf(1.seconds)
+        // Le même bandeau perdu un instant (2,6 s), revu de 2,8 à 4 s : compté une fois.
+        val again = times.map { it in 1.seconds..2.4.seconds || it in 2.8.seconds..4.seconds }
+        bannerAppearances(times, again, 1.seconds) shouldBe listOf(1.seconds, 2.8.seconds)
+        bannerAppearances(times, again, 1.seconds, apart = 10.seconds) shouldBe listOf(1.seconds)
+    }
 })

@@ -99,4 +99,10 @@ class TeamRoundsTest : FunSpec({
         TeamRounds.clutchTimes(events, emptyList(), style, Duration.ZERO) shouldBe listOf(140.seconds + TeamRounds.AFTER_LAST)
         TeamRounds.clutchTimes(events, emptyList(), style.copy(allyDeathEvent = ""), Duration.ZERO) shouldBe null
     }
+
+    test("bandeau « CLUTCH » : une source de plus, même sans mort alliée lue (round gagné au spike)") {
+        val banner = listOf(TimelineEvent(200.seconds, "clutch-banner", 1.0, "teams"))
+        TeamRounds.clutchTimes(banner, emptyList(), KillStyle(), Duration.ZERO) shouldBe listOf(200.seconds)
+        TeamRounds.clutchTimes(banner, emptyList(), KillStyle(clutchBannerEvent = ""), Duration.ZERO) shouldBe null
+    }
 })

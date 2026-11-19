@@ -211,7 +211,7 @@ data class MontageSettings(
             slowMotion = slowMotion.copy(enabled = true, factor = f.slowFactor, before = f.slowBefore, after = f.slowAfter),
             speedRamp = speedRamp.copy(enabled = false),
             matchCut = matchCut.copy(enabled = false),
-            killStyle = style.copy(deathEvent = "", headshotEvent = "", shotEvent = "", hudShotEvent = "", confirmEvent = "", clutchEvent = "", allyDeathEvent = "", flick = false),
+            killStyle = style.copy(deathEvent = "", headshotEvent = "", shotEvent = "", hudShotEvent = "", confirmEvent = "", clutchEvent = "", allyDeathEvent = "", clutchBannerEvent = "", flick = false),
         )
     }
 }
@@ -645,6 +645,11 @@ data class KillStyle(
      * Sépare les rounds du clutch réel même sans silence entre eux (vidéo montée, phases d'achat coupées).
      */
     val roundStartEvent: String = "round-start",
+    /**
+     * Bandeau « CLUTCH » de fin de round lu à l'image (détecteur `killfeed-teams`) : un clutch annoncé de plus, qui
+     * attrape ceux gagnés au spike. Le jeu ne l'affiche qu'à partir d'un 1 contre 2, et pour les deux équipes.
+     */
+    val clutchBannerEvent: String = "clutch-banner",
 ) {
     init {
         require(flickTo > flickFrom) { "montage.killStyle.flickTo doit dépasser flickFrom" }

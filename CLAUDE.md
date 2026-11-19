@@ -179,7 +179,9 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   (colonne juste avant son portrait : sarcelle = équipe du joueur, rouge = adversaire ; classes en un octet par `geq`) ; `TeamRowReader` (bandes coupées au pas des lignes,
   côté tueur de l'autre couleur exigé : écarte menu d'achat et résumé de combat ; nom de la victime neutre ; cercle de Phoenix « Run it Back »
   → `ally-run-it-back`/`enemy-run-it-back` au lieu d'une mort), `TeamTracker`. `TeamRounds.withoutRevived` (`killStyle.revivedEvent`) retire la mort du joueur
-  correspondante, appelé en tête de `MontagePlanner.groups` et de `Statistics.game`. valorant.yaml : `teams`, `fallbackFor: game-events`, 5 img/s. Mesuré en 480p seulement.
+  correspondante, appelé en tête de `MontagePlanner.groups` et de `Statistics.game`. `round-start` (`RoundBarParams` : barres de vie alliées pleines, `roundStarts`),
+  `clutch-banner` (`BannerParams` : mot « CLUTCH » du bandeau de fin de round, gabarit `templates/valorant/banner_clutch.png`, `bannerAppearances`) →
+  `KillStyle.roundStartEvent/clutchBannerEvent`, utilisés par `TeamRounds.clutchTimes` (bandeau = clutch annoncé de plus). valorant.yaml : `teams`, `fallbackFor: game-events`, 5 img/s. Mesuré en 480p seulement.
 - `RewardsLog.kt` : `RewardsLog.classify/fuzzyDistance/rows`, `LogTracker` (suivi de lignes, minSightings, `maxDrop` : lignes poussées vers le bas), `LogCredits.apply`, `LogFinishes.apply`, `EventFusion.fuse`, `NoticeRead`, `NoticeLabels.relabel` (libellé le plus proche dans [before, after] : son type, "" = icône écartée, rien = icône inchangée).
 - `TemplateMatcher.kt` : `GrayImage`, `PreparedTemplate`, `TemplateMatcher.match` (NCC), `BrightTemplate/BrightMatcher`.
 - `WindowsOcr.kt` : lance `resources/.../windows-ocr.ps1` (Windows.Media.Ocr) par lots ; `WindowsOcr.supported`.
