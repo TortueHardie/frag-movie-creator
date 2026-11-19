@@ -47,7 +47,7 @@ import kotlin.math.min
 /** Kill marqué dans l'écran « Nouveau jeu » : instant (texte tel que saisi) et cadre du repère. */
 data class NewGameMarkUi(val time: String, val box: CropRegion)
 
-/** Résultat d'une méthode, et le jugement de l'utilisateur sur chaque vignette de sa planche (vrai par défaut). */
+/** Résultat d'une méthode, et le jugement de l'utilisateur sur chaque vignette de sa planche (décochée par défaut : il coche les vrais kills). */
 data class NewGameResultUi(
     /** Nom de [dev.highlights.assistant.CueMethod]. */
     val method: String,

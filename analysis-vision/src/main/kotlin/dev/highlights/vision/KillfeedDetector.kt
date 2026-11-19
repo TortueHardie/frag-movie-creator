@@ -29,6 +29,8 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.util.concurrent.atomic.AtomicLong
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -130,7 +132,7 @@ data class KillfeedParams(
      */
     val deathSpacing: SerialDuration = 10.seconds,
     /** Type d'événement émis par sorte de ligne ; une sorte absente n'émet rien. */
-    val kinds: Map<KillfeedRole, String> = mapOf(KillfeedRole.KILL to "kill", KillfeedRole.DEATH to "death"),
+    val kinds: Map<KillfeedRole, String> = mapOf(KillfeedRole.KILL to "kill", KillfeedRole.DEATH to "death", KillfeedRole.ASSIST to "assist"),
     /** Décalage ajouté à l'instant où la ligne est vue pour la première fois. */
     val offset: SerialDuration = Duration.ZERO,
     /**
@@ -201,10 +203,21 @@ enum class KillfeedRole {
 
     /** Le joueur est la victime : son portrait au bord droit. */
     @SerialName("death") DEATH,
+
+    /** Le joueur a seulement aidé : ligne encadrée qui ne commence pas par son pseudo (CS2, [PlayerParams]). */
+    @SerialName("assist") ASSIST,
 }
 
 /** Cadre du joueur sur une image : lignes de pixels [top, bottom[ et colonnes [left, right]. */
-internal data class FeedRow(val role: KillfeedRole, val top: Int, val bottom: Int, val left: Int, val right: Int) {
+internal data class FeedRow(
+    val role: KillfeedRole,
+    val top: Int,
+    val bottom: Int,
+    val left: Int,
+    val right: Int,
+    /** Bord gauche de la ligne pour lire son texte (lignes encadrées : le plus à gauche des deux traits), [left] sinon. */
+    val edge: Int = left,
+) {
     val center: Double get() = (top + bottom) / 2.0
 }
 
@@ -417,10 +430,13 @@ internal class FeedTracker(
         rows.forEach { tracks += Track(it.role, it.left, it.right, it.center, at, at, minSightings, known = true) }
     }
 
-    fun add(at: Duration, rows: List<FeedRow>) {
+    /** Ajoute les lignes d'une image ; renvoie, pour chacune (dans l'ordre de [rows]), le numéro de la ligne suivie. */
+    fun add(at: Duration, rows: List<FeedRow>): List<Int> {
+        val ids = IntArray(rows.size)
         val used = HashSet<Track>()
         // De haut en bas : une ligne qui monte prend la place d'une plus ancienne, la plus haute est servie la première.
-        for (row in rows.sortedBy { it.center }) {
+        for (index in rows.indices.sortedBy { rows[it].center }) {
+            val row = rows[index]
             // Même ligne : colonnes communes, et le bord gauche le plus proche. Le bord droit varie d'une image à l'autre
             // (le contour suit plus ou moins la ligne), le gauche à 2 px près ; deux lignes voisines peuvent se recouvrir.
             val match = tracks.asSequence()
@@ -430,7 +446,9 @@ internal class FeedTracker(
                 .minByOrNull { if (newLineGrowth == null) abs(it.left - row.left).toDouble() else abs(it.center - row.center) }
             if (match == null) {
                 tracks += Track(row.role, row.left, row.right, row.center, at, at, 1).also { used += it }
+                ids[index] = tracks.lastIndex
             } else {
+                ids[index] = tracks.indexOf(match)
                 match.left = row.left
                 match.minLeft = minOf(match.minLeft, row.left)
                 match.right = row.right
@@ -440,19 +458,24 @@ internal class FeedTracker(
                 used += match
             }
         }
+        return ids.toList()
     }
 
     /** Lignes vues assez souvent, dans l'ordre : (sorte, instant d'apparition). */
-    fun appearances(): List<Pair<KillfeedRole, Duration>> {
-        val seen = tracks.filter { !it.known && it.sightings >= minSightings }.sortedBy { it.first }
+    fun appearances(): List<Pair<KillfeedRole, Duration>> = appearanceTracks().map { (role, at, _) -> role to at }
+
+    /** Comme [appearances], avec le numéro de chaque ligne suivie (celui que rend [add]). */
+    fun appearanceTracks(): List<Triple<KillfeedRole, Duration, Int>> {
+        val seen = tracks.indices.filter { !tracks[it].known && tracks[it].sightings >= minSightings }.sortedBy { tracks[it].first }
         var lastDeath: Duration? = null
-        return seen.mapNotNull { t ->
+        return seen.mapNotNull { i ->
+            val t = tracks[i]
             if (t.role == KillfeedRole.DEATH) {
                 val previous = lastDeath
                 if (previous != null && t.first - previous < deathSpacing) return@mapNotNull null
                 lastDeath = t.first
             }
-            t.role to t.first
+            Triple(t.role, t.first, i)
         }
     }
 }
@@ -480,6 +503,18 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         val solid: Boolean,
         /** Lignes encadrées ([KillfeedParams.outline]) : allongement qui fait d'une ligne suivie une nouvelle ligne. */
         val newLineGrowth: Int?,
+        /** Kill ou assistance ([PlayerParams]) : images des lignes de kill par image lue, lignes de récompense du chat. */
+        val player: PlayerReading? = null,
+    )
+
+    /** Ce qui est lu pour séparer kills et assistances ([PlayerParams]), image par image. */
+    private class PlayerReading(
+        val params: PlayerParams,
+        val name: PlayerName,
+        /** Par image lue : pour chaque ligne de l'image (même ordre que ses lignes), son image si c'est un kill. */
+        val samples: MutableMap<Int, List<GrayImage?>>,
+        /** Par image lue : lignes de récompense visibles dans le chat. */
+        val rewards: MutableMap<Int, Int>,
     )
 
     @Volatile
@@ -550,16 +585,47 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
                 (keyframes?.let { ", repéré sur les images clés (toutes les $it)" } ?: ", toute la vidéo")
         }
         val scanProgress = if (keyframes == null) ctx.progress else ctx.progress.child(tr("progress.keyframes"), SCAN_SHARE)
+        // Kill ou assistance : la même zone en canal le plus clair (le texte), et les débuts de ligne du chat.
+        val player = outline?.player?.takeIf { keyframes == null }?.let { pp ->
+            PlayerReading(pp, PlayerName(pp, k, margin = px(2), inner = px(3)), ConcurrentHashMap(), ConcurrentHashMap())
+        }
+        val nameZone = player?.let { zone.copy(color = BRIGHTEST) }
+        val reward = player?.params?.reward
+        val rewardZone = reward?.let { rw ->
+            val r = params.referenceWidth?.let { ScreenGeometry.rescale(rw.region, it.toDouble() / params.referenceHeight, video.width.toDouble() / video.height, RegionAnchor.LEFT) } ?: rw.region
+            val rx = (r.x * video.width).roundToInt().coerceIn(0, video.width - 1)
+            val ry = (r.y * video.height).roundToInt().coerceIn(0, video.height - 1)
+            val rw2 = (r.width * video.width).roundToInt().coerceIn(1, video.width - rx)
+            val rh = (r.height * video.height).roundToInt().coerceIn(1, video.height - ry)
+            FrameZone(rx, ry, rw2, rh, (rw2 * reduction).roundToInt().coerceAtLeast(1), (rh * reduction).roundToInt().coerceAtLeast(1), rw.color)
+        }
+        val rewardLines = reward?.let { RewardLines(it.threshold, it.minPixels, px(2), px(10)) }
         val subscription = ctx.frames.subscribe(
             spec = keyframes?.let { FrameSpec.keyframes(it) } ?: FrameSpec.fps(params.fps, params.hwaccel),
-            zones = listOf(zone),
+            zones = listOfNotNull(zone, nameZone, rewardZone),
             label = id,
             progress = scanProgress,
-            onReset = { rows.clear() },
-            onFrame = { _, zones -> rows += reader.rows(zones[0]) },
+            onReset = {
+                rows.clear()
+                player?.samples?.clear()
+                player?.rewards?.clear()
+            },
+            onFrame = { index, frames ->
+                val found = reader.rows(frames[0])
+                rows += found
+                if (player != null) runCatching {
+                    // Une image sur deux : PlayerParams.samples images couvrent les 5 premières secondes de la ligne. Toutes les
+                    // images (2,5 s) donnaient un pseudo appris moins net : 29 kills sur 33 au lieu de 30.
+                    if (index % 2 == 0 && found.any { it.role == KillfeedRole.KILL }) {
+                        val bright = GrayImage(frames[1].width, frames[1].height, frames[1].pixels)
+                        player.samples[index] = found.map { r -> if (r.role == KillfeedRole.KILL) lineImage(bright, r, px(2)) else null }
+                    }
+                    if (rewardLines != null) player.rewards[index] = rewardLines.count(GrayImage(frames[2].width, frames[2].height, frames[2].pixels))
+                }.onFailure { log.warn(it) { "$id : image $index : lignes du joueur illisibles" } }
+            },
         )
         val review = if (keyframes == null) ProgressReporter.NONE else ctx.progress.child("killfeed", 1 - SCAN_SHARE)
-        prepared = Prepared(subscription, rows, px(params.matchTolerance), zone, reader, keyframes, review, sightings, solid, outline?.let { px(it.newLineGrowth) })
+        prepared = Prepared(subscription, rows, px(params.matchTolerance), zone, reader, keyframes, review, sightings, solid, outline?.let { px(it.newLineGrowth) }, player)
     }
 
     override suspend fun analyze(ctx: AnalysisContext): SignalTrack {
@@ -576,17 +642,63 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
             newLineGrowth = state.newLineGrowth,
         )
         val end = ctx.media.duration
+        val trackOf = HashMap<Pair<Int, Int>, Int>()
         if (state.keyframes == null) {
-            for (i in 0 until count) tracker.add(times[i], state.rows[i])
+            for (i in 0 until count) tracker.add(times[i], state.rows[i]).forEachIndexed { r, t -> trackOf[i to r] = t }
         } else {
             review(ctx, state, times.take(count), end, tracker)
         }
-        val events = tracker.appearances().mapNotNull { (role, at) ->
-            val kind = params.kinds[role] ?: return@mapNotNull null
+        val assists = state.player?.let { assists(it, state.rows, tracker, trackOf, times.take(count)) }.orEmpty()
+        val events = tracker.appearanceTracks().mapNotNull { (role, at, track) ->
+            val kind = params.kinds[if (track in assists) KillfeedRole.ASSIST else role] ?: return@mapNotNull null
             SignalEvent((at + params.offset).coerceIn(Duration.ZERO, end), kind, 1.0)
         }
         log.info { "$id : ${events.groupingBy { it.kind }.eachCount()} : " + events.joinToString { "${it.kind} ${Durations.format(it.at)}" } }
         return SignalTrack(id, DoubleArray(ctx.grid.count) { Double.NaN }, events)
+    }
+
+    /**
+     * Lignes de kill qui sont des assistances ([PlayerParams]) : le pseudo du joueur est appris en tête des lignes, puis
+     * chaque ligne est un kill si elle commence par lui, ou presque et que le chat montre une récompense. Rend les numéros
+     * des lignes suivies à compter comme assistances.
+     */
+    private fun assists(
+        reading: PlayerReading,
+        rows: List<List<FeedRow>>,
+        tracker: FeedTracker,
+        trackOf: Map<Pair<Int, Int>, Int>,
+        times: List<Duration>,
+    ): Set<Int> {
+        val kills = tracker.appearanceTracks().filter { it.first == KillfeedRole.KILL }
+        val samples = HashMap<Int, MutableList<LineSample>>()
+        for ((index, images) in reading.samples.toSortedMap()) {
+            images.forEachIndexed { r, img ->
+                val track = trackOf[index to r]
+                if (img != null && track != null) {
+                    val list = samples.getOrPut(track) { mutableListOf() }
+                    if (list.size < reading.params.samples) list += LineSample(rows[index][r].edge, img)
+                }
+            }
+        }
+        val lines = kills.mapNotNull { (_, _, t) -> samples[t]?.takeIf { it.isNotEmpty() }?.let { t to it } }
+        val name = reading.name.learn(lines.map { it.second }) ?: run {
+            log.info { "$id : pseudo du joueur non appris, lignes encadrées toutes comptées en kills" }
+            return emptySet()
+        }
+        val reward = reading.params.reward
+        val rewards = if (reward == null) emptyList() else RewardLines.appearances(times, times.indices.map { reading.rewards[it] ?: 0 })
+        val out = HashSet<Int>()
+        val notes = mutableListOf<String>()
+        for ((track, list) in lines) {
+            val at = kills.first { it.third == track }.second
+            val score = reading.name.score(list, name)
+            val paid = reward != null && rewards.any { it >= at - reward.before && it <= at + reward.after }
+            val kill = score >= reading.params.minScore || (paid && score >= reading.params.weakScore)
+            if (!kill) out += track
+            notes += Durations.format(at) + " " + String.format(Locale.ROOT, "%.2f", score) + (if (paid) " chat" else "") + (if (kill) "" else " aide")
+        }
+        log.info { "$id : pseudo appris (${name.width}x${name.height} px), ${out.size} assistance(s) sur ${lines.size} lignes : ${notes.joinToString()}" }
+        return out
     }
 
     /**
@@ -634,6 +746,9 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
     }
 
     private companion object {
+        /** Canal le plus clair : le texte du killfeed, bleu ou jaune, ressort sur le fond sombre de la ligne. */
+        const val BRIGHTEST = "max(max(r(X,Y),g(X,Y)),b(X,Y))"
+
         /** Part de la progression prise par la lecture des images clés, bien plus rapide que la relecture. */
         const val SCAN_SHARE = 0.3
 

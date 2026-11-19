@@ -105,7 +105,7 @@ internal class NewGameController(
                     results = result.results.map { r ->
                         NewGameResultUi(
                             r.candidate.method.name, r.kills.size, r.hits.count { it.kind == "death" }, r.marksFound, r.sheet,
-                            r.sample.map { true }, r.candidate.detail,
+                            r.sample.map { false }, r.candidate.detail,
                         )
                     },
                     skipped = result.skipped.mapKeys { it.key.name },

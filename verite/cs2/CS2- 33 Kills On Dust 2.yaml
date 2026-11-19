@@ -2,8 +2,8 @@
 # ligne du killfeed où le joueur (Kryptek) apparaît, lue sur des planches agrandies (output/revue/cs2/). Kill = le joueur
 # est le premier nom de la ligne (seul ou « joueur + coéquipier ») ; 33 kills, autant que le titre. Mort = ligne sur fond
 # rouge plein où il est la victime. Instants : apparition de la ligne, à 0,5 s près.
-# Les assistances (« coéquipier + joueur », même contour rouge qu'un kill) ne sont pas des kills : le détecteur les
-# compte quand même (rien dans la forme ne les distingue), d'où la précision des kills. Relevées : 3m27s, 6m5s, 9m26s, 11m16s, 15m4.6s, 16m43.6s, 17m37s.
+# Les assistances (« coéquipier + joueur », même contour rouge qu'un kill) ne sont pas des kills : le détecteur les écarte
+# d'après le premier nom de la ligne (le pseudo du joueur, appris) et la récompense « +$… » du chat. Relevées : 3m27s, 6m5s, 9m26s, 11m16s, 15m4.6s, 16m43.6s, 17m37s.
 capture: { name: CS2- 33 Kills On Dust 2.mp4, sizeBytes: 260042704, duration: 1696.171s }
 profile: cs2
 tolerance: 3s
@@ -58,7 +58,10 @@ events:
   - { at: "25m45s", kind: kill }
   - { at: "26m13s", kind: death }
   - { at: "27m52.2s", kind: death }
-# Seuils = état mesuré au relevé : 32 kills sur 33 (la ligne de 18:50 prend la place de celle de 18:42), 10 lignes en
-# trop (8 assistances, 2 doublons d'une ligne qui monte) ; 13 morts sur 14, aucune en trop.
+# Seuils = état mesuré (19/11, branche cs2-sans-assistances : assistances séparées des kills par le pseudo du joueur en
+# tête de ligne et la récompense du chat) : 30 kills sur 33, 4 lignes en trop (l'assistance de 9:26 vue deux fois et
+# celle de 16:43, qui tombent toutes deux pendant une récompense du chat ; un doublon à 21:21). Manqués : 10:44 et 16:29
+# (premier mot mal lu, sans récompense lue), 18:50 (ligne qui en remplace une autre). Avant : 32 sur 33, 10 en trop
+# dont 6 assistances. 13 morts sur 14, aucune en trop.
 thresholds:
-  killfeed: { kill: { precision: 0.75, recall: 0.96 }, death: { precision: 1.0, recall: 0.92 } }
+  killfeed: { kill: { precision: 0.85, recall: 0.9 }, death: { precision: 1.0, recall: 0.92 } }
