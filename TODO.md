@@ -176,8 +176,10 @@ Pistes, de la plus simple à la plus lourde :
   - [x] Apprendre des choix : historique `taste-history.json` (choix de variantes et corrections de l'éditeur), poids des
     critères appris par préférence par paires, `montage.learnTaste` (actif par défaut depuis `gouts-actifs`, sans effet avant 10 choix), `app gouts`, `--reset`.
     - [ ] Valider sur de vrais choix de l'utilisateur (démonstration sur données synthétiques seulement).
-    - [ ] Apprendre aussi des corrections de l'éditeur (kills écartés ou forcés : préférence de groupes, pas de critères).
-    - [ ] Afficher les goûts appris dans l'application (aujourd'hui : `app gouts` seulement).
+    - [x] Apprendre aussi des corrections de l'éditeur (kills écartés ou forcés : préférence de groupes, pas de critères) :
+      `GroupTasteLearner` (branche `gouts-editeur`), bonus de rang par sorte de groupe, actif dès 5 montages corrigés.
+      - [ ] Valider sur de vraies corrections (démonstration synthétique seulement) ; distance du kill non mesurée.
+    - [x] Afficher les goûts appris dans l'application : écran « Goûts appris » (`TasteView`), avec l'oubli.
   - [ ] Variantes au-delà du planificateur (ordre chronologique / montée, accroche, densité d'effets) : à décider avec l'utilisateur.
 - [x] Styles nommés (`config/montage-styles.yaml`, `--style`, puces en haut de la fenêtre, cases sous « Réglages
   avancés ») : tiktok, propre, onetaps, cinematique. Une case modifiée à la main passe devant le style.

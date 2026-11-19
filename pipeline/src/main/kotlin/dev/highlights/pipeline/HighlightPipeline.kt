@@ -62,6 +62,8 @@ import dev.highlights.montage.MusicFeelStore
 import dev.highlights.montage.MusicFeels
 import dev.highlights.montage.TasteLearner
 import dev.highlights.montage.TasteEdit
+import dev.highlights.montage.GroupTasteLearner
+import dev.highlights.montage.LearnedGroupTaste
 import dev.highlights.montage.TasteChoice
 import dev.highlights.montage.TasteHistory
 import dev.highlights.montage.MontageVariantsFile
@@ -248,6 +250,8 @@ data class TasteState(
     val lastAfter: List<Double>?,
     /** Tous les profils chargés, pour dire lesquels n'apprennent pas. */
     val allProfiles: List<String> = emptyList(),
+    /** Préférences de groupes apprises des corrections de l'éditeur. */
+    val groups: LearnedGroupTaste = LearnedGroupTaste.NONE,
 )
 
 /** Aperçus des variantes d'un montage et le fichier qui les décrit (à passer à [VariantPick]). */
@@ -908,6 +912,7 @@ class HighlightPipeline(
                     forced = constraints.forced.map { it.toString() },
                     pins = constraints.pins.entries.associate { (ref, pin) -> ref.toString() to (if (pin is MontagePin.At) KillRef.clock(pin.music) else "drop") },
                     report = result.report.toString(),
+                    groups = GroupTasteLearner.record(planned.candidates, constraints),
                 ),
             )
         }
@@ -928,6 +933,7 @@ class HighlightPipeline(
             lastBefore = last?.variants?.map { MontageScorer.total(it, learned.base) },
             lastAfter = last?.variants?.map { MontageScorer.total(it, learned.weights) },
             allProfiles = profiles.all().map { it.id },
+            groups = GroupTasteLearner.learn(stored.edits),
         )
     }
 
@@ -1069,6 +1075,14 @@ class HighlightPipeline(
         return kept.ifEmpty { groups }
     }
 
+    /** Préférences de groupes apprises des corrections de l'éditeur, quand le profil apprend les goûts. */
+    private fun groupTaste(settings: MontageSettings): LearnedGroupTaste {
+        if (!settings.learnTaste) return LearnedGroupTaste.NONE
+        val learned = GroupTasteLearner.learn(tasteHistory.load().edits)
+        if (!learned.active) log.info { "Goûts : ${learned.edits} corrections sur ${GroupTasteLearner.MIN_EDITS} nécessaires, pas de préférence de groupes" }
+        return learned
+    }
+
     private fun normalized(p: Path) = p.toAbsolutePath().normalize().toString().lowercase()
 
     /** Choix enregistré à côté du rapport du rendu final ([MontageChoiceRecord]). */
@@ -1182,7 +1196,8 @@ class HighlightPipeline(
         // Les multi-kills étalés deviennent plusieurs plans (classement, aces et clutchs déjà tirés du groupe entier).
         val inspected = MontagePlanner.split(KillInspector(ffmpeg, inspections).inspect(found, settings, profile.audio, progress.child(tr("progress.kills"), 0.06)), settings)
         // Corrections de l'utilisateur : kills exclus retirés, groupes forcés ou épinglés marqués pour le planificateur.
-        val edited = MontageEdits.apply(inspected, options.constraints, settings.killStyle)
+        // Préférences de groupes apprises des corrections passées (sans effet sous GroupTasteLearner.MIN_EDITS).
+        val edited = groupTaste(settings).applyTo(MontageEdits.apply(inspected, options.constraints, settings.killStyle))
         if (edited.isEmpty()) throw InputException(Message("error.montage.edit.allExcluded"))
         // La pose de l'arme ne sert qu'aux groupes qui peuvent entrer dans le montage : la lire coûte un décodage par groupe.
         // Ouverture vitrine : sa place est réservée dans la durée maximale, les kills se planifient dans le reste.
