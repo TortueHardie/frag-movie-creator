@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
@@ -85,6 +86,8 @@ data class MontagePlanState(
     val planned: MontageConstraints = MontageConstraints.NONE,
     val error: String? = null,
     val thumbnails: Map<String, Path> = emptyMap(),
+    /** Calage à l'image du kill ouvert d'un clic sur son trait ([KillTimingPanel]) ; null : aucun. */
+    val timing: KillTimingUi? = null,
 )
 
 /** Groupes écartés dont on cherche la vignette : au-delà, une rangée qu'on ne fait plus défiler. */
@@ -148,11 +151,17 @@ data class PlanGroup(val media: MediaInfo, val kills: List<Duration>, val rank: 
 
 enum class GroupMark { NONE, EXCLUDED, PARTLY_EXCLUDED, FORCED, DROP, PINNED }
 
-/** Kill montré : son instant dans le montage, sa désignation. */
-data class PlanKill(val at: Duration, val ref: KillRef)
+/**
+ * Kill montré : son instant dans le montage, sa désignation (instant détecté), [source] son instant dans la capture tel
+ * que le plan l'utilise ; [retimed] : déplacé depuis la détection, à la main ([byHand]) ou par un décalage appris.
+ */
+data class PlanKill(val at: Duration, val ref: KillRef, val source: Duration = ref.at, val retimed: Boolean = false, val byHand: Boolean = false)
 
-/** Plan placé sur la musique : [start]/[end] dans le montage, [kills] ceux qu'il montre ; [group] null : plan vitrine. */
-data class PlanClip(val group: PlanGroup?, val start: Duration, val end: Duration, val kills: List<PlanKill>, val drop: Boolean)
+/**
+ * Plan placé sur la musique : [start]/[end] dans le montage, [kills] ceux qu'il montre ; [group] null : plan vitrine ;
+ * [beatShift] : décalage de son kill par rapport au temps (calage à la main ou appris pour la musique).
+ */
+data class PlanClip(val group: PlanGroup?, val start: Duration, val end: Duration, val kills: List<PlanKill>, val drop: Boolean, val beatShift: Duration = Duration.ZERO)
 
 data class PlanSection(val start: Duration, val end: Duration, val kind: SectionKind, val intensity: Double)
 
@@ -201,14 +210,23 @@ data class PlanView(
             val rawEnergy = range.map { music.beatEnergy.getOrElse(it) { 0.0 } }
             val top = rawEnergy.maxOrNull()?.takeIf { it > 0 } ?: 1.0
             // Groupe d'avant les corrections : celui que l'utilisateur reconnaît (kills exclus compris).
-            fun candidate(g: KillGroup) = planned.candidates.firstOrNull { c -> c.media.path == g.media.path && c.kills.any { it in g.kills } } ?: g
+            // Par l'instant détecté : un kill calé (à la main ou appris) n'a plus l'instant du candidat.
+            fun detected(g: KillGroup) = g.kills.map(g::detectedOf)
+            fun candidate(g: KillGroup) = planned.candidates.firstOrNull { c -> c.media.path == g.media.path && detected(g).any { it in c.kills } } ?: g
             val clips = plan.clips.zip(plan.clipOffsets()).map { (c, offset) ->
                 val end = offset + (music.beatTime(c.slot.endBeat) - music.beatTime(c.slot.startBeat))
                 if (c.showcase) PlanClip(null, offset, end, emptyList(), false)
-                else PlanClip(PlanGroup.of(candidate(c.group)), offset, end, c.kills.map { PlanKill(offset + c.toOutput(it), KillRef.of(c.group.media, it)) }, c.slot.dropBeat != null)
+                else PlanClip(
+                    PlanGroup.of(candidate(c.group)), offset, end,
+                    c.kills.map { k ->
+                        val retime = c.group.retimed[k]
+                        PlanKill(offset + c.toOutput(k), KillRef.of(c.group.media, c.group.detectedOf(k)), k, retime != null, retime?.byHand == true)
+                    },
+                    c.slot.dropBeat != null, c.beatShift,
+                )
             }
-            val placed = clips.mapNotNull { it.group }
-            val left = planned.candidates.filter { g -> placed.none { p -> p.media.path == g.media.path && p.kills.any { it in g.kills } } }
+            val placed = plan.clips.filterNot { it.showcase }.map { it.group.media.path to detected(it.group) }
+            val left = planned.candidates.filter { g -> placed.none { (path, kills) -> path == g.media.path && kills.any { it in g.kills } } }
                 .sortedByDescending { it.rank }.map(PlanGroup::of)
             return PlanView(
                 music = music.file.fileName.toString(),
@@ -238,7 +256,7 @@ fun MontagePlanEntry(montage: MontageUiState, actions: UiActions) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedButton(onClick = actions::openMontagePlan, enabled = montage.musicSource != null) { Text(tr("ui.montagePlan.open")) }
         val c = montage.constraints
-        val count = c.excluded.size + c.forced.size + c.pins.size
+        val count = c.count
         Text(
             if (count == 0) tr("ui.montagePlan.noEdits") else tr("ui.montagePlan.edits", "count" to count),
             style = MaterialTheme.typography.bodySmall,
@@ -252,7 +270,7 @@ fun MontagePlanEntry(montage: MontageUiState, actions: UiActions) {
 fun MontagePlanWindow(montage: MontageUiState, plan: MontagePlanState, actions: UiActions) {
     DialogWindow(
         onCloseRequest = actions::closeMontagePlan,
-        state = rememberDialogState(size = DpSize(1320.dp, 640.dp)),
+        state = rememberDialogState(size = DpSize(1320.dp, 900.dp)),
         title = tr("ui.montagePlan.title"),
     ) {
         HighlightsTheme {
@@ -332,7 +350,7 @@ fun MontagePlanContent(
     // couleur propre (titre, instant d'un groupe écarté) sortaient en noir sur le fond sombre.
     androidx.compose.material3.Surface(modifier, color = Palette.background, contentColor = Palette.text) {
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             val view = plan.view
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Column(Modifier.weight(1f)) {
@@ -367,6 +385,7 @@ fun MontagePlanContent(
             Box(Modifier.alpha(if (plan.loading) 0.55f else 1f).onGloballyPositioned { lane = it.boundsInRoot() }) {
                 Timeline(view, constraints, plan.thumbnails, dragged != null, target(), pins, actions, ::dragHandlers) { dropZone = it }
             }
+            plan.timing?.let { KillTimingPanel(it, actions) }
             // Les épingles sur un temps, chacune retirable d'un clic (le plan est recalculé sans elle).
             if (pins.isNotEmpty()) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -580,15 +599,21 @@ private fun ClipBlock(
             }
         }
     }
-    // Les kills montrés, en traits : un clic écarte ce kill seul.
+    // Les kills montrés, en traits : un clic ouvre leur calage à l'image (qui permet aussi de les écarter). Calé à la
+    // main : orange ; déplacé par un décalage appris : blanc.
     if (group != null) {
         clip.kills.forEach { kill ->
+            val color = when {
+                kill.byHand -> Palette.accent
+                kill.retimed -> Palette.text
+                else -> Palette.cyan
+            }
             Box(
                 Modifier.offset(x = x(kill.at) - 5.dp, y = 84.dp).size(10.dp, 18.dp)
-                    .clickable { actions.editMontageKill(listOf(kill.ref.toString()), KillEdit.EXCLUDE) },
+                    .clickable { actions.openKillTiming(kill.ref.toString()) },
                 contentAlignment = Alignment.Center,
             ) {
-                Box(Modifier.width(3.dp).height(18.dp).background(Palette.cyan))
+                Box(Modifier.width(if (kill.retimed) 4.dp else 3.dp).height(18.dp).background(color))
             }
         }
     }

@@ -16,6 +16,7 @@ import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeBytes
 import kotlin.math.sin
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -164,6 +165,56 @@ class MontageTimelineTest : FunSpec({
                     file.parent.createDirectories()
                     file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
                 }
+            }
+        }
+    }
+
+    test("calage d'un kill à l'image : bande d'images, image choisie, décalage du temps (build/ui-snapshots/montage_kill_timing*.png)") {
+        val out = Path("build", "ui-snapshots").createDirectories()
+        // Images de synthèse : un réticule au centre, la marque d'impact rouge à partir de la 9e image (kill vu 3 images
+        // après la détection, posée sur la 6e).
+        val dir = kotlin.io.path.createTempDirectory("kill-frames")
+        val detected = 1210.seconds
+        val frames = (0 until 31).map { i ->
+            val img = java.awt.image.BufferedImage(480, 200, java.awt.image.BufferedImage.TYPE_INT_RGB)
+            val g = img.createGraphics()
+            g.color = java.awt.Color(40 + i * 2, 52, 60)
+            g.fillRect(0, 0, 480, 200)
+            g.color = java.awt.Color(120, 110, 90)
+            g.fillRect(300 - i * 3, 70, 40, 80)
+            g.color = java.awt.Color.WHITE
+            g.drawLine(230, 100, 250, 100); g.drawLine(240, 90, 240, 110)
+            if (i >= 8) { g.color = java.awt.Color.RED; g.drawLine(228, 88, 236, 96); g.drawLine(252, 88, 244, 96); g.drawLine(228, 112, 236, 104); g.drawLine(252, 112, 244, 104) }
+            g.dispose()
+            val file = dir.resolve("k_%03d.jpg".format(i))
+            javax.imageio.ImageIO.write(img, "jpg", file.toFile())
+            dev.highlights.montage.KillFrame(detected - 83.milliseconds + (i * 1000 / 60).milliseconds, file)
+        }
+        val ref = KillRef.of(media, detected)
+        val timing = KillTimingUi(ref, media, current = detected, frames = frames, loading = false, selected = 8, beatShift = 17.milliseconds, songShift = Duration.ZERO)
+        val view = PlanView(
+            music = "Rome Is Burning.mp3", bpm = 120.0, musicStart = 55.seconds, duration = 12.seconds, beats = (0 until 24).map { (it * 500).milliseconds },
+            energy = (0 until 24).map { 0.4 + 0.5 * (it % 4 == 0).compareTo(false) }, sections = listOf(PlanSection(0.seconds, 12.seconds, SectionKind.DROP, 1.0)), dropAt = 4.seconds,
+            clips = listOf(
+                PlanClip(group(900.0), 0.seconds, 4.seconds, listOf(PlanKill(2.5.seconds, KillRef.of(media, 900.seconds))), false),
+                PlanClip(group(1210.0), 4.seconds, 8.seconds, listOf(PlanKill(5.seconds, ref, detected + 50.milliseconds, retimed = true, byHand = true)), true),
+                PlanClip(group(1500.0), 8.seconds, 12.seconds, listOf(PlanKill(10.seconds, KillRef.of(media, 1500.seconds), 1500.05.seconds, retimed = true)), false),
+            ),
+            left = emptyList(),
+        )
+        timing.nearest(detected) shouldBe 5
+        timing.chosen shouldBe frames[8].at
+        KillTimingUi.signedMs((-17).milliseconds) shouldBe "−17"
+        for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
+            I18n.withLanguage(tag) {
+                val image = SceneRendering.image(1320, 820) {
+                    HighlightsTheme {
+                        MontagePlanContent(MontageConstraints.NONE.anchor(ref, frames[8].at), MontagePlanState(loading = false, view = view, timing = timing), noop)
+                    }
+                }
+                val file: Path = out.resolve("${folder}montage_kill_timing.png")
+                file.parent.createDirectories()
+                file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
             }
         }
     }

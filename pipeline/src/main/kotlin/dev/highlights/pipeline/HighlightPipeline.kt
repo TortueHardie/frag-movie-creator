@@ -79,7 +79,12 @@ import dev.highlights.montage.MontageVariantEntry
 import dev.highlights.montage.MontagePreview
 import dev.highlights.montage.MontageChoiceRecord
 import dev.highlights.montage.InspectionCache
+import dev.highlights.montage.KillFrame
+import dev.highlights.montage.KillFrames
 import dev.highlights.montage.KillInspector
+import dev.highlights.montage.KillTimingLearner
+import dev.highlights.montage.LearnedTiming
+import dev.highlights.montage.TimingHistory
 import dev.highlights.montage.KillMontageExporter
 import dev.highlights.montage.KillGroup
 import dev.highlights.montage.MatchCutter
@@ -282,6 +287,8 @@ data class TasteState(
     val allProfiles: List<String> = emptyList(),
     /** Préférences de groupes apprises des corrections de l'éditeur. */
     val groups: LearnedGroupTaste = LearnedGroupTaste.NONE,
+    /** Décalages appris des calages à l'image (sources de détection, morceaux). */
+    val timing: LearnedTiming = LearnedTiming.NONE,
 )
 
 /** Aperçus des variantes d'un montage et le fichier qui les décrit (à passer à [VariantPick]). */
@@ -380,6 +387,14 @@ class HighlightPipeline(
 
     /** Choix de variantes et corrections de l'éditeur : de quoi apprendre les goûts de l'utilisateur ([TasteLearner]). */
     val tasteHistory = TasteHistory(config.outputDir.resolve("sessions").resolve("taste-history.json"))
+
+    /** Calages des kills à l'image faits dans la frise : de quoi apprendre le retard des détections et des morceaux. */
+    val timingHistory = TimingHistory(config.outputDir.resolve("sessions").resolve("kill-timing.json"))
+
+    private val killFrames = KillFrames(ffmpeg, config.workDir.resolve("cache").resolve("kill-frames"))
+
+    /** Toutes les images de la capture autour de l'instant [center] d'un kill, pour le caler à l'image (frise du plan). */
+    suspend fun killFrames(media: MediaInfo, center: Duration): List<KillFrame> = killFrames.around(media, center)
 
     /** Ressenti de chaque musique pour le rythme rapide (question après un montage, `app musique-ressenti`). */
     val musicFeelStore = MusicFeelStore(config.outputDir.resolve("sessions").resolve("music-feel.json"))
@@ -969,7 +984,11 @@ class HighlightPipeline(
                 tasteHistory.record(TasteChoice(now, planned.profile.id, music, pick.index - 1, variants, result.report.toString()))
             }
         }
-        if (!constraints.isEmpty) {
+        if (constraints.anchors.isNotEmpty() || constraints.beatShifts.isNotEmpty()) {
+            timingHistory.record(KillTimingLearner.record(planned.candidates, planned.plan, constraints, planned.profile.id, MusicFeelStore.keyOf(planned.plan.music.file), now))
+        }
+        // Un calage seul ne dit rien des groupes préférés : il ne compte pas comme correction pour GroupTasteLearner.
+        if (constraints.excluded.isNotEmpty() || constraints.forced.isNotEmpty() || constraints.pins.isNotEmpty()) {
             tasteHistory.record(
                 TasteEdit(
                     now, planned.profile.id, music,
@@ -999,6 +1018,7 @@ class HighlightPipeline(
             lastAfter = last?.variants?.map { MontageScorer.total(it, learned.weights) },
             allProfiles = profiles.all().map { it.id },
             groups = GroupTasteLearner.learn(stored.edits),
+            timing = KillTimingLearner.learn(timingHistory.load().corrections),
         )
     }
 
@@ -1279,7 +1299,10 @@ class HighlightPipeline(
             }
         }.let(::withTaste)
         val musicStep = progress.child(tr(if (music.isDirectory()) "progress.musics" else "progress.music"), 0.06)
-        val musics = if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music))
+        // Calages appris (retard d'une détection, temps décalés d'un morceau) : sans effet sous les seuils du learner.
+        val timing = if (settings.learnTaste) KillTimingLearner.learn(timingHistory.load().corrections) else LearnedTiming.NONE
+        val musics = (if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music)))
+            .map { m -> timing.songOffset(MusicFeelStore.keyOf(m.file))?.let { m.copy(killShift = it) } ?: m }
         musicStep.complete()
         // Ressenti de chaque musique : dit par l'utilisateur, appris de ses réponses, ou la règle par défaut.
         val feels = MusicFeels(musicFeelStore).let { f -> musics.associate { it.file to f.resolve(it) } }
@@ -1306,6 +1329,7 @@ class HighlightPipeline(
         // Corrections de l'utilisateur : kills exclus retirés, groupes forcés ou épinglés marqués pour le planificateur.
         // Préférences de groupes apprises des corrections passées (sans effet sous GroupTasteLearner.MIN_EDITS).
         val edited = groupTaste(settings).applyTo(MontageEdits.apply(inspected, options.constraints, settings.killStyle))
+            .let { KillTimingLearner.applyTo(it, timing, profile.id) }
         if (edited.isEmpty()) throw InputException(Message("error.montage.edit.allExcluded"))
         // La pose de l'arme ne sert qu'aux groupes qui peuvent entrer dans le montage : la lire coûte un décodage par groupe.
         // Ouverture vitrine : sa place est réservée dans la durée maximale, les kills se planifient dans le reste.

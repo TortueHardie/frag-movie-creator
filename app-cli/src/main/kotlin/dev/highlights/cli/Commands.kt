@@ -297,6 +297,21 @@ class MontageCommand : PipelineCommand("montage") {
             val pin = MontagePin.parse(at) ?: throw BadParameterValue("instant du morceau invalide dans '$text' (attendu « capture@instant=0:42 »)")
             killRef(kill) to pin
         }.multiple()
+    private val anchor by option(
+        "--anchor",
+        help = "Instant exact d'un kill dans sa capture, à l'image près : « capture@instant=3:12.483 » (le kill tombe sur le temps à cet instant) ; répétable",
+    ).convert { text ->
+        val (kill, at) = text.substringBeforeLast('=') to text.substringAfterLast('=', "")
+        val time = Durations.parseOrNull(at) ?: throw BadParameterValue("instant invalide dans '$text' (attendu « capture@instant=3:12.483 »)")
+        killRef(kill) to time
+    }.multiple()
+    private val beatShift by option(
+        "--beat-shift",
+        help = "Kill posé après (+) ou avant (−) son temps, quand le temps de la musique est un peu décalé : « capture@instant=+30ms » ; répétable",
+    ).convert { text ->
+        val (kill, value) = text.substringBeforeLast('=') to text.substringAfterLast('=', "").trim()
+        killRef(kill) to (signedDuration(value) ?: throw BadParameterValue("décalage invalide dans '$text' (attendu « capture@instant=+30ms » ou « -0.05s »)"))
+    }.multiple()
     private val planOnly by option("--plan", help = "Affiche le plan sans rendre : la place de chaque kill et sa désignation pour --exclude, --force, --drop, --pin").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
     private val thumbnail by thumbnailFlag()
@@ -316,11 +331,13 @@ class MontageCommand : PipelineCommand("montage") {
 
     override fun help(context: Context) =
         "Montage de tous les kills calé sur une musique : coupes sur le beat, chaque kill sur un temps, zoom, flash, ralenti, textes (--reactions pour mettre en avant voix et rires, --onetaps pour ne garder que les one taps). " +
-            "--plan montre le plan, --exclude, --force, --drop et --pin le corrigent."
+            "--plan montre le plan, --exclude, --force, --drop et --pin le corrigent, --anchor et --beat-shift calent un kill à l'image."
 
     private fun killRef(text: String): KillRef =
         runCatching { KillRef.parse(text) }.getOrElse { throw BadParameterValue("kill invalide '$text' (attendu « capture@instant », ex. partie.mp4@3:12.4)") }
 
+    /** « +30ms », « -0.05s », « 30ms » : un décalage signé. */
+    private fun signedDuration(text: String): kotlin.time.Duration? = Durations.parseOrNull(text.removePrefix("+"))
     override fun run() {
         if (variants != null && pick != null) throw UsageError("--variants et --pick vont chacun dans leur commande : d'abord les aperçus, puis le choix")
         if (variantsFile != null && pick == null) throw UsageError("--variants-file ne sert qu'avec --pick")
@@ -439,6 +456,8 @@ class MontageCommand : PipelineCommand("montage") {
         excluded = exclude.toSet(),
         forced = force.toSet(),
         pins = pin.toMap() + listOfNotNull(drop?.let { it to MontagePin.Drop }),
+        anchors = anchor.toMap(),
+        beatShifts = beatShift.toMap(),
     )
 
     /** Style par défaut de `montage-styles.yaml` (lu dans la configuration : à part, pour que [montageOptions] reste pure). */

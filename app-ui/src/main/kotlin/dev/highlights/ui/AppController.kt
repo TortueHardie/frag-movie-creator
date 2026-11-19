@@ -156,6 +156,21 @@ interface UiActions {
     fun pinMontageKill(kills: List<String>, musicSeconds: Double) {}
     /** Retire toutes les corrections. */
     fun resetMontagePlan() {}
+    /**
+     * Calage à l'image d'un kill de la frise ([KillTimingUi]) : l'ouvrir ([kill] : sa désignation « capture@instant »),
+     * avancer de [delta] images, choisir l'image [index], décaler le kill de [frames] images par rapport à son temps,
+     * appliquer (et replanifier), revenir à la détection, écarter le kill, fermer.
+     */
+    fun openKillTiming(kill: String) {}
+    fun stepKillFrame(delta: Int) {}
+    fun pickKillFrame(index: Int) {}
+    fun shiftKillBeat(frames: Int) {}
+    fun applyKillTiming() {}
+    fun clearKillTiming() {}
+    fun excludeTimedKill() {}
+    fun closeKillTiming() {}
+    /** Oublie les calages appris (`kill-timing.json` mis de côté, comme les goûts). */
+    fun resetTiming() {}
 
     /** Fenêtre de publication d'une vidéo exportée sur YouTube, champs proposés d'après la vidéo. */
     fun openPublish(video: Path)
@@ -1105,6 +1120,16 @@ class AppController(
 
     override fun resetMontagePlan() = updateMontage { it.copy(constraints = dev.highlights.montage.MontageConstraints.NONE) }
 
+    private val killTiming = KillTimingController(scope, _state, { backend?.pipeline }, ::updateMontage, ::replanMontage)
+    override fun openKillTiming(kill: String) = killTiming.open(kill)
+    override fun stepKillFrame(delta: Int) = killTiming.step(delta)
+    override fun pickKillFrame(index: Int) = killTiming.pick(index)
+    override fun shiftKillBeat(frames: Int) = killTiming.shiftBeat(frames)
+    override fun applyKillTiming() = killTiming.apply()
+    override fun clearKillTiming() = killTiming.clear()
+    override fun excludeTimedKill() = killTiming.exclude()
+    override fun closeKillTiming() = killTiming.close()
+
     override fun replanMontage() {
         val s = state.value
         val montage = s.montage ?: return
@@ -1384,6 +1409,14 @@ class AppController(
         val p = backend?.pipeline ?: return
         scope.launch {
             val aside = withContext(Dispatchers.IO) { p.tasteHistory.reset() }
+            loadTaste(resetDone = aside?.fileName?.toString())
+        }
+    }
+
+    override fun resetTiming() {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            val aside = withContext(Dispatchers.IO) { p.timingHistory.reset() }
             loadTaste(resetDone = aside?.fileName?.toString())
         }
     }

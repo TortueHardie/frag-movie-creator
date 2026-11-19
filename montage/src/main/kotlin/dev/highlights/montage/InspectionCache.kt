@@ -107,8 +107,9 @@ class InspectionCache(private val dir: Path) {
         return Entry(file, stamp, stored ?: StoredInspections(VERSION, stamp.first, stamp.second))
     }
 
+    // La source d'un kill ne change rien à sa mesure : hors de la clé, les inspections déjà faites restent valables.
     private fun killKey(kill: Duration, traits: KillTraits, align: ShotAlign, style: KillStyle, layout: AudioLayout) =
-        digest("${kill.inWholeNanoseconds}|$traits|$align|${style.flick}|${style.flickFrom}|${style.flickTo}|$layout")
+        digest("${kill.inWholeNanoseconds}|${traits.copy(source = null)}|$align|${style.flick}|${style.flickFrom}|${style.flickTo}|$layout")
 
     /** Le modèle d'arme en main compte par son contenu : le remplacer refait les poses. */
     private fun aimKey(group: KillGroup, settings: MatchCut): String {

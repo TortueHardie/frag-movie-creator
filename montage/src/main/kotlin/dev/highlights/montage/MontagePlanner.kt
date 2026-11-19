@@ -53,6 +53,16 @@ data class KillGroup(
     val trade: Boolean = false,
     /** Préférence apprise des corrections de l'éditeur pour ce genre de groupe, en kills ([LearnedGroupTaste]). */
     val taste: Double = 0.0,
+    /**
+     * Kills déplacés après l'inspection, à la main ([MontageConstraints.anchors]) ou par un décalage appris
+     * ([KillTimingLearner]) : instant actuel → instant détecté et origine du déplacement.
+     */
+    val retimed: Map<Duration, KillRetime> = emptyMap(),
+    /**
+     * Kill d'ancrage posé à ce décalage de son temps, par l'utilisateur ([MontageConstraints.beatShifts]) ; null : celui
+     * appris pour la musique ([MusicAnalysis.killShift]).
+     */
+    val beatShift: Duration? = null,
 ) {
     val rank: Double get() = kills.size + score / 10 + style + taste
 
@@ -61,6 +71,9 @@ data class KillGroup(
     val span: Duration get() = kills.last() - kills.first()
 
     fun traitsOf(kill: Duration): KillTraits = traits.getOrNull(kills.indexOf(kill)) ?: KillTraits.NONE
+
+    /** Instant du kill tel que la détection l'a donné (avant un calage à la main ou appris) : ce qui le désigne. */
+    fun detectedOf(kill: Duration): Duration = retimed[kill]?.detected ?: kill
 }
 
 /**
@@ -77,6 +90,11 @@ data class KillTraits(
     val flick: Double = 0.0,
     val shift: Duration = Duration.ZERO,
     val direction: FlickDirection? = null,
+    /**
+     * D'où vient l'instant du kill : le détecteur de l'événement, suivi de ce qui l'a recalé (« game-events/ammo-counter »,
+     * « killfeed/kill-confirm ») ; voir [KillTimingLearner.sourceOf]. Null : inconnu.
+     */
+    val source: String? = null,
     /**
      * Instant de la balle qui tue, vu sur le compteur de munitions (voir [MontagePlanner.hudShots]) : plus sûr que
      * l'instant annoncé, jusqu'à 0,6 s en retard. [KillInspector] y cale le kill.
@@ -167,12 +185,14 @@ data class MontageClip(
     val showcase: Boolean = false,
     /** Plan d'une partie rapide de la musique ([FastSections]) : rythme rapide, zoom d'approche au rendu. */
     val fastPart: Boolean = false,
+    /** Le kill d'ancrage tombe à ce décalage de son temps (calage à la main ou appris, voir [KillGroup.beatShift]). */
+    val beatShift: Duration = Duration.ZERO,
 ) {
     val beats: Int get() = slot.beats
 
     /** Instant du kill d'ancrage dans le plan, en temps du montage relatif au début du plan : sur son temps ou son contretemps. */
     fun anchorOutput(music: MusicAnalysis): Duration =
-        (if (anchorHalf) music.halfTime(anchorBeat) else music.beatTime(anchorBeat)) - music.beatTime(slot.startBeat)
+        (if (anchorHalf) music.halfTime(anchorBeat) else music.beatTime(anchorBeat)) - music.beatTime(slot.startBeat) + beatShift
     val beatsPre: Int get() = anchorBeat - slot.startBeat
     val beatsPost: Int get() = slot.endBeat - anchorBeat
     val sourceLength: Duration get() = end - start
@@ -332,7 +352,10 @@ object MontagePlanner {
         // Morts de Phoenix pendant son ultime (« Run it Back ») retirées : le joueur revient, ce n'en sont pas.
         val timeline = session.timeline.let { it.copy(events = TeamRounds.withoutRevived(it.events, settings.killStyle)) }
         val bounds = session.media.bounds
-        val allKills = timeline.events.filter { it.kind == settings.killEvent || it.kind in settings.anchorEvents }.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
+        val killEvents = timeline.events.filter { it.kind == settings.killEvent || it.kind in settings.anchorEvents }
+        val allKills = killEvents.map { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) }.sorted()
+        // Détecteur de chaque kill : d'où vient son instant, pour apprendre le retard propre à chaque source ([KillTimingLearner]).
+        val detectorOf = killEvents.associate { (it.at + settings.killOffset).coerceIn(bounds.start, bounds.end) to it.detectorId }
         // Rythme rapide : un kill aussitôt suivi de la mort du joueur ne montrerait que l'écran de mort.
         val kills = if (!settings.skipDeathWithin.isPositive() || settings.killStyle.deathEvent.isEmpty()) allKills else {
             val died = timeline.events.filter { it.kind in settings.killStyle.deathKinds }.map { it.at + settings.killOffset }
@@ -392,7 +415,11 @@ object MontagePlanner {
             }
             val indices = timeline.grid.let { g -> (0 until g.count).filter { g.rangeOf(it).isWithin(window) } }
             // Sans balle au compteur (capacité, couteau, capture sans compteur), la confirmation situe tout de même le kill.
-            val traits = ks.map { KillTraits(headshot = headshot(it), shots = shots[it], fatal = hud?.get(it)?.fatal ?: confirmed[it]?.minus(CONFIRM_LAG)) }
+            val traits = ks.map {
+                val fromHud = hud?.get(it)?.fatal
+                val source = detectorOf[it]?.let { d -> d + when { fromHud != null -> "/ammo-counter"; confirmed[it] != null -> "/kill-confirm"; else -> "" } }
+                KillTraits(headshot = headshot(it), shots = shots[it], fatal = fromHud ?: confirmed[it]?.minus(CONFIRM_LAG), source = source)
+            }
             KillGroup(
                 media = session.media,
                 kills = ks,
@@ -1519,7 +1546,11 @@ object MontagePlanner {
         }
         val anchorBeat = half ?: onBeat
         val anchorHalf = half != null
-        val anchorTime = if (anchorHalf) music.halfTime(anchorBeat) else music.beatTime(anchorBeat)
+        val onTime = if (anchorHalf) music.halfTime(anchorBeat) else music.beatTime(anchorBeat)
+        // Calage du temps (à la main ou appris pour la musique) : le kill avant ou après son temps, les coupes restent sur
+        // les temps. Jamais hors du plan : un kill qui ouvre le plan ne passe pas avant sa coupe.
+        val beatShift = (group.beatShift ?: music.killShift).coerceIn(slotStart - onTime, slotEnd - onTime - MIN_AFTER_SHIFT)
+        val anchorTime = onTime + beatShift
         val preOut = anchorTime - slotStart
         val postOut = slotEnd - anchorTime
 
@@ -1627,9 +1658,12 @@ object MontagePlanner {
         end = end.coerceAtMost(media.duration)
         return MontageClip(
             group, slot, anchorBeat, anchor, start, end, padBefore, padAfter, speeds, slotEnd - slotStart,
-            leadIn = if (single) cuts.minLead else Duration.ZERO, anchorHalf = anchorHalf,
+            leadIn = if (single) cuts.minLead else Duration.ZERO, anchorHalf = anchorHalf, beatShift = beatShift,
         )
     }
+
+    /** Image au moins après un kill décalé de son temps : le plan le montre toujours. */
+    private val MIN_AFTER_SHIFT = 20.milliseconds
 
     /** Source étirée en image figée (montage des morts) : une image à 60 img/s, sans risque d'en montrer deux. */
     internal val FREEZE_SOURCE = 16.milliseconds
