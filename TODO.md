@@ -330,7 +330,8 @@ Pistes, de la plus simple à la plus lourde :
 
 ## Habillage
 - [ ] Webcam en incrustation : seconde source synchronisée, disposition 9:16 webcam au-dessus du jeu.
-- [ ] Compteur de kills à l'écran (« 1… 2… 3… ACE ») et bandeau de score de round.
+- [x] Compteur de kills à l'écran (« 1… 2… 3… ACE ») et bandeau de score de round (`KillCounter`, `RoundScoreBanner`,
+  score lu dans le HUD par `round-score` ; mesuré en 854x480 seulement, `output/revue/bandeau-score/`).
 - [ ] Intro/outro personnalisées (logo, pseudo, fond) définies dans le profil.
 - [x] Miniature automatique : image du meilleur kill + punch-in + texte, PNG prêt pour YouTube (`--thumbnail`,
   `app thumbnail`, fenêtre de publication).

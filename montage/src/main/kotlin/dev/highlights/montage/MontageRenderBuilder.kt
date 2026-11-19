@@ -55,6 +55,8 @@ data class MontageRenderRequest(
     val decodeOptions: List<String> = emptyList(),
     /** Montage des réactions : sous-titres de chaque plan, en temps de la source (voir [ReactionRender.transcribe]). */
     val captions: List<List<dev.highlights.editing.story.Caption>> = emptyList(),
+    /** Score des rounds de chaque capture, pour le bandeau de score ([RoundScoreBanner]) ; vide : pas de bandeau. */
+    val roundScores: RoundScores = RoundScores.NONE,
 )
 
 /**
@@ -241,6 +243,7 @@ object MontageRenderBuilder {
             }
             effects += ReactionRender.captionFilters(request.captions.getOrNull(i), clip, lead, length, request.edit, request.format, w, h)
             effects += KillCounter.filters(KillCounter.marks(clips, i, outKills, length, settings.text.killCounter), settings.text.font, request.format, h, request.edit.safeArea, edit.vertical)
+            if (settings.text.roundScore) effects += RoundScoreBanner.filters(request.roundScores.forClip(clip), length, settings.text.font, request.format, w, h, request.edit.safeArea, edit.vertical)
             effects += "tpad=stop_mode=clone:stop_duration=${sec(clip.padAfter + 500.milliseconds)}"
             // Longueur en images, pas en durée : les horodatages de la source ne tombent pas sur la grille de sortie,
             // et `trim=duration` gardait parfois une image de plus. Sur un montage de 31 plans, 11 images de trop

@@ -195,6 +195,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `knocks: KnockSettings` (avec `dependsOn` sur le détecteur des mises à terre) : `KnockPairing.pair` rattache chaque +1 à la plus ancienne mise à terre libre
   (30 s avant) → `kind` à l'instant de la mise à terre, +k d'un coup = k au compteur (mises à terre absorbées), mises à terre libres = kills ; `eliminationKind` au compteur.
   `CounterReader.readPair` (clés brutes, pour l'assistant), `load` tolère des chiffres absents (jamais vus par l'assistant).
+- `RoundScoreDetector.kt` — type **`round-score`** : score des rounds dans la barre du haut (VALORANT, zones 16:9 854x480 centrées) ; `ScoreReader` (nombre composé des chiffres `templates/valorant/score/digit_N.png`, toute la largeur de la zone),
+  `ScoreDecoder` (Viterbi sur les couples, un round à la fois) → events `round-won`, `round-lost`, `score-reset` (score de départ émis à la première image).
 - `FrameSampling.kt` : `chooseSampling` (images clés vs fps selon intervalle mesuré).
 
 ### analysis-ml
@@ -278,6 +280,8 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `CaptionTranscriber.transcribe(…, voice, shouts, …)` (surcharge par segments). Pipeline : `MontageOptions.reactionMontage`, `findReactions` dans `planMontage`, kind « reactions »,
   `PlannedMontage.reactions` → `MontageExportRequest.reactions/captionCache` → `MontageReport.reactions` (`MontageReportReaction`). Erreurs `error.montage.noMicTrack/noReactions`.
   CLI `--reaction-montage`, case `MontageUiState.reactionMontage` (`ui.montage.reactionMontage`). Tests : `ReactionMontageTest`.
+- Bandeau du score des rounds : `RoundScoreBanner.kt` (`RoundScore.at(events, at)` = compte des `round-won`/`round-lost` depuis le dernier `score-reset` ; `RoundScores.from(sessions)` → `forClip` (score au premier kill du plan) ;
+  `RoundScoreBanner.top/filters`, branché après `KillCounter.filters` dans `MontageRenderBuilder` si `TextEffect.roundScore`) ; `MontageExportRequest.roundScores` → `MontageRenderRequest.roundScores` ; `MontageOptions.roundScore`, `--round-score`, case du dialogue (`MontageUiState.roundScoreKnown`).
 - `OneTaps.kt` (branche `montage-onetaps`) : `OneTaps.select` (kills d'une balle à la tête, `strict` si headshots connus ; `countsShots` = le profil a `ammo-counter`/`game-sounds`, `HighlightPipeline.SHOT_SOURCES`, sinon `error.onetaps.noShotSource`) ; réglages `MontageSettings.forOneTaps` / `OneTapMontage`.
 - Morts : `KillStyle.deathKinds` = `deathEvent` (+ `downedEvent` « downed » si `downedAsDeath`, faux par défaut), lu par `MontagePlanner.groups` (rounds, `skipDeathWithin`), `Statistics.game` et `Statistics.sources(sessions, kinds)`.
 - Kill confirmé à l'image : détecteur `kill-confirm` (type `killfeed`, toujours actif, 30 img/s, événements `feed-kill`) → `KillStyle.confirmEvent` ; `MontagePlanner.groups` associe chaque kill à la confirmation la plus proche (`CONFIRM_WINDOW` 0,8 s), `hudShots(…, confirmed)` cherche la balle qui tue jusqu'à `CONFIRM_AFTER` (0,12 s) après elle, sinon `fatal` = confirmation − `CONFIRM_LAG`.

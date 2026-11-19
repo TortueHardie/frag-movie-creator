@@ -548,6 +548,20 @@ détecte les kills). En ligne de commande :
   sur le dernier kill d'un groupe qui finit un ace. `clip` : compté dans chaque plan (un multi-kill fait 1, 2, 3) ;
   `montage` : cumul sur tout le montage, le total restant affiché d'un plan à l'autre. En 9:16, en haut à droite à
   côté du kill feed recollé (à gauche si le HUD recollé du profil occupe ce coin), dans la zone sûre de la plateforme.
+- **Bandeau du score des rounds** (VALORANT, désactivé par défaut ; case « Bandeau du score des rounds » du dialogue,
+  `--round-score`, `text.roundScore` d'un profil) : un petit cartouche « ROUND 13 » au-dessus de « 7 – 5 » (équipe du
+  joueur en sarcelle, adversaire en rouge), tenu tout le plan. C'est le score au moment du kill, donc du round que le
+  kill joue : le HUD ne passe au score suivant que quelques secondes après le kill qui gagne le round. Le score est lu
+  dans la barre du haut du jeu par le détecteur `round-score` (avec ou sans Outplayed, qui ne le transmet pas) : chaque
+  nombre de 0 à 30 est composé à partir des chiffres (`templates/valorant/score/`) et comparé à toute la zone de chaque
+  côté du chrono, puis les deux côtés sont décodés ensemble (Viterbi : un round à la fois, d'un seul côté), ce qui
+  corrige les lectures ratées sur un ciel clair, un flash ou l'écran de fin. Il émet un `round-won` ou `round-lost` par
+  round. Mesuré sur deux parties 854x480 (`output/revue/bandeau-score/`) : 98 à 99 % des images lues d'un côté disent le
+  score décodé, 48 changements de score sur 48 justes (vérifiés à l'œil avant et après chacun), aucun faux, fins 13-10
+  et 12-13 comme les tableaux de fin ; mêmes résultats avec une image toutes les 2 s. Images clés, décodage logiciel.
+  Non vérifié en 1080p ni 1440p. En 9:16, centré en haut sous la barre du HUD recollée, à 10 % du haut au moins et dans
+  la zone sûre, entre le compteur de kills (coin) et les libellés DOUBLÉ/TRIPLÉ (25 %) ; dans les autres formats, posé
+  sur le chrono du jeu. Rien pour une capture sans score lu ni pour l'ouverture vitrine.
 - **Effets** (désactivables : `--no-zoom`, `--no-flash`, `--no-slowmo`, `--no-text`) : zoom punch, ralenti ×0,5 sur le
   kill (seulement s'il tient dans le plan), textes « DOUBLÉ / TRIPLÉ », fondu au noir final. Le ralenti s'installe par
   paliers avant le kill et le plein régime revient exactement sur un temps, au lieu d'un changement de vitesse net ;

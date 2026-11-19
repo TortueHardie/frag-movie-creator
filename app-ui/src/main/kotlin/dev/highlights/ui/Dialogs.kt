@@ -300,6 +300,7 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                         MontageToggle(tr("ui.montage.slowMotion"), montage.slowMotion) { v -> actions.updateMontage { it.copy(slowMotion = v) } }
                         MontageToggle(tr("ui.montage.text", "double" to tr("video.streak.2"), "triple" to tr("video.streak.3")), montage.text) { v -> actions.updateMontage { it.copy(text = v) } }
                         KillCounterPicker(montage.killCounter) { mode -> actions.updateMontage { it.copy(killCounter = mode) } }
+                        if (montage.roundScoreKnown) MontageToggle(tr("ui.montage.roundScore"), montage.roundScore) { v -> actions.updateMontage { it.copy(roundScore = v) } }
                     }
                 }
             }

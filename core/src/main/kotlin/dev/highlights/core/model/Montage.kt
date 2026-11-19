@@ -1041,6 +1041,13 @@ data class TextEffect(
      * par défaut : il charge l'image, à réserver aux montages qui veulent l'afficher.
      */
     val killCounter: KillCounterMode = KillCounterMode.OFF,
+    /**
+     * Bandeau du score des rounds (« 7 – 5 », et le numéro du round) pendant chaque plan, lu dans le HUD au moment du
+     * kill (événements `round-won`/`round-lost` du détecteur `round-score`, VALORANT). Désactivé par défaut, comme le
+     * compteur : il dit où en est la partie, utile pour un montage d'une seule partie, du bruit pour une soirée mêlée.
+     * Rien n'est affiché pour une capture sans score lu.
+     */
+    val roundScore: Boolean = false,
 ) {
     /** Libellés à incruster : ceux de la configuration, sinon ceux de la langue de l'interface. */
     val labels: List<String> get() = multiKillLabels ?: (2..5).map { tr("video.streak.$it") }

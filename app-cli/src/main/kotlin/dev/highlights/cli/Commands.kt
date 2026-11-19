@@ -250,6 +250,7 @@ class MontageCommand : PipelineCommand("montage") {
     private val noText by option("--no-text", help = "Sans textes (DOUBLÉ, TRIPLÉ…)").flag()
     private val killCounter by option("--kill-counter", help = "Compteur de kills à l'écran (« 1… 2… 3… », puis ACE) : clip (compté dans chaque plan), montage (cumulé), off")
         .choice("off" to KillCounterMode.OFF, "clip" to KillCounterMode.CLIP, "montage" to KillCounterMode.MONTAGE)
+    private val roundScore by option("--round-score", help = "Bandeau du score des rounds (« ROUND 13 », « 7 – 5 ») pendant chaque plan, lu dans le HUD (VALORANT)").nullableFlag("--no-round-score")
     private val balance by option("--balance", help = "Équilibre jeu / musique, de -1 (musique devant) à 1 (jeu devant) ; ±6 dB par cran")
         .convert { text ->
             text.replace(',', '.').toDoubleOrNull()?.takeIf { it in -1.0..1.0 } ?: throw BadParameterValue("équilibre invalide '$text' (entre -1 et 1)")
@@ -468,6 +469,7 @@ class MontageCommand : PipelineCommand("montage") {
         speedRamp = if (noRamp) false else null,
         text = if (noText) false else null,
         killCounter = killCounter,
+        roundScore = roundScore,
         audioBalance = balance,
         gameAudio = gameAudio,
         reactions = if (reactions) true else null,

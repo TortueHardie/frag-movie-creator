@@ -68,6 +68,8 @@ data class MontageExportRequest(
     val reactions: List<SessionReactions> = emptyList(),
     /** Transcriptions gardées d'un rendu à l'autre (sous-titres du montage des réactions) ; null : aucun cache. */
     val captionCache: Path? = null,
+    /** Score des rounds de chaque capture, pour le bandeau de score ([RoundScoreBanner]). */
+    val roundScores: RoundScores = RoundScores.NONE,
 )
 
 @Serializable
@@ -234,6 +236,7 @@ class KillMontageExporter(private val ffmpeg: FfmpegService, private val encoder
                     request.audioBitrate, request.hwaccel, cuts, request.audioLayout, filterScriptOption, motion,
                     whooshFiles, if (request.preview) MontagePreview.DECODE else emptyList(),
                     captions = captions,
+                    roundScores = request.roundScores,
                 ),
             )
             script.writeText(render.filterGraph)
