@@ -218,4 +218,58 @@ class MontageTimelineTest : FunSpec({
             }
         }
     }
+    test("outil de la drop : forme d'onde, curseur, temps détectés et drop posée (build/ui-snapshots/montage_music_drop*.png)") {
+        val out = Path("build", "ui-snapshots").createDirectories()
+        // Forme d'onde de synthèse : calme, silence d'un demi-temps, puis la drop forte sur chaque temps (126 BPM).
+        val beats = (0 until 480).map { (it * 476).milliseconds }
+        fun level(t: Double) = if (t < 30.5) 0.25 + 0.1 * sin(t * 13) else if (t < 30.52) 0.02 else 0.9 - 0.3 * ((t - 30.523) % 0.476) / 0.476
+        val overview = (0 until MusicDropUi.OVERVIEW_BUCKETS).map { i -> level(i * 228.0 / MusicDropUi.OVERVIEW_BUCKETS).toFloat() }
+        val cursor = 30.523.seconds
+        val base = MusicDropUi(Path("D:/Musique/Rome Is Burning.mp3"), cursor, loading = false, duration = 228.seconds, overview = overview, beats = beats, detected = 31.474.seconds)
+        val detail = (0 until MusicDropUi.DETAIL_BUCKETS).map { i -> level(base.detailStart.inWholeMilliseconds / 1000.0 + i * 6.0 / MusicDropUi.DETAIL_BUCKETS).toFloat() }
+        val drop = base.copy(detail = detail, byHand = 30.523.seconds, playing = true, playhead = 29.9.seconds)
+        drop.detailStart shouldBe 27.523.seconds
+        drop.offsetFromDetected shouldBe "−951"
+        val view = PlanView(
+            music = "Rome Is Burning.mp3", bpm = 126.0, musicStart = 17.182.seconds, duration = 12.seconds, beats = (0 until 24).map { (it * 476).milliseconds },
+            energy = (0 until 24).map { 0.4 + 0.5 * (it % 4 == 0).compareTo(false) }, sections = listOf(PlanSection(0.seconds, 12.seconds, SectionKind.DROP, 1.0)), dropAt = 6.seconds,
+            clips = listOf(PlanClip(group(900.0), 0.seconds, 12.seconds, emptyList(), true)), left = emptyList(), musicPath = Path("D:/Musique/Rome Is Burning.mp3"), dropByHand = true,
+        )
+        for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
+            I18n.withLanguage(tag) {
+                val image = SceneRendering.image(1320, 760) {
+                    HighlightsTheme { MontagePlanContent(MontageConstraints.NONE, MontagePlanState(loading = false, view = view, drop = drop), noop) }
+                }
+                val file: Path = out.resolve("${folder}montage_music_drop.png")
+                file.parent.createDirectories()
+                file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            }
+        }
+    }
+
+    test("outil de la drop : ±10 ms, ±1 temps, saisie m:ss.mmm, sans morceau chargé ni sortie son") {
+        val state = kotlinx.coroutines.flow.MutableStateFlow(
+            UiState(montage = MontageUiState(plan = MontagePlanState(loading = false, drop = MusicDropUi(Path("rome.mp3"), 30.seconds, loading = false, duration = 200.seconds, beats = (0 until 400).map { (it * 476).milliseconds })))),
+        )
+        val c = MusicDropController(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), state, { null }, {}, sinks = { null })
+        fun d() = state.value.montage!!.plan!!.drop!!
+        c.step(10)
+        d().cursor shouldBe 30.01.seconds
+        d().text shouldBe "0:30.010"
+        c.stepBeat(1)
+        d().cursor shouldBe 30.464.seconds
+        c.stepBeat(-1)
+        d().cursor shouldBe 29.988.seconds
+        c.text("0:30.523")
+        d().cursor shouldBe 30.523.seconds
+        d().textError shouldBe false
+        c.text("0:3x")
+        d().textError shouldBe true
+        d().cursor shouldBe 30.523.seconds
+        // Sans son chargé, écouter ne fait rien (et ne plante pas).
+        c.play(true)
+        d().playing shouldBe false
+        c.close()
+        state.value.montage!!.plan!!.drop shouldBe null
+    }
 })

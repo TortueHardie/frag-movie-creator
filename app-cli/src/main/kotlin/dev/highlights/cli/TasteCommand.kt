@@ -4,6 +4,8 @@ import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
+import dev.highlights.montage.DropLearner
+import dev.highlights.montage.DropTime
 import dev.highlights.montage.GroupTasteLearner
 import dev.highlights.montage.GroupTrait
 import dev.highlights.montage.KillTimingLearner
@@ -21,6 +23,8 @@ import java.nio.file.Path
 class TasteCommand : PipelineCommand("gouts") {
     private val reset by option("--reset", help = "Oublier ce qui a été appris : l'historique est mis de côté (taste-history.reset-<date>.json), pas effacé").flag()
     private val resetTiming by option("--reset-timing", help = "Oublier les calages appris (kill-timing.json mis de côté, pas effacé)").flag()
+    private val resetDrops by option("--reset-drops", help = "Oublier les drops posées à la main (music-drops.json mis de côté, pas effacé)").flag()
+    private val resetDropLearning by option("--reset-drop-learning", help = "Oublier ce qui a été appris des drops posées (drop-learning.json mis de côté ; les drops posées restent)").flag()
     private val history by option("--history", help = "Lire cet historique au lieu de <sortie>\\sessions\\taste-history.json").path(mustExist = true, canBeDir = false)
 
     override fun help(context: Context) =
@@ -30,6 +34,16 @@ class TasteCommand : PipelineCommand("gouts") {
     override fun run() {
         val pipeline = Pipelines.create(env.config)
         val file: Path = history ?: pipeline.tasteHistory.file
+        if (resetDropLearning) {
+            val aside = pipeline.dropExamples.reset()
+            echo(if (aside == null) "Rien à oublier : ${pipeline.dropExamples.file} n'existe pas." else "Apprentissage des drops oublié. Fichier mis de côté : $aside.")
+            if (!reset && !resetTiming && !resetDrops) return
+        }
+        if (resetDrops) {
+            val aside = pipeline.musicDropStore.reset()
+            echo(if (aside == null) "Rien à oublier : ${pipeline.musicDropStore.file} n'existe pas." else "Drops oubliées. Fichier mis de côté : $aside.")
+            if (!reset && !resetTiming) return
+        }
         if (resetTiming) {
             val aside = pipeline.timingHistory.reset()
             echo(if (aside == null) "Rien à oublier : ${pipeline.timingHistory.file} n'existe pas." else "Calages oubliés. Historique mis de côté : $aside.")
@@ -90,6 +104,24 @@ class TasteCommand : PipelineCommand("gouts") {
             echo("  morceau   %-40s %+5d ms  %2d calage(s), écart %3d ms  %s".format(o.key.substringBefore('|'), o.offset.inWholeMilliseconds, o.count, o.spread.inWholeMilliseconds, if (o.active) "appliqué" else "pas encore"))
         }
         if (!timing.isEmpty) echo("  pour les oublier : app gouts --reset-timing")
+        echo("")
+        echo("Drops posées à la main (${state.drops.size}) :")
+        if (state.drops.isEmpty()) echo("  aucune (outil de la drop dans la frise, ou montage --drop-at 1:23.456)")
+        state.drops.forEach { d -> echo("  %-50s %s".format(d.name.take(50), DropTime.format(d.at))) }
+        if (state.drops.isNotEmpty()) echo("  pour les oublier : app gouts --reset-drops (une seule : montage --drop-at auto)")
+        val dropsLearned = state.learnedDrop
+        if (dropsLearned.songs > 0) {
+            echo(
+                "  appris de ${dropsLearned.songs} drop(s) posée(s) : écart moyen ${dropsLearned.meanOffsetMs} ms, le plus souvent ${dropsLearned.beatOffset} temps " +
+                    "(accord ${"%.0f".format((dropsLearned.beatAgreement ?: 0.0) * 100)} %), reste ${dropsLearned.residual?.inWholeMilliseconds} ms",
+            )
+            echo("  écart régulier : ${if (dropsLearned.biasActive) "appliqué aux morceaux jamais posés" else "pas encore (${DropLearner.MIN_SONGS} morceaux concordants)"}")
+            echo(
+                "  choix appris : ${dropsLearned.modelHits ?: "-"}/${dropsLearned.songs} retrouvées (une de côté), règle ${dropsLearned.ruleHits ?: "-"}/${dropsLearned.songs} : " +
+                    if (dropsLearned.modelActive) "actif" else "pas encore (${DropLearner.MIN_MODEL_SONGS} morceaux et mieux que la règle)",
+            )
+            echo("  pour l'oublier : app gouts --reset-drop-learning")
+        }
         val last = state.last ?: return
         echo("")
         echo("Dernier choix (${last.at}, ${Path.of(last.music).fileName}) : variante ${last.chosen + 1} rendue")

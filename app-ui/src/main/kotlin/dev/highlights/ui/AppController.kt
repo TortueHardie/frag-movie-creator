@@ -171,6 +171,26 @@ interface UiActions {
     fun closeKillTiming() {}
     /** Oublie les calages appris (`kill-timing.json` mis de côté, comme les goûts). */
     fun resetTiming() {}
+    /**
+     * Outil de la drop du morceau du plan ([MusicDropUi]) : ouvrir (clic sur « DROP »), placer le curseur à [seconds]
+     * du morceau, le déplacer de [millis] ms ou de [beats] temps, saisir l'instant, écouter (depuis 2 s avant si
+     * [fromBefore] ; rejouer arrête), poser le curseur à l'instant entendu, « La drop est ici » (retenue pour ce morceau
+     * et plan recalculé), revenir à la détection, fermer.
+     */
+    fun openMusicDrop() {}
+    fun seekMusicDrop(seconds: Double) {}
+    fun stepMusicDrop(millis: Int) {}
+    fun stepMusicDropBeat(beats: Int) {}
+    fun setMusicDropText(text: String) {}
+    fun playMusicDrop(fromBefore: Boolean) {}
+    fun markMusicDropHere() {}
+    fun confirmMusicDrop() {}
+    fun clearMusicDrop() {}
+    fun closeMusicDrop() {}
+    /** Oublie la drop posée d'un morceau ([key] : sa clé, vue des goûts). */
+    fun forgetMusicDrop(key: String) {}
+    /** Oublie ce qui a été appris des drops posées (`drop-learning.json` mis de côté ; les drops posées restent). */
+    fun resetDropLearning() {}
 
     /** Fenêtre de publication d'une vidéo exportée sur YouTube, champs proposés d'après la vidéo. */
     fun openPublish(video: Path)
@@ -1143,6 +1163,32 @@ class AppController(
     override fun clearKillTiming() = killTiming.clear()
     override fun excludeTimedKill() = killTiming.exclude()
     override fun closeKillTiming() = killTiming.close()
+
+    private val musicDrop = MusicDropController(scope, _state, { backend?.pipeline }, ::replanMontage)
+    override fun openMusicDrop() = musicDrop.open()
+    override fun seekMusicDrop(seconds: Double) = musicDrop.seek(seconds)
+    override fun stepMusicDrop(millis: Int) { musicDrop.step(millis) }
+    override fun stepMusicDropBeat(beats: Int) = musicDrop.stepBeat(beats)
+    override fun setMusicDropText(text: String) = musicDrop.text(text)
+    override fun playMusicDrop(fromBefore: Boolean) = musicDrop.play(fromBefore)
+    override fun markMusicDropHere() = musicDrop.markHere()
+    override fun confirmMusicDrop() = musicDrop.confirm()
+    override fun clearMusicDrop() = musicDrop.clear()
+    override fun closeMusicDrop() = musicDrop.close()
+    override fun resetDropLearning() {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            val aside = withContext(Dispatchers.IO) { p.dropExamples.reset() }
+            loadTaste(resetDone = aside?.fileName?.toString())
+        }
+    }
+    override fun forgetMusicDrop(key: String) {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            withContext(Dispatchers.IO) { p.forgetMusicDrop(key) }
+            loadTaste()
+        }
+    }
 
     override fun replanMontage() {
         val s = state.value

@@ -63,6 +63,7 @@ fun TasteView(taste: TasteUiState, actions: UiActions, modifier: Modifier = Modi
             CriteriaCard(state)
             GroupsCard(state)
             TimingTasteCard(state, actions)
+            DropsTasteCard(state, actions)
             ResetRow(taste, state, actions)
         }
     }

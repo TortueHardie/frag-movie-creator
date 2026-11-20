@@ -88,6 +88,8 @@ data class MontagePlanState(
     val thumbnails: Map<String, Path> = emptyMap(),
     /** Calage à l'image du kill ouvert d'un clic sur son trait ([KillTimingPanel]) ; null : aucun. */
     val timing: KillTimingUi? = null,
+    /** Outil de la drop du morceau, ouvert d'un clic sur la marque « DROP » ([MusicDropPanel]) ; null : fermé. */
+    val drop: MusicDropUi? = null,
 )
 
 /** Groupes écartés dont on cherche la vignette : au-delà, une rangée qu'on ne fait plus défiler. */
@@ -180,6 +182,12 @@ data class PlanView(
     val dropAt: Duration?,
     val clips: List<PlanClip>,
     val left: List<PlanGroup>,
+    /** Fichier de la musique (celle choisie dans un dossier), pour l'outil de la drop. */
+    val musicPath: java.nio.file.Path? = null,
+    /** La drop de ce plan a été posée à la main ([dev.highlights.montage.MusicDrops]). */
+    val dropByHand: Boolean = false,
+    /** La drop de ce plan vient de ce qui a été appris des drops posées sur d'autres morceaux. */
+    val dropLearned: Boolean = false,
 ) {
     /** Temps de la frise le plus proche de [t] (instant du montage) ; null sans temps. */
     fun beatNear(t: Duration): Int? = beats.indices.minByOrNull { (beats[it] - t).absoluteValue }
@@ -245,6 +253,9 @@ data class PlanView(
                 dropAt = plan.dropAt,
                 clips = clips,
                 left = left,
+                musicPath = music.file,
+                dropByHand = music.dropByHand != null,
+                dropLearned = music.dropLearned != null,
             )
         }
     }
@@ -387,6 +398,7 @@ fun MontagePlanContent(
                 Timeline(view, constraints, plan.thumbnails, dragged != null, target(), pins, actions, ::dragHandlers) { dropZone = it }
             }
             plan.timing?.let { KillTimingPanel(it, actions) }
+            plan.drop?.let { MusicDropPanel(it, actions) }
             // Les épingles sur un temps, chacune retirable d'un clic (le plan est recalculé sans elle).
             if (pins.isNotEmpty()) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -495,12 +507,14 @@ private fun Timeline(
                             ),
                     )
                     Box(Modifier.offset(x = x(drop) - 1.dp).width(2.dp).fillMaxSize().background(Palette.accent))
+                    // La marque se clique : l'outil de la drop, pour la poser à l'oreille.
                     Text(
-                        tr("ui.montagePlan.drop"),
+                        tr(if (view.dropByHand) "ui.montagePlan.dropByHand" else if (view.dropLearned) "ui.montagePlan.dropLearned" else "ui.montagePlan.drop"),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = Palette.background,
-                        modifier = Modifier.offset(x = x(drop) + 4.dp).background(Palette.accent, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp),
+                        modifier = Modifier.offset(x = x(drop) + 4.dp).background(Palette.accent, RoundedCornerShape(3.dp))
+                            .clickable(onClick = actions::openMusicDrop).padding(horizontal = 4.dp),
                     )
                 }
                 // Épingles : une tête ronde au-dessus d'un trait, sur leur temps.

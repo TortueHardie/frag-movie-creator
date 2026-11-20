@@ -51,6 +51,13 @@ import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
 import dev.highlights.montage.FeelEntry
+import dev.highlights.montage.LearnedDrop
+import dev.highlights.montage.DropLearner
+import dev.highlights.montage.DropExamples
+import dev.highlights.montage.StoredDrop
+import dev.highlights.montage.MusicPcm
+import dev.highlights.montage.MusicDrops
+import dev.highlights.montage.MusicDropStore
 import dev.highlights.montage.MicLevels
 import dev.highlights.montage.ReactionFinder
 import dev.highlights.montage.Reactions
@@ -289,7 +296,16 @@ data class TasteState(
     val groups: LearnedGroupTaste = LearnedGroupTaste.NONE,
     /** Décalages appris des calages à l'image (sources de détection, morceaux). */
     val timing: LearnedTiming = LearnedTiming.NONE,
+    /** Drops posées à la main, une par morceau. */
+    val drops: List<StoredDrop> = emptyList(),
+    /** Ce qui a été appris des drops posées (écart régulier, choix de la drop réappris). */
+    val learnedDrop: LearnedDrop = LearnedDrop.NONE,
 )
+
+/** Outil de la drop d'un morceau : [pcm] pour l'écouter et dessiner sa forme d'onde, [detected] l'analyse sans drop posée, [byHand] celle posée. */
+class MusicDropTool(val music: Path, val pcm: MusicPcm, val detected: MusicAnalysis, val byHand: Duration?) {
+    val detectedDrop: Duration get() = detected.beatTime(detected.dropBeat)
+}
 
 /** Aperçus des variantes d'un montage et le fichier qui les décrit (à passer à [VariantPick]). */
 data class MontagePreviews(
@@ -395,6 +411,40 @@ class HighlightPipeline(
 
     /** Toutes les images de la capture autour de l'instant [center] d'un kill, pour le caler à l'image (frise du plan). */
     suspend fun killFrames(media: MediaInfo, center: Duration): List<KillFrame> = killFrames.around(media, center)
+
+    /** Drops posées à la main, une par morceau (outil de la drop, `montage --drop-at`), réutilisées à chaque montage. */
+    val musicDropStore = MusicDropStore(config.outputDir.resolve("sessions").resolve("music-drops.json"))
+
+    /**
+     * Pose la drop de [music] à [at] (instant dans le morceau) pour tous les montages suivants ; null : l'oublie, la
+     * détection reprend la main.
+     */
+    suspend fun setMusicDrop(music: Path, at: Duration?) {
+        musicDropStore.set(music, at)
+        val key = MusicFeelStore.keyOf(music) ?: return
+        if (at == null) return dropExamples.forget(key)
+        // L'exemple d'apprentissage : où la détection mettait la drop, où l'utilisateur l'a posée, les mesures de chaque temps.
+        val detected = runCatching { musicLibrary.analysis(ffmpeg, music) }.getOrNull() ?: MusicAnalyzer.analyze(ffmpeg, music)
+        dropExamples.record(DropLearner.example(key, music.fileName.toString(), detected, at))
+    }
+
+    /** Oublie la drop posée d'un morceau par sa clé, et ce qu'elle apprenait (vue des goûts). */
+    fun forgetMusicDrop(key: String) {
+        musicDropStore.forget(key)
+        dropExamples.forget(key)
+    }
+
+    /** Drops posées gardées pour apprendre la détection de la drop ([DropLearner]). */
+    val dropExamples = DropExamples(config.outputDir.resolve("sessions").resolve("drop-learning.json"))
+
+    /**
+     * De quoi poser la drop de [music] à l'oreille : son en mémoire ([MusicPcm]), analyse détectée (temps, drop
+     * détectée) et drop déjà posée à la main.
+     */
+    suspend fun musicDropTool(music: Path): MusicDropTool {
+        val analysis = runCatching { musicLibrary.analysis(ffmpeg, music) }.getOrNull() ?: MusicAnalyzer.analyze(ffmpeg, music)
+        return MusicDropTool(music, MusicPcm.decode(ffmpeg, music), analysis, musicDropStore.dropOf(music))
+    }
 
     /** Ressenti de chaque musique pour le rythme rapide (question après un montage, `app musique-ressenti`). */
     val musicFeelStore = MusicFeelStore(config.outputDir.resolve("sessions").resolve("music-feel.json"))
@@ -1019,6 +1069,8 @@ class HighlightPipeline(
             allProfiles = profiles.all().map { it.id },
             groups = GroupTasteLearner.learn(stored.edits),
             timing = KillTimingLearner.learn(timingHistory.load().corrections),
+            drops = musicDropStore.load().drops,
+            learnedDrop = DropLearner.learn(dropExamples.load()),
         )
     }
 
@@ -1303,6 +1355,12 @@ class HighlightPipeline(
         val timing = if (settings.learnTaste) KillTimingLearner.learn(timingHistory.load().corrections) else LearnedTiming.NONE
         val musics = (if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music)))
             .map { m -> timing.songOffset(MusicFeelStore.keyOf(m.file))?.let { m.copy(killShift = it) } ?: m }
+            // Drop posée à la main : elle remplace la drop détectée (grille des temps recalée autour, voir MusicDrops).
+            // Sinon, ce qui a été appris des drops posées sur d'autres morceaux (sans effet sous les seuils de DropLearner).
+            .let { list ->
+                val learned = if (settings.learnTaste) DropLearner.learn(dropExamples.load()) else LearnedDrop.NONE
+                list.map { m -> musicDropStore.dropOf(m.file)?.let { MusicDrops.apply(m, it) } ?: learned.dropFor(m)?.let { MusicDrops.apply(m, it, byHand = false) } ?: m }
+            }
         musicStep.complete()
         // Ressenti de chaque musique : dit par l'utilisateur, appris de ses réponses, ou la règle par défaut.
         val feels = MusicFeels(musicFeelStore).let { f -> musics.associate { it.file to f.resolve(it) } }

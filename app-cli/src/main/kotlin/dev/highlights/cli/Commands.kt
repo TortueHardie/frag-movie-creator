@@ -38,6 +38,7 @@ import dev.highlights.core.serialization.toTimecode
 import dev.highlights.core.session.SessionStore
 import dev.highlights.export.ExportResult
 import dev.highlights.ffmpeg.FfmpegEncoderSelector
+import dev.highlights.montage.DropTime
 import dev.highlights.montage.CutGrid
 import dev.highlights.montage.MontageChoiceRecord
 import dev.highlights.montage.KillRef
@@ -312,6 +313,14 @@ class MontageCommand : PipelineCommand("montage") {
         val (kill, value) = text.substringBeforeLast('=') to text.substringAfterLast('=', "").trim()
         killRef(kill) to (signedDuration(value) ?: throw BadParameterValue("décalage invalide dans '$text' (attendu « capture@instant=+30ms » ou « -0.05s »)"))
     }.multiple()
+    private val dropAt by option(
+        "--drop-at",
+        help = "Instant de la drop dans la musique, posé à la main (« 0:30.523 ») : il remplace la drop détectée et reste retenu pour ce morceau " +
+            "aux montages suivants ; « auto » l'oublie (la détection reprend la main)",
+    ).convert { text ->
+        if (text.trim().equals("auto", ignoreCase = true)) DropAtChoice(null)
+        else DropAtChoice(DropTime.parse(text) ?: throw BadParameterValue("instant invalide '$text' (attendu « 1:23.456 » ou « auto »)"))
+    }
     private val planOnly by option("--plan", help = "Affiche le plan sans rendre : la place de chaque kill et sa désignation pour --exclude, --force, --drop, --pin").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
     private val thumbnail by thumbnailFlag()
@@ -341,6 +350,11 @@ class MontageCommand : PipelineCommand("montage") {
     override fun run() {
         if (variants != null && pick != null) throw UsageError("--variants et --pick vont chacun dans leur commande : d'abord les aperçus, puis le choix")
         if (variantsFile != null && pick == null) throw UsageError("--variants-file ne sert qu'avec --pick")
+        dropAt?.let { choice ->
+            if (music.isDirectory()) throw UsageError("--drop-at vise une musique, pas un dossier de musiques")
+            execute { Pipelines.create(env.config).setMusicDrop(music, choice.at) }
+            echo(choice.at?.let { "  drop de ${music.fileName} posée à ${DropTime.format(it)} (retenue pour ce morceau)" } ?: "  drop de ${music.fileName} : détection")
+        }
         val progress = ConsoleProgress()
         val constraints = constraints()
         if (planOnly) {
@@ -523,6 +537,9 @@ class MontageCommand : PipelineCommand("montage") {
         return presetted.copy(style = if (style == "none") null else presetted.style ?: defaultStyle)
     }
 }
+
+/** Valeur de `--drop-at` : un instant, ou null pour « auto » (oublier la drop posée). */
+data class DropAtChoice(val at: kotlin.time.Duration?)
 
 class MusicCommand : PipelineCommand("music") {
     private val file by argument("MUSIQUE", help = "Fichier audio (mp3, wav, flac…), ou dossier de musiques à analyser d'avance").path(mustExist = true)

@@ -663,6 +663,40 @@ bornée à ±200 ms) appliqué aux kills de cette source ; et le décalage des t
 Vue « Goûts appris » : carte « Calage des kills » et « Oublier les calages appris » ; `app gouts` les liste,
 `app gouts --reset-timing` les oublie (fichier mis de côté, pas effacé).
 
+**Poser la drop à l'oreille.** La drop détectée peut tomber à côté de celle qu'on entend (« Rome Is Burning » : détectée
+à 0:31.474, alors que la basse entre après un silence à 0:30.523, deux temps plus tôt). Clic sur la marque **DROP** de la
+frise : la forme d'onde du morceau entier et celle des 6 s autour du curseur (temps détectés en repères, drop détectée en
+gris), le son du morceau, un curseur qu'on place d'un clic ou d'un glisser, au clavier (← → 10 ms, Maj+← → un temps) ou
+en tapant l'instant (`m:ss.mmm`). **Écouter** (Espace) joue depuis le curseur, **Depuis 2 s avant** (R) rejoue la montée
+et la drop, **Marquer ici** (M) pose le curseur sur ce qu'on entend pendant l'écoute, **La drop est ici** (Entrée) la
+retient pour ce morceau (`<sortie>\sessions\music-drops.json`, clé nom + taille comme le ressenti) et recalcule le plan.
+Elle remplace la drop détectée à tous les montages suivants sur ce morceau, « depuis le début » compris ; la marque
+devient « DROP (posée à la main) ». L'instant devient un temps : le temps détecté le plus proche y est amené et ses
+voisins suivent en s'atténuant sur 8 temps (la grille est recalée là, pas ailleurs), puis une section commence sur lui :
+le kill de la drop et les coupes autour restent ensemble sur ce qu'on entend. **Revenir à la détection** l'oublie.
+Vue « Goûts appris » : carte « Drops posées à la main », une ligne par morceau avec **Oublier**. En ligne de commande :
+`--drop-at 0:30.523` (retenue comme dans l'application ; `--drop-at auto` l'oublie), `app gouts` les liste,
+`app gouts --reset-drops` les oublie toutes (fichier mis de côté).
+
+  ```powershell
+  & $app montage partie.session.json --music "Rome Is Burning.mp3" --drop-at 0:30.523
+  ```
+
+**Drops apprises.** Chaque drop posée garde où la détection la mettait, où vous l'avez posée et les mesures de chaque
+temps du morceau (`<sortie>\sessions\drop-learning.json`, une par morceau). Deux choses s'apprennent (montage.learnTaste),
+pour les morceaux dont vous n'avez jamais posé la drop :
+- un **écart régulier** de la détection (par exemple toujours deux temps trop tard) : appliqué à partir de 5 morceaux
+  dont 80 % ont exactement le même écart en temps, le reste en ms à 30 ms près (borné à 4 mesures et ±120 ms) ;
+- un **choix de la drop réappris** : une note par temps (montée du volume, creux juste avant, attaque, saillance, début
+  de section et son intensité, premier temps de mesure, drop de la règle actuelle), dont les poids sont réappris pour
+  rendre vos drops les plus probables. Il ne sert qu'à partir de 6 morceaux, et seulement s'il retrouve, en validation
+  « une de côté » (appris sans le morceau, testé dessus), plus de vos drops que la règle actuelle.
+
+Une drop posée à la main n'est jamais remplacée par ce qui est appris ; une drop apprise est marquée « DROP (apprise) »
+dans la frise. Vue « Goûts appris » : nombre de drops posées, écart moyen, état des deux apprentissages et
+**Oublier ce qui est appris des drops** (fichier mis de côté, les drops posées restent) ; `app gouts` les montre,
+`app gouts --reset-drop-learning` les oublie.
+
 - Un kill exclu sort de son groupe (un triplé devient un doublé) ; un groupe forcé prend la place du moins bon groupe
   que rien n'impose ; épinglé sur la drop, il y tombe (en ordre chronologique, les moins bons groupes joués avant lui
   cèdent leur place). Une correction impossible (kill introuvable, plus de place, pas de drop dans le passage retenu,
