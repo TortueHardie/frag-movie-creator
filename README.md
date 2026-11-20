@@ -690,26 +690,34 @@ Vue « Goûts appris » : carte « Calage des kills » et « Oublier les calages
 
 **Montage sur la musique.** Dès qu'une musique est choisie dans le dialogue de montage, l'écran « Montage sur la
 musique » s'ouvre (bouton **Montage sur la musique…** pour le rouvrir ; la frise **Voir le plan…** reste). Deux étapes :
-1. **Les kills sur la musique** : le morceau entier (forme d'onde, sections, drop glissable), et seulement les kills,
-   chacun en vignette à l'instant où il tombe : au départ ceux que le placement automatique a choisis. On les **glisse**
-   le long de la musique (aimant sur les notes et les temps à 70 ms, Alt : à l'instant exact ; on l'entend en lâchant),
-   on en **ajoute** depuis la liste « Kills non utilisés », on en **retire** ; molette pour zoomer, Maj+molette pour
-   défiler. Aucun plan ici, donc rien n'est bloqué ni poussé, même deux kills collés. **Tout remettre en auto**
-   revient à la proposition automatique.
-2. **Placer les plans →** : les instants posés deviennent la contrainte du montage (`MontageConstraints.layout`) et
-   les plans se construisent autour (`KillLayout`) : une coupe sur le temps qui frappe entre deux kills, chaque kill
-   exactement à son instant, contexte, ralentis et repères comme d'habitude, coupes dans l'attente pour les longs plans.
-   Deux kills à moins d'un temps l'un de l'autre : un plan court pour le second (la coupe 50 ms avant lui, même sous le
-   minimum habituel), ou un seul plan s'ils viennent de la même capture et que leur écart réel correspond à 150 ms près
-   à l'écart voulu. Jamais d'erreur. En ligne de commande : `--kill-at capture@kill=0:31.200` (répétable : la liste
-   complète des kills posés).
-   L'étape montre les plans (bandes numérotées, début et fin) ; **← Revenir aux kills** rouvre l'étape 1 avec les kills
-   posés (replacer les plans refait l'étape 2) ; **Aperçu du montage (360p)**, **Rendre le montage**.
+1. **Vos intentions sur la musique** : le morceau entier (forme d'onde, sections, drop glissable) et des **repères**,
+   sans dire quel kill : ◆ **Kill ici**, ◆◆ **Multi-kill ici** (un repère qui vaut plusieurs kills), ┃ **Coupe ici**
+   (un plan commence là), ◐ **Ralenti ici**, ↯ **Transition ici** (whip pan sur la coupe la plus proche), ▭ **Vitrine
+   ici** (une plage de passages de partie sans kill). L'algorithme en propose au départ, tirés du placement automatique
+   (losanges creux) ; on choisit un outil et on double-clique pour en poser (aimant sur les notes et les temps, Alt :
+   à l'instant exact), on les glisse, on les retire ; ceux qu'on touche deviennent « à vous » (losanges pleins).
+   Le compteur « Kills disponibles : N · repères « kill » : M » reste visible. Avec plus de repères que de kills, un
+   avertissement doux entoure les repères en trop (ceux où la musique frappe le moins) : ils deviennent des **plans de
+   vitrine**, ou restent vides (**Les laisser vides**). Des repères proches sont permis. **Tout remettre en auto**
+   revient à la proposition. En ligne de commande : `--mark kill@0:31.200` (et `multi@`, `cut@`, `slow@`,
+   `transition@`), `--showcase-at 0:22.900..0:24.810`, `--extra-marks showcase|empty`.
+2. **Placer les plans →** : l'algorithme choisit **quel kill va sur quel repère** (`IntentLayout`) : les multi-kills
+   sur les repères « multi-kill » et les repères rapprochés (à un temps ou moins), les meilleurs kills sur la drop et
+   les repères qui frappent le plus. Puis il construit les plans autour (`KillLayout`) : chaque kill exactement sur son
+   repère, un début de plan à chaque coupe, la vitrine sur sa plage et sur les repères en trop, des ralentis et des
+   transitions **seulement** là où sont leurs repères. Deux kills à moins d'un temps : un plan court pour le second
+   (la coupe 50 ms avant lui), ou un seul plan s'ils viennent de la même capture et que leur écart réel correspond à
+   150 ms près. Jamais d'erreur.
+   L'étape montre les plans et les repères numérotés. **Glisser un kill** sur un autre les échange, sur un repère l'y
+   met ; un kill de la liste glissé sur un repère y va ; **Retirer** écarte le kill et le repère prend le meilleur
+   suivant (`--put 3=capture@7:00.000` en ligne de commande). **← Revenir aux repères** rouvre l'étape 1 ; **Aperçu du
+   montage (360p)**, **Rendre le montage**. L'ancienne pose de kills nommés reste en ligne de commande :
+   `--kill-at capture@kill=0:31.200`.
 Le réarrangement des plans à la main (bornes, ordre, longueur) est la prochaine étape.
 
-**Apprendre d'où vous posez vos kills.** Chaque **Placer les plans** enregistre la proposition automatique et votre
-placement final (`<sortie>/sessions/kill-layout.json`) : kills déplacés (d'où vers où), ajoutés, retirés, et le
-contexte musical de chaque instant (temps le plus proche et écart en ms, contretemps, attaque de note, force du temps,
+**Apprendre d'où vous posez vos kills.** Chaque **Placer les plans** enregistre la proposition automatique et vos
+repères finaux (`<sortie>/sessions/kill-layout.json`) : repères « kill » déplacés (d'où vers où), ajoutés, retirés,
+coupes, ralentis, transitions et vitrine, et le contexte musical de chaque instant (temps le plus proche et écart en ms, contretemps, attaque de note, force du temps,
 section, avant ou après la drop, kills dans la mesure). Après au moins 3 montages qui concordent (chaque goût vérifié
 « une de côté » : appris sans un montage, prédit-il ce montage ?), la proposition automatique de l'étape 1 suit :
 l'écart préféré au temps (entre 10 et 120 ms, dispersion ≤ 30 ms), la préférence pour les temps qui frappent, et la

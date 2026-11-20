@@ -1044,7 +1044,9 @@ private fun EditorBar(e: MusicEditorUi, v: PlanView, constraints: MontageConstra
             val at = kill?.let { v.musicStart + it.at } ?: v.musicStart
             // Posé à la main : épinglé, ou posé à l'étape 1 (tous les kills le sont alors).
             val laidOut = constraints.layout != null
-            val pinned = laidOut || constraints.pins.keys.any { r -> g.refs.any { it.toString() == r.toString() } }
+            // Mis à la main sur un repère (étape 2) : posé, comme une épingle.
+            val onMark = constraints.intents?.fixed?.values?.any { r -> g.refs.any { it.toString() == r.toString() } } == true
+            val pinned = laidOut || onMark || constraints.pins.keys.any { r -> g.refs.any { it.toString() == r.toString() } }
             Column(Modifier.weight(1f)) {
                 Text(tr("ui.musicEditor.selected", "kill" to g.key, "time" to DropTime.format(at)), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
                 Text(
@@ -1055,7 +1057,7 @@ private fun EditorBar(e: MusicEditorUi, v: PlanView, constraints: MontageConstra
             OutlinedButton(onClick = { actions.listenEditorAround(at.inWholeMicroseconds / 1e6) }) { Text(tr("ui.musicEditor.listen")) }
             kill?.let { k -> OutlinedButton(onClick = { actions.openKillTiming(k.ref.toString()) }) { Text(tr("ui.musicEditor.timing")) } }
             // Avec des kills posés (étape 1), on les retire ou les remet là-bas : « Revenir aux kills ».
-            if (pinned && !laidOut) OutlinedButton(onClick = { actions.editMontageKill(g.refs.map { it.toString() }, KillEdit.CLEAR) }) { Text(tr("ui.musicEditor.unpin")) }
+            if (pinned && !laidOut && !onMark) OutlinedButton(onClick = { actions.editMontageKill(g.refs.map { it.toString() }, KillEdit.CLEAR) }) { Text(tr("ui.musicEditor.unpin")) }
             if (!laidOut) OutlinedButton(onClick = { actions.removeEditorKill(g.key) }) { Text(tr("ui.musicEditor.remove"), color = Palette.danger) }
             // Avec des repères, le repère reste et prend le meilleur kill suivant ; glisser un kill sur un autre : échange.
         }
