@@ -22,13 +22,12 @@ object KillLayout {
      * Plan dont chaque groupe de [groups] (épinglé à son instant, [KillGroup.pin]) tombe exactement à son instant :
      * - deux kills de la même capture, plus proches qu'un temps, dont l'écart dans la partie correspond à peu près à
      *   celui sur la musique ([MERGE_TOLERANCE]) : un seul plan qui montre les deux (comme un multi-kill) ;
-     * - deux kills plus proches qu'un temps, sinon : le second a un plan court qui s'ouvre [SHORT_LEAD] avant lui (moins
-     *   s'il faut laisser voir le premier) ; la grille du plan reçoit pour cela un temps de coupe à cet instant
-     *   ([withCuts]), le rendu suit la grille ;
+     * - deux kills trop proches pour couper sur un temps en laissant au second son approche ([CutSettings.minLead]) et
+     *   au premier sa fin ([CutSettings.minTail]) : la coupe tombe entre deux temps, [LEAD_SHARE] de l'écart avant le
+     *   second (au plus son approche, au moins [MIN_SHOWN] après le premier) ; la grille du plan reçoit pour cela un
+     *   temps de coupe à cet instant ([withCuts]), le rendu suit la grille. Chaque kill garde son instant exact ;
      * - sinon, chaque kill porte le temps le plus proche, et entre deux kills la coupe va sur le temps qui frappe le
-     *   plus, en laissant au kill d'avant sa fin ([CutSettings.minTail]) et au suivant son approche
-     *   ([CutSettings.minLead]) ; trop serrés pour cela, le second ouvre son plan (la coupe recule d'un temps s'il est
-     *   posé avant le sien) ;
+     *   plus, en laissant au kill d'avant sa fin et au suivant son approche ;
      * - avant le premier kill, [LEAD_BEATS] temps (moins au début du morceau) ; après le dernier, [TAIL_BEATS] ;
      * - le plan de chaque kill se taille comme d'habitude ([MontagePlanner.clipFor]).
      */
@@ -41,20 +40,27 @@ object KillLayout {
         val fillerRanges = intents?.fillers.orEmpty().filter { (a, b) -> b > a && placed.none { (_, at) -> at > a && at < b } }
         val forced = (intents?.cuts.orEmpty() + fillerRanges.flatMap { listOf(it.first, it.second) }).filter { it >= Duration.ZERO }
             .map { c -> music.beats.firstOrNull { (it - c).absoluteValue <= SNAP_TO_BEAT } ?: c }
-        // Temps de coupe à ajouter : juste avant chaque kill trop proche du précédent.
+        val cuts = settings.cuts
+        val leadBeats = beats(cuts.minLead, period)
+        val tailBeats = beats(cuts.minTail, period).coerceAtLeast(1)
+        // Temps de coupe à ajouter entre deux kills trop proches pour couper sur un temps en laissant au suivant son
+        // approche ([CutSettings.minLead]) et au précédent sa fin ([CutSettings.minTail]) : la coupe tombe entre deux
+        // temps, [LEAD_SHARE] de l'écart pour le kill suivant (au plus son approche), le reste pour le précédent. Avant
+        // (20/11) la coupe tombait sur le temps du kill : sur une suite de kills à un temps d'écart, chaque plan
+        // s'ouvrait sur son kill, qu'on ne voyait jamais venir.
         val extra = mutableMapOf<Int, Duration>()
         for (i in 1 until placed.size) {
             val before = placed[i - 1].second
             val at = placed[i].second
-            if (at - before >= period) continue
-            val cut = maxOf(at - SHORT_LEAD, before + MIN_SHOWN).coerceAtMost(at)
+            val gap = at - before
+            val wholeBeats = MontageEdits.nearestBeat(music, at) - MontageEdits.nearestBeat(music, before)
+            if (wholeBeats >= leadBeats + tailBeats && gap >= cuts.minLead + cuts.minTail) continue
+            val lead = minOf(gap * LEAD_SHARE, cuts.minLead.coerceAtLeast(Duration.ZERO))
+            val cut = maxOf(at - lead, before + MIN_SHOWN).coerceAtMost(at)
             // À quelques ms d'un vrai temps : la coupe se pose sur lui (deux temps confondus faisaient un plan vide).
             extra[i] = music.beats.firstOrNull { (it - cut).absoluteValue <= SNAP_TO_BEAT } ?: cut
         }
         val grid = withCuts(music, extra.values.toList() + forced)
-        val cuts = settings.cuts
-        val leadBeats = beats(cuts.minLead, period)
-        val tailBeats = beats(cuts.minTail, period).coerceAtLeast(1)
         fun index(t: Duration) = grid.beats.indexOfFirst { abs((it - t).inWholeMicroseconds) < 1 }
         // Le temps de chaque kill : la coupe ajoutée pour lui, sinon le temps le plus proche ; strictement croissant.
         val anchors = mutableListOf<Int>()
@@ -62,9 +68,10 @@ object KillLayout {
             val low = (anchors.lastOrNull() ?: -1) + 1
             // Avant la coupe du plan court du kill suivant : ce temps-là appartient au suivant.
             val high = extra[i + 1]?.let(::index)?.minus(1) ?: grid.beats.lastIndex
-            val b = extra[i]?.let(::index)
-                ?: (low..high).minByOrNull { (grid.beats[it] - at).absoluteValue }
-                ?: low
+            // Après la coupe ajoutée pour lui : le kill porte le temps le plus proche de son instant (son temps à lui
+            // s'il tombe dessus, la coupe elle-même s'il est entre deux), comme le planificateur arrondit son épingle.
+            val from = maxOf(low, extra[i]?.let(::index) ?: low)
+            val b = (from..high).minByOrNull { (grid.beats[it] - at).absoluteValue } ?: from
             anchors += b.coerceAtLeast(low)
         }
         val forcedBeats = forced.map(::index).filter { it >= 0 }.distinct().sorted()
@@ -83,7 +90,7 @@ object KillLayout {
             }
             val cut = when {
                 // Coupe ajoutée : le plan court s'ouvre sur elle.
-                extra.containsKey(i + 1) -> b
+                extra.containsKey(i + 1) -> index(extra.getValue(i + 1))
                 else -> {
                     val range = (a + tailBeats)..(b - leadBeats)
                     val beforeBeat = placed[i + 1].second < grid.beatTime(b)
@@ -187,8 +194,8 @@ object KillLayout {
     const val LEAD_BEATS = 2
     const val TAIL_BEATS = 2
 
-    /** Plan court : la coupe vient 3 images (60 img/s) avant le kill. */
-    val SHORT_LEAD = 50.milliseconds
+    /** Part de l'écart entre deux kills trop proches donnée à l'approche du second (le reste : fin du premier). */
+    const val LEAD_SHARE = 0.6
 
     /** Au moins ce temps du kill d'avant avant la coupe d'un plan court (une image et demie à 60 img/s). */
     val MIN_SHOWN = 25.milliseconds
