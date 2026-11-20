@@ -133,16 +133,30 @@ class CaptionsTest : FunSpec({
         Captions.emphasized(listOf("GO", "LET'S"), listOf("let's go")) shouldContainExactly listOf(false, false)
     }
 
-    test("9:16 : une phrase trop large est réduite jusqu'à tenir dans l'image") {
+    test("9:16 : une phrase trop large passe sur deux lignes à la taille normale") {
         // Sous-titre réel qui débordait à gauche et à droite d'une image verticale de 1080 px.
         val settings = CaptionSettings()
-        val text = Captions.drawText(Caption(ms(0, 1000), "mais, et la krautch"), settings, 1080, 1920, 0.66).single()
-        val size = text.substringAfter("fontsize='").substringBefore("*").toInt()
-        (size < 144) shouldBe true
-        val width = TextMeasure.width(settings.font, size.toDouble(), "MAIS, ET LA KRAUTCH")
-        if (width != null) (width <= 1080 * 0.9 + 1) shouldBe true
-        // Une phrase courte garde sa taille.
+        val parts = Captions.drawText(Caption(ms(0, 1000), "mais, et la krautch"), settings, 1080, 1920, 0.66)
+        parts.map { it.substringAfter("text='").substringBefore("'") } shouldContainExactly listOf("MAIS, ET", "LA KRAUTCH")
+        parts.forEach { it shouldContain "fontsize='144*" }
+        // Les deux lignes centrées ensemble sur 0,66, à une hauteur de ligne (1,2 × 144 / 1920) l'une de l'autre.
+        parts[0] shouldContain "y=h*0.615-lh/2"
+        parts[1] shouldContain "y=h*0.705-lh/2"
+        // Une phrase courte reste sur une ligne, à sa taille.
         Captions.drawText(Caption(ms(0, 1000), "gg"), settings, 1080, 1920, 0.66).single() shouldContain "fontsize='144*"
+    }
+
+    test("deux lignes : coupées à l'espace le plus proche du milieu, jamais dans un mot ; mot fort gardé en couleur") {
+        val narrow = { text: String -> if (text.length > 18) 0.5 else 1.0 }
+        Captions.lines("BEN, JE SAIS PAS S’IL EST RENTRÉ.".split(' '), narrow).map { it.joinToString(" ") } shouldContainExactly
+            listOf("BEN, JE SAIS PAS", "S’IL EST RENTRÉ.")
+        Captions.lines("EN VRAI, RECULE, RECULE, RECULE.".split(' '), narrow).map { it.joinToString(" ") } shouldContainExactly
+            listOf("EN VRAI, RECULE,", "RECULE, RECULE.")
+        // Un seul mot trop long : jamais coupé.
+        Captions.lines(listOf("ANTICONSTITUTIONNELLEMENT"), narrow) shouldContainExactly listOf(listOf("ANTICONSTITUTIONNELLEMENT"))
+        val parts = Captions.drawText(Caption(ms(0, 1000), "ben je sais pas s'il est rentré gg"), CaptionSettings(emphasis = listOf("gg")), 1080, 1920, 0.66)
+        parts.last() shouldContain "text='GG'"
+        parts.last() shouldContain "fontcolor=0xFFD21F"
     }
 
     test("phrase criée : toute en rouge, plus grosse, d'un seul bloc") {
@@ -205,6 +219,19 @@ class CaptionsTest : FunSpec({
         Captions.clean(raw, emptyList()).size shouldBe 8
     }
 
+    test("répliques douteuses VALORANT ajoutées au choix du joueur : « Bravo! », « Attention ! », « Vous pensiez que... »") {
+        val ignore = gameLines + listOf("bravo", "attention", "vous pensiez")
+        val raw = listOf(
+            Caption(ms(257281, 258281), "- Bravo!"),
+            Caption(ms(994450, 996450), "Attention !"),
+            Caption(ms(1524434, 1524434), "- Vous pensiez"),
+            Caption(ms(1524434, 1525654), "que..."),
+            Caption(ms(1530000, 1531000), "On y va."),
+        )
+        // « que... » n'est pas une réplique, mais finit la phrase de « Vous pensiez ».
+        Captions.clean(raw, emptyList(), ignore).map { it.text } shouldContainExactly listOf("On y va.")
+    }
+
     test("texte sans lettre écarté : points de suspension, nombre seul") {
         Captions.clean(listOf(Caption(ms(0, 2000), "..."), Caption(ms(3000, 4000), "501"), Caption(ms(5000, 6000), "63 la tête")), emptyList())
             .map { it.text } shouldContainExactly listOf("63 la tête")
@@ -231,12 +258,44 @@ class CaptionsTest : FunSpec({
         Captions.clean(listOf(Caption(ms(3135465, 3149465), "Essaye de ping")), emptyList()).shouldBeEmpty()
     }
 
-    test("pas affiché après la fin de la parole, sauf le temps de le lire") {
+    test("pas affiché après la fin de la parole") {
         // Micro WARDOGS : « moi jean » donné par whisper jusqu'à 52:38,387, parole finie à 52:36,426.
         val speech = listOf(ms(3154547, 3156426))
         Captions.readable(listOf(Caption(ms(3155807, 3158387), "moi jean")), speech).single().range shouldBe ms(3155807, 3156676)
-        // Mot dit plus vite qu'il ne se lit : il garde son temps de lecture (0,4 s + 9 × 45 ms).
-        Captions.readable(listOf(Caption(ms(1000, 1100), "bâtiment."), Caption(ms(500, 900), "du")), listOf(ms(400, 1200)))
-            .last().range shouldBe ms(1000, 1805)
+        // Seul, un mot dit plus vite qu'il ne se lit s'efface quand même avec la voix (choix du joueur).
+        Captions.readable(listOf(Caption(ms(1000, 1100), "bâtiment.")), listOf(ms(400, 1200))).single().range shouldBe ms(1000, 1450)
+    }
+
+    test("morceau trop court pour être lu : fusionné avec le précédent, jusqu'à la fin de la voix") {
+        Captions.readable(listOf(Caption(ms(1000, 1100), "bâtiment."), Caption(ms(500, 900), "du")), listOf(ms(400, 1200))) shouldContainExactly
+            listOf(Caption(ms(500, 1450), "du bâtiment."))
+        // Séparés par une pause : pas la même phrase, pas fusionnés.
+        Captions.readable(listOf(Caption(ms(500, 900), "du"), Caption(ms(2000, 2100), "bâtiment.")), listOf(ms(400, 1000), ms(2000, 2200)))
+            .map { it.text } shouldContainExactly listOf("du", "bâtiment.")
+        // Trop long ensemble pour une ligne : pas fusionnés, le second reste court.
+        val long = Captions.readable(
+            listOf(Caption(ms(0, 1500), "En vrai, recule, recule."), Caption(ms(1500, 1600), "Il y a trop de gens.")),
+            listOf(ms(0, 1700)),
+        )
+        long.map { it.text } shouldContainExactly listOf("En vrai, recule, recule.", "Il y a trop de gens.")
+        long.last().range.end shouldBe 1950.milliseconds
+    }
+
+    test("phrase rapide au micro : morceaux réunis deux par deux, aucun perdu, rien après la voix") {
+        // Sortie réelle de whisper, micro WARDOGS à partir de 51:00 : quatre morceaux de 0,1 à 1 s, voix de 51:05,057 à 51:07,200.
+        val raw = listOf(
+            Caption(ms(4988, 5078), "En vrai, recule,"),
+            Caption(ms(5078, 6068), "recule, recule."),
+            Caption(ms(6328, 6578), "Il y a trop de"),
+            Caption(ms(6578, 7208), "gens, là."),
+        )
+        // Jamais réunis par-dessus la fin d'une phrase (« recule. » | « Il y a »).
+        Captions.readable(raw, listOf(ms(5057, 7200))) shouldContainExactly listOf(
+            Caption(ms(4988, 6153), "En vrai, recule, recule, recule."),
+            Caption(ms(6328, 7383), "Il y a trop de gens, là."),
+        )
+        // Deux segments au même instant : le premier, de durée nulle, est réuni au second.
+        Captions.readable(listOf(Caption(ms(1000, 1000), "Vous pensiez"), Caption(ms(1000, 2200), "que...")), listOf(ms(900, 2000))) shouldContainExactly
+            listOf(Caption(ms(1000, 2200), "Vous pensiez que..."))
     }
 })

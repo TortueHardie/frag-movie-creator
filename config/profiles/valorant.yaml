@@ -209,12 +209,13 @@ edit:
     # sous-titres. Modèle : https://huggingface.co/ggerganov/whisper.cpp (ggml-large-v3-turbo-q5_0.bin, ~574 Mo).
     # Répliques de l'annonceur, jamais sous-titrées quand seul le son complet est transcrit (capture sans piste micro,
     # withoutMic) : relevées par whisper sur « Valorant- 44 kills » et « Valorant_game » (« Enemies spotted », « Spike
-    # down, attacker spawned », « One enemy remains », « Ultimates ready »). Sur la piste micro, rien n'est écarté.
+    # down, attacker spawned », « One enemy remains », « Ultimates ready ») ; « Bravo! », « Attention ! », « Vous pensiez
+    # que... » ajoutés au choix du joueur (voix de personnages). Sur la piste micro, rien n'est écarté.
     captions:
       model: models/ggml-large-v3-turbo-q5_0.bin
       language: fr
       maxChars: 18
-      ignore: [enemy, enemies, ennemi, ennemis, spotted, spike, attacker, attackers, defender, defenders, remaining, remains, ultimate, ultimates]
+      ignore: [enemy, enemies, ennemi, ennemis, spotted, spike, attacker, attackers, defender, defenders, remaining, remains, ultimate, ultimates, bravo, attention, vous pensiez]
     # Musique de fond facultative (chemin relatif au dossier de configuration), baissée sous la voix et coupée sur
     # le pic de chaque moment : music: { file: musique/fond.mp3, volume: 0.25 }
   order: chronological

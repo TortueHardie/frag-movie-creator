@@ -232,7 +232,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `SourceCuts.kt` : `SourceCut`, `CutInput`, `SourceCuts.input`, `SourceCutter.prepare` (MIN_CUTS=12 ; découpe si ≥ ; vérif espace disque).
 - `story/StoryPlanner.kt` : `StoryShot`, `ShotRole{COLD_OPEN,OPENING,JUMP}`, `StoryPlan`, `plan()` (accroche → scènes → `liveRanges` jump cuts → `decorate` punch/shake/slow/labels), `streakLabels`, `withCaptions`.
 - `story/StoryRenderBuilder.kt` : graphe story (framing zoom/shake, slowVideo, SFX générés `WHOOSH_SOURCE_*`/`IMPACT_SOURCE_*` ou `SfxBank` dossiers, musique `musicVolume`, `envelope`).
-- `story/Captions.kt` : parse sortie whisper, `clean` (garder ce qui recouvre de la voix), `readable`, `drawText` (drawtext, emphasis jaune, cri rouge), `transcriptionFilter`.
+- `story/Captions.kt` : parse sortie whisper, `clean` (garder ce qui recouvre de la voix), `readable`, `drawText` (drawtext, emphasis jaune, cri rouge ; trop large → deux lignes à la taille nominale, `lines`), `transcriptionFilter`.
 - `story/TextMeasure.kt` : largeur de texte AWT pour ajuster la taille, `canDisplay` (glyphes présents dans la police).
 - `story/VideoFonts.kt` : **choix de la police de tout texte incrusté** (`forText(configurée, texte)`) : la police du profil
   si elle a tous les caractères (Impact : latin + cyrillique), sinon repli Windows selon l'écriture (`JAPANESE` Yu Gothic Bold,
@@ -242,7 +242,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 
 ### export
 - `Exporter.kt` : `ExportRequest`, `ExportResult(videos, report, duration, encoder)`, `export`, `preview` (PNG par format), `thumbnail`, `clipPreview`.
-- `CaptionTranscriber.kt` : filtre FFmpeg `whisper` (whisper.cpp), cache par clé (media, range, piste, réglages, modèle). Sans piste du rôle `captions.role` (MIC) : `captions.withoutMic` null (auto) = seulement si la timeline a de la voix dans l'extrait, true = toujours, false = jamais ; sur le son complet, `captions.ignore` (répliques du jeu, phrase entière) et `Captions.withoutRecurring` (dans `Exporter`). `Captions.clean` : sons entre astérisques, textes sans lettre, `withoutRepeats` (10 s), segment > 8 s ramené à la parole ; `readable(captions, speech)` : fin ≤ fin de parole + 250 ms (sauf temps de lecture), 3 s au plus (`MAX_SHOWN`).
+- `CaptionTranscriber.kt` : filtre FFmpeg `whisper` (whisper.cpp), cache par clé (media, range, piste, réglages, modèle). Sans piste du rôle `captions.role` (MIC) : `captions.withoutMic` null (auto) = seulement si la timeline a de la voix dans l'extrait, true = toujours, false = jamais ; sur le son complet, `captions.ignore` (répliques du jeu, phrase entière) et `Captions.withoutRecurring` (dans `Exporter`). `Captions.clean` : sons entre astérisques, textes sans lettre, `withoutRepeats` (10 s), segment > 8 s ramené à la parole ; `readable(captions, speech)` : fin ≤ fin de parole + 250 ms, 3 s au plus (`MAX_SHOWN`) ; morceau trop court pour être lu fusionné avec le précédent (`MERGE_MAX_CHARS` 36).
 - `OutputNamer.kt` : `reserve(dir, game, date, formats, kind="highlights"|"killmontage")` → `<game>_<date>_<kind><suffix>.mp4` + `.json`, `tempFor`, `slug`,
   `thumbnailFor(video)` (`<nom>_miniature[_N].png`, jamais d'écrasement), `thumbnailOf(video)` (la plus récente).
 - `ExportReport.kt` : rapport JSON des highlights (`ReportHighlight.peakSeconds/events` pour la miniature).
