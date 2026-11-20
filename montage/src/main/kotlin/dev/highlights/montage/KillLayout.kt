@@ -49,14 +49,23 @@ object KillLayout {
         // (20/11) la coupe tombait sur le temps du kill : sur une suite de kills à un temps d'écart, chaque plan
         // s'ouvrait sur son kill, qu'on ne voyait jamais venir.
         val extra = mutableMapOf<Int, Duration>()
+        // Un plan court doit montrer le tir ET la chute de l'ennemi (demande du 20/11 : un plan d'un temps coupait entre
+        // les deux). [KillTraits.shift] = instant recalé − instant détecté : positif (recalé sur la chute, cas mesuré :
+        // +216 ms), le tir est |shift| AVANT le kill ; négatif (recalé sur le tir), l'ennemi tombe |shift| APRÈS.
+        // Après le kill : la chute puis [DEATH_TAIL] ; avant : le tir puis [SHOT_LEAD].
+        fun deathAfter(g: KillGroup): Duration = (-g.traitsOf(g.kills.last()).shift).coerceAtLeast(Duration.ZERO) + DEATH_TAIL
+        fun shotBefore(g: KillGroup): Duration = g.traitsOf(g.kills.last()).shift.coerceAtLeast(Duration.ZERO) + SHOT_LEAD
+        fun tailBeatsOf(g: KillGroup) = maxOf(tailBeats, beats(deathAfter(g), period))
         for (i in 1 until placed.size) {
             val before = placed[i - 1].second
             val at = placed[i].second
             val gap = at - before
             val wholeBeats = MontageEdits.nearestBeat(music, at) - MontageEdits.nearestBeat(music, before)
-            if (wholeBeats >= leadBeats + tailBeats && gap >= cuts.minLead + cuts.minTail) continue
-            val lead = minOf(gap * LEAD_SHARE, cuts.minLead.coerceAtLeast(Duration.ZERO))
-            val cut = maxOf(at - lead, before + MIN_SHOWN).coerceAtMost(at)
+            val previous = placed[i - 1].first
+            if (wholeBeats >= leadBeats + tailBeatsOf(previous) && gap >= cuts.minLead + maxOf(cuts.minTail, deathAfter(previous))) continue
+            val lead = maxOf(minOf(gap * LEAD_SHARE, cuts.minLead.coerceAtLeast(Duration.ZERO)), shotBefore(placed[i].first))
+            // Jamais avant la mort du kill d'avant ; le suivant garde le reste (son tir reste sur son temps).
+            val cut = maxOf(at - lead, before + maxOf(MIN_SHOWN, deathAfter(previous))).coerceAtMost(at)
             // À quelques ms d'un vrai temps : la coupe se pose sur lui (deux temps confondus faisaient un plan vide).
             extra[i] = music.beats.firstOrNull { (it - cut).absoluteValue <= SNAP_TO_BEAT } ?: cut
         }
@@ -92,7 +101,7 @@ object KillLayout {
                 // Coupe ajoutée : le plan court s'ouvre sur elle.
                 extra.containsKey(i + 1) -> index(extra.getValue(i + 1))
                 else -> {
-                    val range = (a + tailBeats)..(b - leadBeats)
+                    val range = (a + tailBeatsOf(placed[i].first))..(b - leadBeats)
                     val beforeBeat = placed[i + 1].second < grid.beatTime(b)
                     when {
                         !range.isEmpty() -> range.maxBy { c -> cutScore(grid, c, a, b) }
@@ -196,6 +205,12 @@ object KillLayout {
 
     /** Part de l'écart entre deux kills trop proches donnée à l'approche du second (le reste : fin du premier). */
     const val LEAD_SHARE = 0.6
+
+    /** Après la chute de l'ennemi, de quoi la voir avant la coupe. */
+    val DEATH_TAIL = 150.milliseconds
+
+    /** Avant le tir, de quoi le voir partir. */
+    val SHOT_LEAD = 50.milliseconds
 
     /** Au moins ce temps du kill d'avant avant la coupe d'un plan court (une image et demie à 60 img/s). */
     val MIN_SHOWN = 25.milliseconds

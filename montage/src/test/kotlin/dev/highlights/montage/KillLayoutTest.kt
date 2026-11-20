@@ -101,13 +101,46 @@ class KillLayoutTest : FunSpec({
         p.clips.dropLast(1).forEach { c -> withClue("fin ${c.anchor}") { (s(c.outputLength) - lead(p, c) >= 0.15) shouldBe true } }
     }
 
-    test("2 kills à 100 ms d'écart (parties différentes) : plan court du second, coupe à 60 % de l'écart avant lui ; tous deux à leur instant") {
+    test("suite à un temps d'écart, recalée 216 ms après le tir (comme le montage de l'utilisateur) : chaque plan montre le tir et la chute, 0,15 s après") {
+        // Mesuré sur la capture : l'instant recalé (sur le temps) est la chute ; le tir, à l'instant détecté, 216 ms avant.
+        for (shift in listOf(216.milliseconds, (-216).milliseconds)) withClue("shift $shift") {
+            val layout = (0 until 16).associate { k -> KillRef("partie.mp4", (60 + 60 * k).seconds) to (30.0 + 0.5 * k).seconds }
+            val runSession = run {
+                val grid = WindowGrid(1.seconds, 1.seconds, media.duration)
+                Session(
+                    createdAt = Instant.EPOCH, media = media, profileId = "wardogs",
+                    timeline = ScoredTimeline(grid, List(grid.count) { 0.5 }, emptyMap(), events = (0 until 16).map { TimelineEvent((60 + 60 * it).seconds, "kill", 1.0, "game-events") }),
+                    highlights = emptyList(),
+                )
+            }
+            // Après l'inspection : le kill du groupe est l'instant recalé (détecté + shift).
+            val recaled = MontagePlanner.groups(listOf(runSession), settings).map { g ->
+                MontagePlanner.withTraits(g, g.kills.map { it + shift }, g.kills.map { KillTraits(shift = shift) }, settings.killStyle)
+            }
+            val groups = MontageEdits.apply(recaled, MontageConstraints(layout = layout), settings.killStyle)
+            val p = KillLayout.plan(groups, music, settings)
+            p.clips.size shouldBe 16
+            p.clips.forEach { c ->
+                // Le tir : l'instant détecté si recalé après lui, sinon le kill ; la chute : le kill, ou l'instant détecté.
+                val shot = if (shift.isPositive()) c.anchor - shift else c.anchor
+                val death = if (shift.isPositive()) c.anchor else c.anchor - shift
+                withClue("kill ${c.anchor}") {
+                    (c.start <= shot) shouldBe true
+                    (s(c.end) >= s(death) + 0.15 - 1e-6) shouldBe true
+                }
+            }
+            // Ce qui tombe sur le coup de batterie ne change pas : l'instant posé.
+            p.clips.forEachIndexed { i, c -> s(p.music.beatTime(c.slot.startBeat) + c.toOutput(c.anchor)) shouldBe ((30.0 + 0.5 * i) plusOrMinus 1e-3) }
+        }
+    }
+
+    test("2 kills à 100 ms d'écart (parties différentes) : la mort du premier passe d'abord (0,15 s), le plan du second s'ouvre sur lui ; tous deux à leur instant") {
         val layout = mapOf(ref(60) to 30.02.seconds, ref(180) to 30.12.seconds)
         val p = plan(layout)
         check(p, layout)
         val second = p.clips.last()
-        // Le plan court s'ouvre sur un temps de coupe ajouté, 60 ms (60 % de l'écart) avant le kill.
-        s(p.music.beatTime(second.slot.startBeat)) shouldBe (30.06 plusOrMinus 1e-6)
+        // Jamais de coupe avant la mort du premier (+0,15 s) : à 100 ms d'écart, le second ouvre son plan.
+        s(p.music.beatTime(second.slot.startBeat)) shouldBe (30.12 plusOrMinus 1e-6)
         (second.slot.startBeat in p.music.virtualBeats) shouldBe true
         // Coupe du plan court à 0,2 ms d'un vrai temps (30,5 s) : elle se pose sur lui, le kill reste à son instant.
         val nearBeat = mapOf(ref(60) to 30.2.seconds, ref(180) to 30.5502.seconds)
