@@ -235,12 +235,13 @@ fun TimelineCard(session: SessionState, threshold: Double, actions: UiActions, p
                     if (hit != null && t >= hit.highlight.range.start - tolerance && t <= hit.highlight.range.end + tolerance) actions.selectSegment(hit.key)
                 }
             }.pointerInput(total, entry) {
-                // Glisser sur la frise parcourt la capture dans le lecteur intégré (image par image, en pause).
+                // Glisser sur la frise parcourt la capture dans le lecteur intégré (image par image, en pause) ;
+                // relâcher lance la lecture à cet endroit, un glissement annulé la laisse en pause.
                 fun at(x: Float) = total * (x / size.width).toDouble().coerceIn(0.0, 1.0)
                 detectHorizontalDragGestures(
                     onDragStart = { offset -> if (total.isPositive() && size.width > 0) actions.scrubSource(entry, at(offset.x)) },
-                    onDragEnd = actions::scrubSourceEnd,
-                    onDragCancel = actions::scrubSourceEnd,
+                    onDragEnd = { actions.scrubSourceEnd(play = true) },
+                    onDragCancel = { actions.scrubSourceEnd(play = false) },
                 ) { change, _ ->
                     if (total.isPositive() && size.width > 0) actions.scrubSource(entry, at(change.position.x))
                 }

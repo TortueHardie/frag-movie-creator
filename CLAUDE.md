@@ -498,7 +498,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   `SyncMeter`/`SyncStats` ; `BitmapRing` 8 images Skia recyclées ; `-hwaccel auto` puis repli logiciel), `AudioSink`/`JavaSoundSink` (null = muet),
   `PlayerController` (dans `AppController` : moteur sur `Backend.ffmpeg`, sans lui `platform.open` ; recopie `UiState.player` à 0,5 s près),
   `PlayerWindow.kt` (`VideoPlayerWindow`, `VideoSurface` : image lue en phase de dessin). Actions `videoPlayer` (propriété), `playVideo, scrubSource/scrubSourceEnd`
-  (frise : `TimelineCard(playhead)`), `playerToggle/Seek/Scrub/ScrubEnd, closePlayer`. Branché : `VariantsView` « Lire », `ExportBar`, `JobsView`, `previewClip`. Test : `VideoPlayerTest`.
+  (frise : `TimelineCard(playhead)`, relâcher le glissement lance la lecture : `scrubSourceEnd(play)` → `VideoPlayer.endScrub(play)`), `playerToggle/Seek/Scrub/ScrubEnd, closePlayer`. Branché : `VariantsView` « Lire », `ExportBar`, `JobsView`, `previewClip`. Test : `VideoPlayerTest`.
 - Signaler un problème : `ReportDialog.kt` (`ReportDialog`, `CrashDialog`, `MemoryDialog`), menu « ? » `HelpMenu` dans `AppHeader` (signaler, dossier des journaux), bouton dans `ErrorDialog`.
   `AppController` : `ReportEnvironment` (logsDir, crashDirs, redactor, version, system, mémoire ; `forThisApp()` passé par `Main`, le défaut des tests ne touche à rien de réel),
   actions `openReport/reportError/reportCrash/dismissCrash/closeReport/saveReport/openIssuePage/revealReport/openLogsFolder` ; `UiState.report` (`ReportUiState`, `ReportItem`), `UiState.crash`.
