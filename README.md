@@ -1450,10 +1450,11 @@ du tout), montés sur la musique avec le même moteur : un plan par réaction, s
   putain ! », « c'est pas le moment ! »), entre +12 et +17 dB souvent de la conversation ou des annonces.
 - Classement par la force de la réaction : montée au-dessus de la voix habituelle, durée, rire reconnu, et un kill, une
   mort ou une aide moins de 5 s avant (`montage.reactionMontage.causeBonus`). Deux réactions à moins de 8 s : la plus
-  forte seule.
+  forte seule ; case « Espacer les réactions » décochée, `--no-reaction-spacing` ou `spacing: 0s` dans le profil :
+  aucun écart minimal, deux réactions proches peuvent faire deux plans.
 - Micro mixé par-dessus la piste du jeu (×2, +6 dB), musique baissée à 25 % sous la voix, plan prolongé jusqu'à la fin
   de la phrase, et ce qui est dit en sous-titres (whisper, modèle de `edit.story.captions`, une phrase criée en rouge).
-  Ni ralenti ni image figée : ils déformeraient la voix. Pas de plans d'un temps sur les parties rapides de la musique.
+  Ni ralenti ni image figée (même si le profil active le montage des morts) : l'image continue pendant la réaction. Pas de plans d'un temps sur les parties rapides de la musique.
 - Réglages : `montage.reactionMontage` du profil (`rise`, `preRoll`, `postRoll`, `perClip`, `spacing`, `micGain`,
   `musicUnderVoice`, `captions`…). Fichiers : `<jeu>_<date>_reactions.mp4` ; le rapport liste toutes les réactions
   trouvées (`reactions`, avec `used` pour celles montées).
