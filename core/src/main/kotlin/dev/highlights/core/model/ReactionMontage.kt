@@ -54,8 +54,18 @@ data class ReactionMontage(
     val spacing: SerialDuration = 8.seconds,
     /** Gain du micro mixé par-dessus le jeu (2 : +6 dB). */
     val micGain: Double = 2.0,
-    /** Volume de la musique sous la voix : plus bas que dans le montage kills, ici la voix est le sujet. */
-    val musicUnderVoice: Double = 0.25,
+    /**
+     * Volume de la musique dans tout le montage : un fond sonore, toujours présent (choix du joueur, 20/11 : « moins de
+     * musique, mais toujours présente en fond »). Mesuré sur 9 réactions WARDOGS : à 1 (comme le montage kills), la
+     * musique remontait à plein volume entre les phrases et sortait aussi forte que voix + jeu (−8,6 LUFS chacune, avant
+     * normalisation), plus forte qu'elles sur une réaction ; à 0,35 elle est 9 LU sous la voix sur tout le montage.
+     */
+    val musicVolume: Double = 0.35,
+    /**
+     * Volume de la musique pendant que le joueur parle (même échelle que [musicVolume], pas une fraction de lui) : 0,12,
+     * soit 14 LU sous la voix en moyenne sur les réactions (25 % avant le 20/11 : 7 LU, la musique gênait la phrase).
+     */
+    val musicUnderVoice: Double = 0.12,
     /** Sous-titres whisper de ce qui est dit (modèle du profil, `edit.story.captions`). */
     val captions: Boolean = true,
 ) {
@@ -63,6 +73,7 @@ data class ReactionMontage(
         require(rise > 0.0) { "montage.reactionMontage.rise doit être positif" }
         require(!spacing.isNegative()) { "montage.reactionMontage.spacing ne peut pas être négatif" }
         require(micGain > 0.0) { "montage.reactionMontage.micGain doit être positif" }
+        require(musicVolume in 0.0..1.0) { "montage.reactionMontage.musicVolume doit être entre 0 et 1" }
         require(musicUnderVoice in 0.0..1.0) { "montage.reactionMontage.musicUnderVoice doit être entre 0 et 1" }
     }
 }
@@ -107,7 +118,8 @@ fun MontageSettings.forReactions(): MontageSettings {
         fastParts = fastParts.copy(enabled = false),
         zoom = zoom.copy(approach = 0.0),
         text = text.copy(multiKillLabels = emptyList(), killCounter = KillCounterMode.OFF),
-        audio = audio.copy(musicUnderVoice = r.musicUnderVoice),
+        // `MontageAudio.musicUnderVoice` est une fraction du volume de la musique : 0,12 / 0,35 donne bien 0,12 sous la voix.
+        audio = audio.copy(musicVolume = r.musicVolume, musicUnderVoice = if (r.musicVolume > 0.0) (r.musicUnderVoice / r.musicVolume).coerceAtMost(1.0) else 1.0),
         killStyle = killStyle.copy(deathEvent = "", headshotEvent = "", shotEvent = "", hudShotEvent = "", confirmEvent = "", clutchEvent = "", allyDeathEvent = "", clutchBannerEvent = "", flick = false),
     )
 }
