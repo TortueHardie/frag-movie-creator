@@ -57,6 +57,9 @@ import dev.highlights.montage.LayoutExample
 import dev.highlights.montage.LayoutTasteLearner
 import dev.highlights.montage.LayoutHistory
 import dev.highlights.montage.KillLayout
+import dev.highlights.montage.MusicIntents
+import dev.highlights.montage.IntentKind
+import dev.highlights.montage.IntentLayout
 import dev.highlights.montage.LearnedPins
 import dev.highlights.montage.PinLearner
 import dev.highlights.montage.PinHistory
@@ -366,6 +369,8 @@ class PlannedMontage internal constructor(
     internal val reactions: List<SessionReactions> = emptyList(),
     /** Montage onetaps : avertissement quand il y a peu de one taps ([OneTaps.Selection.notice]). */
     val oneTapsNotice: Message? = null,
+    /** Repères proposés pour l'étape 1 de « Montage sur la musique » (plan automatique) ; null avec des repères posés. */
+    val proposal: MusicIntents? = null,
 ) {
     /**
      * Avertissement quand les parties n'ont presque pas de kills ([MontageSettings.minKills]) : le montage se fait,
@@ -471,6 +476,32 @@ class HighlightPipeline(
                 now.toString(), planned.profile.id, music.file.toString(),
                 excluded = excluded.map { it.toString() }, forced = added.keys.map { it.toString() },
                 groups = GroupTasteLearner.record(planned.candidates, constraints),
+            ),
+        )
+    }
+
+    /**
+     * « Placer les plans » avec des repères (étape 1) : la proposition [auto] et les repères finaux [final], chaque
+     * repère avec son contexte musical. Les repères « kill » nourrissent l'apprentissage du placement
+     * ([LayoutTasteLearner] : écart au temps, accents, densité) ; coupes, ralentis, transitions et vitrine sont gardés.
+     * Les kills échangés ou retirés à l'étape 2 passent par les corrections du rendu ([GroupTasteLearner]).
+     */
+    fun recordIntents(planned: PlannedMontage, auto: MusicIntents, final: MusicIntents, now: Instant = Instant.now()) {
+        val music = planned.plan.music
+        val autoIds = auto.killMarks.associateBy { it.id }
+        val finalKills = final.killMarks
+        val moved = finalKills.count { m -> m.byHand && autoIds[m.id]?.let { (it.at - m.at).absoluteValue > 30.milliseconds } == true }
+        val added = finalKills.count { it.id !in autoIds }
+        val removed = auto.killMarks.count { a -> finalKills.none { it.id == a.id } }
+        val chosen = finalKills.filter { it.byHand }.map { it.at }.toSet()
+        fun ctx(kind: IntentKind) = LayoutTasteLearner.contexts(music, final.of(kind).map { it.at }, final.of(kind).filter { it.byHand }.map { it.at }.toSet())
+        layoutHistory.record(
+            LayoutExample(
+                now.toString(), planned.profile.id, MusicFeelStore.keyOf(music.file) ?: music.file.fileName.toString(),
+                LayoutTasteLearner.contexts(music, auto.killMarks.map { it.at }), LayoutTasteLearner.contexts(music, finalKills.map { it.at }, chosen),
+                moved, added, removed,
+                cuts = ctx(IntentKind.CUT), slows = ctx(IntentKind.SLOW), transitions = ctx(IntentKind.TRANSITION),
+                showcase = final.showcase?.let { listOf(it.start.inWholeMilliseconds, it.end.inWholeMilliseconds) },
             ),
         )
     }
@@ -1507,6 +1538,8 @@ class HighlightPipeline(
         fun plans(prepared: MusicAnalysis, own: MontageSettings) = when {
             // Kills posés sur la musique : les plans se construisent autour de leurs instants, rien n'est refusé.
             options.constraints.layout != null -> listOf(KillLayout.plan(groups, prepared, own))
+            // Repères d'intention (étape 1) : l'étape 2 choisit quel kill va sur quel repère, puis construit les plans.
+            options.constraints.intents != null -> listOf(IntentLayout.plan(groups, prepared, own, options.constraints.intents!!))
             count == null -> listOf(MontagePlanner.best(groups, prepared, own))
             else -> MontageVariants.distinct(groups, prepared, own, count).map { it.plan }
         }
@@ -1525,7 +1558,9 @@ class HighlightPipeline(
         }
         // Raccords d'abord : un plan raccordé garde son début dans la pose, il n'est pas coupé dans l'attente.
         val finished = chosen.map { c ->
-            MontagePlanner.showcase(MontagePlanner.jumpCuts(ScopeCuts.apply(c)).let { it.copy(settings = it.settings.copy(maxDuration = settings.maxDuration)) })
+            MontagePlanner.jumpCuts(ScopeCuts.apply(c)).let { it.copy(settings = it.settings.copy(maxDuration = settings.maxDuration)) }
+                // Avec des repères, la vitrine est celle posée (plage, repères en trop) : pas d'ouverture ajoutée.
+                .let { if (it.byIntents) it else MontagePlanner.showcase(it) }
         }
         val pick = options.pick
         val plan = if (pick == null) {
@@ -1535,7 +1570,9 @@ class HighlightPipeline(
                 ?: throw InputException(Message("error.montage.variantMissing", "index" to pick.index, "total" to finished.size))
         }
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(plan.music.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
-        return PlannedMontage(plan, inspected, choice, profile, platform, finished, variants, killsFound = available.sumOf { it.kills.size }, reactions = reactions, oneTapsNotice = oneTaps?.notice)
+        // Proposition de l'étape 1 de « Montage sur la musique » : les repères tirés du plan automatique.
+        val proposal = if (options.constraints.intents == null && options.constraints.layout == null) runCatching { IntentLayout.propose(plan) }.getOrNull() else null
+        return PlannedMontage(plan, inspected, choice, profile, platform, finished, variants, killsFound = available.sumOf { it.kills.size }, reactions = reactions, oneTapsNotice = oneTaps?.notice, proposal = proposal)
     }
 
     /** [analyzeAll] puis un seul montage de toutes les captures. */

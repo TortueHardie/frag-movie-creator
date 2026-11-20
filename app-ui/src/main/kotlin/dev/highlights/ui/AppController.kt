@@ -224,6 +224,10 @@ interface UiActions {
     fun resetLayoutTaste() {}
     /** Étape 1 → 2 : les plans se construisent autour des kills posés ; étape 2 → 1 : revenir aux kills. */
     fun placeEditorClips() {}
+    /** Étape 1 : l'outil d'un double-clic ([EditorTool]), poser un repère, repères « kill » en trop ([dev.highlights.montage.ExtraMarks]). */
+    fun setEditorTool(tool: String) {}
+    fun addEditorMark(seconds: Double, free: Boolean) {}
+    fun setEditorExtras(mode: String) {}
     fun backEditorToKills() {}
     val killTimingPlayer: dev.highlights.ui.player.VideoPlayer? get() = null
     /** Oublie les calages appris (`kill-timing.json` mis de côté, comme les goûts). */
@@ -1259,11 +1263,10 @@ class AppController(
     /** Dernier plan calculé (celui de la proposition quand on valide l'étape 1). */
     @Volatile private var lastPlanned: dev.highlights.pipeline.PlannedMontage? = null
 
-    private fun recordLayout(auto: List<LaidKill>, final: List<LaidKill>) {
+    private fun recordLayout(auto: dev.highlights.montage.MusicIntents, final: dev.highlights.montage.MusicIntents) {
         val planned = lastPlanned ?: return
         val p = backend?.pipeline ?: return
-        fun map(list: List<LaidKill>) = list.mapNotNull { k -> runCatching { dev.highlights.montage.KillRef.parse(k.key) }.getOrNull()?.let { it to k.at } }.toMap()
-        scope.launch(Dispatchers.IO) { runCatching { p.recordLayout(planned, map(auto), map(final)) } }
+        scope.launch(Dispatchers.IO) { runCatching { p.recordIntents(planned, auto, final) } }
     }
     override fun resetLayoutTaste() {
         val p = backend?.pipeline ?: return
@@ -1293,6 +1296,13 @@ class AppController(
     override fun removeEditorKill(kill: String) = musicEditor.remove(kill)
     override fun resetEditorAuto() = musicEditor.resetAuto()
     override fun placeEditorClips() = musicEditor.placeClips()
+    override fun setEditorTool(tool: String) {
+        runCatching { EditorTool.valueOf(tool) }.getOrNull()?.let(musicEditor::setTool)
+    }
+    override fun addEditorMark(seconds: Double, free: Boolean) = musicEditor.addMark(seconds, free)
+    override fun setEditorExtras(mode: String) {
+        runCatching { dev.highlights.montage.ExtraMarks.valueOf(mode) }.getOrNull()?.let(musicEditor::setExtras)
+    }
     override fun backEditorToKills() = musicEditor.backToKills()
 
     /** Aperçu 360p du montage tel que l'éditeur le montre (une variante, la mieux notée), lu dans le lecteur intégré. */
@@ -1363,7 +1373,7 @@ class AppController(
                 // Pas de rendu : la musique, l'inspection des kills (en cache après le premier plan) et la planification.
                 val planned = withContext(Dispatchers.Default) { p.planKillMontage(session.sessions, music, montageOptions(montage, s), tracker.root) }
                 // Gardé tant que l'étape 1 n'est pas validée : c'est la proposition qu'on enregistre avec le placement.
-                if (state.value.montage?.constraints?.layout == null) lastPlanned = planned
+                if (state.value.montage?.constraints?.let { it.layout == null && it.intents == null } == true) lastPlanned = planned
                 val view = PlanView.of(planned)
                 updatePlan { it.copy(loading = false, view = view, planned = constraints, error = null) }
                 musicEditor.planned(view)

@@ -200,6 +200,8 @@ data class MontageClip(
      * une autre, [MontageEdits.check] refuse le plan retenu qui le garde, avec ce message.
      */
     val markerMiss: dev.highlights.core.i18n.Message? = null,
+    /** La coupe qui ouvre ce plan se fait par une transition (repère « transition ici » de l'étape 1). */
+    val transitionIn: Boolean = false,
 ) {
     val beats: Int get() = slot.beats
 
@@ -255,6 +257,11 @@ data class MontagePlan(
     val variant: PlanVariant = PlanVariant.BASE,
     /** Durée visée d'après les kills (voir [MontagePlanner.targetDuration]) ; null : la durée maximale. */
     val target: Duration? = null,
+    /**
+     * Construit sur les repères de l'étape 1 ([IntentLayout]) : ralentis et transitions seulement où ils sont posés
+     * ([MontageClip.transitionIn]).
+     */
+    val byIntents: Boolean = false,
 ) {
     init {
         require(clips.isNotEmpty()) { "montage vide" }

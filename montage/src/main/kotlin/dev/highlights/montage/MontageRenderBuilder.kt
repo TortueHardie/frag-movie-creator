@@ -459,9 +459,14 @@ object MontageRenderBuilder {
      * visible en est un (le mouvement l'annonce). Le premier plan n'a pas de coupe d'entrée.
      */
     internal fun whips(plan: MontagePlan): List<FlickDirection?> {
-        if (!plan.settings.whip.enabled) return plan.clips.map { null }
         fun flickOf(clip: MontageClip, kill: Duration?) =
             kill?.let { clip.group.traitsOf(it) }?.takeIf { it.flick >= KillTraits.STRONG_FLICK }?.direction
+        // Repères de l'étape 1 : une transition là où elle est posée, et seulement là (sens du flick, sinon vers la droite).
+        if (plan.byIntents) return plan.clips.mapIndexed { i, clip ->
+            if (i == 0 || !clip.transitionIn) null
+            else flickOf(plan.clips[i - 1], plan.clips[i - 1].kills.lastOrNull()) ?: flickOf(clip, clip.kills.firstOrNull()) ?: FlickDirection.RIGHT
+        }
+        if (!plan.settings.whip.enabled) return plan.clips.map { null }
         return plan.clips.mapIndexed { i, clip ->
             // Le raccord sur une animation a déjà son mouvement : le whip le couvrirait. Un plan d'un temps n'a que son
             // contexte avant le kill : le whip le brouillerait en entier.

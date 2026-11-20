@@ -102,11 +102,18 @@ data class MontageConstraints(
      * automatique.
      */
     val layout: Map<KillRef, Duration>? = null,
+    /**
+     * « Montage sur la musique », étape 1 : les repères d'intention posés sur le morceau (kill, multi-kill, coupe,
+     * ralenti, transition, vitrine) et les kills mis à la main sur un repère à l'étape 2 ; l'étape 2 choisit les autres
+     * kills et construit les plans ([IntentLayout]). Null : placement automatique.
+     */
+    val intents: MusicIntents? = null,
 ) {
-    val isEmpty: Boolean get() = excluded.isEmpty() && forced.isEmpty() && pins.isEmpty() && anchors.isEmpty() && beatShifts.isEmpty() && cuts.isEmpty() && ranges.isEmpty() && layout == null
+    val isEmpty: Boolean get() = excluded.isEmpty() && forced.isEmpty() && pins.isEmpty() && anchors.isEmpty() && beatShifts.isEmpty() && cuts.isEmpty() && ranges.isEmpty() && layout == null && intents == null
 
     /** Nombre de corrections posées (ce que la ligne du dialogue de montage annonce). */
-    val count: Int get() = excluded.size + forced.size + pins.size + anchors.size + beatShifts.size + cuts.size + ranges.size + (layout?.size ?: 0)
+    val count: Int get() = excluded.size + forced.size + pins.size + anchors.size + beatShifts.size + cuts.size + ranges.size + (layout?.size ?: 0) +
+        (intents?.let { i -> i.marks.count { it.byHand } + i.fixed.size + (if (i.showcase?.byHand == true) 1 else 0) } ?: 0)
 
     /** Début ([start]) ou fin ([end]) du plan du kill [ref] posés à la main ; les bornes déjà posées restent. */
     fun cut(ref: KillRef, start: Duration? = null, end: Duration? = null): MontageConstraints {

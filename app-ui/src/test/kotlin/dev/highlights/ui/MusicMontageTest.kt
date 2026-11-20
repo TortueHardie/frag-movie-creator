@@ -5,6 +5,11 @@ import dev.highlights.core.i18n.I18n
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.VideoStream
 import dev.highlights.montage.MontageConstraints
+import dev.highlights.montage.MusicIntents
+import dev.highlights.montage.ExtraMarks
+import dev.highlights.montage.IntentRange
+import dev.highlights.montage.IntentMark
+import dev.highlights.montage.IntentKind
 import dev.highlights.montage.MontagePin
 import dev.highlights.montage.SectionKind
 import io.kotest.core.spec.style.FunSpec
@@ -39,11 +44,16 @@ class MusicMontageTest : FunSpec({
         PlanClip(g, start, start + (8 * period).seconds, listOf(PlanKill(start + (2 * period).seconds, g.refs.last())), i == 1)
     }
     val left = listOf(group(1700.0), group(1800.0))
+    // Proposition de l'étape 1 : un repère par kill, un ralenti sur la drop, une transition, pas de vitrine.
+    val proposal = MusicIntents(
+        (placed.indices.map { i -> IntentMark(i + 1, IntentKind.KILL, musicStart + ((i * 8 + 2) * period).seconds) } +
+            listOf(IntentMark(10, IntentKind.SLOW, musicStart + (10 * period).seconds), IntentMark(11, IntentKind.TRANSITION, musicStart + (16 * period).seconds))).sortedBy { it.at },
+    )
     val view = PlanView(
         music = "Rome Is Burning.mp3", bpm = 126.07, musicStart = musicStart, duration = (6 * 8 * period).seconds,
         beats = (0 until 48).map { (it * period).seconds }, energy = List(48) { 0.6 },
         sections = listOf(PlanSection(0.seconds, 5.7.seconds, SectionKind.BUILD_UP, 0.3), PlanSection(5.7.seconds, 22.8.seconds, SectionKind.DROP, 1.0)),
-        dropAt = 5.713.seconds, clips = clips, left = left, musicPath = Path("D:/Musique/Rome Is Burning.mp3"),
+        dropAt = 5.713.seconds, clips = clips, left = left, musicPath = Path("D:/Musique/Rome Is Burning.mp3"), proposal = proposal,
     )
     val peaks = (0 until MusicEditorUi.PEAKS).map { i -> val t = i * 234.0 / MusicEditorUi.PEAKS; ((if (t < 30.5) 0.3 else 0.85) * (0.6 + 0.4 * sin(t * 13.2))).toFloat().coerceAtLeast(0.05f) }
     val editor = MusicEditorUi(
@@ -62,13 +72,14 @@ class MusicMontageTest : FunSpec({
     }
     fun ed(state: MutableStateFlow<UiState>) = state.value.montage!!.editor!!
 
-    test("étape 1 : les kills du placement automatique, sur tout le morceau ; les autres groupes dans la liste") {
+    test("étape 1 : les repères proposés (aucun kill nommé), sur tout le morceau ; les groupes comptés pour « kills disponibles »") {
         val (c, state) = controller()
         val e = ed(state)
-        e.layout!!.map { it.key } shouldBe placed.map { it.key }
-        e.layout!!.first().at shouldBe musicStart + (2 * period).seconds
-        e.auto shouldBe e.layout
-        e.groups.map { it.key } shouldBe (placed + left).map { it.key }
+        e.intents shouldBe proposal
+        e.proposal shouldBe proposal
+        e.intents!!.killMarks.map { it.at } shouldBe placed.indices.map { i -> musicStart + ((i * 8 + 2) * period).seconds }
+        e.groups.size shouldBe placed.size + left.size
+        e.extraMarks() shouldBe emptyList()
         c.window() shouldBe (Duration.ZERO to 234.seconds)
         // Étape 2 : le passage du montage, avec une marge.
         val (c2, _) = controller(step = EditorStep.CLIPS)
@@ -85,71 +96,104 @@ class MusicMontageTest : FunSpec({
         c.snap(editor.copy(magnet = false), beat + 30.milliseconds, free = false) shouldBe ((beat + 30.milliseconds) to null)
     }
 
-    test("étape 1 : déplacer un kill change seulement son instant (aucun plan, aucune contrainte, aucune erreur)") {
+    test("étape 1 : déplacer un repère change seulement son instant, il devient « à vous » ; proches permis, aucune contrainte") {
         val (c, state) = controller()
-        val g = placed[2]
-        c.drag(EditorDragKind.KILL, g.key, (beats[20] + 25.milliseconds).inWholeMicroseconds / 1e6, free = false)
+        val m = ed(state).intents!!.killMarks[2]
+        c.drag(EditorDragKind.MARK, m.id.toString(), (beats[20] + 25.milliseconds).inWholeMicroseconds / 1e6, free = false)
         c.drop()
-        ed(state).layout!!.single { it.key == g.key }.at shouldBe beats[20] + 11.milliseconds
-        ed(state).layout!!.map { it.at } shouldBe ed(state).layout!!.map { it.at }.sorted()
+        val moved = ed(state).intents!!.marks.single { it.id == m.id }
+        moved.at shouldBe beats[20] + 11.milliseconds
+        moved.byHand shouldBe true
         state.value.montage!!.constraints.isEmpty shouldBe true
-        ed(state).notice shouldBe null
-    }
-
-    test("étape 1 : lâché sur l'instant d'un autre kill, rien n'est bloqué ni poussé (l'étape 2 en fera un plan court)") {
-        val (c, state) = controller()
-        val a = ed(state).layout!![0]
-        val b = placed[3]
-        c.drag(EditorDragKind.KILL, b.key, (a.at + 100.milliseconds).inWholeMicroseconds / 1e6, free = true)
+        // Sur l'instant d'un autre repère : rien n'est bloqué ni poussé.
+        val other = ed(state).intents!!.killMarks.first { it.id != m.id }
+        c.drag(EditorDragKind.MARK, m.id.toString(), (other.at + 100.milliseconds).inWholeMicroseconds / 1e6, free = true)
         c.drop()
-        val layout = ed(state).layout!!
-        layout.single { it.key == b.key }.at shouldBe a.at + 100.milliseconds
-        layout.single { it.key == a.key }.at shouldBe a.at
-        ed(state).notice shouldBe null
-    }
-
-    test("étape 1 : ajouter un kill de la liste (lâché sur la musique), le retirer, tout remettre en auto") {
-        val (c, state) = controller()
-        val g = left[0]
-        c.drag(EditorDragKind.NEW, g.key, 100.0, free = true, over = false)
-        c.drop()
-        ed(state).layout!!.size shouldBe placed.size
-        c.drag(EditorDragKind.NEW, g.key, 100.0, free = true, over = true)
-        c.drop()
-        ed(state).layout!!.single { it.key == g.key }.at shouldBe 100.seconds
-        c.remove(placed[0].key)
-        ed(state).layout!!.none { it.key == placed[0].key } shouldBe true
-        c.resetAuto()
-        ed(state).layout shouldBe ed(state).auto
-    }
-
-    test("« Placer les plans » : les kills posés deviennent la contrainte du plan ; étape 2 ; les kills n'y bougent plus") {
-        val (c, state) = controller()
-        c.drag(EditorDragKind.KILL, placed[1].key, 60.0, free = true)
-        c.drop()
-        c.placeClips()
-        val layout = state.value.montage!!.constraints.layout!!
-        layout.size shouldBe placed.size
-        layout[placed[1].refs.last()] shouldBe 60.seconds
-        ed(state).step shouldBe EditorStep.CLIPS
+        ed(state).intents!!.marks.single { it.id == m.id }.at shouldBe other.at + 100.milliseconds
+        ed(state).intents!!.marks.single { it.id == other.id }.at shouldBe other.at
+        // Kills de la partie : ils ne se glissent pas à l'étape 1.
         c.drag(EditorDragKind.KILL, placed[0].key, 70.0, free = true)
         ed(state).drag shouldBe null
-        c.backToKills()
-        ed(state).step shouldBe EditorStep.KILLS
-        ed(state).layout!!.single { it.key == placed[1].key }.at shouldBe 60.seconds
     }
 
-    test("captures : étape 1 (vue, déplacement, ajout) et étape 2 (build/ui-snapshots/music_editor*.png)") {
+    test("étape 1 : outils (double-clic), vitrine, retirer, repères en trop, tout remettre en auto") {
+        val (c, state) = controller()
+        c.setTool(EditorTool.CUT)
+        c.addMark(100.0, free = true)
+        ed(state).intents!!.of(IntentKind.CUT).single().let { it.at shouldBe 100.seconds; it.byHand shouldBe true }
+        c.setTool(EditorTool.SHOWCASE)
+        c.addMark(20.0, free = true)
+        ed(state).intents!!.showcase!!.start shouldBe 20.seconds
+        c.drag(EditorDragKind.SHOWCASE_END, null, 23.5, free = true)
+        c.drop()
+        ed(state).intents!!.showcase!!.end shouldBe 23.5.seconds
+        c.remove(MusicEditorController.SHOWCASE_KEY)
+        ed(state).intents!!.showcase shouldBe null
+        // Trois repères « kill » de plus : 9 repères pour 8 kills, un en trop, le plus faible.
+        c.setTool(EditorTool.KILL)
+        listOf(120.0, 130.0, 140.0).forEach { c.addMark(it, free = true) }
+        ed(state).intents!!.killMarks.size shouldBe 9
+        ed(state).extraMarks().size shouldBe 1
+        c.setExtras(ExtraMarks.EMPTY)
+        ed(state).intents!!.extras shouldBe ExtraMarks.EMPTY
+        val cut = ed(state).intents!!.of(IntentKind.CUT).single()
+        c.remove(MusicEditorController.markKey(cut.id))
+        ed(state).intents!!.of(IntentKind.CUT) shouldBe emptyList()
+        c.resetAuto()
+        ed(state).intents shouldBe proposal
+    }
+
+    test("« Placer les plans » : les repères deviennent la contrainte du plan ; étape 2 : un kill glissé sur un repère, échange ; retirer") {
+        val (c, state) = controller()
+        val m = ed(state).intents!!.killMarks[1]
+        c.drag(EditorDragKind.MARK, m.id.toString(), 60.0, free = true)
+        c.drop()
+        c.placeClips()
+        val intents = state.value.montage!!.constraints.intents!!
+        intents shouldBe ed(state).intents
+        state.value.montage!!.constraints.layout shouldBe null
+        ed(state).step shouldBe EditorStep.CLIPS
+        // Les repères ne bougent plus à l'étape 2.
+        c.drag(EditorDragKind.MARK, m.id.toString(), 70.0, free = true)
+        ed(state).drag shouldBe null
+        // Le kill du repère 1 glissé sur le repère 3 : il y va, celui du repère 3 prend sa place.
+        val marks = proposal.killMarks
+        c.drag(EditorDragKind.KILL, placed[0].key, marks[2].at.inWholeMicroseconds / 1e6, free = true)
+        c.drop()
+        val fixed = state.value.montage!!.constraints.intents!!.fixed
+        fixed[marks[2].id] shouldBe placed[0].refs.last()
+        fixed[marks[0].id] shouldBe placed[2].refs.last()
+        state.value.montage!!.constraints.forced.contains(placed[0].refs.last()) shouldBe true
+        // Retirer : le kill est exclu, plus fixé nulle part ; le repère prendra le meilleur suivant.
+        c.remove(placed[0].key)
+        state.value.montage!!.constraints.excluded.contains(placed[0].refs.last()) shouldBe true
+        state.value.montage!!.constraints.intents!!.fixed.values.none { it == placed[0].refs.last() } shouldBe true
+        c.backToKills()
+        ed(state).step shouldBe EditorStep.KILLS
+        ed(state).intents!!.marks.single { it.id == m.id }.at shouldBe 60.seconds
+    }
+
+    test("captures : étape 1 (repères, déplacement, outils, trop de repères) et étape 2 (build/ui-snapshots/music_editor*.png)") {
         val out = Path("build", "ui-snapshots").createDirectories()
         val (_, st) = controller()
         val laid = ed(st)
         val base = MontageUiState(music = Path("D:/Musique/Rome Is Burning.mp3"), plan = MontagePlanState(loading = false, view = view), editor = laid.copy(playhead = 30.523.seconds, dropAt = 30.523.seconds))
+        val marks = proposal.killMarks
+        val edited = proposal.copy(
+            marks = (proposal.marks.map { if (it.id == marks[2].id) it.copy(at = 44.335.seconds, byHand = true) else it } + listOf(
+                IntentMark(20, IntentKind.KILL, 55.60.seconds, true), IntentMark(21, IntentKind.KILL, 55.84.seconds, true), IntentMark(22, IntentKind.KILL, 56.08.seconds, true),
+                IntentMark(23, IntentKind.CUT, 41.95.seconds, true), IntentMark(24, IntentKind.SLOW, 30.523.seconds, true),
+            )).sortedBy { it.at },
+            showcase = IntentRange(22.9.seconds, 24.81.seconds, true),
+        )
+        val zoom = base.editor!!.copy(intents = edited, from = 21.seconds, to = 60.seconds, tool = EditorTool.KILL)
         val states = listOf(
             "music_editor_kills" to base,
-            "music_editor_kills_move" to base.copy(editor = base.editor!!.copy(selected = placed[2].key, drag = EditorDrag(EditorDragKind.KILL, placed[2].key, 62.011.seconds, "note"))),
-            "music_editor_kills_add" to base.copy(editor = base.editor!!.copy(drag = EditorDrag(EditorDragKind.NEW, left[0].key, 95.seconds, "beat"))),
+            "music_editor_kills_move" to base.copy(editor = zoom.copy(selected = MusicEditorController.markKey(marks[2].id), drag = EditorDrag(EditorDragKind.MARK, marks[2].id.toString(), 44.335.seconds, "note"))),
+            "music_editor_kills_add" to base.copy(editor = zoom.copy(selected = MusicEditorController.markKey(23), tool = EditorTool.CUT)),
+            "music_editor_kills_over" to base.copy(editor = zoom.copy(intents = edited.copy(marks = edited.marks + IntentMark(25, IntentKind.KILL, 50.0.seconds, true)))),
             "music_editor_clips" to base.copy(
-                constraints = MontageConstraints(layout = placed.associate { it.refs.last() to (musicStart + (2 * period).seconds) }),
+                constraints = MontageConstraints(intents = proposal),
                 editor = base.editor!!.copy(step = EditorStep.CLIPS, selected = placed[2].key),
             ),
         )

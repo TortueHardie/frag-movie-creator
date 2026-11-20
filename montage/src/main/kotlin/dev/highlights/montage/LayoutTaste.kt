@@ -51,6 +51,11 @@ data class LayoutExample(
     val moved: Int,
     val added: Int,
     val removed: Int,
+    /** Repères de l'étape 1 autres que les kills (contexte musical de chacun) et la vitrine (début, fin en ms). */
+    val cuts: List<KillContext> = emptyList(),
+    val slows: List<KillContext> = emptyList(),
+    val transitions: List<KillContext> = emptyList(),
+    val showcase: List<Long>? = null,
 )
 
 @Serializable

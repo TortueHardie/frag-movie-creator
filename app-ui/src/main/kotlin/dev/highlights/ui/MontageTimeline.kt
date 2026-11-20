@@ -188,6 +188,8 @@ data class PlanView(
     val dropByHand: Boolean = false,
     /** La drop de ce plan vient de ce qui a été appris des drops posées sur d'autres morceaux. */
     val dropLearned: Boolean = false,
+    /** Repères proposés pour l'étape 1 de « Montage sur la musique » (plan automatique). */
+    val proposal: dev.highlights.montage.MusicIntents? = null,
 ) {
     /** Temps de la frise le plus proche de [t] (instant du montage) ; null sans temps. */
     fun beatNear(t: Duration): Int? = beats.indices.minByOrNull { (beats[it] - t).absoluteValue }
@@ -257,6 +259,7 @@ data class PlanView(
                 musicPath = music.file,
                 dropByHand = music.dropByHand != null,
                 dropLearned = music.dropLearned != null,
+                proposal = planned.proposal,
             )
         }
     }

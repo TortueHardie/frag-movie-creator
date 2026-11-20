@@ -40,6 +40,11 @@ import dev.highlights.core.session.SessionStore
 import dev.highlights.export.ExportResult
 import dev.highlights.ffmpeg.FfmpegEncoderSelector
 import dev.highlights.montage.DropTime
+import dev.highlights.montage.MusicIntents
+import dev.highlights.montage.ExtraMarks
+import dev.highlights.montage.IntentRange
+import dev.highlights.montage.IntentMark
+import dev.highlights.montage.IntentKind
 import dev.highlights.montage.RangeKind
 import dev.highlights.montage.CaptureRange
 import dev.highlights.montage.ClipCut
@@ -359,6 +364,29 @@ class MontageCommand : PipelineCommand("montage") {
         val (kill, value) = text.substringBeforeLast('=') to text.substringAfterLast('=', "")
         killRef(kill) to (DropTime.parse(value) ?: Durations.parseOrNull(value) ?: throw BadParameterValue("instant invalide dans '$text' (attendu « capture@instant=0:31.200 »)"))
     }.multiple()
+    private val mark by option(
+        "--mark",
+        help = "Montage sur la musique, étape 1 : un repère sur un instant du morceau, « kill@0:31.200 », multi@…, cut@…, slow@…, transition@… ; répétable. " +
+            "Ne dit pas quel kill : l'étape 2 met les meilleurs sur la drop et les repères forts, un multi-kill sur des repères rapprochés",
+    ).convert { text ->
+        val kind = IntentKind.entries.firstOrNull { it.name.equals(text.substringBefore('@').trim(), ignoreCase = true) }
+            ?: throw BadParameterValue("sorte de repère inconnue dans '$text' (kill, multi, cut, slow, transition)")
+        val value = text.substringAfter('@', "")
+        kind to (DropTime.parse(value) ?: Durations.parseOrNull(value) ?: throw BadParameterValue("instant invalide dans '$text' (attendu « kill@0:31.200 »)"))
+    }.multiple()
+    private val showcaseAt by option("--showcase-at", help = "Montage sur la musique : plage de la vitrine sur le morceau, « 0:22.900..0:24.810 »").convert { text ->
+        val parts = text.split("..")
+        fun at(v: String) = DropTime.parse(v.trim()) ?: Durations.parseOrNull(v.trim()) ?: throw BadParameterValue("instant invalide dans '$text' (attendu « 0:22.900..0:24.810 »)")
+        if (parts.size != 2) throw BadParameterValue("plage invalide '$text' (attendu « 0:22.900..0:24.810 »)")
+        IntentRange(at(parts[0]), at(parts[1]), byHand = true)
+    }
+    private val extraMarks by option("--extra-marks", help = "Repères « kill » en trop (plus que de kills) : showcase (plans de vitrine, défaut) ou empty (laissés vides)")
+        .choice("showcase" to ExtraMarks.SHOWCASE, "empty" to ExtraMarks.EMPTY)
+    private val putKill by option("--put", help = "Montage sur la musique, étape 2 : met un kill sur le repère « kill » numéro N (dans l'ordre du morceau), « 3=capture@7:00.000 » ; répétable")
+        .convert { text ->
+            val n = text.substringBefore('=').trim().toIntOrNull() ?: throw BadParameterValue("numéro de repère invalide dans '$text' (attendu « 3=capture@7:00.000 »)")
+            n to killRef(text.substringAfter('='))
+        }.multiple()
     private val planOnly by option("--plan", help = "Affiche le plan sans rendre : la place de chaque kill et sa désignation pour --exclude, --force, --drop, --pin").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
     private val thumbnail by thumbnailFlag()
@@ -513,7 +541,20 @@ class MontageCommand : PipelineCommand("montage") {
         cuts = cut.groupBy({ it.first }, { it.second }).mapValues { (_, list) -> list.reduce { a, b -> a.with(b) } },
         ranges = skip + keep,
         layout = killAt.toMap().takeIf { it.isNotEmpty() },
+        intents = intents(),
     )
+
+    /** Repères de l'étape 1 (--mark, --showcase-at, --extra-marks) et kills mis sur un repère (--put) ; null sans repère. */
+    internal fun intents(): MusicIntents? {
+        if (mark.isEmpty()) return null
+        val marks = mark.sortedBy { it.second }.mapIndexed { i, (kind, at) -> IntentMark(i + 1, kind, at, byHand = true) }
+        val killMarks = marks.filter { it.kind.takesKill }
+        val fixed = putKill.associate { (n, ref) ->
+            val m = killMarks.getOrNull(n - 1) ?: throw BadParameterValue("--put $n : il n'y a que ${killMarks.size} repère(s) « kill »")
+            m.id to ref
+        }
+        return MusicIntents(marks, showcaseAt, extraMarks ?: ExtraMarks.SHOWCASE, fixed)
+    }
 
     /** Style par défaut de `montage-styles.yaml` (lu dans la configuration : à part, pour que [montageOptions] reste pure). */
     private fun defaultStyle(): String? = env.config.loadMontageStyles().default

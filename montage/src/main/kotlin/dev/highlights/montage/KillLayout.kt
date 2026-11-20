@@ -32,11 +32,15 @@ object KillLayout {
      * - avant le premier kill, [LEAD_BEATS] temps (moins au début du morceau) ; après le dernier, [TAIL_BEATS] ;
      * - le plan de chaque kill se taille comme d'habitude ([MontagePlanner.clipFor]).
      */
-    fun plan(groups: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings): MontagePlan {
+    fun plan(groups: List<KillGroup>, music: MusicAnalysis, settings: MontageSettings, intents: Intents? = null): MontagePlan {
         val laid = groups.mapNotNull { g -> (g.pin as? MontagePin.At)?.let { g to it.music } }.sortedBy { it.second }
         if (laid.isEmpty() || music.beats.isEmpty()) throw HighlightsException(Message("error.montage.noKills"))
         val period = music.beatPeriod
         val placed = merged(laid, period)
+        // Repères de l'étape 1 : coupes et bords des plages de vitrine (sans kill dedans) deviennent des temps de coupe.
+        val fillerRanges = intents?.fillers.orEmpty().filter { (a, b) -> b > a && placed.none { (_, at) -> at > a && at < b } }
+        val forced = (intents?.cuts.orEmpty() + fillerRanges.flatMap { listOf(it.first, it.second) }).filter { it >= Duration.ZERO }
+            .map { c -> music.beats.firstOrNull { (it - c).absoluteValue <= SNAP_TO_BEAT } ?: c }
         // Temps de coupe à ajouter : juste avant chaque kill trop proche du précédent.
         val extra = mutableMapOf<Int, Duration>()
         for (i in 1 until placed.size) {
@@ -47,7 +51,7 @@ object KillLayout {
             // À quelques ms d'un vrai temps : la coupe se pose sur lui (deux temps confondus faisaient un plan vide).
             extra[i] = music.beats.firstOrNull { (it - cut).absoluteValue <= SNAP_TO_BEAT } ?: cut
         }
-        val grid = withCuts(music, extra.values.toList())
+        val grid = withCuts(music, extra.values.toList() + forced)
         val cuts = settings.cuts
         val leadBeats = beats(cuts.minLead, period)
         val tailBeats = beats(cuts.minTail, period).coerceAtLeast(1)
@@ -63,11 +67,20 @@ object KillLayout {
                 ?: low
             anchors += b.coerceAtLeast(low)
         }
-        // Les coupes : avant le premier, entre chaque paire, après le dernier.
-        val bounds = mutableListOf((anchors.first() - LEAD_BEATS).coerceAtLeast(0).coerceAtMost(anchors.first()))
+        val forcedBeats = forced.map(::index).filter { it >= 0 }.distinct().sorted()
+        // Les coupes : avant le premier, entre chaque paire, après le dernier. Les repères « coupe » s'imposent : entre
+        // deux kills, le premier finit sur le premier repère, le second commence au dernier, entre eux de la vitrine.
+        val bounds = mutableListOf<Int>()
+        val before = forcedBeats.filter { it <= anchors.first() }
+        if (before.isNotEmpty()) bounds += before else bounds += (anchors.first() - LEAD_BEATS).coerceAtLeast(0).coerceAtMost(anchors.first())
         for (i in 0 until anchors.size - 1) {
             val a = anchors[i]
             val b = anchors[i + 1]
+            val imposed = forcedBeats.filter { it > a && it <= b }
+            if (imposed.isNotEmpty() && !extra.containsKey(i + 1)) {
+                bounds += imposed
+                continue
+            }
             val cut = when {
                 // Coupe ajoutée : le plan court s'ouvre sur elle.
                 extra.containsKey(i + 1) -> b
@@ -83,17 +96,92 @@ object KillLayout {
             }
             bounds += cut.coerceIn(a + 1, b)
         }
-        bounds += anchors.last() + TAIL_BEATS
-        val clips = placed.mapIndexed { i, (g, _) ->
-            val start = bounds[i]
-            val end = bounds[i + 1]
+        val after = forcedBeats.filter { it > anchors.last() }
+        if (after.isNotEmpty()) bounds += after else bounds += anchors.last() + TAIL_BEATS
+        // Chaque segment entre deux coupes : le plan d'un kill (celui qui y tombe) ou de la vitrine.
+        val slows = intents?.slows.orEmpty()
+        val used = mutableSetOf<String>()
+        val clips = mutableListOf<MontageClip>()
+        var k = 0
+        for (s in 0 until bounds.size - 1) {
+            val start = bounds[s]
+            val end = bounds[s + 1]
+            if (end <= start) continue
             val section = grid.sectionIndexAt(start)
             val drop = grid.dropBeat.takeIf { it in start until end }
-            MontagePlanner.clipFor(CutSlot(start, end, section, drop) to g, grid, settings, minLeadBeats = 0, minTailBeats = 1)
+            if (k < anchors.size && anchors[k] in start until end) {
+                val g = placed[k].first
+                k++
+                val from = grid.beatTime(start)
+                val to = grid.beatTime(end)
+                // Ralenti : à ses repères seulement (repères posés) ; sinon comme le planificateur le permet.
+                val wantsSlow = intents == null || slows.any { it >= from && it < to }
+                val own = if (intents != null && wantsSlow) settings.copy(slowMotion = settings.slowMotion.copy(enabled = true)) else settings
+                clips += MontagePlanner.clipFor(CutSlot(start, end, section, drop) to g, grid, own, minLeadBeats = 0, minTailBeats = 1, allowSlow = wantsSlow)
+            } else {
+                // Vitrine : un plan de partie sans kill par [ShowcaseOpening.shotBeats] temps.
+                val shot = settings.showcase.shotBeats.coerceAtLeast(1)
+                var b = start
+                while (b < end) {
+                    val e = if (end - b < 2 * shot) end else b + shot
+                    val filler = fillerClip(intents?.pool.orEmpty().ifEmpty { placed.map { it.first } }, CutSlot(b, e, grid.sectionIndexAt(b), grid.dropBeat.takeIf { it in b until e }), grid, settings, used)
+                    if (filler != null) clips += filler
+                    else if (clips.isNotEmpty()) clips[clips.lastIndex] = stretch(clips.last(), e, grid, settings)
+                    else return plan(groups, music, settings, intents?.copy(cuts = intents.cuts.filter { it > grid.beatTime(e) }, fillers = intents.fillers.filter { it.first >= grid.beatTime(e) }))
+                    b = e
+                }
+            }
         }
-        log.info { "Plans construits autour de ${placed.size} kill(s) posés (${extra.size} plan(s) court(s), ${laid.size - placed.size} fusion(s)) : ${clips.joinToString(" ") { "${it.beats}" }} temps" }
-        return MontagePlan(clips, grid, settings)
+        val transitions = intents?.transitions.orEmpty()
+        val withTransitions = if (transitions.isEmpty()) clips else clips.mapIndexed { i, c ->
+            val at = grid.beatTime(c.slot.startBeat)
+            val wanted = i > 0 && transitions.any { t -> clips.indices.drop(1).minBy { j -> (grid.beatTime(clips[j].slot.startBeat) - t).absoluteValue } == i }
+            if (wanted) c.copy(transitionIn = true) else c
+        }
+        log.info { "Plans construits autour de ${placed.size} kill(s) posés (${extra.size} plan(s) court(s), ${laid.size - placed.size} fusion(s), ${clips.count { it.showcase }} plan(s) de vitrine) : ${clips.joinToString(" ") { "${it.beats}" }} temps" }
+        return MontagePlan(withTransitions, grid, settings, byIntents = intents != null)
     }
+
+    /**
+     * Repères de l'étape 1 qui ne sont pas des kills : [cuts] (un plan commence ici), [fillers] (plages de vitrine : la
+     * vitrine posée et les repères « kill » en trop), [slows] et [transitions] (seuls endroits où il y en aura), [pool]
+     * les groupes où prendre les passages de vitrine.
+     */
+    data class Intents(
+        val cuts: List<Duration> = emptyList(),
+        val fillers: List<Pair<Duration, Duration>> = emptyList(),
+        val slows: List<Duration> = emptyList(),
+        val transitions: List<Duration> = emptyList(),
+        val pool: List<KillGroup> = emptyList(),
+    )
+
+    /**
+     * Plan de vitrine pour [slot] : un passage calme d'une partie ([KillGroup.calm]), avant un kill, d'un groupe pas
+     * encore pris ([used]) ; sinon le passage juste avant le premier kill d'un groupe. Null : aucune source.
+     */
+    private fun fillerClip(pool: List<KillGroup>, slot: CutSlot, music: MusicAnalysis, settings: MontageSettings, used: MutableSet<String>): MontageClip? {
+        val s = settings.showcase
+        val length = music.beatTime(slot.endBeat) - music.beatTime(slot.startBeat)
+        fun keyOf(g: KillGroup) = "${g.media.path}|${g.kills.first()}"
+        fun window(g: KillGroup, calmOnly: Boolean): Pair<Duration, Duration>? {
+            val end = g.kills.first() - s.beforeClip
+            val low = if (calmOnly) maxOf((g.calm ?: return null).start + s.afterEvent, g.media.bounds.start) else g.media.bounds.start
+            return (end - length to end).takeIf { it.first >= low }
+        }
+        val g = pool.firstOrNull { keyOf(it) !in used && window(it, true) != null }
+            ?: pool.firstOrNull { keyOf(it) !in used && window(it, false) != null }
+            ?: pool.firstOrNull { window(it, false) != null }
+            ?: return null
+        used += keyOf(g)
+        val (start, end) = window(g, true) ?: window(g, false)!!
+        return MontageClip(
+            g, slot, slot.startBeat, g.kills.last(), start, end, Duration.ZERO, Duration.ZERO, emptyList(), length, showcase = true,
+        )
+    }
+
+    /** Le plan [c] prolongé jusqu'au temps [end] (pas de source pour la vitrine qui devait suivre). */
+    private fun stretch(c: MontageClip, end: Int, music: MusicAnalysis, settings: MontageSettings): MontageClip =
+        MontagePlanner.clipFor(c.slot.copy(endBeat = end) to c.group, music, settings, minLeadBeats = 0, minTailBeats = 1, allowSlow = c.slow != null)
 
     /** Temps de contexte avant le premier kill et après le dernier. */
     const val LEAD_BEATS = 2
