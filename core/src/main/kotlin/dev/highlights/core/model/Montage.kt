@@ -507,6 +507,18 @@ data class CutSettings(
     val jumpCuts: Boolean = true,
     val jumpMinBeats: Int = 8,
     val jumpBack: SerialDuration = 4.seconds,
+    /**
+     * Longueur de capture que l'utilisateur préfère avant ([preferredLead]) et après ([preferredTail]) le kill, apprise
+     * de ses coupes (« Couper ici », `ClipLengthLearner`) : le temps du kill dans son plan en est rapproché. Jamais lue
+     * dans le profil : posée par le pipeline.
+     */
+    @kotlinx.serialization.Transient val preferredLead: kotlin.time.Duration? = null,
+    @kotlinx.serialization.Transient val preferredTail: kotlin.time.Duration? = null,
+    /**
+     * Poids de la force du temps dans le choix du temps du kill, appris des kills que l'utilisateur pose lui-même sur la
+     * musique (`PinLearner` : il les met sur les accents). 0 : la règle d'origine. Posé par le pipeline.
+     */
+    @kotlinx.serialization.Transient val accentBonus: Double = 0.0,
 ) {
     init {
         require(jumpMinBeats >= 4) { "montage.cuts.jumpMinBeats doit valoir au moins 4" }

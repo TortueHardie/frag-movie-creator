@@ -92,11 +92,45 @@ data class MontageConstraints(
     val pins: Map<KillRef, MontagePin> = emptyMap(),
     val anchors: Map<KillRef, Duration> = emptyMap(),
     val beatShifts: Map<KillRef, Duration> = emptyMap(),
+    /** « Couper ici » : début et fin du plan d'un kill dans sa capture ([ClipCut]). */
+    val cuts: Map<KillRef, ClipCut> = emptyMap(),
+    /** Sections de capture marquées à la main : sans kill, ou à garder entières ([CaptureRange]). */
+    val ranges: List<CaptureRange> = emptyList(),
+    /**
+     * « Montage sur la musique », kills posés ([KillLayout]) : TOUS les kills du montage, chacun (désigné par le dernier
+     * kill de son groupe) à son instant du morceau ; les plans se construisent ensuite autour. Null : placement
+     * automatique.
+     */
+    val layout: Map<KillRef, Duration>? = null,
+    /**
+     * « Montage sur la musique », étape 1 : les repères d'intention posés sur le morceau (kill, multi-kill, coupe,
+     * ralenti, transition, vitrine) et les kills mis à la main sur un repère à l'étape 2 ; l'étape 2 choisit les autres
+     * kills et construit les plans ([IntentLayout]). Null : placement automatique.
+     */
+    val intents: MusicIntents? = null,
 ) {
-    val isEmpty: Boolean get() = excluded.isEmpty() && forced.isEmpty() && pins.isEmpty() && anchors.isEmpty() && beatShifts.isEmpty()
+    val isEmpty: Boolean get() = excluded.isEmpty() && forced.isEmpty() && pins.isEmpty() && anchors.isEmpty() && beatShifts.isEmpty() && cuts.isEmpty() && ranges.isEmpty() && layout == null && intents == null
 
     /** Nombre de corrections posées (ce que la ligne du dialogue de montage annonce). */
-    val count: Int get() = excluded.size + forced.size + pins.size + anchors.size + beatShifts.size
+    val count: Int get() = excluded.size + forced.size + pins.size + anchors.size + beatShifts.size + cuts.size + ranges.size + (layout?.size ?: 0) +
+        (intents?.let { i -> i.marks.count { it.byHand } + i.fixed.size + (if (i.showcase?.byHand == true) 1 else 0) } ?: 0)
+
+    /** Début ([start]) ou fin ([end]) du plan du kill [ref] posés à la main ; les bornes déjà posées restent. */
+    fun cut(ref: KillRef, start: Duration? = null, end: Duration? = null): MontageConstraints {
+        val next = (cuts[ref] ?: ClipCut()).with(ClipCut(start, end))
+        return copy(cuts = cuts - ref + (ref to next))
+    }
+
+    /** Retire le début ([start]) ou la fin du plan du kill [ref] posés à la main. */
+    fun clearCut(ref: KillRef, start: Boolean): MontageConstraints {
+        val c = cuts[ref] ?: return this
+        val next = if (start) c.copy(start = null) else c.copy(end = null)
+        return copy(cuts = if (next.isEmpty) cuts - ref else cuts - ref + (ref to next))
+    }
+
+    fun addRange(range: CaptureRange) = copy(ranges = ranges.filterNot { it == range } + range)
+
+    fun removeRange(index: Int) = if (index in ranges.indices) copy(ranges = ranges.filterIndexed { i, _ -> i != index }) else this
 
     /** Le kill n'a plus ni exclusion, ni forçage, ni épingle (avant de lui en donner une autre : elles s'excluent). Son calage reste. */
     fun clear(ref: KillRef) = copy(excluded = excluded - ref, forced = forced - ref, pins = pins - ref)
@@ -136,7 +170,7 @@ object MontageEdits {
      */
     fun apply(groups: List<KillGroup>, constraints: MontageConstraints, style: KillStyle): List<KillGroup> {
         if (constraints.isEmpty) return groups
-        val all = constraints.excluded + constraints.forced + constraints.pins.keys + constraints.anchors.keys + constraints.beatShifts.keys
+        val all = constraints.excluded + constraints.forced + constraints.pins.keys + constraints.anchors.keys + constraints.beatShifts.keys + constraints.cuts.keys + constraints.layout?.keys.orEmpty()
         // Chaque désignation vise un seul kill, le plus proche : deux kills recalés à 0,1 s ne sont pas écartés ensemble.
         val target = all.associateWith { designated(it, groups) }
         target.entries.firstOrNull { it.value == null }?.let {
@@ -154,8 +188,19 @@ object MontageEdits {
         constraints.beatShifts.entries.firstOrNull { it.value.absoluteValue > MAX_BEAT_SHIFT }?.let {
             throw InputException(Message("error.montage.edit.beatShiftFar", "kill" to it.key.toString(), "ms" to it.value.inWholeMilliseconds))
         }
+        // Une coupe doit laisser le kill dans son plan : début avant lui, fin après.
+        constraints.cuts.entries.firstOrNull { (ref, c) ->
+            target[ref]?.let { (_, k) -> (c.start != null && c.start >= k) || (c.end != null && c.end <= k) || (c.start != null && c.end != null && c.end <= c.start) } == true
+        }?.let { throw InputException(Message("error.montage.edit.cutAroundKill", "kill" to it.key.toString())) }
+        fun rangesOf(g: KillGroup, kind: RangeKind) = constraints.ranges.filter { it.kind == kind && it.matches(g.media) }.map { it.range }
+        val layout = constraints.layout
         return groups.mapNotNull { g ->
-            val kept = g.kills.indices.filter { i -> !hit(constraints.excluded, g, g.kills[i]) }
+            // Kills posés sur la musique : seuls les groupes posés restent, chacun épinglé à son instant.
+            val laid = layout?.entries?.firstOrNull { (ref, _) -> g.kills.any { hit(listOf(ref), g, it) } }?.value
+            if (layout != null && laid == null) return@mapNotNull null
+            val skips = rangesOf(g, RangeKind.SKIP)
+            // Un kill détecté dans une section sans kill est écarté, comme un kill exclu.
+            val kept = g.kills.indices.filter { i -> !hit(constraints.excluded, g, g.kills[i]) && skips.none { g.kills[i] in it } }
             if (kept.isEmpty()) return@mapNotNull null
             val trimmed = when {
                 kept.size == g.kills.size -> g
@@ -167,7 +212,12 @@ object MontageEdits {
             if (pins.size > 1) throw InputException(Message("error.montage.edit.conflict", "kill" to label(trimmed)))
             val shifts = constraints.beatShifts.filterKeys(::designates).values.distinct()
             if (shifts.size > 1) throw InputException(Message("error.montage.edit.conflict", "kill" to label(trimmed)))
-            val marked = trimmed.copy(forced = constraints.forced.any(::designates), pin = pins.firstOrNull(), beatShift = shifts.firstOrNull() ?: trimmed.beatShift)
+            val clipCuts = constraints.cuts.filterKeys(::designates).values.distinct()
+            if (clipCuts.size > 1) throw InputException(Message("error.montage.edit.conflict", "kill" to label(trimmed)))
+            val marked = trimmed.copy(
+                forced = constraints.forced.any(::designates) || laid != null, pin = laid?.let { MontagePin.At(it) } ?: pins.firstOrNull(), beatShift = shifts.firstOrNull() ?: trimmed.beatShift,
+                cut = clipCuts.firstOrNull(), skips = skips, keeps = rangesOf(g, RangeKind.KEEP),
+            )
             anchored(marked, g, constraints, ::hit)
         }
     }
@@ -202,6 +252,9 @@ object MontageEdits {
 
     /** Écart au kill détecté au-delà duquel un calage est refusé : la frise propose ±0,5 s, la désignation tolère 1 s. */
     val MAX_ANCHOR = 1.seconds
+
+    /** Écart permis entre l'instant d'une épingle et celui où le kill tombe (arrondis des instants). */
+    val PIN_TOLERANCE = 2.milliseconds
 
     /** Décalage du temps au-delà duquel c'est un autre temps qu'on vise (un temps fait 0,4 s à 150 BPM) : l'épingler plutôt. */
     val MAX_BEAT_SHIFT = 250.milliseconds
@@ -239,10 +292,17 @@ object MontageEdits {
                     if (clip == null || clip.anchorBeat != beat || clip.anchorHalf) {
                         throw HighlightsException(Message("error.montage.edit.pinMissed", "kill" to label(g), "time" to KillRef.clock(pin.music)))
                     }
+                    // Le kill tombe à l'instant posé, pas seulement sur son temps : un plan qui le commence trop tard
+                    // (le kill ne peut pas passer avant sa coupe) ne le tient pas.
+                    if ((music.beatTime(beat) + clip.beatShift - pin.music).absoluteValue > PIN_TOLERANCE) {
+                        throw HighlightsException(Message("error.montage.edit.pinMissed", "kill" to label(g), "time" to KillRef.precise(pin.music)))
+                    }
                 }
                 null -> if (clip == null) throw HighlightsException(Message("error.montage.edit.notPlaced", "kill" to label(g)))
             }
         }
+        // Repères (coupes, sections) que le plan retenu n'a pas pu tenir : la raison exacte, plutôt qu'une coupe silencieuse.
+        plan.clips.firstNotNullOfOrNull { it.markerMiss }?.let { throw InputException(it) }
         // Décalage du temps posé à la main : un plan d'un temps (le kill l'ouvre) ne laisse pas le kill passer avant sa coupe.
         for (clip in plan.clips) {
             val wanted = clip.group.beatShift ?: continue

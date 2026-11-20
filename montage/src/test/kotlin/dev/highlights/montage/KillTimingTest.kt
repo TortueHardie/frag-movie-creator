@@ -121,10 +121,11 @@ class KillTimingTest : FunSpec({
         TimingCorrection("t", profile, "partie.mp4", 1000L * i, source, shiftMs = shift)
 
     test("décalage d'une source : rien sous le minimum de calages, appliqué dès qu'ils concordent") {
-        val four = (1..4).map { correction(it, 60) }
-        KillTimingLearner.learn(four).sources.single().active shouldBe false
-        val five = (1..5).map { correction(it, if (it % 2 == 0) 50 else 67) }
-        val learned = KillTimingLearner.learn(five)
+        val n = KillTimingLearner.MIN_SOURCE
+        n shouldBe 8
+        KillTimingLearner.learn((1 until n).map { correction(it, 60) }).sources.single().active shouldBe false
+        val enough = (1..n + 1).map { correction(it, if (it % 2 == 0) 50 else 67) }
+        val learned = KillTimingLearner.learn(enough)
         learned.sources.single().active shouldBe true
         learned.sourceOffset("valorant", "game-events/event") shouldBe 67.milliseconds
         // Une autre source, un autre profil : rien.
@@ -135,19 +136,20 @@ class KillTimingTest : FunSpec({
     test("décalage d'une source : des calages qui se contredisent, minuscules ou énormes ne donnent pas n'importe quoi") {
         KillTimingLearner.learn(listOf(-120L, 0, 130, -90, 110, 20).mapIndexed { i, v -> correction(i, v) }).sources.single().active shouldBe false
         KillTimingLearner.learn((1..6).map { correction(it, 5) }).sources.single().active shouldBe false
-        val big = KillTimingLearner.learn((1..6).map { correction(it, 450) }).sources.single()
+        val big = KillTimingLearner.learn((1..KillTimingLearner.MIN_SOURCE).map { correction(it, 450) }).sources.single()
         big.offset shouldBe KillTimingLearner.MAX_SOURCE_OFFSET
     }
 
-    test("décalage d'un morceau : deux calages concordants suffisent, pas un seul") {
+    test("décalage d'un morceau : trois calages concordants suffisent, pas deux") {
         fun c(i: Int, ms: Long) = TimingCorrection("t", "valorant", "partie.mp4", 1000L * i, music = "rome.mp3|123", beat = i, beatShiftMs = ms)
-        KillTimingLearner.learn(listOf(c(1, 33))).songOffset("rome.mp3|123") shouldBe null
-        KillTimingLearner.learn(listOf(c(1, 33), c(2, 33))).songOffset("rome.mp3|123") shouldBe 33.milliseconds
-        KillTimingLearner.learn(listOf(c(1, 33), c(2, -60))).songOffset("rome.mp3|123") shouldBe null
+        KillTimingLearner.MIN_SONG shouldBe 3
+        KillTimingLearner.learn(listOf(c(1, 33), c(2, 33))).songOffset("rome.mp3|123") shouldBe null
+        KillTimingLearner.learn(listOf(c(1, 33), c(2, 33), c(3, 33))).songOffset("rome.mp3|123") shouldBe 33.milliseconds
+        KillTimingLearner.learn(listOf(c(1, 33), c(2, -60), c(3, 90))).songOffset("rome.mp3|123") shouldBe null
     }
 
     test("un décalage appris déplace les kills de sa source, jamais un kill calé à la main") {
-        val learned = KillTimingLearner.learn((1..5).map { correction(it, 50, profile = "wardogs") })
+        val learned = KillTimingLearner.learn((1..KillTimingLearner.MIN_SOURCE).map { correction(it, 50, profile = "wardogs") })
         val hand = MontageEdits.apply(groups(), MontageConstraints(anchors = mapOf(ref(300) to 300.01.seconds)), settings.killStyle)
         val moved = KillTimingLearner.applyTo(hand, learned, "wardogs")
         moved.flatMap { it.kills } shouldBe kills.map { if (it == 300) 300.01.seconds else it.seconds + 50.milliseconds }

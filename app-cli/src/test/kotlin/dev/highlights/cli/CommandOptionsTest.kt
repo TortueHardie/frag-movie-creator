@@ -15,6 +15,9 @@ import dev.highlights.core.model.GameAudio
 import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.montage.KillRef
+import dev.highlights.montage.ExtraMarks
+import dev.highlights.montage.IntentRange
+import dev.highlights.montage.IntentKind
 import dev.highlights.montage.MontagePin
 import dev.highlights.montage.ThumbnailStyle
 import dev.highlights.pipeline.MomentPick
@@ -148,6 +151,22 @@ class CommandOptionsTest : FunSpec({
         parse(MontageCommand(), "montage", session.toString(), "-m", music.toString()) { it.montageOptions().constraints.isEmpty } shouldBe true
         usageError(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--exclude", "partie.mp4").message shouldContain "kill invalide"
         usageError(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--pin", "partie.mp4@1:00=bientot").message shouldContain "instant du morceau invalide"
+    }
+
+    test("montage sur la musique : repères (--mark, --showcase-at, --extra-marks) et kills mis sur un repère (--put)") {
+        val c = parse(
+            MontageCommand(), "montage", session.toString(), "-m", music.toString(),
+            "--mark", "kill@0:36.000", "--mark", "kill@0:30.500", "--mark", "cut@0:33", "--mark", "slow@0:30.500", "--mark", "transition@0:33.2",
+            "--mark", "multi@0:40", "--showcase-at", "0:22.900..0:24.810", "--extra-marks", "empty", "--put", "2=partie.mp4@7:00.000",
+        ) { it.constraints() }
+        val i = c.intents!!
+        i.marks.map { it.kind } shouldBe listOf(IntentKind.KILL, IntentKind.SLOW, IntentKind.CUT, IntentKind.TRANSITION, IntentKind.KILL, IntentKind.MULTI)
+        i.killMarks.map { it.at } shouldBe listOf(30.5.seconds, 36.seconds, 40.seconds)
+        i.showcase shouldBe IntentRange(22.9.seconds, 24.81.seconds, byHand = true)
+        i.extras shouldBe ExtraMarks.EMPTY
+        i.fixed shouldBe mapOf(i.killMarks[1].id to KillRef("partie.mp4", 420.seconds))
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString()) { it.constraints().intents } shouldBe null
+        usageError(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--mark", "explosion@0:30").message shouldContain "sorte de repère inconnue"
     }
 
     test("montage : musique obligatoire, équilibre et durée vérifiés avant tout rendu") {

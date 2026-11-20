@@ -169,8 +169,89 @@ interface UiActions {
     fun clearKillTiming() {}
     fun excludeTimedKill() {}
     fun closeKillTiming() {}
+    /**
+     * « Kill ici » à l'écoute ([KillTimingUi.cursor]) : déplacer le curseur de [millis] ms, le placer à [seconds] de la
+     * capture, saisir l'instant, écouter image et son (depuis 1 s avant si [fromBefore] ; rejouer arrête), poser le
+     * curseur sur l'image montrée. Le lecteur du panneau : [killTimingPlayer].
+     */
+    fun stepKillMs(millis: Int) {}
+    fun seekKillTiming(seconds: Double) {}
+    fun setKillTimingText(text: String) {}
+    fun playKillTiming(fromBefore: Boolean) {}
+    fun markKillHere() {}
+    /**
+     * Repères du panneau de calage, au curseur : début ([start]) ou fin du plan du kill, début d'une section, fin d'une
+     * section sans kill ou à garder entière ([keep]). Sur la frise : retirer une borne de plan ([kill] : sa désignation)
+     * ou une section ([index] dans la liste). Chacun replanifie.
+     */
+    fun markKillCut(start: Boolean) {}
+    fun markSectionStart() {}
+    fun markSectionEnd(keep: Boolean) {}
+    fun clearKillCut(kill: String, start: Boolean) {}
+    fun removeMontageRange(index: Int) {}
+    /** Oublie les longueurs de plan apprises des coupes (`kill-cuts.json` mis de côté). */
+    fun resetLengths() {}
+    /**
+     * « Kill sur ce moment de la musique » : l'outil d'écoute du morceau ([MusicDropUi.target]) pour le kill [kill] ;
+     * « Poser le kill ici » ([confirmMusicDrop]) l'épingle à l'instant du curseur, exactement.
+     */
+    fun openKillOnMusic(kill: String) {}
+    /** Oublie ce qui a été appris des kills posés sur la musique (`kill-pins.json` mis de côté). */
+    fun resetPins() {}
+    /**
+     * « Montage sur la musique » ([MusicEditorUi]) : ouvrir (aussi tout seul après le choix d'une musique), fermer, vue
+     * (zoom de [factor] autour de [center] s, défiler de [seconds], centrer), lecture (bascule, tête de lecture, écouter
+     * autour), aimant, choisir un kill ([kill] : désignation de son groupe, null : aucun), glisser ([kind] : KILL, NEW ou
+     * DROP ; [free] : Alt, sans aimant ; [over] : au-dessus de la musique) puis lâcher, retirer, tout remettre en auto,
+     * aperçu 360p du montage tel quel.
+     */
+    fun openMusicEditor() {}
+    fun closeMusicEditor() {}
+    fun zoomEditor(factor: Double, center: Double) {}
+    fun scrollEditor(seconds: Double) {}
+    fun centerEditor(seconds: Double) {}
+    fun toggleEditorPlayback() {}
+    fun seekEditor(seconds: Double) {}
+    fun listenEditorAround(seconds: Double) {}
+    fun toggleEditorMagnet() {}
+    fun selectEditorKill(kill: String?) {}
+    fun dragEditor(kind: String, key: String?, seconds: Double, free: Boolean, over: Boolean) {}
+    fun dropEditor() {}
+    fun removeEditorKill(kill: String) {}
+    fun resetEditorAuto() {}
+    fun previewEditedMontage() {}
+    /** Oublie ce qui a été appris des placements de l'étape 1 (`kill-layout.json` mis de côté). */
+    fun resetLayoutTaste() {}
+    /** Étape 1 → 2 : les plans se construisent autour des kills posés ; étape 2 → 1 : revenir aux kills. */
+    fun placeEditorClips() {}
+    /** Étape 1 : l'outil d'un double-clic ([EditorTool]), poser un repère, repères « kill » en trop ([dev.highlights.montage.ExtraMarks]). */
+    fun setEditorTool(tool: String) {}
+    fun addEditorMark(seconds: Double, free: Boolean) {}
+    fun setEditorExtras(mode: String) {}
+    fun backEditorToKills() {}
+    val killTimingPlayer: dev.highlights.ui.player.VideoPlayer? get() = null
     /** Oublie les calages appris (`kill-timing.json` mis de côté, comme les goûts). */
     fun resetTiming() {}
+    /**
+     * Outil de la drop du morceau du plan ([MusicDropUi]) : ouvrir (clic sur « DROP »), placer le curseur à [seconds]
+     * du morceau, le déplacer de [millis] ms ou de [beats] temps, saisir l'instant, écouter (depuis 2 s avant si
+     * [fromBefore] ; rejouer arrête), poser le curseur à l'instant entendu, « La drop est ici » (retenue pour ce morceau
+     * et plan recalculé), revenir à la détection, fermer.
+     */
+    fun openMusicDrop() {}
+    fun seekMusicDrop(seconds: Double) {}
+    fun stepMusicDrop(millis: Int) {}
+    fun stepMusicDropBeat(beats: Int) {}
+    fun setMusicDropText(text: String) {}
+    fun playMusicDrop(fromBefore: Boolean) {}
+    fun markMusicDropHere() {}
+    fun confirmMusicDrop() {}
+    fun clearMusicDrop() {}
+    fun closeMusicDrop() {}
+    /** Oublie la drop posée d'un morceau ([key] : sa clé, vue des goûts). */
+    fun forgetMusicDrop(key: String) {}
+    /** Oublie ce qui a été appris des drops posées (`drop-learning.json` mis de côté ; les drops posées restent). */
+    fun resetDropLearning() {}
 
     /** Fenêtre de publication d'une vidéo exportée sur YouTube, champs proposés d'après la vidéo. */
     fun openPublish(video: Path)
@@ -962,6 +1043,8 @@ class AppController(
     override fun chooseMusic() {
         platform.chooseAudio(state.value.montage?.music?.parent ?: state.value.lastMusic?.parent)?.let { music ->
             _state.update { it.copy(montage = it.montage?.copy(music = music, musicFromStart = musicPrefs.fromStart(music)), lastMusic = music) }
+            // « Montage sur la musique » s'ouvre aussitôt, plan calculé (choix de l'utilisateur, 20/11) ; rouvrable du dialogue.
+            if (state.value.montage?.useLibrary == false) openMusicEditor()
         }
     }
 
@@ -1111,8 +1194,19 @@ class AppController(
         _state.update { s -> s.copy(montage = s.montage?.copy(plan = null)) }
     }
 
-    override fun editMontageKill(kills: List<String>, edit: KillEdit) =
+    /**
+     * Toute correction replanifie aussitôt, comme l'épingle : l'utilisateur voit l'effet de son clic sans passer par
+     * « Replanifier » (demandé le 20/11 ; le bouton reste pour relancer après une erreur).
+     */
+    override fun editMontageKill(kills: List<String>, edit: KillEdit) {
         updateMontage { it.copy(constraints = it.constraints.edit(kills.map(dev.highlights.montage.KillRef::parse), edit)) }
+        replanIfOpen()
+    }
+
+    /** Replanifie si la frise est ouverte (une correction posée ailleurs n'a pas de plan à rafraîchir). */
+    private fun replanIfOpen() {
+        if (state.value.montage?.plan != null) replanMontage()
+    }
 
     override fun pinMontageKill(kills: List<String>, musicSeconds: Double) {
         val at = (musicSeconds * 1_000_000).roundToLong().microseconds
@@ -1120,9 +1214,40 @@ class AppController(
         replanMontage()
     }
 
-    override fun resetMontagePlan() = updateMontage { it.copy(constraints = dev.highlights.montage.MontageConstraints.NONE) }
+    override fun resetMontagePlan() {
+        updateMontage { it.copy(constraints = dev.highlights.montage.MontageConstraints.NONE) }
+        replanIfOpen()
+    }
 
-    private val killTiming = KillTimingController(scope, _state, { backend?.pipeline }, ::updateMontage, ::replanMontage)
+    private val killTiming = KillTimingController(
+        scope, _state, { backend?.pipeline }, ::updateMontage, ::replanMontage,
+        players = { backend?.ffmpeg?.let { dev.highlights.ui.player.VideoPlayer(it, scope) } },
+    )
+    override fun stepKillMs(millis: Int) = killTiming.stepMs(millis)
+    override fun seekKillTiming(seconds: Double) = killTiming.seek(seconds)
+    override fun setKillTimingText(text: String) = killTiming.text(text)
+    override fun playKillTiming(fromBefore: Boolean) = killTiming.play(fromBefore)
+    override fun markKillHere() = killTiming.markHere()
+    override fun markKillCut(start: Boolean) = killTiming.markCut(start)
+    override fun markSectionStart() = killTiming.markSectionStart()
+    override fun markSectionEnd(keep: Boolean) = killTiming.markSectionEnd(keep)
+    override fun clearKillCut(kill: String, start: Boolean) {
+        val ref = runCatching { dev.highlights.montage.KillRef.parse(kill) }.getOrNull() ?: return
+        updateMontage { it.copy(constraints = it.constraints.clearCut(ref, start)) }
+        replanIfOpen()
+    }
+    override fun removeMontageRange(index: Int) {
+        updateMontage { it.copy(constraints = it.constraints.removeRange(index)) }
+        replanIfOpen()
+    }
+    override fun resetLengths() {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            val aside = withContext(Dispatchers.IO) { p.cutHistory.reset() }
+            loadTaste(resetDone = aside?.fileName?.toString())
+        }
+    }
+    override val killTimingPlayer get() = killTiming.player
     override fun openKillTiming(kill: String) = killTiming.open(kill)
     override fun stepKillFrame(delta: Int) = killTiming.step(delta)
     override fun pickKillFrame(index: Int) = killTiming.pick(index)
@@ -1131,6 +1256,107 @@ class AppController(
     override fun clearKillTiming() = killTiming.clear()
     override fun excludeTimedKill() = killTiming.exclude()
     override fun closeKillTiming() = killTiming.close()
+
+    private val musicDrop = MusicDropController(scope, _state, { backend?.pipeline }, ::replanMontage, updateMontage = ::updateMontage)
+    private val musicEditor = MusicEditorController(scope, _state, { backend?.pipeline }, ::updateMontage, ::replanMontage, recordLayout = ::recordLayout)
+
+    /** Dernier plan calculé (celui de la proposition quand on valide l'étape 1). */
+    @Volatile private var lastPlanned: dev.highlights.pipeline.PlannedMontage? = null
+
+    private fun recordLayout(auto: dev.highlights.montage.MusicIntents, final: dev.highlights.montage.MusicIntents) {
+        val planned = lastPlanned ?: return
+        val p = backend?.pipeline ?: return
+        scope.launch(Dispatchers.IO) { runCatching { p.recordIntents(planned, auto, final) } }
+    }
+    override fun resetLayoutTaste() {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            val aside = withContext(Dispatchers.IO) { p.layoutHistory.reset() }
+            loadTaste(resetDone = aside?.fileName?.toString())
+        }
+    }
+    override fun openMusicEditor() = musicEditor.open()
+    override fun closeMusicEditor() {
+        planJob?.cancel()
+        musicEditor.close()
+    }
+    override fun zoomEditor(factor: Double, center: Double) = musicEditor.zoom(factor, center)
+    override fun scrollEditor(seconds: Double) = musicEditor.scroll(seconds)
+    override fun centerEditor(seconds: Double) = musicEditor.center(seconds)
+    override fun toggleEditorPlayback() = musicEditor.toggle()
+    override fun seekEditor(seconds: Double) = musicEditor.seek(seconds)
+    override fun listenEditorAround(seconds: Double) = musicEditor.listenAround((seconds * 1000).toLong().milliseconds)
+    override fun toggleEditorMagnet() = musicEditor.toggleMagnet()
+    override fun selectEditorKill(kill: String?) = musicEditor.select(kill)
+    override fun dragEditor(kind: String, key: String?, seconds: Double, free: Boolean, over: Boolean) {
+        val k = runCatching { EditorDragKind.valueOf(kind) }.getOrNull() ?: return
+        musicEditor.drag(k, key, seconds, free, over)
+    }
+    override fun dropEditor() = musicEditor.drop()
+    override fun removeEditorKill(kill: String) = musicEditor.remove(kill)
+    override fun resetEditorAuto() = musicEditor.resetAuto()
+    override fun placeEditorClips() = musicEditor.placeClips()
+    override fun setEditorTool(tool: String) {
+        runCatching { EditorTool.valueOf(tool) }.getOrNull()?.let(musicEditor::setTool)
+    }
+    override fun addEditorMark(seconds: Double, free: Boolean) = musicEditor.addMark(seconds, free)
+    override fun setEditorExtras(mode: String) {
+        runCatching { dev.highlights.montage.ExtraMarks.valueOf(mode) }.getOrNull()?.let(musicEditor::setExtras)
+    }
+    override fun backEditorToKills() = musicEditor.backToKills()
+
+    /** Aperçu 360p du montage tel que l'éditeur le montre (une variante, la mieux notée), lu dans le lecteur intégré. */
+    override fun previewEditedMontage() {
+        val s = state.value
+        val montage = s.montage ?: return
+        val music = montage.musicSource ?: return
+        val session = s.session ?: return
+        val p = backend?.pipeline ?: return
+        val options = montageOptions(montage, s)
+        val title = tr("ui.job.previews", "track" to music.name)
+        withMemory(title, MEMORY_MONTAGE) {
+            enqueue(title) { progress ->
+                val previews = p.montagePreviews(session.sessions, music, options, 1, progress) { _, _ -> }
+                previews.previews.firstOrNull()?.video?.also { video -> scope.launch { playVideo(video) } }
+            }
+        }
+    }
+
+    override fun openKillOnMusic(kill: String) {
+        killTiming.close()
+        musicDrop.openForKill(kill)
+    }
+    override fun resetPins() {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            val aside = withContext(Dispatchers.IO) { p.pinHistory.reset() }
+            loadTaste(resetDone = aside?.fileName?.toString())
+        }
+    }
+    override fun openMusicDrop() = musicDrop.open()
+    override fun seekMusicDrop(seconds: Double) = musicDrop.seek(seconds)
+    override fun stepMusicDrop(millis: Int) { musicDrop.step(millis) }
+    override fun stepMusicDropBeat(beats: Int) = musicDrop.stepBeat(beats)
+    override fun setMusicDropText(text: String) = musicDrop.text(text)
+    override fun playMusicDrop(fromBefore: Boolean) = musicDrop.play(fromBefore)
+    override fun markMusicDropHere() = musicDrop.markHere()
+    override fun confirmMusicDrop() = musicDrop.confirm()
+    override fun clearMusicDrop() = musicDrop.clear()
+    override fun closeMusicDrop() = musicDrop.close()
+    override fun resetDropLearning() {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            val aside = withContext(Dispatchers.IO) { p.dropExamples.reset() }
+            loadTaste(resetDone = aside?.fileName?.toString())
+        }
+    }
+    override fun forgetMusicDrop(key: String) {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            withContext(Dispatchers.IO) { p.forgetMusicDrop(key) }
+            loadTaste()
+        }
+    }
 
     override fun replanMontage() {
         val s = state.value
@@ -1145,8 +1371,12 @@ class AppController(
             try {
                 val tracker = ProgressTracker { snap -> updatePlan { it.copy(fraction = snap.fraction) } }
                 // Pas de rendu : la musique, l'inspection des kills (en cache après le premier plan) et la planification.
-                val view = withContext(Dispatchers.Default) { PlanView.of(p.planKillMontage(session.sessions, music, montageOptions(montage, s), tracker.root)) }
+                val planned = withContext(Dispatchers.Default) { p.planKillMontage(session.sessions, music, montageOptions(montage, s), tracker.root) }
+                // Gardé tant que l'étape 1 n'est pas validée : c'est la proposition qu'on enregistre avec le placement.
+                if (state.value.montage?.constraints?.let { it.layout == null && it.intents == null } == true) lastPlanned = planned
+                val view = PlanView.of(planned)
                 updatePlan { it.copy(loading = false, view = view, planned = constraints, error = null) }
+                musicEditor.planned(view)
                 val known = state.value.montage?.plan?.thumbnails.orEmpty()
                 for (g in (view.clips.mapNotNull { it.group } + view.left.take(PLAN_THUMBNAILS)).filter { it.key !in known }) {
                     val image = runCatching { withContext(Dispatchers.IO) { p.thumbnail(g.media, g.kills.last()) } }.getOrNull() ?: continue

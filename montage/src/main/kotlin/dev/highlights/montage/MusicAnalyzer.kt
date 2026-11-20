@@ -151,6 +151,18 @@ data class MusicAnalysis(
      * concordantes sur ce morceau), appliqué aux kills sans décalage posé à la main. Jamais enregistré avec l'analyse.
      */
     val killShift: Duration = Duration.ZERO,
+    /**
+     * Drop posée à la main ([MusicDrops.apply], instant dans le morceau) : elle l'emporte sur toute drop détectée, même
+     * « depuis le début » ([MusicAnalyzer.fromStart]). Null : drop détectée. Jamais enregistré avec l'analyse.
+     */
+    val dropByHand: Duration? = null,
+    /** Drop corrigée par ce qui a été appris des drops posées ([LearnedDrop.dropFor]) ; null : pas corrigée. Jamais enregistré. */
+    val dropLearned: Duration? = null,
+    /**
+     * Temps de coupe ajoutés à la grille pour des plans courts ([KillLayout.withCuts]) : ni vrais temps du morceau ni
+     * frappes ; ce qu'on apprend des temps les ignore. Jamais enregistré.
+     */
+    val virtualBeats: Set<Int> = emptySet(),
 ) {
     /** Force musicale d'un temps : son attaque, ou sa saillance si elle le distingue davantage. */
     fun strength(beat: Int): Double = maxOf(beatAccent.getOrElse(beat) { 0.0 }, salience.getOrElse(beat) { 0.0 })
@@ -920,7 +932,7 @@ object MusicAnalyzer {
      */
     fun fromStart(analysis: MusicAnalysis, length: Duration): MusicAnalysis {
         val sections = analysis.sections
-        if (sections.size < 2) return analysis
+        if (sections.size < 2 || analysis.dropByHand != null) return analysis
         val start = analysis.beatTime(sections.first().startBeat)
         val reach = length * REACH
         if (analysis.beatTime(analysis.dropBeat) - start <= reach) return analysis

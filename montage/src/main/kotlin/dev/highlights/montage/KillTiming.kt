@@ -123,8 +123,11 @@ data class LearnedTiming(val sources: List<LearnedOffset> = emptyList(), val son
  * rien si elles se contredisent (écart trop grand), rien de minuscule, et un décalage borné.
  */
 object KillTimingLearner {
-    /** Corrections d'une même source avant d'en tirer un décalage : un calage isolé peut corriger un kill mal lu, pas la source. */
-    const val MIN_SOURCE = 5
+    /**
+     * Corrections d'une même source avant d'en tirer un décalage : un calage isolé peut corriger un kill mal lu, pas la
+     * source. 8 (5 au départ) : l'utilisateur a voulu plus de prudence (20/11).
+     */
+    const val MIN_SOURCE = 8
 
     /** Écart toléré entre les corrections d'une source (≈ 2 images à 60 img/s) : au-delà, elles ne disent pas un retard constant. */
     val MAX_SOURCE_SPREAD = 40.milliseconds
@@ -132,8 +135,8 @@ object KillTimingLearner {
     /** Décalage de source au plus : au-delà, c'est la détection qu'il faut corriger, pas compenser. */
     val MAX_SOURCE_OFFSET = 200.milliseconds
 
-    /** Plans calés sur un même morceau avant d'en décaler tous les plans. */
-    const val MIN_SONG = 2
+    /** Plans calés sur un même morceau avant d'en décaler tous les plans (3 ; 2 au départ, jugé trop rapide le 20/11). */
+    const val MIN_SONG = 3
 
     val MAX_SONG_SPREAD = 30.milliseconds
 

@@ -414,6 +414,8 @@ data class MontageUiState(
     val constraints: dev.highlights.montage.MontageConstraints = dev.highlights.montage.MontageConstraints.NONE,
     /** Frise du plan ouverte (voir [MontagePlanState]) ; null : fermée. */
     val plan: MontagePlanState? = null,
+    /** « Montage sur la musique » ouvert ([MusicEditorUi], partage [plan]) ; null : fermé. */
+    val editor: MusicEditorUi? = null,
 ) {
     val maxDuration: Duration? get() = I18n.parseDuration(maxDurationText)?.takeIf { it.isPositive() }
     /** Musique ou dossier de musiques passé au montage, selon le mode. */

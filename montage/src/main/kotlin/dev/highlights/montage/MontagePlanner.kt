@@ -63,8 +63,16 @@ data class KillGroup(
      * appris pour la musique ([MusicAnalysis.killShift]).
      */
     val beatShift: Duration? = null,
+    /** « Couper ici » : début et fin du plan posés à la main ([MontageConstraints.cuts], [ClipMarkers.fit]). */
+    val cut: ClipCut? = null,
+    /** Sections de la capture à ne jamais montrer ([RangeKind.SKIP]) et à garder entières ([RangeKind.KEEP]). */
+    val skips: List<TimeRange> = emptyList(),
+    val keeps: List<TimeRange> = emptyList(),
 ) {
     val rank: Double get() = kills.size + score / 10 + style + taste
+
+    /** Le plan a des repères posés à la main : ni coupe dans l'attente, ni passage vitrine pris autour. */
+    val marked: Boolean get() = (cut != null && !cut.isEmpty) || skips.isNotEmpty() || keeps.isNotEmpty()
 
     /** L'utilisateur tient à ce groupe : ni le plancher de qualité, ni le manque de place ne l'écartent. */
     val kept: Boolean get() = forced || pin != null
@@ -187,6 +195,13 @@ data class MontageClip(
     val fastPart: Boolean = false,
     /** Le kill d'ancrage tombe à ce décalage de son temps (calage à la main ou appris, voir [KillGroup.beatShift]). */
     val beatShift: Duration = Duration.ZERO,
+    /**
+     * Repère posé à la main que ce plan n'a pas pu tenir à cette place ([ClipMarkers.fit]) : le planificateur en cherche
+     * une autre, [MontageEdits.check] refuse le plan retenu qui le garde, avec ce message.
+     */
+    val markerMiss: dev.highlights.core.i18n.Message? = null,
+    /** La coupe qui ouvre ce plan se fait par une transition (repère « transition ici » de l'étape 1). */
+    val transitionIn: Boolean = false,
 ) {
     val beats: Int get() = slot.beats
 
@@ -242,6 +257,11 @@ data class MontagePlan(
     val variant: PlanVariant = PlanVariant.BASE,
     /** Durée visée d'après les kills (voir [MontagePlanner.targetDuration]) ; null : la durée maximale. */
     val target: Duration? = null,
+    /**
+     * Construit sur les repères de l'étape 1 ([IntentLayout]) : ralentis et transitions seulement où ils sont posés
+     * ([MontageClip.transitionIn]).
+     */
+    val byIntents: Boolean = false,
 ) {
     init {
         require(clips.isNotEmpty()) { "montage vide" }
@@ -473,6 +493,8 @@ object MontagePlanner {
             val length = music.beatPeriod * s.shotBeats * 1.1
             val end = c.start - s.beforeClip
             if (end - length < maxOf(calm.start + s.afterEvent, c.group.media.bounds.start)) continue
+            // Ni dans une section sans kill, ni avant un plan dont les bornes ont été posées à la main.
+            if (c.group.marked) continue
             shots += c.copy(end = end, speeds = emptyList(), padBefore = Duration.ZERO, padAfter = Duration.ZERO, matchCut = false, leadIn = Duration.ZERO, anchorHalf = false, showcase = true, fastPart = false)
         }
         if (shots.isEmpty()) {
@@ -549,7 +571,7 @@ object MontagePlanner {
     }
 
     private fun jumpable(c: MontageClip, cuts: CutSettings): Boolean =
-        c.beats >= cuts.jumpMinBeats && c.slot.dropBeat == null && !c.matchCut && !c.leadIn.isPositive()
+        c.beats >= cuts.jumpMinBeats && c.slot.dropBeat == null && !c.matchCut && !c.leadIn.isPositive() && !c.group.marked
 
     fun split(groups: List<KillGroup>, settings: MontageSettings): List<KillGroup> {
         if (!settings.splitGap.isPositive()) return groups
@@ -809,7 +831,7 @@ object MontagePlanner {
         var target = targetDuration(groups, settings)
         var result = layout(groups, music, settings, variant, target)
         // Corrections de l'utilisateur : un montage raccourci qui n'a plus la place d'un groupe forcé s'allonge aussi.
-        val edited = groups.any { it.kept }
+        val edited = groups.any { it.kept || it.marked }
         fun respected(plan: MontagePlan) = !edited || runCatching { MontageEdits.check(plan, groups) }.isSuccess
         if (target < settings.maxDuration) {
             val full = Shown.of(layout(groups, music, settings, variant, settings.maxDuration).first)
@@ -1024,9 +1046,13 @@ object MontagePlanner {
         val slowTail = if (settings.slowMotion.enabled && (onDrop || settings.effectDensity == EffectDensity.HEAVY)) settings.slowMotion.after / settings.slowMotion.factor else Duration.ZERO
         val reaction = g.protectedSegments.filter { it.end > g.kills.last() }.maxOfOrNull { it.end - g.kills.last() } ?: Duration.ZERO
         // Un kill seul tient dans un temps : le contexte d'avant est pris sur le plan précédent.
-        if (singleBeat(settings, period) && g.span == Duration.ZERO && slowTail == Duration.ZERO && reaction + cuts.minTail <= period) return 1
+        if (singleBeat(settings, period) && g.span == Duration.ZERO && slowTail == Duration.ZERO && reaction + cuts.minTail <= period && g.cut == null) return 1
         val post = maxOf(minTailBeats, beatsCeil(maxOf(reaction + cuts.minTail, slowTail + cuts.minTail), period))
-        return beatsCeil(g.span + cuts.minLead, period).coerceAtLeast(minLeadBeats) + post
+        // Coupe posée à la main : de quoi montrer la source choisie, accélérée ×2 au plus ([ClipMarkers.MAX_FACTOR]).
+        val anchor = g.kills.last()
+        val cutPre = g.cut?.start?.let { beatsCeil((anchor - it) / ClipMarkers.MAX_FACTOR, period) } ?: 0
+        val cutPost = g.cut?.end?.let { beatsCeil((it - anchor) / ClipMarkers.MAX_FACTOR, period) } ?: 0
+        return maxOf(beatsCeil(g.span + cuts.minLead, period).coerceAtLeast(minLeadBeats), cutPre) + maxOf(post, cutPost)
     }
 
     /** Les parties dans l'ordre où elles ont été jouées, pas dans celui des noms de fichiers. */
@@ -1210,14 +1236,14 @@ object MontagePlanner {
                 }
                 // Pas de traitement particulier pour le dernier plan : l'importance croît avec la position dans la
                 // section, si bien que les meilleurs groupes restants finissent déjà le montage.
-                // Multi-kills : le slot le plus important qui peut les contenir entièrement.
-                for (g in remaining.filter { it.kills.size > 1 }) {
+                // Multi-kills (et plans aux bornes posées à la main) : le slot le plus important qui peut les contenir entièrement.
+                for (g in remaining.filter { it.kills.size > 1 || it.marked }) {
                     val free = cells.indices.filter { cells[it].group == null }.sortedByDescending { importance(cells[it]) - monotony(it, g) }
                     val index = free.firstOrNull { canGrow(it, need(g, section = cells[it].section)) } ?: free.firstOrNull() ?: break
                     place(index, g)
                     remaining -= g
                 }
-                remaining.removeAll { it.kills.size > 1 }
+                remaining.removeAll { it.kills.size > 1 || it.marked }
                 for (g in remaining) {
                     place(bestFree(g) ?: break, g)
                 }
@@ -1326,7 +1352,7 @@ object MontagePlanner {
         val needs = IntArray(n) { need(groups[it]) }
         val ranks = DoubleArray(n) { groups[it].rank }
         val beats = IntArray(n) { cells[it].beats }
-        val fixed = BooleanArray(n) { it == 0 || cells[it].dropBeat != null || groups[it].pin != null }
+        val fixed = BooleanArray(n) { it == 0 || cells[it].dropBeat != null || groups[it].pin != null || groups[it].marked }
         // Place de chaque groupe (indice dans [groups]) le long du montage.
         val order = IntArray(n) { it }
         fun links() = (0 until n - 1).count { compatible[order[it]][order[it + 1]] }
@@ -1460,11 +1486,13 @@ object MontagePlanner {
      * pose sur la note de piano qu'on entend, pas sur le temps régulier d'à côté), premier temps de mesure, un peu tard
      * dans le plan.
      */
-    private fun anchorScore(music: MusicAnalysis, slot: CutSlot, beat: Int): Double =
+    private fun anchorScore(music: MusicAnalysis, slot: CutSlot, beat: Int, accentBonus: Double = 0.0): Double =
         music.beatAccent[beat.coerceIn(0, music.beatAccent.lastIndex)] +
             SALIENCE_WEIGHT * music.salience.getOrElse(beat) { 0.0 } +
             (if (music.isDownbeat(beat)) 0.4 else 0.0) +
-            0.15 * (beat - slot.startBeat).toDouble() / slot.beats
+            0.15 * (beat - slot.startBeat).toDouble() / slot.beats +
+            // Préférence apprise des kills posés à la main sur la musique : les temps qui frappent ([MusicPins]).
+            accentBonus * music.strength(beat)
 
     /**
      * Position du kill commune à tous les plans de même longueur d'une section : des coupes qui se suivent avec le même
@@ -1501,7 +1529,9 @@ object MontagePlanner {
 
         // Réaction (phrase, rire) après le dernier kill : le clip doit durer jusqu'à sa fin.
         val reaction = group.protectedSegments.filter { it.end > anchor }.maxOfOrNull { it.end - anchor } ?: Duration.ZERO
-        val candidates = (slot.startBeat + minLeadBeats)..(slot.endBeat - minTailBeats)
+        // Coupe posée à la main : tout temps intérieur au plan peut porter le kill (la source choisie fixe le contexte).
+        val candidates = if (group.cut != null && !group.cut.isEmpty) (slot.startBeat + 1)..(slot.endBeat - 1)
+        else (slot.startBeat + minLeadBeats)..(slot.endBeat - minTailBeats)
         fun fits(b: Int) = music.beatTime(b) - slotStart >= group.span + cuts.minLead && slotEnd - music.beatTime(b) >= reaction + cuts.minTail
         val preferred = preferredOffset?.let { slot.startBeat + it }
         // Raccords visée sur visée que la place du kill rend possibles : assez peu de temps de part et d'autre du kill
@@ -1514,9 +1544,24 @@ object MontagePlanner {
         }
         val bestMatch = candidates.maxOfOrNull(::matches) ?: 0.0
         val single = slot.beats == 1
+        // Longueurs avant et après le kill apprises des coupes de l'utilisateur : le temps qui s'en approche le plus.
+        fun preferred(at: Duration): Double {
+            val period = music.beatPeriod
+            val lead = cuts.preferredLead?.let { -PREFERRED_WEIGHT * minOf(1.0, abs(((at - slotStart) - it) / period)) } ?: 0.0
+            val tail = cuts.preferredTail?.let { -PREFERRED_WEIGHT * minOf(1.0, abs(((slotEnd - at) - it) / period)) } ?: 0.0
+            return lead + tail
+        }
         /** Place avant et après le kill tombé à [at] : de quoi montrer les kills d'avant et finir la réaction. */
+        // Coupe posée à la main : le temps où la source choisie remplit sa place sans ralentir ni accélérer au-delà de ×2.
+        val cutPre = group.cut?.start?.let { anchor - it }
+        val cutPost = group.cut?.end?.let { it - anchor }
+        fun cutFits(at: Duration): Double {
+            val preOk = cutPre == null || (at - slotStart) in (cutPre / ClipMarkers.MAX_FACTOR)..(cutPre / ClipMarkers.MIN_FACTOR)
+            val postOk = cutPost == null || (slotEnd - at) in (cutPost / ClipMarkers.MAX_FACTOR)..(cutPost / ClipMarkers.MIN_FACTOR)
+            return if (preOk && postOk) CUT_FIT_BONUS else 0.0
+        }
         fun room(at: Duration) = (if (at - slotStart >= group.span + cuts.minLead) 0.3 else 0.0) +
-            (if (slotEnd - at >= reaction + cuts.minTail) 0.3 else 0.0)
+            (if (slotEnd - at >= reaction + cuts.minTail) 0.3 else 0.0) + preferred(at) + cutFits(at)
         // Épinglé sur un temps par l'utilisateur : celui-là, même s'il coupe le début du plan.
         val pinned = (group.pin as? MontagePin.At)?.let { MontageEdits.nearestBeat(music, it.music) }
         val onBeat = when {
@@ -1524,8 +1569,8 @@ object MontagePlanner {
             single -> slot.startBeat
             slot.dropBeat != null && slot.dropBeat in candidates -> slot.dropBeat
             candidates.isEmpty() -> slot.startBeat + maxOf(1, slot.beats / 2)
-            preferred != null && preferred in candidates && fits(preferred) && matches(preferred) >= bestMatch -> preferred
-            else -> candidates.maxBy { b -> anchorScore(music, slot, b) + matches(b) + room(music.beatTime(b)) }
+            preferred != null && group.cut == null && preferred in candidates && fits(preferred) && matches(preferred) >= bestMatch -> preferred
+            else -> candidates.maxBy { b -> anchorScore(music, slot, b, cuts.accentBonus) + matches(b) + room(music.beatTime(b)) }
         }
         // Contretemps syncopé du plan mieux noté que le temps retenu (même notation, sans le bonus du premier temps de
         // mesure) : le kill y tombe, les coupes restent sur les temps. Pas sur la drop (son temps est la promesse du
@@ -1549,7 +1594,11 @@ object MontagePlanner {
         val onTime = if (anchorHalf) music.halfTime(anchorBeat) else music.beatTime(anchorBeat)
         // Calage du temps (à la main ou appris pour la musique) : le kill avant ou après son temps, les coupes restent sur
         // les temps. Jamais hors du plan : un kill qui ouvre le plan ne passe pas avant sa coupe.
-        val beatShift = (group.beatShift ?: music.killShift).coerceIn(slotStart - onTime, slotEnd - onTime - MIN_AFTER_SHIFT)
+        // Épinglé sur un instant du morceau : le kill y tombe exactement, même entre deux temps (le temps le plus proche
+        // porte le plan, le décalage fait le reste). Sinon le décalage posé à la main, ou appris pour la musique.
+        val pinShift = (group.pin as? MontagePin.At)?.takeIf { pinned != null && anchorBeat == pinned && !anchorHalf }?.let { it.music - onTime }
+        // Plan très court (kills posés à quelques images l'un de l'autre) : la marge d'après le kill peut manquer.
+        val beatShift = (pinShift ?: group.beatShift ?: music.killShift).coerceIn(slotStart - onTime, maxOf(slotStart - onTime, slotEnd - onTime - MIN_AFTER_SHIFT))
         val anchorTime = onTime + beatShift
         val preOut = anchorTime - slotStart
         val postOut = slotEnd - anchorTime
@@ -1656,11 +1705,20 @@ object MontagePlanner {
         val padAfter = (end - media.duration).coerceAtLeast(Duration.ZERO)
         start = start.coerceAtLeast(media.bounds.start)
         end = end.coerceAtMost(media.duration)
-        return MontageClip(
-            group, slot, anchorBeat, anchor, start, end, padBefore, padAfter, speeds, slotEnd - slotStart,
-            leadIn = if (single) cuts.minLead else Duration.ZERO, anchorHalf = anchorHalf, beatShift = beatShift,
+        // Repères posés à la main (coupes, sections) : la source s'y plie, le plan garde sa longueur.
+        return ClipMarkers.fit(
+            MontageClip(
+                group, slot, anchorBeat, anchor, start, end, padBefore, padAfter, speeds, slotEnd - slotStart,
+                leadIn = if (single) cuts.minLead else Duration.ZERO, anchorHalf = anchorHalf, beatShift = beatShift,
+            ),
         )
     }
+
+    /** Poids de la longueur apprise dans le choix du temps du kill (de chaque côté, au plus un écart d'un temps). */
+    private const val PREFERRED_WEIGHT = 0.2
+
+    /** Une coupe posée à la main tenue passe devant toute autre raison de placer le kill. */
+    private const val CUT_FIT_BONUS = 10.0
 
     /** Image au moins après un kill décalé de son temps : le plan le montre toujours. */
     private val MIN_AFTER_SHIFT = 20.milliseconds

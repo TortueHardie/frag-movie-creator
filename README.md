@@ -630,8 +630,9 @@ plan au lieu de tout relancer à l'aveugle.
   trait blanc et l'instant montrent le temps visé pendant le glisser, le plan est recalculé au lâcher et le kill tombe
   sur ce temps (la tête ronde marque l'épingle). Chaque épingle est rappelée sous la frise ; un clic dessus la retire et
   replanifie. Une épingle impossible (deux groupes sur le même temps, moment de la musique hors du montage) est dite en
-  rouge, le dernier plan reste affiché. **Replanifier** recalcule le plan sans réanalyser (inspection des kills en cache : quelques
-  secondes). « Créer le montage » rend le plan corrigé.
+  rouge, le dernier plan reste affiché. Chaque correction (écarter, forcer, drop, épingle, calage, tout annuler)
+  recalcule le plan aussitôt, sans réanalyser (inspection des kills en cache : quelques secondes) ; **Replanifier**
+  reste pour relancer à la main. « Créer le montage » rend le plan corrigé.
 - **En ligne de commande** : `--plan` affiche le plan sans rendre, avec la désignation de chaque kill
   (`capture@instant`, à une seconde près) ; `--exclude`, `--force` (répétables), `--drop` et `--pin capture@instant=0:42`
   (le kill tombe sur le temps du morceau le plus proche) le corrigent.
@@ -644,13 +645,37 @@ plan au lieu de tout relancer à l'aveugle.
 **Caler un kill à l'image.** La détection (Outplayed, killfeed, compteur de munitions, son du tir) se trompe parfois de
 quelques images, et le temps détecté d'une musique peut lui-même être un peu décalé. Clic sur le trait d'un kill dans
 la frise : toutes les images de la capture une demi-seconde avant et après le kill (instants exacts lus par FFmpeg,
-`showinfo`), l'image choisie en grand avec le réticule agrandi, ← → pour avancer d'une image, Entrée pour appliquer.
+`showinfo`), l'image choisie entière et en grand, ← → pour avancer d'une image, Entrée pour appliquer.
 L'image choisie devient l'instant qui tombe sur le temps (`MontageConstraints.anchors`, refusé à plus d'une seconde de la
 détection). « Kill par rapport au temps » pose le kill une ou plusieurs images après (+) ou avant (−) son temps quand
 c'est le temps qui est décalé (`beatShifts`, ±250 ms au plus) : les coupes restent sur les temps, chaque plan garde sa
 longueur. Le plan est recalculé aussitôt ; un kill calé à la main a un trait orange, un kill déplacé par un décalage
 appris un trait blanc. En ligne de commande : `--anchor capture@instant=3:12.483` et `--beat-shift capture@instant=+17ms`
 (répétables ; la désignation reste l'instant détecté, celui que `--plan` affiche).
+
+**Kill ici, à l'écoute.** Le même panneau a aussi l'ergonomie de l'outil de la drop : le son du jeu ±2 s autour de la
+détection (forme d'onde, images de la bande en repères, détection en gris, hors de ±1 s assombri), un curseur qu'on place
+d'un clic ou d'un glisser, par image (← →) ou par 10 ms (Maj+← →), ou en tapant l'instant (`m:ss.mmm`).
+**Écouter** (Espace) et **Depuis 1 s avant** (R, arrêt 1 s après le curseur) jouent l'image et le son de la capture dans
+le panneau (lecteur intégré) ; **Marquer ici** (M) pose le curseur sur l'image montrée ; **Kill ici** (Entrée) pose le
+calage (même contrainte `anchors` que le choix d'une image, donc même apprentissage par source) et recalcule le plan.
+
+**Repères.** Le même curseur pose d'autres repères sur la capture (« Repères : » sous la forme d'onde), chacun
+contrainte du plan, recalculé aussitôt, visible sous la frise (« Repères (clic : retirer) ») :
+- **Le plan commence ici** / **Le plan finit ici** (« Couper ici ») : bornes du plan du kill dans la capture. Le plan garde
+  sa longueur : la partie d'avant ou d'après le kill est ralentie ou accélérée pour remplir sa place, ×2 au plus ; une zone
+  trop courte est refusée avec un message qui dit combien il faut (jamais de coupe silencieuse). Pas de coupe dans
+  l'attente ni de passage vitrine autour d'un plan qui a des repères.
+- **Début de section ici**, puis **Fin ici : section sans kill** : passage jamais montré (un temps mort, un menu) ; un kill
+  détecté dedans est écarté, et un plan qui le recouvrirait commence après ou finit avant.
+- **Fin ici : section à garder entière** : un plan qui en montrerait une partie la montre toute (sa borne va au bord de
+  la section, partie accélérée ×2 au plus).
+
+En ligne de commande : `--cut capture@instant=31:40.2..31:42.9` (« =31:40.2.. » ou « =..31:42.9 » pour un seul bord),
+`--skip capture@1:02.5..1:10`, `--keep capture@1:02.5..1:04` (répétables). Les coupes posées s'enregistrent
+(`<sortie>\sessions\kill-cuts.json`) : à partir de 8 coupes concordantes d'un profil (écart médian ≤ 0,3 s), la longueur
+préférée avant et après le kill oriente la place du kill dans ses plans (`app gouts` la montre, `app gouts --reset-cuts` et
+le bouton « Oublier les longueurs apprises » l'oublient).
 
   ```powershell
   & $app montage partie.session.json --music son.mp3 --anchor partie.mp4@31:41.392=31:41.309 --beat-shift partie.mp4@31:41.392=+17ms
@@ -659,11 +684,99 @@ appris un trait blanc. En ligne de commande : `--anchor capture@instant=3:12.483
 **Calages appris.** Chaque montage rendu avec des kills calés note, par kill, sa source de détection (« détecteur/recalage » :
 `game-events/ammo-counter`, `killfeed/kill-confirm`, `…/shot-sound`, `…/event`), l'écart choisi, la musique et le temps
 (`<sortie>\sessions\kill-timing.json` ; un kill recalé remplace sa correction précédente). Deux choses s'apprennent
-(montage.learnTaste) : le retard d'une source par profil (5 calages au moins, écart à la médiane ≤ 40 ms, médiane ≥ 10 ms,
-bornée à ±200 ms) appliqué aux kills de cette source ; et le décalage des temps d'un morceau (2 calages concordants à
+(montage.learnTaste) : le retard d'une source par profil (8 calages au moins, écart à la médiane ≤ 40 ms, médiane ≥ 10 ms,
+bornée à ±200 ms) appliqué aux kills de cette source ; et le décalage des temps d'un morceau (3 calages concordants à
 30 ms près, borné à ±120 ms) appliqué à tous ses plans. Un kill calé à la main n'est jamais déplacé par ce qui est appris.
 Vue « Goûts appris » : carte « Calage des kills » et « Oublier les calages appris » ; `app gouts` les liste,
 `app gouts --reset-timing` les oublie (fichier mis de côté, pas effacé).
+
+**Montage sur la musique.** Dès qu'une musique est choisie dans le dialogue de montage, l'écran « Montage sur la
+musique » s'ouvre (bouton **Montage sur la musique…** pour le rouvrir ; la frise **Voir le plan…** reste). Deux étapes :
+1. **Vos intentions sur la musique** : le morceau entier (forme d'onde, sections, drop glissable) et des **repères**,
+   sans dire quel kill : ◆ **Kill ici**, ◆◆ **Multi-kill ici** (un repère qui vaut plusieurs kills), ┃ **Coupe ici**
+   (un plan commence là), ◐ **Ralenti ici**, ↯ **Transition ici** (whip pan sur la coupe la plus proche), ▭ **Vitrine
+   ici** (une plage de passages de partie sans kill). L'algorithme en propose au départ, tirés du placement automatique
+   (losanges creux) ; on choisit un outil et on double-clique pour en poser (aimant sur les notes et les temps, Alt :
+   à l'instant exact), on les glisse, on les retire ; ceux qu'on touche deviennent « à vous » (losanges pleins).
+   Le compteur « Kills disponibles : N · repères « kill » : M » reste visible. Avec plus de repères que de kills, un
+   avertissement doux entoure les repères en trop (ceux où la musique frappe le moins) : ils deviennent des **plans de
+   vitrine**, ou restent vides (**Les laisser vides**). Des repères proches sont permis. **Tout remettre en auto**
+   revient à la proposition. En ligne de commande : `--mark kill@0:31.200` (et `multi@`, `cut@`, `slow@`,
+   `transition@`), `--showcase-at 0:22.900..0:24.810`, `--extra-marks showcase|empty`.
+2. **Placer les plans →** : l'algorithme choisit **quel kill va sur quel repère** (`IntentLayout`) : les multi-kills
+   sur les repères « multi-kill » et les repères rapprochés (à un temps ou moins), les meilleurs kills sur la drop et
+   les repères qui frappent le plus. Puis il construit les plans autour (`KillLayout`) : chaque kill exactement sur son
+   repère, un début de plan à chaque coupe, la vitrine sur sa plage et sur les repères en trop, des ralentis et des
+   transitions **seulement** là où sont leurs repères. Deux kills à moins d'un temps : un plan court pour le second
+   (la coupe 50 ms avant lui), ou un seul plan s'ils viennent de la même capture et que leur écart réel correspond à
+   150 ms près. Jamais d'erreur.
+   L'étape montre les plans et les repères numérotés. **Glisser un kill** sur un autre les échange, sur un repère l'y
+   met ; un kill de la liste glissé sur un repère y va ; **Retirer** écarte le kill et le repère prend le meilleur
+   suivant (`--put 3=capture@7:00.000` en ligne de commande). **← Revenir aux repères** rouvre l'étape 1 ; **Aperçu du
+   montage (360p)**, **Rendre le montage**. L'ancienne pose de kills nommés reste en ligne de commande :
+   `--kill-at capture@kill=0:31.200`.
+Le réarrangement des plans à la main (bornes, ordre, longueur) est la prochaine étape.
+
+**Apprendre d'où vous posez vos kills.** Chaque **Placer les plans** enregistre la proposition automatique et vos
+repères finaux (`<sortie>/sessions/kill-layout.json`) : repères « kill » déplacés (d'où vers où), ajoutés, retirés,
+coupes, ralentis, transitions et vitrine, et le contexte musical de chaque instant (temps le plus proche et écart en ms, contretemps, attaque de note, force du temps,
+section, avant ou après la drop, kills dans la mesure). Après au moins 3 montages qui concordent (chaque goût vérifié
+« une de côté » : appris sans un montage, prédit-il ce montage ?), la proposition automatique de l'étape 1 suit :
+l'écart préféré au temps (entre 10 et 120 ms, dispersion ≤ 30 ms), la préférence pour les temps qui frappent, et la
+densité (plus serré ou plus espacé, ×0,7 à ×1,5 sur la durée visée par kill). Jamais par-dessus un kill posé à la
+main. Les kills retirés et ajoutés nourrissent les goûts par sorte de kill (multi-kill, tête, one tap…). Contretemps
+et kills après la drop sont montrés, pas encore appliqués. **Goûts appris** le dit en clair (« Vous posez vos kills
+~25 ms après le temps : appliqué ») ; **Oublier…** (ou `app gouts --reset-layout`) met le fichier de côté. Démo à goût
+caché (`LayoutTasteTest`) : un goût net ou flou (le temps fort 6 fois sur 10, ±15 ms) est appliqué dès le 3e montage ;
+sans goût ou au hasard, rien ne s'applique.
+
+**Kill sur ce moment de la musique.** Pour réarranger les kills sur la musique : clic sur le trait d'un kill dans la
+frise, puis **Sur la musique…** : l'outil d'écoute du morceau (le même que pour la drop : forme d'onde, son, curseur
+qu'on glisse en écoutant, `m:ss.mmm`, ±10 ms, ±1 temps, « Depuis 2 s avant »), le curseur là où le kill tombe
+aujourd'hui. **Poser le kill ici** (Entrée) l'épingle à cet instant du morceau : il y tombe **exactement**, même entre
+deux temps (le temps le plus proche porte son plan, le kill est décalé de l'écart, les coupes restent sur les temps) ;
+les autres kills sont replacés autour. **Revenir au placement auto** retire l'épingle (comme un clic sur sa puce). En
+ligne de commande : `--pin partie.mp4@52:38.600=0:44.335`. Deux kills au même instant (au même temps) : refusé, comme
+avant. Chaque montage rendu note où vous posez vos kills (`<sortie>\sessions\kill-pins.json` : écart au temps, force du
+temps et de ceux de son plan) ; à partir de 8 kills, deux choses s'apprennent, chacune seulement si la validation « une
+de côté » la confirme : un **écart régulier au temps** (« juste avant le temps », dispersion ≤ 30 ms, 10 à 120 ms),
+appliqué aux morceaux sans écart à eux, et une **préférence pour les temps qui frappent**, qui oriente le placement
+automatique. « Goûts appris » (carte « Calage des kills ») et `app gouts` les montrent ; `app gouts --reset-pins` les
+oublie.
+
+**Poser la drop à l'oreille.** La drop détectée peut tomber à côté de celle qu'on entend (« Rome Is Burning » : détectée
+à 0:31.474, alors que la basse entre après un silence à 0:30.523, deux temps plus tôt). Clic sur la marque **DROP** de la
+frise : la forme d'onde du morceau entier et celle des 6 s autour du curseur (temps détectés en repères, drop détectée en
+gris), le son du morceau, un curseur qu'on place d'un clic ou d'un glisser, au clavier (← → 10 ms, Maj+← → un temps) ou
+en tapant l'instant (`m:ss.mmm`). **Écouter** (Espace) joue depuis le curseur, **Depuis 2 s avant** (R) rejoue la montée
+et la drop, **Marquer ici** (M) pose le curseur sur ce qu'on entend pendant l'écoute, **La drop est ici** (Entrée) la
+retient pour ce morceau (`<sortie>\sessions\music-drops.json`, clé nom + taille comme le ressenti) et recalcule le plan.
+Elle remplace la drop détectée à tous les montages suivants sur ce morceau, « depuis le début » compris ; la marque
+devient « DROP (posée à la main) ». L'instant devient un temps : le temps détecté le plus proche y est amené et ses
+voisins suivent en s'atténuant sur 8 temps (la grille est recalée là, pas ailleurs), puis une section commence sur lui :
+le kill de la drop et les coupes autour restent ensemble sur ce qu'on entend. **Revenir à la détection** l'oublie.
+Vue « Goûts appris » : carte « Drops posées à la main », une ligne par morceau avec **Oublier**. En ligne de commande :
+`--drop-at 0:30.523` (retenue comme dans l'application ; `--drop-at auto` l'oublie), `app gouts` les liste,
+`app gouts --reset-drops` les oublie toutes (fichier mis de côté).
+
+  ```powershell
+  & $app montage partie.session.json --music "Rome Is Burning.mp3" --drop-at 0:30.523
+  ```
+
+**Drops apprises.** Chaque drop posée garde où la détection la mettait, où vous l'avez posée et les mesures de chaque
+temps du morceau (`<sortie>\sessions\drop-learning.json`, une par morceau). Deux choses s'apprennent (montage.learnTaste),
+pour les morceaux dont vous n'avez jamais posé la drop :
+- un **écart régulier** de la détection (par exemple toujours deux temps trop tard) : appliqué à partir de 5 morceaux
+  dont 80 % ont exactement le même écart en temps, le reste en ms à 30 ms près (borné à 4 mesures et ±120 ms) ;
+- un **choix de la drop réappris** : une note par temps (montée du volume, creux juste avant, attaque, saillance, début
+  de section et son intensité, premier temps de mesure, drop de la règle actuelle), dont les poids sont réappris pour
+  rendre vos drops les plus probables. Il ne sert qu'à partir de 6 morceaux, et seulement s'il retrouve, en validation
+  « une de côté » (appris sans le morceau, testé dessus), plus de vos drops que la règle actuelle.
+
+Une drop posée à la main n'est jamais remplacée par ce qui est appris ; une drop apprise est marquée « DROP (apprise) »
+dans la frise. Vue « Goûts appris » : nombre de drops posées, écart moyen, état des deux apprentissages et
+**Oublier ce qui est appris des drops** (fichier mis de côté, les drops posées restent) ; `app gouts` les montre,
+`app gouts --reset-drop-learning` les oublie.
 
 - Un kill exclu sort de son groupe (un triplé devient un doublé) ; un groupe forcé prend la place du moins bon groupe
   que rien n'impose ; épinglé sur la drop, il y tombe (en ordre chronologique, les moins bons groupes joués avant lui

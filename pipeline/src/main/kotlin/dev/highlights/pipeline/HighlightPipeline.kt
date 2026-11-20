@@ -52,6 +52,27 @@ import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
 import dev.highlights.montage.FeelEntry
+import dev.highlights.montage.LearnedLayout
+import dev.highlights.montage.LayoutExample
+import dev.highlights.montage.LayoutTasteLearner
+import dev.highlights.montage.LayoutHistory
+import dev.highlights.montage.KillLayout
+import dev.highlights.montage.MusicIntents
+import dev.highlights.montage.IntentKind
+import dev.highlights.montage.IntentLayout
+import dev.highlights.montage.LearnedPins
+import dev.highlights.montage.PinLearner
+import dev.highlights.montage.PinHistory
+import dev.highlights.montage.LearnedLengths
+import dev.highlights.montage.CutHistory
+import dev.highlights.montage.ClipLengthLearner
+import dev.highlights.montage.LearnedDrop
+import dev.highlights.montage.DropLearner
+import dev.highlights.montage.DropExamples
+import dev.highlights.montage.StoredDrop
+import dev.highlights.montage.MusicPcm
+import dev.highlights.montage.MusicDrops
+import dev.highlights.montage.MusicDropStore
 import dev.highlights.montage.MicLevels
 import dev.highlights.montage.ReactionFinder
 import dev.highlights.montage.Reactions
@@ -128,6 +149,7 @@ import kotlin.io.path.isReadable
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.nameWithoutExtension
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
 private val log = KotlinLogging.logger {}
 
@@ -296,7 +318,28 @@ data class TasteState(
     val groups: LearnedGroupTaste = LearnedGroupTaste.NONE,
     /** Décalages appris des calages à l'image (sources de détection, morceaux). */
     val timing: LearnedTiming = LearnedTiming.NONE,
+    /** Drops posées à la main, une par morceau. */
+    val drops: List<StoredDrop> = emptyList(),
+    /** Ce qui a été appris des drops posées (écart régulier, choix de la drop réappris). */
+    val learnedDrop: LearnedDrop = LearnedDrop.NONE,
+    /** Longueurs de plan préférées avant et après le kill, apprises des coupes posées à la main. */
+    val lengths: LearnedLengths = LearnedLengths.NONE,
+    /** Où l'utilisateur pose ses kills dans la musique (écart au temps, accents). */
+    val pins: LearnedPins = LearnedPins.NONE,
+    /** Où l'utilisateur pose ses kills à l'étape 1 (écart au temps, accents, densité). */
+    val layout: LearnedLayout = LearnedLayout.NONE,
 )
+
+/** Son de la capture autour d'un kill : [pcm] commence à [start] dans la capture. */
+class KillAudio(val start: Duration, val pcm: MusicPcm)
+
+/** Demi-fenêtre du son autour d'un kill : ±2 s, la montée et la suite du kill (le calage reste borné à ±1 s). */
+val KILL_AUDIO_HALF: Duration = kotlin.time.Duration.parse("2s")
+
+/** Outil de la drop d'un morceau : [pcm] pour l'écouter et dessiner sa forme d'onde, [detected] l'analyse sans drop posée, [byHand] celle posée. */
+class MusicDropTool(val music: Path, val pcm: MusicPcm, val detected: MusicAnalysis, val byHand: Duration?) {
+    val detectedDrop: Duration get() = detected.beatTime(detected.dropBeat)
+}
 
 /** Aperçus des variantes d'un montage et le fichier qui les décrit (à passer à [VariantPick]). */
 data class MontagePreviews(
@@ -326,6 +369,8 @@ class PlannedMontage internal constructor(
     internal val reactions: List<SessionReactions> = emptyList(),
     /** Montage onetaps : avertissement quand il y a peu de one taps ([OneTaps.Selection.notice]). */
     val oneTapsNotice: Message? = null,
+    /** Repères proposés pour l'étape 1 de « Montage sur la musique » (plan automatique) ; null avec des repères posés. */
+    val proposal: MusicIntents? = null,
 ) {
     /**
      * Avertissement quand les parties n'ont presque pas de kills ([MontageSettings.minKills]) : le montage se fait,
@@ -398,10 +443,123 @@ class HighlightPipeline(
     /** Calages des kills à l'image faits dans la frise : de quoi apprendre le retard des détections et des morceaux. */
     val timingHistory = TimingHistory(config.outputDir.resolve("sessions").resolve("kill-timing.json"))
 
+    /** Validations de l'étape 1 de « Montage sur la musique » : proposition et placement final, pour apprendre. */
+    val layoutHistory = LayoutHistory(config.outputDir.resolve("sessions").resolve("kill-layout.json"))
+
+    /**
+     * « Placer les plans » : enregistre la proposition automatique [auto] et le placement final [final] (kill → instant
+     * du morceau) avec le contexte musical de chaque instant ; les kills retirés et ajoutés vont aux goûts de groupes
+     * ([GroupTasteLearner]). [planned] : le plan de la proposition (sa musique, ses groupes).
+     */
+    fun recordLayout(planned: PlannedMontage, auto: Map<KillRef, Duration>, final: Map<KillRef, Duration>, now: Instant = Instant.now()) {
+        val music = planned.plan.music
+        fun same(a: KillRef, b: KillRef) = a.toString() == b.toString()
+        val moved = final.filter { (r, at) -> auto.entries.any { (a, t) -> same(a, r) && (t - at).absoluteValue > 30.milliseconds } }
+        val added = final.filter { (r, _) -> auto.keys.none { same(it, r) } }
+        val removed = auto.filter { (r, _) -> final.keys.none { same(it, r) } }
+        val chosen = (moved.values + added.values).toSet()
+        val key = MusicFeelStore.keyOf(music.file) ?: music.file.fileName.toString()
+        layoutHistory.record(
+            LayoutExample(
+                now.toString(), planned.profile.id, key,
+                LayoutTasteLearner.contexts(music, auto.values.toList()), LayoutTasteLearner.contexts(music, final.values.toList(), chosen),
+                moved.size, added.size, removed.size,
+            ),
+        )
+        if (added.isEmpty() && removed.isEmpty()) return
+        // Gardés ou retirés : comme un kill écarté ou forcé dans la frise (sortes de kills préférées).
+        val groupsOf = { r: KillRef -> planned.candidates.firstOrNull { g -> g.kills.any { r.matches(g.media, it) } } }
+        val excluded = removed.keys.flatMap { r -> groupsOf(r)?.let { g -> g.kills.map { KillRef.of(g.media, it) } } ?: listOf(r) }.toSet()
+        val constraints = MontageConstraints(excluded = excluded, forced = added.keys.toSet())
+        tasteHistory.record(
+            TasteEdit(
+                now.toString(), planned.profile.id, music.file.toString(),
+                excluded = excluded.map { it.toString() }, forced = added.keys.map { it.toString() },
+                groups = GroupTasteLearner.record(planned.candidates, constraints),
+            ),
+        )
+    }
+
+    /**
+     * « Placer les plans » avec des repères (étape 1) : la proposition [auto] et les repères finaux [final], chaque
+     * repère avec son contexte musical. Les repères « kill » nourrissent l'apprentissage du placement
+     * ([LayoutTasteLearner] : écart au temps, accents, densité) ; coupes, ralentis, transitions et vitrine sont gardés.
+     * Les kills échangés ou retirés à l'étape 2 passent par les corrections du rendu ([GroupTasteLearner]).
+     */
+    fun recordIntents(planned: PlannedMontage, auto: MusicIntents, final: MusicIntents, now: Instant = Instant.now()) {
+        val music = planned.plan.music
+        val autoIds = auto.killMarks.associateBy { it.id }
+        val finalKills = final.killMarks
+        val moved = finalKills.count { m -> m.byHand && autoIds[m.id]?.let { (it.at - m.at).absoluteValue > 30.milliseconds } == true }
+        val added = finalKills.count { it.id !in autoIds }
+        val removed = auto.killMarks.count { a -> finalKills.none { it.id == a.id } }
+        val chosen = finalKills.filter { it.byHand }.map { it.at }.toSet()
+        fun ctx(kind: IntentKind) = LayoutTasteLearner.contexts(music, final.of(kind).map { it.at }, final.of(kind).filter { it.byHand }.map { it.at }.toSet())
+        layoutHistory.record(
+            LayoutExample(
+                now.toString(), planned.profile.id, MusicFeelStore.keyOf(music.file) ?: music.file.fileName.toString(),
+                LayoutTasteLearner.contexts(music, auto.killMarks.map { it.at }), LayoutTasteLearner.contexts(music, finalKills.map { it.at }, chosen),
+                moved, added, removed,
+                cuts = ctx(IntentKind.CUT), slows = ctx(IntentKind.SLOW), transitions = ctx(IntentKind.TRANSITION),
+                showcase = final.showcase?.let { listOf(it.start.inWholeMilliseconds, it.end.inWholeMilliseconds) },
+            ),
+        )
+    }
+
+    /** Kills posés sur un instant du morceau : de quoi apprendre où l'utilisateur met ses kills dans la musique. */
+    val pinHistory = PinHistory(config.outputDir.resolve("sessions").resolve("kill-pins.json"))
+
+    /** Coupes posées à la main (« Couper ici ») : de quoi apprendre la longueur de plan préférée avant et après le kill. */
+    val cutHistory = CutHistory(config.outputDir.resolve("sessions").resolve("kill-cuts.json"))
+
     private val killFrames = KillFrames(ffmpeg, config.workDir.resolve("cache").resolve("kill-frames"))
+
+    /**
+     * Son de la capture autour d'un kill ([half] de chaque côté de [center]), pour le caler à l'écoute : son début dans la
+     * capture et le PCM (16 kHz : forme d'onde seulement, l'écoute passe par le lecteur intégré). Null sans piste son.
+     */
+    suspend fun killAudio(media: MediaInfo, center: Duration, half: Duration = KILL_AUDIO_HALF): KillAudio? {
+        if (media.audio.isEmpty()) return null
+        val start = (center - half).coerceAtLeast(Duration.ZERO)
+        return KillAudio(start, MusicPcm.decode(ffmpeg, media.path, rate = 16_000, from = start, length = center + half - start))
+    }
 
     /** Toutes les images de la capture autour de l'instant [center] d'un kill, pour le caler à l'image (frise du plan). */
     suspend fun killFrames(media: MediaInfo, center: Duration): List<KillFrame> = killFrames.around(media, center)
+
+    /** Drops posées à la main, une par morceau (outil de la drop, `montage --drop-at`), réutilisées à chaque montage. */
+    val musicDropStore = MusicDropStore(config.outputDir.resolve("sessions").resolve("music-drops.json"))
+
+    /**
+     * Pose la drop de [music] à [at] (instant dans le morceau) pour tous les montages suivants ; null : l'oublie, la
+     * détection reprend la main.
+     */
+    suspend fun setMusicDrop(music: Path, at: Duration?) {
+        musicDropStore.set(music, at)
+        val key = MusicFeelStore.keyOf(music) ?: return
+        if (at == null) return dropExamples.forget(key)
+        // L'exemple d'apprentissage : où la détection mettait la drop, où l'utilisateur l'a posée, les mesures de chaque temps.
+        val detected = runCatching { musicLibrary.analysis(ffmpeg, music) }.getOrNull() ?: MusicAnalyzer.analyze(ffmpeg, music)
+        dropExamples.record(DropLearner.example(key, music.fileName.toString(), detected, at))
+    }
+
+    /** Oublie la drop posée d'un morceau par sa clé, et ce qu'elle apprenait (vue des goûts). */
+    fun forgetMusicDrop(key: String) {
+        musicDropStore.forget(key)
+        dropExamples.forget(key)
+    }
+
+    /** Drops posées gardées pour apprendre la détection de la drop ([DropLearner]). */
+    val dropExamples = DropExamples(config.outputDir.resolve("sessions").resolve("drop-learning.json"))
+
+    /**
+     * De quoi poser la drop de [music] à l'oreille : son en mémoire ([MusicPcm]), analyse détectée (temps, drop
+     * détectée) et drop déjà posée à la main.
+     */
+    suspend fun musicDropTool(music: Path): MusicDropTool {
+        val analysis = runCatching { musicLibrary.analysis(ffmpeg, music) }.getOrNull() ?: MusicAnalyzer.analyze(ffmpeg, music)
+        return MusicDropTool(music, MusicPcm.decode(ffmpeg, music), analysis, musicDropStore.dropOf(music))
+    }
 
     /** Ressenti de chaque musique pour le rythme rapide (question après un montage, `app musique-ressenti`). */
     val musicFeelStore = MusicFeelStore(config.outputDir.resolve("sessions").resolve("music-feel.json"))
@@ -991,6 +1149,8 @@ class HighlightPipeline(
                 tasteHistory.record(TasteChoice(now, planned.profile.id, music, pick.index - 1, variants, result.report.toString()))
             }
         }
+        if (constraints.cuts.isNotEmpty()) cutHistory.record(ClipLengthLearner.record(planned.plan, planned.profile.id))
+        if (constraints.pins.values.any { it is MontagePin.At }) pinHistory.record(PinLearner.record(planned.plan, planned.profile.id))
         if (constraints.anchors.isNotEmpty() || constraints.beatShifts.isNotEmpty()) {
             timingHistory.record(KillTimingLearner.record(planned.candidates, planned.plan, constraints, planned.profile.id, MusicFeelStore.keyOf(planned.plan.music.file), now))
         }
@@ -1026,6 +1186,11 @@ class HighlightPipeline(
             allProfiles = profiles.all().map { it.id },
             groups = GroupTasteLearner.learn(stored.edits),
             timing = KillTimingLearner.learn(timingHistory.load().corrections),
+            drops = musicDropStore.load().drops,
+            learnedDrop = DropLearner.learn(dropExamples.load()),
+            lengths = ClipLengthLearner.learn(cutHistory.load()),
+            pins = PinLearner.learn(pinHistory.load()),
+            layout = LayoutTasteLearner.learn(layoutHistory.load()),
         )
     }
 
@@ -1250,6 +1415,9 @@ class HighlightPipeline(
         val intro = IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings, options.introAnimation)
         // Les cartes comptent dans la durée maximale de la plateforme : le montage se planifie dans ce qui reste.
         val maxDuration = (options.maxDuration ?: base.maxDuration).let { d -> platform?.maxDuration?.let { minOf(it - IntroOutroSupport.reserved(intro, montage = true), d) } ?: d }
+        val pins = PinLearner.learn(pinHistory.load())
+        // Où l'utilisateur pose ses kills à l'étape 1 : appliqué à la proposition automatique seulement.
+        val layoutTaste = LayoutTasteLearner.learn(layoutHistory.load())
         val settings = base.copy(
             formats = platform?.let { listOf(it.format) } ?: options.formats ?: base.formats,
             maxDuration = maxDuration,
@@ -1305,12 +1473,29 @@ class HighlightPipeline(
                 options.fast ?: base.fast.enabled -> it.forFast()
                 else -> it
             }
-        }.let(::withTaste)
+        }.let(::withTaste).let { s ->
+            // Longueurs avant et après le kill apprises des coupes posées à la main (sans effet sous ClipLengthLearner.MIN_CUTS).
+            if (!s.learnTaste) s
+            else ClipLengthLearner.learn(cutHistory.load()).let { l ->
+                // Préférence pour les accents apprise des kills posés sur la musique (sans effet sous PinLearner.MIN_PINS).
+                s.copy(
+                    cuts = s.cuts.copy(preferredLead = l.beforeFor(profile.id), preferredTail = l.afterFor(profile.id), accentBonus = maxOf(pins.accentBonus, layoutTaste.accentBonus)),
+                    length = s.length.copy(perClip = s.length.perClip * layoutTaste.perClipFactor),
+                )
+            }
+        }
         val musicStep = progress.child(tr(if (music.isDirectory()) "progress.musics" else "progress.music"), 0.06)
         // Calages appris (retard d'une détection, temps décalés d'un morceau) : sans effet sous les seuils du learner.
         val timing = if (settings.learnTaste) KillTimingLearner.learn(timingHistory.load().corrections) else LearnedTiming.NONE
+        // Écart au temps appris des kills posés sur la musique : pour les morceaux qui n'ont pas le leur.
         val musics = (if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music)))
-            .map { m -> timing.songOffset(MusicFeelStore.keyOf(m.file))?.let { m.copy(killShift = it) } ?: m }
+            .map { m -> (timing.songOffset(MusicFeelStore.keyOf(m.file)) ?: (layoutTaste.killShift ?: pins.killShift).takeIf { settings.learnTaste })?.let { m.copy(killShift = it) } ?: m }
+            // Drop posée à la main : elle remplace la drop détectée (grille des temps recalée autour, voir MusicDrops).
+            // Sinon, ce qui a été appris des drops posées sur d'autres morceaux (sans effet sous les seuils de DropLearner).
+            .let { list ->
+                val learned = if (settings.learnTaste) DropLearner.learn(dropExamples.load()) else LearnedDrop.NONE
+                list.map { m -> musicDropStore.dropOf(m.file)?.let { MusicDrops.apply(m, it) } ?: learned.dropFor(m)?.let { MusicDrops.apply(m, it, byHand = false) } ?: m }
+            }
         musicStep.complete()
         // Ressenti de chaque musique : dit par l'utilisateur, appris de ses réponses, ou la règle par défaut.
         val feels = MusicFeels(musicFeelStore).let { f -> musics.associate { it.file to f.resolve(it) } }
@@ -1350,8 +1535,14 @@ class HighlightPipeline(
         val variants = options.pick?.variantsFile?.let(MontageVariantsFile::load)
         // Variantes : le choix est glouton dans l'ordre des notes, la liste pour n commence par celle pour n − 1 : la
         // variante choisie se retrouve parmi les [index] premières sans savoir combien d'aperçus ont été faits.
-        fun plans(prepared: MusicAnalysis, own: MontageSettings) =
-            if (count == null) listOf(MontagePlanner.best(groups, prepared, own)) else MontageVariants.distinct(groups, prepared, own, count).map { it.plan }
+        fun plans(prepared: MusicAnalysis, own: MontageSettings) = when {
+            // Kills posés sur la musique : les plans se construisent autour de leurs instants, rien n'est refusé.
+            options.constraints.layout != null -> listOf(KillLayout.plan(groups, prepared, own))
+            // Repères d'intention (étape 1) : l'étape 2 choisit quel kill va sur quel repère, puis construit les plans.
+            options.constraints.intents != null -> listOf(IntentLayout.plan(groups, prepared, own, options.constraints.intents!!))
+            count == null -> listOf(MontagePlanner.best(groups, prepared, own))
+            else -> MontageVariants.distinct(groups, prepared, own, count).map { it.plan }
+        }
         val (chosen, choice) = if (music.isDirectory()) {
             // Variante choisie après les aperçus : la musique des aperçus, même si le classement des musiques a bougé
             // depuis (une autre a servi entre-temps et se repose).
@@ -1367,7 +1558,9 @@ class HighlightPipeline(
         }
         // Raccords d'abord : un plan raccordé garde son début dans la pose, il n'est pas coupé dans l'attente.
         val finished = chosen.map { c ->
-            MontagePlanner.showcase(MontagePlanner.jumpCuts(ScopeCuts.apply(c)).let { it.copy(settings = it.settings.copy(maxDuration = settings.maxDuration)) })
+            MontagePlanner.jumpCuts(ScopeCuts.apply(c)).let { it.copy(settings = it.settings.copy(maxDuration = settings.maxDuration)) }
+                // Avec des repères, la vitrine est celle posée (plage, repères en trop) : pas d'ouverture ajoutée.
+                .let { if (it.byIntents) it else MontagePlanner.showcase(it) }
         }
         val pick = options.pick
         val plan = if (pick == null) {
@@ -1377,7 +1570,9 @@ class HighlightPipeline(
                 ?: throw InputException(Message("error.montage.variantMissing", "index" to pick.index, "total" to finished.size))
         }
         log.info { "Montage : ${plan.clips.size} clips, ${plan.totalBeats} temps à ${"%.1f".format(plan.music.bpm)} BPM (${plan.duration}), départ musique ${plan.musicStart}" }
-        return PlannedMontage(plan, inspected, choice, profile, platform, finished, variants, killsFound = available.sumOf { it.kills.size }, reactions = reactions, oneTapsNotice = oneTaps?.notice)
+        // Proposition de l'étape 1 de « Montage sur la musique » : les repères tirés du plan automatique.
+        val proposal = if (options.constraints.intents == null && options.constraints.layout == null) runCatching { IntentLayout.propose(plan) }.getOrNull() else null
+        return PlannedMontage(plan, inspected, choice, profile, platform, finished, variants, killsFound = available.sumOf { it.kills.size }, reactions = reactions, oneTapsNotice = oneTaps?.notice, proposal = proposal)
     }
 
     /** [analyzeAll] puis un seul montage de toutes les captures. */

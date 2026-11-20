@@ -10,6 +10,7 @@ import dev.highlights.montage.MontagePin
 import dev.highlights.montage.SectionKind
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import org.jetbrains.skia.EncodedImageFormat
 import java.nio.file.Path
 import kotlin.io.path.Path
@@ -62,7 +63,7 @@ class MontageTimelineTest : FunSpec({
         MontageConstraints.NONE.pinAt(emptyList(), 1.seconds) shouldBe MontageConstraints.NONE
     }
 
-    test("temps visé : le plus proche dans la frise, rendu en instant du morceau, épingles replacées sur leur temps") {
+    test("temps visé : le plus proche dans la frise, rendu en instant du morceau, épingles à leur instant exact") {
         val beats = (0 until 20).map { (it * 500).milliseconds }
         val view = PlanView("m.mp3", 120.0, 55.seconds, 10.seconds, beats, beats.map { 0.5 }, emptyList(), null, emptyList(), emptyList())
         view.beatNear(3.2.seconds) shouldBe 6
@@ -71,8 +72,9 @@ class MontageTimelineTest : FunSpec({
         val g = group(100.0)
         val h = group(200.0)
         val c = MontageConstraints.NONE.pinAt(g.refs, 58.1.seconds).pinAt(h.refs, 120.seconds).edit(group(300.0).refs, KillEdit.DROP)
-        // Dans le passage : arrondie au temps (3,0 s du montage) ; dehors : gardée avec son instant du morceau ; la drop n'y est pas.
-        view.pinMarks(c) shouldBe listOf(PinMark(g.refs.last(), 58.1.seconds, 3.seconds), PinMark(h.refs.last(), 120.seconds, null))
+        // Dans le passage : à son instant exact (3,1 s du montage : le kill y tombe, même entre deux temps) ; dehors : gardée
+        // avec son instant du morceau ; la drop n'y est pas.
+        view.pinMarks(c) shouldBe listOf(PinMark(g.refs.last(), 58.1.seconds, 3.1.seconds), PinMark(h.refs.last(), 120.seconds, null))
     }
 
     test("frise du plan : épingler sur un temps, avant/pendant/après (build/ui-snapshots/montage_plan_pin*.png)") {
@@ -191,7 +193,16 @@ class MontageTimelineTest : FunSpec({
             dev.highlights.montage.KillFrame(detected - 83.milliseconds + (i * 1000 / 60).milliseconds, file)
         }
         val ref = KillRef.of(media, detected)
-        val timing = KillTimingUi(ref, media, current = detected, frames = frames, loading = false, selected = 8, beatShift = 17.milliseconds, songShift = Duration.ZERO)
+        // Son du jeu ±2 s : bruit de fond, puis la rafale du tir à partir de l'image 8 (detected + 50 ms).
+        val waveStart = detected - 2.seconds
+        val wave = (0 until KillTimingUi.WAVE_BUCKETS).map { i ->
+            val t = i * 4.0 / KillTimingUi.WAVE_BUCKETS - 2.0
+            (if (t in 0.05..0.6) 0.9 - 0.4 * ((t - 0.05) % 0.1) / 0.1 else 0.12 + 0.05 * sin(i * 0.7)).toFloat()
+        }
+        val timing = KillTimingUi(
+            ref, media, current = detected, frames = frames, loading = false, selected = 8, beatShift = 17.milliseconds, songShift = Duration.ZERO,
+            cursor = frames[8].at, wave = wave, waveStart = waveStart, waveLength = 4.seconds, text = KillRef.precise(frames[8].at),
+        )
         val view = PlanView(
             music = "Rome Is Burning.mp3", bpm = 120.0, musicStart = 55.seconds, duration = 12.seconds, beats = (0 until 24).map { (it * 500).milliseconds },
             energy = (0 until 24).map { 0.4 + 0.5 * (it % 4 == 0).compareTo(false) }, sections = listOf(PlanSection(0.seconds, 12.seconds, SectionKind.DROP, 1.0)), dropAt = 4.seconds,
@@ -202,14 +213,18 @@ class MontageTimelineTest : FunSpec({
             ),
             left = emptyList(),
         )
+        // Repères posés : bornes du plan de ce kill, une section sans kill et une à garder entière.
+        val markers = MontageConstraints.NONE.anchor(ref, frames[8].at).cut(ref, detected - 1.2.seconds, detected + 0.8.seconds)
+            .addRange(dev.highlights.montage.CaptureRange(ref.capture, dev.highlights.core.model.TimeRange(detected - 1.9.seconds, detected - 1.4.seconds), dev.highlights.montage.RangeKind.SKIP))
+            .addRange(dev.highlights.montage.CaptureRange(ref.capture, dev.highlights.core.model.TimeRange(detected + 1.seconds, detected + 1.6.seconds), dev.highlights.montage.RangeKind.KEEP))
         timing.nearest(detected) shouldBe 5
         timing.chosen shouldBe frames[8].at
         KillTimingUi.signedMs((-17).milliseconds) shouldBe "−17"
         for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
             I18n.withLanguage(tag) {
-                val image = SceneRendering.image(1320, 820) {
+                val image = SceneRendering.image(1320, 1060) {
                     HighlightsTheme {
-                        MontagePlanContent(MontageConstraints.NONE.anchor(ref, frames[8].at), MontagePlanState(loading = false, view = view, timing = timing), noop)
+                        MontagePlanContent(markers, MontagePlanState(loading = false, view = view, timing = timing.copy(sectionStart = detected + 900.milliseconds)), noop)
                     }
                 }
                 val file: Path = out.resolve("${folder}montage_kill_timing.png")
@@ -217,5 +232,169 @@ class MontageTimelineTest : FunSpec({
                 file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
             }
         }
+    }
+    test("outil de la drop : forme d'onde, curseur, temps détectés et drop posée (build/ui-snapshots/montage_music_drop*.png)") {
+        val out = Path("build", "ui-snapshots").createDirectories()
+        // Forme d'onde de synthèse : calme, silence d'un demi-temps, puis la drop forte sur chaque temps (126 BPM).
+        val beats = (0 until 480).map { (it * 476).milliseconds }
+        fun level(t: Double) = if (t < 30.5) 0.25 + 0.1 * sin(t * 13) else if (t < 30.52) 0.02 else 0.9 - 0.3 * ((t - 30.523) % 0.476) / 0.476
+        val overview = (0 until MusicDropUi.OVERVIEW_BUCKETS).map { i -> level(i * 228.0 / MusicDropUi.OVERVIEW_BUCKETS).toFloat() }
+        val cursor = 30.523.seconds
+        val base = MusicDropUi(Path("D:/Musique/Rome Is Burning.mp3"), cursor, loading = false, duration = 228.seconds, overview = overview, beats = beats, detected = 31.474.seconds)
+        val detail = (0 until MusicDropUi.DETAIL_BUCKETS).map { i -> level(base.detailStart.inWholeMilliseconds / 1000.0 + i * 6.0 / MusicDropUi.DETAIL_BUCKETS).toFloat() }
+        val drop = base.copy(detail = detail, byHand = 30.523.seconds, playing = true, playhead = 29.9.seconds)
+        drop.detailStart shouldBe 27.523.seconds
+        drop.offsetFromDetected shouldBe "−951"
+        val view = PlanView(
+            music = "Rome Is Burning.mp3", bpm = 126.0, musicStart = 17.182.seconds, duration = 12.seconds, beats = (0 until 24).map { (it * 476).milliseconds },
+            energy = (0 until 24).map { 0.4 + 0.5 * (it % 4 == 0).compareTo(false) }, sections = listOf(PlanSection(0.seconds, 12.seconds, SectionKind.DROP, 1.0)), dropAt = 6.seconds,
+            clips = listOf(PlanClip(group(900.0), 0.seconds, 12.seconds, emptyList(), true)), left = emptyList(), musicPath = Path("D:/Musique/Rome Is Burning.mp3"), dropByHand = true,
+        )
+        for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
+            I18n.withLanguage(tag) {
+                val image = SceneRendering.image(1320, 760) {
+                    HighlightsTheme { MontagePlanContent(MontageConstraints.NONE, MontagePlanState(loading = false, view = view, drop = drop), noop) }
+                }
+                val file: Path = out.resolve("${folder}montage_music_drop.png")
+                file.parent.createDirectories()
+                file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            }
+        }
+    }
+
+    test("outil de la drop : ±10 ms, ±1 temps, saisie m:ss.mmm, sans morceau chargé ni sortie son") {
+        val state = kotlinx.coroutines.flow.MutableStateFlow(
+            UiState(montage = MontageUiState(plan = MontagePlanState(loading = false, drop = MusicDropUi(Path("rome.mp3"), 30.seconds, loading = false, duration = 200.seconds, beats = (0 until 400).map { (it * 476).milliseconds })))),
+        )
+        val c = MusicDropController(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), state, { null }, {}, sinks = { null })
+        fun d() = state.value.montage!!.plan!!.drop!!
+        c.step(10)
+        d().cursor shouldBe 30.01.seconds
+        d().text shouldBe "0:30.010"
+        c.stepBeat(1)
+        d().cursor shouldBe 30.464.seconds
+        c.stepBeat(-1)
+        d().cursor shouldBe 29.988.seconds
+        c.text("0:30.523")
+        d().cursor shouldBe 30.523.seconds
+        d().textError shouldBe false
+        c.text("0:3x")
+        d().textError shouldBe true
+        d().cursor shouldBe 30.523.seconds
+        // Sans son chargé, écouter ne fait rien (et ne plante pas).
+        c.play(true)
+        d().playing shouldBe false
+        c.close()
+        state.value.montage!!.plan!!.drop shouldBe null
+    }
+    test("Kill ici : pas d'une image ou de 10 ms, saisie de l'instant, borné à ±1 s de la détection, sans lecteur") {
+        val detected = 1210.seconds
+        val ref = KillRef.of(media, detected)
+        val frames = (0 until 61).map { i -> dev.highlights.montage.KillFrame(detected - 500.milliseconds + (i * 1000 / 60).milliseconds, Path("k_$i.jpg")) }
+        val state = kotlinx.coroutines.flow.MutableStateFlow(
+            UiState(montage = MontageUiState(plan = MontagePlanState(loading = false, timing = KillTimingUi(ref, media, current = detected, frames = frames, loading = false, selected = 30, cursor = detected)))),
+        )
+        val c = KillTimingController(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), state, { null }, {}, {})
+        fun t() = state.value.montage!!.plan!!.timing!!
+        c.step(1)
+        t().chosen shouldBe frames[31].at
+        t().selected shouldBe 31
+        c.stepMs(10)
+        t().chosen shouldBe frames[31].at + 10.milliseconds
+        t().text shouldBe KillRef.precise(frames[31].at + 10.milliseconds)
+        // Hors d'une image : un pas d'image depuis le curseur, l'image montrée reste la plus proche.
+        c.step(-1)
+        t().chosen shouldBe frames[31].at + 10.milliseconds - t().frameStep
+        c.pick(10)
+        t().chosen shouldBe frames[10].at
+        c.text("20:10.250")
+        t().chosen shouldBe 1210.25.seconds
+        t().textError shouldBe false
+        c.text("20:1x")
+        t().textError shouldBe true
+        // Au-delà de ±1 s de la détection : le curseur y va (pour les autres repères), « Kill ici » n'y est pas possible.
+        c.seek(1215.0)
+        t().chosen shouldBe 1215.seconds
+        t().killHereAllowed shouldBe false
+        c.apply()
+        state.value.montage!!.plan!!.timing shouldNotBe null
+        c.play(true)
+        t().playing shouldBe false
+        c.close()
+        state.value.montage!!.plan!!.timing shouldBe null
+    }
+    test("repères : couper ici et sections posés au curseur deviennent des contraintes, la frise les retire") {
+        val detected = 1210.seconds
+        val ref = KillRef.of(media, detected)
+        val state = kotlinx.coroutines.flow.MutableStateFlow(
+            UiState(montage = MontageUiState(plan = MontagePlanState(loading = false, timing = KillTimingUi(ref, media, current = detected, loading = false, cursor = detected)))),
+        )
+        var replans = 0
+        val c = KillTimingController(
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), state, { null },
+            { change -> state.value = state.value.copy(montage = state.value.montage?.let(change)) }, { replans++ },
+        )
+        fun constraints() = state.value.montage!!.constraints
+        c.seek(1208.5)
+        c.markCut(start = true)
+        c.seek(1211.4)
+        c.markCut(start = false)
+        constraints().cuts[ref] shouldBe dev.highlights.montage.ClipCut(1208.5.seconds, 1211.4.seconds)
+        c.seek(1205.0)
+        c.markSectionStart()
+        state.value.montage!!.plan!!.timing!!.sectionStart shouldBe 1205.seconds
+        c.seek(1203.0)
+        c.markSectionEnd(keep = false)
+        constraints().ranges.single() shouldBe dev.highlights.montage.CaptureRange(ref.capture, dev.highlights.core.model.TimeRange(1203.seconds, 1205.seconds), dev.highlights.montage.RangeKind.SKIP)
+        state.value.montage!!.plan!!.timing!!.sectionStart shouldBe null
+        replans shouldBe 3
+        // Le panneau reste ouvert pour d'autres repères.
+        state.value.montage!!.plan!!.timing shouldNotBe null
+        constraints().clearCut(ref, start = true).cuts[ref] shouldBe dev.highlights.montage.ClipCut(null, 1211.4.seconds)
+        constraints().removeRange(0).ranges shouldBe emptyList()
+    }
+    test("kill sur ce moment de la musique : l'outil du morceau ouvert pour un kill l'épingle à l'instant exact du curseur (build/ui-snapshots/montage_kill_on_music*.png)") {
+        val out = Path("build", "ui-snapshots").createDirectories()
+        val g = group(900.0)
+        val view = PlanView(
+            music = "Rome Is Burning.mp3", bpm = 126.0, musicStart = 17.seconds, duration = 12.seconds, beats = (0 until 24).map { (it * 476).milliseconds },
+            energy = (0 until 24).map { 0.5 }, sections = listOf(PlanSection(0.seconds, 12.seconds, SectionKind.DROP, 1.0)), dropAt = 4.seconds,
+            clips = listOf(PlanClip(g, 0.seconds, 4.seconds, listOf(PlanKill(2.5.seconds, g.refs.last())), false)), left = emptyList(),
+            musicPath = Path("D:/Musique/Rome Is Burning.mp3"),
+        )
+        val state = kotlinx.coroutines.flow.MutableStateFlow(UiState(montage = MontageUiState(plan = MontagePlanState(loading = false, view = view))))
+        var replans = 0
+        val c = MusicDropController(
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), state, { null }, { replans++ }, sinks = { null },
+            updateMontage = { change -> state.value = state.value.copy(montage = state.value.montage?.let(change)) },
+        )
+        c.openForKill(g.refs.last().toString())
+        val d = state.value.montage!!.plan!!.drop!!
+        d.target shouldBe g.refs.last()
+        // Le curseur part de là où le kill tombe aujourd'hui dans le morceau : début du passage + place dans le montage.
+        d.cursor shouldBe 19.5.seconds
+        d.targetAt shouldBe 19.5.seconds
+        c.text("0:19.623")
+        // Capture : l'outil en mode « kill », forme d'onde de synthèse.
+        val wave = (0 until MusicDropUi.OVERVIEW_BUCKETS).map { i -> (0.3 + 0.6 * ((i * 7) % 11) / 11.0).toFloat() }
+        val shown = state.value.montage!!.plan!!.copy(drop = state.value.montage!!.plan!!.drop!!.copy(loading = false, duration = 228.seconds, overview = wave, detail = wave.take(MusicDropUi.DETAIL_BUCKETS), beats = (0 until 480).map { (it * 476).milliseconds }))
+        for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
+            I18n.withLanguage(tag) {
+                val image = SceneRendering.image(1320, 700) { HighlightsTheme { MontagePlanContent(MontageConstraints.NONE, shown, noop) } }
+                val file: Path = out.resolve("${folder}montage_kill_on_music.png")
+                file.parent.createDirectories()
+                file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            }
+        }
+        c.confirm()
+        state.value.montage!!.constraints.pins shouldBe mapOf(g.refs.last() to MontagePin.At(19.623.seconds))
+        state.value.montage!!.plan!!.drop shouldBe null
+        replans shouldBe 1
+        // Revenir au placement auto : l'épingle part.
+        c.openForKill(g.refs.last().toString())
+        state.value.montage!!.plan!!.drop!!.pinned shouldBe true
+        state.value.montage!!.plan!!.drop!!.cursor shouldBe 19.623.seconds
+        c.clear()
+        state.value.montage!!.constraints.pins shouldBe emptyMap()
     }
 })

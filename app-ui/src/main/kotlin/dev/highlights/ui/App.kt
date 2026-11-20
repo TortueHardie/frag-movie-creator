@@ -116,7 +116,11 @@ fun App(state: UiState, actions: UiActions) {
         state.quitConfirm?.let { QuitDialog(it, actions) }
         state.variants?.let { VariantsWindow(it, state.job != null, actions) }
         state.player?.let { p -> actions.videoPlayer?.let { dev.highlights.ui.player.VideoPlayerWindow(p, it, actions) } }
-        state.montage?.let { m -> m.plan?.let { MontagePlanWindow(m, it, actions) } }
+        state.montage?.let { m ->
+            // L'éditeur sur la musique partage le plan de la frise : l'un ou l'autre.
+            val editor = m.editor
+            if (editor != null) MusicMontageWindow(m, editor, actions) else m.plan?.let { MontagePlanWindow(m, it, actions) }
+        }
         state.publish?.let { PublishDialog(it, actions) }
         state.error?.let { ErrorDialog(it, actions) }
         state.memoryWarning?.let { MemoryDialog(it, actions) }

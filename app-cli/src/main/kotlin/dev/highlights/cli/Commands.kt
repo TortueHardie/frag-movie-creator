@@ -39,6 +39,15 @@ import dev.highlights.core.serialization.toTimecode
 import dev.highlights.core.session.SessionStore
 import dev.highlights.export.ExportResult
 import dev.highlights.ffmpeg.FfmpegEncoderSelector
+import dev.highlights.montage.DropTime
+import dev.highlights.montage.MusicIntents
+import dev.highlights.montage.ExtraMarks
+import dev.highlights.montage.IntentRange
+import dev.highlights.montage.IntentMark
+import dev.highlights.montage.IntentKind
+import dev.highlights.montage.RangeKind
+import dev.highlights.montage.CaptureRange
+import dev.highlights.montage.ClipCut
 import dev.highlights.montage.CutGrid
 import dev.highlights.montage.MontageChoiceRecord
 import dev.highlights.montage.KillRef
@@ -326,6 +335,58 @@ class MontageCommand : PipelineCommand("montage") {
         val (kill, value) = text.substringBeforeLast('=') to text.substringAfterLast('=', "").trim()
         killRef(kill) to (signedDuration(value) ?: throw BadParameterValue("décalage invalide dans '$text' (attendu « capture@instant=+30ms » ou « -0.05s »)"))
     }.multiple()
+    private val dropAt by option(
+        "--drop-at",
+        help = "Instant de la drop dans la musique, posé à la main (« 0:30.523 ») : il remplace la drop détectée et reste retenu pour ce morceau " +
+            "aux montages suivants ; « auto » l'oublie (la détection reprend la main)",
+    ).convert { text ->
+        if (text.trim().equals("auto", ignoreCase = true)) DropAtChoice(null)
+        else DropAtChoice(DropTime.parse(text) ?: throw BadParameterValue("instant invalide '$text' (attendu « 1:23.456 » ou « auto »)"))
+    }
+    private val cut by option(
+        "--cut",
+        help = "« Couper ici » : début et/ou fin du plan d'un kill dans sa capture, « capture@instant=31:40.2..31:42.9 » (« =31:40.2.. » ou « =..31:42.9 » pour un seul bord) ; le plan garde sa longueur (ralenti ou accéléré ×2 au plus) ; répétable",
+    ).convert { text ->
+        val (kill, value) = text.substringBeforeLast('=') to text.substringAfterLast('=', "")
+        val parts = value.split("..")
+        fun at(s: String) = s.trim().takeIf { it.isNotEmpty() }?.let { Durations.parseOrNull(it) ?: throw BadParameterValue("instant invalide '$it' dans '$text'") }
+        if (parts.size != 2 || (parts[0].isBlank() && parts[1].isBlank())) throw BadParameterValue("coupe invalide '$text' (attendu « capture@instant=début..fin »)")
+        killRef(kill) to ClipCut(at(parts[0]), at(parts[1]))
+    }.multiple()
+    private val skip by option("--skip", help = "« Section sans kill » : passage jamais montré, « capture@1:02.5..1:10 » ; un kill détecté dedans est écarté ; répétable")
+        .convert { runCatching { CaptureRange.parse(it, RangeKind.SKIP) }.getOrElse { e -> throw BadParameterValue(e.localizedMessage ?: it) } }.multiple()
+    private val keep by option("--keep", help = "« Section à garder entière » : un plan qui en montre une partie la montre toute, « capture@1:02.5..1:04 » ; répétable")
+        .convert { runCatching { CaptureRange.parse(it, RangeKind.KEEP) }.getOrElse { e -> throw BadParameterValue(e.localizedMessage ?: it) } }.multiple()
+    private val killAt by option(
+        "--kill-at",
+        help = "Montage sur la musique : pose un kill à un instant du morceau, « capture@instant=0:31.200 » ; répétable. Les kills posés sont TOUS ceux du montage, les plans se construisent autour (deux kills proches : un plan court, jamais d'erreur)",
+    ).convert { text ->
+        val (kill, value) = text.substringBeforeLast('=') to text.substringAfterLast('=', "")
+        killRef(kill) to (DropTime.parse(value) ?: Durations.parseOrNull(value) ?: throw BadParameterValue("instant invalide dans '$text' (attendu « capture@instant=0:31.200 »)"))
+    }.multiple()
+    private val mark by option(
+        "--mark",
+        help = "Montage sur la musique, étape 1 : un repère sur un instant du morceau, « kill@0:31.200 », multi@…, cut@…, slow@…, transition@… ; répétable. " +
+            "Ne dit pas quel kill : l'étape 2 met les meilleurs sur la drop et les repères forts, un multi-kill sur des repères rapprochés",
+    ).convert { text ->
+        val kind = IntentKind.entries.firstOrNull { it.name.equals(text.substringBefore('@').trim(), ignoreCase = true) }
+            ?: throw BadParameterValue("sorte de repère inconnue dans '$text' (kill, multi, cut, slow, transition)")
+        val value = text.substringAfter('@', "")
+        kind to (DropTime.parse(value) ?: Durations.parseOrNull(value) ?: throw BadParameterValue("instant invalide dans '$text' (attendu « kill@0:31.200 »)"))
+    }.multiple()
+    private val showcaseAt by option("--showcase-at", help = "Montage sur la musique : plage de la vitrine sur le morceau, « 0:22.900..0:24.810 »").convert { text ->
+        val parts = text.split("..")
+        fun at(v: String) = DropTime.parse(v.trim()) ?: Durations.parseOrNull(v.trim()) ?: throw BadParameterValue("instant invalide dans '$text' (attendu « 0:22.900..0:24.810 »)")
+        if (parts.size != 2) throw BadParameterValue("plage invalide '$text' (attendu « 0:22.900..0:24.810 »)")
+        IntentRange(at(parts[0]), at(parts[1]), byHand = true)
+    }
+    private val extraMarks by option("--extra-marks", help = "Repères « kill » en trop (plus que de kills) : showcase (plans de vitrine, défaut) ou empty (laissés vides)")
+        .choice("showcase" to ExtraMarks.SHOWCASE, "empty" to ExtraMarks.EMPTY)
+    private val putKill by option("--put", help = "Montage sur la musique, étape 2 : met un kill sur le repère « kill » numéro N (dans l'ordre du morceau), « 3=capture@7:00.000 » ; répétable")
+        .convert { text ->
+            val n = text.substringBefore('=').trim().toIntOrNull() ?: throw BadParameterValue("numéro de repère invalide dans '$text' (attendu « 3=capture@7:00.000 »)")
+            n to killRef(text.substringAfter('='))
+        }.multiple()
     private val planOnly by option("--plan", help = "Affiche le plan sans rendre : la place de chaque kill et sa désignation pour --exclude, --force, --drop, --pin").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
     private val thumbnail by thumbnailFlag()
@@ -355,6 +416,11 @@ class MontageCommand : PipelineCommand("montage") {
     override fun run() {
         if (variants != null && pick != null) throw UsageError("--variants et --pick vont chacun dans leur commande : d'abord les aperçus, puis le choix")
         if (variantsFile != null && pick == null) throw UsageError("--variants-file ne sert qu'avec --pick")
+        dropAt?.let { choice ->
+            if (music.isDirectory()) throw UsageError("--drop-at vise une musique, pas un dossier de musiques")
+            execute { Pipelines.create(env.config).setMusicDrop(music, choice.at) }
+            echo(choice.at?.let { "  drop de ${music.fileName} posée à ${DropTime.format(it)} (retenue pour ce morceau)" } ?: "  drop de ${music.fileName} : détection")
+        }
         val progress = ConsoleProgress()
         val constraints = constraints()
         if (planOnly) {
@@ -472,7 +538,23 @@ class MontageCommand : PipelineCommand("montage") {
         pins = pin.toMap() + listOfNotNull(drop?.let { it to MontagePin.Drop }),
         anchors = anchor.toMap(),
         beatShifts = beatShift.toMap(),
+        cuts = cut.groupBy({ it.first }, { it.second }).mapValues { (_, list) -> list.reduce { a, b -> a.with(b) } },
+        ranges = skip + keep,
+        layout = killAt.toMap().takeIf { it.isNotEmpty() },
+        intents = intents(),
     )
+
+    /** Repères de l'étape 1 (--mark, --showcase-at, --extra-marks) et kills mis sur un repère (--put) ; null sans repère. */
+    internal fun intents(): MusicIntents? {
+        if (mark.isEmpty()) return null
+        val marks = mark.sortedBy { it.second }.mapIndexed { i, (kind, at) -> IntentMark(i + 1, kind, at, byHand = true) }
+        val killMarks = marks.filter { it.kind.takesKill }
+        val fixed = putKill.associate { (n, ref) ->
+            val m = killMarks.getOrNull(n - 1) ?: throw BadParameterValue("--put $n : il n'y a que ${killMarks.size} repère(s) « kill »")
+            m.id to ref
+        }
+        return MusicIntents(marks, showcaseAt, extraMarks ?: ExtraMarks.SHOWCASE, fixed)
+    }
 
     /** Style par défaut de `montage-styles.yaml` (lu dans la configuration : à part, pour que [montageOptions] reste pure). */
     private fun defaultStyle(): String? = env.config.loadMontageStyles().default
@@ -539,6 +621,9 @@ class MontageCommand : PipelineCommand("montage") {
         return presetted.copy(style = if (style == "none") null else presetted.style ?: defaultStyle)
     }
 }
+
+/** Valeur de `--drop-at` : un instant, ou null pour « auto » (oublier la drop posée). */
+data class DropAtChoice(val at: kotlin.time.Duration?)
 
 class MusicCommand : PipelineCommand("music") {
     private val file by argument("MUSIQUE", help = "Fichier audio (mp3, wav, flac…), ou dossier de musiques à analyser d'avance").path(mustExist = true)
