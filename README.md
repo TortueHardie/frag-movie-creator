@@ -353,8 +353,9 @@ meilleurs moments ne sont plus posés bout à bout : chacun est remonté comme l
   `false` l'interdit. Sur le son complet, les répliques du jeu (`story.captions.ignore`, liste du profil VALORANT) sont
   écartées avec toute leur phrase, et un texte redit d'un moment à l'autre aussi.
   Partout : les descriptions de sons (« \*Bruit de feu\* »), les textes sans lettre (« ... », « 501 ») et un même texte
-  redit en moins de 10 s (boucle de whisper) sautent. Un sous-titre ne reste pas affiché après la fin de la parole
-  détectée, sauf le temps de le lire, et 3 s au plus ; un segment de whisper étiré sur plus de 8 s est ramené à la
+  redit en moins de 10 s (boucle de whisper) sautent. Un sous-titre s'efface avec la voix détectée (fin de la parole
+  + 250 ms), 3 s au plus ; un morceau devenu trop court pour être lu est fusionné avec le précédent quand ils se
+  suivent (« du » + « bâtiment. ») ; un segment de whisper étiré sur plus de 8 s est ramené à la
   parole qu'il recouvre (« Essaye de ping » : 14 s → 2 s) au lieu d'être jeté.
 - Son adouci à chaque coupe, fondu au noir final, normalisation EBU R128.
 

@@ -181,26 +181,75 @@ object Captions {
      * (à peu près le temps de prononcer la phrase, si bien que le décalage ne s'accumule pas), et au plus
      * [MAX_SHOWN] (ou son temps de lecture, s'il est plus long).
      *
-     * Avec la parole détectée ([speech]), un sous-titre ne reste pas affiché après elle : il s'efface [SPEECH_TAIL]
-     * après la fin de la dernière prise de parole qu'il recouvre, sauf s'il lui faut plus pour être lu (phrase dite
-     * plus vite qu'elle ne se lit : « bâtiment. » 0,4 s après la fin de la phrase, micro WARDOGS). Borner à la parole
-     * sans ce plancher laissait 0,4 s aux derniers morceaux d'une phrase rapide ; les poser chacun à son instant, 0,6 s
-     * pour lire « de ce côté-là du ».
+     * Avec la parole détectée ([speech]), chaque sous-titre apparaît quand il est dit, reste jusqu'au suivant et
+     * s'efface avec la voix : [SPEECH_TAIL] après la fin de la dernière prise de parole qu'il recouvre, même s'il n'a
+     * pas eu son temps de lecture (choix du joueur : le texte ne déborde pas sur le silence). Mis à la file, une phrase
+     * rapide prenait du retard et ses derniers morceaux tombaient après la fin de la voix (« gens, là. », micro WARDOGS).
+     * Un morceau trop court pour être lu est fusionné ([merged]) avec le précédent, sinon avec le suivant.
      */
     fun readable(captions: List<Caption>, speech: List<TimeRange> = emptyList()): List<Caption> {
-        var cursor = Duration.ZERO
-        return captions.sortedBy { it.range.start }.map { c ->
-            val start = maxOf(c.range.start, cursor)
-            val read = MIN_READ + PER_CHAR * c.text.length
-            var end = minOf(maxOf(c.range.end, start + read), start + maxOf(MAX_SHOWN, read))
-            val probe = TimeRange(c.range.start - SPEECH_SLACK, maxOf(c.range.end, c.range.start + MIN_OVERLAP) + SPEECH_SLACK)
-            speech.filter { it.isWithin(probe) }.maxOfOrNull { it.end }?.let { spoken ->
-                end = minOf(end, maxOf(spoken + SPEECH_TAIL, start + read))
+        val sorted = captions.sortedBy { it.range.start }
+        if (speech.isEmpty()) {
+            var cursor = Duration.ZERO
+            return sorted.map { c ->
+                val start = maxOf(c.range.start, cursor)
+                val read = readTime(c.text)
+                val end = minOf(maxOf(c.range.end, start + read), start + maxOf(MAX_SHOWN, read))
+                cursor = end
+                c.copy(range = TimeRange(start, end))
             }
-            cursor = end
-            c.copy(range = TimeRange(start, end))
         }
+        val timed = sorted.mapIndexed { i, c ->
+            val start = c.range.start
+            val read = readTime(c.text)
+            var end = minOf(maxOf(c.range.end, start + read), start + MAX_SHOWN)
+            sorted.getOrNull(i + 1)?.let { next -> end = minOf(end, next.range.start) }
+            val probe = TimeRange(c.range.start - SPEECH_SLACK, maxOf(c.range.end, c.range.start + MIN_OVERLAP) + SPEECH_SLACK)
+            speech.filter { it.isWithin(probe) }.maxOfOrNull { it.end }?.let { spoken -> end = minOf(end, spoken + SPEECH_TAIL) }
+            c.copy(range = TimeRange(start, maxOf(start, end)))
+        }
+        return merged(timed)
     }
+
+    /**
+     * Fusionne les morceaux trop courts pour être lus (moins que leur temps de lecture) avec un voisin qui les suit sans
+     * pause ([SENTENCE_GAP]) dans la même phrase, si le texte réuni tient en [MERGE_MAX_CHARS] caractères : d'abord avec
+     * le précédent, puis avec le suivant. « En vrai, recule, » (0,1 s) + « recule, recule. » puis « Il y a trop de » +
+     * « gens, là. » : deux sous-titres de 1,6 s et 0,8 s au lieu de 0,1 / 1,5 / 0,8 s (micro WARDOGS). Un morceau de durée nulle (deux
+     * segments de whisper au même instant) est réuni à un voisin même au-delà de [MERGE_MAX_CHARS] : aucun texte perdu.
+     */
+    private fun merged(timed: List<Caption>): List<Caption> {
+        // Jamais par-dessus la fin d'une phrase : « recule, recule. Il y a trop de » se lit mal.
+        fun joinable(a: Caption, b: Caption, force: Boolean) = a.loud == b.loud && b.range.start - a.range.end <= SENTENCE_GAP &&
+            (force || (a.text.trim().lastOrNull() !in SENTENCE_END && a.text.length + 1 + b.text.length <= MERGE_MAX_CHARS))
+        fun join(a: Caption, b: Caption) = a.copy(range = TimeRange(a.range.start, maxOf(a.range.end, b.range.end)), text = "${a.text} ${b.text}")
+        fun short(c: Caption) = c.range.length < readTime(c.text)
+
+        val backward = mutableListOf<Caption>()
+        for (c in timed) {
+            val previous = backward.lastOrNull()
+            if (previous != null && short(c) && joinable(previous, c, force = c.range.length <= Duration.ZERO)) backward[backward.lastIndex] = join(previous, c)
+            else backward += c
+        }
+        val result = mutableListOf<Caption>()
+        var i = 0
+        while (i < backward.size) {
+            var c = backward[i]
+            while (i + 1 < backward.size && short(c) && joinable(c, backward[i + 1], force = c.range.length <= Duration.ZERO)) c = join(c, backward[++i])
+            if (c.range.length > Duration.ZERO) result += c
+            i++
+        }
+        return result
+    }
+
+    /** Temps qu'il faut pour lire [text] : [MIN_READ] plus un temps par caractère. */
+    private fun readTime(text: String): Duration = MIN_READ + PER_CHAR * text.length
+
+    /**
+     * Longueur au-delà de laquelle deux morceaux ne sont pas fusionnés : le sous-titre tient sur une ligne, dont la
+     * police rapetisse pour entrer dans le cadre ; au-delà de deux morceaux de whisper (`maxChars` 18), il devient petit.
+     */
+    private const val MERGE_MAX_CHARS = 36
 
     private fun overlap(a: TimeRange, b: TimeRange): TimeRange? {
         val from = maxOf(a.start, b.start)
