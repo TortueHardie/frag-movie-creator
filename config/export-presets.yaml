@@ -7,7 +7,8 @@
 #   platform        plateforme visée (tiktok, shorts, reels, youtube, ou une plateforme d'app.yaml) : impose le format,
 #                   le volume, le débit, la zone sûre des textes, et sa durée maximale sert de plafond ;
 #   format          format sans plateforme : source, "16:9" ou "9:16" (pas avec platform) ;
-#   length          durée visée (30s, 1m30s…) : durée cible des highlights, durée maximale du montage kills ;
+#   length          durée maximale (30s, 1m30s…) : durée cible des highlights (les jump cuts la raccourcissent, c'est
+#                   voulu), durée maximale du montage kills ;
 #   highlightsStyle montage des highlights : simple ou story ;
 #   montageStyle    style du montage kills (identifiant de montage-styles.yaml) ;
 #   thumbnail       miniature YouTube à côté de chaque vidéo (true / false).
@@ -15,33 +16,32 @@
 # description ci-dessous. On peut en ajouter, en retirer ou les modifier.
 
 presets:
-  # Vidéo verticale courte, rythmée : un kill par temps de musique. TikTok choisit la couverture dans l'application
-  # au moment de publier : pas de miniature.
+  # Vidéo verticale courte, rythmée : un kill par temps de musique. La durée est un maximum (plus court, c'est bien).
   - id: tiktok
     displayName: TikTok
-    description: Vertical 9:16, 30 seconds, one kill on every beat. No thumbnail (TikTok picks the cover when you post).
+    description: Vertical 9:16, up to 30 seconds, one kill on every beat, with a thumbnail.
     platform: tiktok
     length: 30s
     highlightsStyle: story
     montageStyle: tiktok
-    thumbnail: false
+    thumbnail: true
 
-  # Short YouTube : vertical, un peu plus long, montage qui monte jusqu'au meilleur kill. YouTube ne prend pas de
-  # miniature envoyée pour un Short : pas de miniature.
+  # Short YouTube : vertical, un peu plus long, montage qui monte jusqu'au meilleur kill.
   - id: shorts
     displayName: YouTube Short
-    description: Vertical 9:16, up to 60 seconds, building up to the best kill. No thumbnail (Shorts don't take uploaded ones).
+    description: Vertical 9:16, up to 60 seconds, building up to the best kill, with a thumbnail.
     platform: shorts
     length: 60s
     highlightsStyle: story
     montageStyle: cinematique
-    thumbnail: false
+    thumbnail: true
 
-  # Vidéo YouTube classique : en largeur, plus longue, avec sa miniature.
+  # Vidéo YouTube classique, plus longue, avec sa miniature, au format de la capture : une capture 21:9 reste en 21:9
+  # (choix du joueur : pas de bandes noires ajoutées par un 16:9 imposé).
   - id: complet
     displayName: Full video
-    description: Widescreen 16:9, up to 3 minutes, with a YouTube thumbnail.
-    format: "16:9"
+    description: Same format as your capture (21:9 stays 21:9), up to 3 minutes, with a YouTube thumbnail.
+    format: source
     length: 3m
     highlightsStyle: story
     montageStyle: cinematique

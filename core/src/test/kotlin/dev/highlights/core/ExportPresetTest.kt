@@ -25,15 +25,16 @@ class ExportPresetTest : FunSpec({
             p.platform shouldBe "tiktok"
             p.length shouldBe 30.seconds
             p.montageStyle shouldBe "tiktok"
-            p.thumbnail shouldBe false
+            p.thumbnail shouldBe true
         }
         presets.byId("complet")!!.let { p ->
             p.platform shouldBe null
-            p.format shouldBe OutputFormat.LANDSCAPE
+            p.format shouldBe OutputFormat.SOURCE
             p.length shouldBe 3.minutes
             p.highlightsStyle shouldBe EditStyle.STORY
             p.thumbnail shouldBe true
         }
+        presets.byId("shorts")!!.thumbnail shouldBe true
         I18n.available().forEach { lang ->
             I18n.withLanguage(lang.tag) {
                 presets.presets.forEach { p ->
