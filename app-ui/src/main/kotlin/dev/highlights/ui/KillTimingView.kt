@@ -199,6 +199,7 @@ internal class KillTimingController(
         val t = timing ?: return
         updateMontage { m -> m.copy(constraints = m.constraints.exclude(t.ref)) }
         close()
+        replan()
     }
 
     fun close() {
@@ -208,9 +209,10 @@ internal class KillTimingController(
 }
 
 /**
- * Panneau du calage, sous la frise : la bande des images (la détection marquée), l'image choisie en grand avec un
- * zoom sur le réticule (là où se lit l'impact), les flèches pour avancer d'une image, le décalage du temps, puis
- * appliquer (le plan est recalculé aussitôt), revenir à la détection ou écarter le kill.
+ * Panneau du calage, sous la frise : la bande des images (la détection marquée), l'image choisie entière et en grand,
+ * les flèches pour avancer d'une image, le décalage du temps, puis appliquer (le plan est recalculé aussitôt), revenir
+ * à la détection ou écarter le kill. Pas de zoom sur le réticule : l'utilisateur préfère l'image entière plus grande
+ * (20/11), le kill se juge à l'ennemi et à l'éclair du tir autant qu'au centre.
  */
 @Composable
 fun KillTimingPanel(t: KillTimingUi, actions: UiActions, modifier: Modifier = Modifier) {
@@ -251,18 +253,10 @@ fun KillTimingPanel(t: KillTimingUi, actions: UiActions, modifier: Modifier = Mo
             if (t.frames.isEmpty()) return@Column
             val frame = t.frames[t.selected.coerceIn(0, t.frames.lastIndex)]
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-                // L'image choisie, entière, puis le réticule agrandi : c'est là que l'impact se lit.
+                // L'image choisie, entière : 640 dp de large, une capture 21:9 y tient sur 274 dp de haut.
                 val image = rememberImage(frame.file)
-                Box(Modifier.height(190.dp).width(338.dp).clip(RoundedCornerShape(6.dp)).background(Palette.surfaceHigh)) {
+                Box(Modifier.height(300.dp).width(640.dp).clip(RoundedCornerShape(6.dp)).background(Palette.surfaceHigh)) {
                     image?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
-                }
-                Box(Modifier.size(190.dp).clip(RoundedCornerShape(6.dp)).background(Palette.surfaceHigh).border(BorderStroke(1.dp, Palette.outline), RoundedCornerShape(6.dp))) {
-                    image?.let {
-                        Image(it, contentDescription = tr("ui.killTiming.zoom"), contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize().graphicsLayer(scaleX = 2.5f, scaleY = 2.5f))
-                    }
-                    Text(tr("ui.killTiming.zoom"), style = MaterialTheme.typography.labelSmall, color = Palette.text,
-                        modifier = Modifier.padding(4.dp).background(Palette.background.copy(alpha = 0.7f), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(

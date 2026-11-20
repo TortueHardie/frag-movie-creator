@@ -96,8 +96,11 @@ class KillFrames(private val ffmpeg: FfmpegService, private val cacheDir: Path) 
     companion object {
         const val VERSION = 1
 
-        /** Assez pour voir le réticule et l'impact dans la frise, sans coût : 60 images de 270 px pèsent ~1 Mo. */
-        const val HEIGHT = 270
+        /**
+         * Hauteur des images lues : 360 px, l'image entière affichée sur 640 dp de large (270 px au départ, avec un zoom
+         * du réticule à part que l'utilisateur a retiré le 20/11). 60 images de 360 px pèsent ~2 Mo.
+         */
+        const val HEIGHT = 360
 
         private val json = Json { ignoreUnknownKeys = true }
         private val PTS = Regex("""pts_time:\s*(-?[0-9.]+)""")

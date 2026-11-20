@@ -627,8 +627,9 @@ plan au lieu de tout relancer à l'aveugle.
   trait blanc et l'instant montrent le temps visé pendant le glisser, le plan est recalculé au lâcher et le kill tombe
   sur ce temps (la tête ronde marque l'épingle). Chaque épingle est rappelée sous la frise ; un clic dessus la retire et
   replanifie. Une épingle impossible (deux groupes sur le même temps, moment de la musique hors du montage) est dite en
-  rouge, le dernier plan reste affiché. **Replanifier** recalcule le plan sans réanalyser (inspection des kills en cache : quelques
-  secondes). « Créer le montage » rend le plan corrigé.
+  rouge, le dernier plan reste affiché. Chaque correction (écarter, forcer, drop, épingle, calage, tout annuler)
+  recalcule le plan aussitôt, sans réanalyser (inspection des kills en cache : quelques secondes) ; **Replanifier**
+  reste pour relancer à la main. « Créer le montage » rend le plan corrigé.
 - **En ligne de commande** : `--plan` affiche le plan sans rendre, avec la désignation de chaque kill
   (`capture@instant`, à une seconde près) ; `--exclude`, `--force` (répétables), `--drop` et `--pin capture@instant=0:42`
   (le kill tombe sur le temps du morceau le plus proche) le corrigent.
@@ -641,7 +642,7 @@ plan au lieu de tout relancer à l'aveugle.
 **Caler un kill à l'image.** La détection (Outplayed, killfeed, compteur de munitions, son du tir) se trompe parfois de
 quelques images, et le temps détecté d'une musique peut lui-même être un peu décalé. Clic sur le trait d'un kill dans
 la frise : toutes les images de la capture une demi-seconde avant et après le kill (instants exacts lus par FFmpeg,
-`showinfo`), l'image choisie en grand avec le réticule agrandi, ← → pour avancer d'une image, Entrée pour appliquer.
+`showinfo`), l'image choisie entière et en grand, ← → pour avancer d'une image, Entrée pour appliquer.
 L'image choisie devient l'instant qui tombe sur le temps (`MontageConstraints.anchors`, refusé à plus d'une seconde de la
 détection). « Kill par rapport au temps » pose le kill une ou plusieurs images après (+) ou avant (−) son temps quand
 c'est le temps qui est décalé (`beatShifts`, ±250 ms au plus) : les coupes restent sur les temps, chaque plan garde sa
@@ -656,8 +657,8 @@ appris un trait blanc. En ligne de commande : `--anchor capture@instant=3:12.483
 **Calages appris.** Chaque montage rendu avec des kills calés note, par kill, sa source de détection (« détecteur/recalage » :
 `game-events/ammo-counter`, `killfeed/kill-confirm`, `…/shot-sound`, `…/event`), l'écart choisi, la musique et le temps
 (`<sortie>\sessions\kill-timing.json` ; un kill recalé remplace sa correction précédente). Deux choses s'apprennent
-(montage.learnTaste) : le retard d'une source par profil (5 calages au moins, écart à la médiane ≤ 40 ms, médiane ≥ 10 ms,
-bornée à ±200 ms) appliqué aux kills de cette source ; et le décalage des temps d'un morceau (2 calages concordants à
+(montage.learnTaste) : le retard d'une source par profil (8 calages au moins, écart à la médiane ≤ 40 ms, médiane ≥ 10 ms,
+bornée à ±200 ms) appliqué aux kills de cette source ; et le décalage des temps d'un morceau (3 calages concordants à
 30 ms près, borné à ±120 ms) appliqué à tous ses plans. Un kill calé à la main n'est jamais déplacé par ce qui est appris.
 Vue « Goûts appris » : carte « Calage des kills » et « Oublier les calages appris » ; `app gouts` les liste,
 `app gouts --reset-timing` les oublie (fichier mis de côté, pas effacé).

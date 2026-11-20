@@ -1109,8 +1109,19 @@ class AppController(
         _state.update { s -> s.copy(montage = s.montage?.copy(plan = null)) }
     }
 
-    override fun editMontageKill(kills: List<String>, edit: KillEdit) =
+    /**
+     * Toute correction replanifie aussitôt, comme l'épingle : l'utilisateur voit l'effet de son clic sans passer par
+     * « Replanifier » (demandé le 20/11 ; le bouton reste pour relancer après une erreur).
+     */
+    override fun editMontageKill(kills: List<String>, edit: KillEdit) {
         updateMontage { it.copy(constraints = it.constraints.edit(kills.map(dev.highlights.montage.KillRef::parse), edit)) }
+        replanIfOpen()
+    }
+
+    /** Replanifie si la frise est ouverte (une correction posée ailleurs n'a pas de plan à rafraîchir). */
+    private fun replanIfOpen() {
+        if (state.value.montage?.plan != null) replanMontage()
+    }
 
     override fun pinMontageKill(kills: List<String>, musicSeconds: Double) {
         val at = (musicSeconds * 1_000_000).roundToLong().microseconds
@@ -1118,7 +1129,10 @@ class AppController(
         replanMontage()
     }
 
-    override fun resetMontagePlan() = updateMontage { it.copy(constraints = dev.highlights.montage.MontageConstraints.NONE) }
+    override fun resetMontagePlan() {
+        updateMontage { it.copy(constraints = dev.highlights.montage.MontageConstraints.NONE) }
+        replanIfOpen()
+    }
 
     private val killTiming = KillTimingController(scope, _state, { backend?.pipeline }, ::updateMontage, ::replanMontage)
     override fun openKillTiming(kill: String) = killTiming.open(kill)

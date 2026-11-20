@@ -304,9 +304,10 @@ private fun clock(d: Duration) = KillRef.clock(d).substringBefore('.')
 
 /**
  * Contenu de la frise (sans fenêtre, pour les captures de test) : en-tête et boutons, la frise, les groupes écartés.
- * Clic sur un plan : l'écarter (ou annuler la correction) ; clic sur un trait de kill : écarter ce kill seul ; clic sur
- * un groupe écarté : le forcer ; glisser un groupe sur la drop : l'y épingler ; sur un autre temps : l'y épingler
- * ([pinAt]) et replanifier aussitôt. [previewDrag] : un glisser figé (groupe, temps visé), pour les captures de test.
+ * Clic sur un plan : l'écarter (ou annuler la correction) ; clic sur un trait de kill : son calage à l'image
+ * ([KillTimingPanel]) ; clic sur un groupe écarté : le forcer ; glisser un groupe sur la drop : l'y épingler ; sur un
+ * autre temps : l'y épingler ([pinAt]). Chaque correction replanifie aussitôt ; « Replanifier » reste pour relancer à
+ * la main (après une erreur). [previewDrag] : un glisser figé (groupe, temps visé), pour les captures de test.
  */
 @Composable
 fun MontagePlanContent(
@@ -363,7 +364,7 @@ fun MontagePlanContent(
                 }
                 TextButton(onClick = actions::resetMontagePlan, enabled = !constraints.isEmpty) { Text(tr("ui.montagePlan.reset")) }
                 val pending = constraints != plan.planned
-                Button(onClick = actions::replanMontage, enabled = !plan.loading && (pending || plan.error != null)) {
+                Button(onClick = actions::replanMontage, enabled = !plan.loading) {
                     Text(if (pending) tr("ui.montagePlan.replanPending") else tr("ui.montagePlan.replan"))
                 }
                 OutlinedButton(onClick = actions::closeMontagePlan) { Text(tr("ui.common.close")) }
@@ -400,7 +401,6 @@ fun MontagePlanContent(
                                 .border(BorderStroke(1.dp, Palette.accent), RoundedCornerShape(12.dp))
                                 .clickable {
                                     actions.editMontageKill(listOf(p.ref.toString()), KillEdit.CLEAR)
-                                    actions.replanMontage()
                                 }
                                 .padding(horizontal = 10.dp, vertical = 4.dp),
                         )
