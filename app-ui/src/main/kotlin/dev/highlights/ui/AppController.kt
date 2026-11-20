@@ -220,6 +220,9 @@ interface UiActions {
     fun removeEditorKill(kill: String) {}
     fun resetEditorAuto() {}
     fun previewEditedMontage() {}
+    /** Étape 1 → 2 : les plans se construisent autour des kills posés ; étape 2 → 1 : revenir aux kills. */
+    fun placeEditorClips() {}
+    fun backEditorToKills() {}
     val killTimingPlayer: dev.highlights.ui.player.VideoPlayer? get() = null
     /** Oublie les calages appris (`kill-timing.json` mis de côté, comme les goûts). */
     fun resetTiming() {}
@@ -1270,6 +1273,8 @@ class AppController(
     override fun dropEditor() = musicEditor.drop()
     override fun removeEditorKill(kill: String) = musicEditor.remove(kill)
     override fun resetEditorAuto() = musicEditor.resetAuto()
+    override fun placeEditorClips() = musicEditor.placeClips()
+    override fun backEditorToKills() = musicEditor.backToKills()
 
     /** Aperçu 360p du montage tel que l'éditeur le montre (une variante, la mieux notée), lu dans le lecteur intégré. */
     override fun previewEditedMontage() {
@@ -1339,6 +1344,7 @@ class AppController(
                 // Pas de rendu : la musique, l'inspection des kills (en cache après le premier plan) et la planification.
                 val view = withContext(Dispatchers.Default) { PlanView.of(p.planKillMontage(session.sessions, music, montageOptions(montage, s), tracker.root)) }
                 updatePlan { it.copy(loading = false, view = view, planned = constraints, error = null) }
+                musicEditor.planned(view)
                 val known = state.value.montage?.plan?.thumbnails.orEmpty()
                 for (g in (view.clips.mapNotNull { it.group } + view.left.take(PLAN_THUMBNAILS)).filter { it.key !in known }) {
                     val image = runCatching { withContext(Dispatchers.IO) { p.thumbnail(g.media, g.kills.last()) } }.getOrNull() ?: continue

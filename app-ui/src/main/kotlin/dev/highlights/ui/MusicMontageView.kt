@@ -96,6 +96,15 @@ import kotlin.time.Duration.Companion.seconds
 /** Section du morceau entier, pour l'éditeur (instants dans le morceau). */
 data class SongSection(val start: Duration, val end: Duration, val kind: SectionKind, val intensity: Double)
 
+/**
+ * Les deux étapes de l'écran (demande du 20/11) : d'abord les kills sur la musique, sans plans ([KILLS]) ; ensuite les
+ * plans construits autour de leurs instants ([CLIPS]).
+ */
+enum class EditorStep { KILLS, CLIPS }
+
+/** Un kill posé sur la musique à l'étape 1 : [key] désigne son groupe (son dernier kill), [at] l'instant du morceau. */
+data class LaidKill(val key: String, val at: Duration)
+
 /** Ce qu'on fait glisser dans l'éditeur : un kill placé ([KILL]), un kill de la liste ([NEW]), la drop ([DROP]). */
 enum class EditorDragKind { KILL, NEW, DROP }
 
@@ -128,6 +137,17 @@ data class MusicEditorUi(
     val selected: String? = null,
     val drag: EditorDrag? = null,
     val magnet: Boolean = true,
+    val step: EditorStep = EditorStep.KILLS,
+    /** Étape 1 : les kills posés (tous ceux du montage) ; null tant que le placement automatique n'est pas arrivé. */
+    val layout: List<LaidKill>? = null,
+    /** Le placement automatique proposé (« tout remettre en auto » y revient). */
+    val auto: List<LaidKill> = emptyList(),
+    /** Tous les groupes de kills des parties (posés ou non), pour la liste et les vignettes. */
+    val groups: List<PlanGroup> = emptyList(),
+    /** Avertissement doux de l'étape 1 (un kill poussé parce que trop proche d'un autre) ; null : aucun. */
+    val notice: dev.highlights.core.i18n.Message? = null,
+    /** La drop du morceau (posée ou détectée), instant du morceau. */
+    val dropAt: Duration? = null,
 ) {
     companion object {
         /** Crêtes du morceau entier : ~20 ms chacune pour un morceau de 4 min, assez fin pour la vue zoomée. */
@@ -170,6 +190,7 @@ internal class MusicEditorController(
     fun open() {
         val montage = state.value.montage ?: return
         val music = montage.music?.takeIf { !montage.useLibrary } ?: return
+        // Étape 1 : on repart du placement automatique, ou des kills déjà posés (rouverture).
         state.update { s -> s.copy(montage = s.montage?.copy(editor = MusicEditorUi(), plan = s.montage.plan ?: MontagePlanState())) }
         replan()
         val p = pipeline() ?: return
@@ -189,6 +210,37 @@ internal class MusicEditorController(
         }
     }
 
+    /**
+     * Un plan est arrivé : les groupes connus pour la liste, et, à la première fois, les kills posés (étape 1) : ceux du
+     * plan automatique, ou ceux déjà posés ([MontageConstraints.layout]).
+     */
+    fun planned(v: PlanView) {
+        val e = editor ?: return
+        val groups = v.clips.mapNotNull { it.group } + v.left
+        val placed = v.clips.mapNotNull { c -> c.group?.let { g -> c.kills.lastOrNull()?.let { LaidKill(g.key, v.musicStart + it.at) } } }
+        val laid = state.value.montage?.constraints?.layout
+        update {
+            it.copy(
+                groups = (groups + it.groups).distinctBy { g -> g.key },
+                layout = it.layout ?: laid?.map { (ref, at) -> LaidKill(ref.toString(), at) }?.sortedBy { k -> k.at } ?: placed,
+                auto = if (laid == null && it.auto.isEmpty()) placed else it.auto,
+            )
+        }
+    }
+
+    /** « Placer les plans » : les kills posés deviennent la contrainte du plan, l'étape 2 montre les plans construits autour. */
+    fun placeClips() {
+        val e = editor ?: return
+        val layout = e.layout ?: return
+        val map = layout.mapNotNull { k -> runCatching { KillRef.parse(k.key) }.getOrNull()?.let { it to k.at } }.toMap()
+        updateMontage { m -> m.copy(constraints = m.constraints.copy(layout = map, pins = emptyMap(), excluded = emptySet(), forced = emptySet())) }
+        update { it.copy(step = EditorStep.CLIPS, selected = null, notice = null, drag = null, from = null, to = null) }
+        replan()
+    }
+
+    /** « Revenir aux kills » : l'étape 1, les kills posés gardés ; replacer les plans refait l'étape 2. */
+    fun backToKills() = update { it.copy(step = EditorStep.KILLS, selected = null, drag = null, from = null, to = null) }
+
     fun close() {
         stopPlayback()
         job?.cancel()
@@ -198,9 +250,10 @@ internal class MusicEditorController(
 
     // ------------------------------------------------------------------ vue
 
-    /** Partie affichée : celle posée, sinon le passage du montage (avec une marge), sinon le morceau entier. */
+    /** Partie affichée : celle posée, sinon (étape 1) le morceau entier, (étape 2) le passage du montage avec une marge. */
     fun window(e: MusicEditorUi = editor ?: MusicEditorUi(), v: PlanView? = view): Pair<Duration, Duration> {
         if (e.from != null && e.to != null) return e.from to e.to
+        if (e.step == EditorStep.KILLS && e.duration.isPositive()) return Duration.ZERO to e.duration
         if (v != null) return (v.musicStart - MusicEditorUi.MARGIN).coerceAtLeast(Duration.ZERO) to (v.musicStart + v.duration + MusicEditorUi.MARGIN).coerceAtMost(e.duration.takeIf { it.isPositive() } ?: (v.musicStart + v.duration + MusicEditorUi.MARGIN))
         return Duration.ZERO to e.duration
     }
@@ -300,6 +353,8 @@ internal class MusicEditorController(
     /** Glisser en cours vers [seconds] (instant du morceau) ; [free] : Alt, sans aimant ; [over] : au-dessus de la musique. */
     fun drag(kind: EditorDragKind, key: String?, seconds: Double, free: Boolean, over: Boolean = true) {
         val e = editor ?: return
+        // Étape 2 : les kills ne bougent plus ici (« Revenir aux kills ») ; seule la drop se déplace encore.
+        if (e.step == EditorStep.CLIPS && kind != EditorDragKind.DROP) return
         val raw = (seconds * 1000).toLong().milliseconds.coerceIn(Duration.ZERO, e.duration.takeIf { it.isPositive() } ?: Duration.INFINITE)
         val (at, snap) = if (kind == EditorDragKind.DROP) snapBeat(e, raw, free) else snap(e, raw, free)
         update { it.copy(drag = EditorDrag(kind, key, at, snap, over)) }
@@ -317,6 +372,15 @@ internal class MusicEditorController(
         val e = editor ?: return
         val d = e.drag ?: return
         update { it.copy(drag = null) }
+        // Étape 1 : rien que les instants des kills, aucun plan, aucun refus ; un kill trop proche est poussé.
+        if (e.step == EditorStep.KILLS && d.kind != EditorDragKind.DROP) {
+            if (!d.over) return
+            val key = d.key ?: return
+            val (layout, notice) = laid(e.layout.orEmpty().filter { it.key != key } + LaidKill(key, d.at), key, e)
+            update { it.copy(layout = layout, selected = key, notice = notice) }
+            listenAround(d.at)
+            return
+        }
         when (d.kind) {
             EditorDragKind.KILL, EditorDragKind.NEW -> {
                 if (!d.over) return
@@ -362,8 +426,40 @@ internal class MusicEditorController(
         return next
     }
 
+    /**
+     * Kills posés après avoir posé [moved] : un autre kill à moins de [MIN_GAP_BEATS] temps (trop proche pour tenir
+     * chacun un plan) est poussé au temps libre le plus proche ; l'avertissement le dit (pas d'erreur).
+     */
+    internal fun laid(layout: List<LaidKill>, moved: String, e: MusicEditorUi): Pair<List<LaidKill>, dev.highlights.core.i18n.Message?> {
+        val beats = e.beats
+        if (beats.isEmpty()) return layout.sortedBy { it.at } to null
+        fun beatOf(t: Duration) = beats.indices.minByOrNull { (beats[it] - t).absoluteValue } ?: 0
+        val fixed = layout.first { it.key == moved }
+        val target = beatOf(fixed.at)
+        var notice: dev.highlights.core.i18n.Message? = null
+        val result = mutableListOf(fixed)
+        for (k in layout.filter { it.key != moved }.sortedBy { (beatOf(it.at) - target).let(::abs) }) {
+            val b = beatOf(k.at)
+            val taken = result.map { beatOf(it.at) }
+            if (taken.none { abs(it - b) < MIN_GAP_BEATS }) {
+                result += k
+                continue
+            }
+            val free = (1..beats.size).asSequence().flatMap { s -> sequenceOf(b + s, b - s) }
+                .firstOrNull { c -> c in beats.indices && taken.all { abs(it - c) >= MIN_GAP_BEATS } } ?: b
+            result += k.copy(at = beats[free])
+            notice = dev.highlights.core.i18n.Message("ui.musicEditor.pushed", "kill" to k.key, "time" to DropTime.format(beats[free]))
+        }
+        return result.sortedBy { it.at } to notice
+    }
+
     /** Retire le kill [kill] (son groupe entier) du montage. */
     fun remove(kill: String) {
+        val e = editor ?: return
+        if (e.step == EditorStep.KILLS) {
+            update { it.copy(layout = it.layout?.filter { k -> k.key != kill }, selected = null, notice = null) }
+            return
+        }
         val refs = groupRefs(kill) ?: return
         updateMontage { m -> m.copy(constraints = m.constraints.edit(refs, KillEdit.EXCLUDE)) }
         update { it.copy(selected = null) }
@@ -372,6 +468,12 @@ internal class MusicEditorController(
 
     /** Tout remettre en automatique : plus aucune contrainte (la drop posée à la main reste, c'est celle du morceau). */
     fun resetAuto() {
+        val e = editor
+        if (e != null && e.step == EditorStep.KILLS) {
+            update { it.copy(layout = it.auto, selected = null, notice = null) }
+            updateMontage { m -> m.copy(constraints = m.constraints.copy(layout = null)) }
+            return
+        }
         updateMontage { m -> m.copy(constraints = MontageConstraints.NONE) }
         update { it.copy(selected = null) }
         replan()
@@ -390,6 +492,9 @@ internal class MusicEditorController(
 
         /** Un kill poussé va au moins à ce nombre de temps de celui qui prend sa place (son plan ne peut pas le partager). */
         const val PUSH_GAP = 2
+
+        /** Étape 1 : deux kills à moins de ce nombre de temps ne tiennent pas chacun un plan (approche + fin du kill). */
+        const val MIN_GAP_BEATS = 1
     }
 }
 
@@ -398,7 +503,7 @@ internal fun MusicEditorUi.withSong(a: MusicAnalysis): MusicEditorUi {
     val last = a.beats.lastIndex.coerceAtLeast(0)
     val notes = if (a.beats.isEmpty()) emptyList() else a.hits(0, last).filter { it.strength >= NOTE_STRENGTH }.map { it.at }
     return copy(
-        beats = a.beats, notes = notes,
+        beats = a.beats, notes = notes, dropAt = a.beatTime(a.dropBeat),
         sections = a.sections.map { SongSection(a.beatTime(it.startBeat), a.beatTime(it.endBeat), it.kind, it.intensity) },
     )
 }
@@ -450,21 +555,26 @@ fun MusicMontageContent(montage: MontageUiState, editor: MusicEditorUi, actions:
                 if (editor.loading || view == null) return@Column
             }
             val (from, to) = editorWindow(editor, view)
+            val kills = editor.step == EditorStep.KILLS
             Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(tr("ui.musicEditor.song", "duration" to "%d:%02d".format(editor.duration.inWholeSeconds / 60, editor.duration.inWholeSeconds % 60)).uppercase(), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
                     SongOverview(editor, view, from, to, actions)
-                    Text(tr("ui.musicEditor.passage").uppercase(), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
+                    Text(tr(if (kills) "ui.musicEditor.killsZoom" else "ui.musicEditor.passage").uppercase(), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
+                    editor.notice?.takeIf { kills }?.let { Text(it.text(), style = MaterialTheme.typography.bodySmall, color = Color(0xFFE0B13F)) }
                     Box(
-                        Modifier.fillMaxWidth().weight(1f).alpha(if (plan.loading) 0.6f else 1f)
+                        Modifier.fillMaxWidth().weight(1f).alpha(if (plan.loading && !kills) 0.6f else 1f)
                             .onGloballyPositioned { trackBounds = it.boundsInRoot() },
                     ) {
-                        Track(montage.constraints, editor, view, plan.thumbnails, from, to, actions)
+                        if (kills) KillsTrack(editor, plan.thumbnails, from, to, actions)
+                        else Track(montage.constraints, editor, view, plan.thumbnails, from, to, actions)
                     }
                     plan.timing?.let { KillTimingPanel(it, actions, constraints = montage.constraints) }
-                    EditorBar(editor, view, montage.constraints, actions)
+                    if (kills) KillsBar(editor, actions) else EditorBar(editor, view, montage.constraints, actions)
                 }
-                UnusedPanel(view, plan.thumbnails, editor, actions, trackBounds, from, to)
+                val laid = editor.layout.orEmpty().map { it.key }.toSet()
+                val unused = if (kills) editor.groups.filter { it.key !in laid } else view.left
+                UnusedPanel(unused, plan.thumbnails, editor, actions, trackBounds, from, to, draggable = kills)
             }
         }
     }
@@ -473,6 +583,8 @@ fun MusicMontageContent(montage: MontageUiState, editor: MusicEditorUi, actions:
 /** Partie affichée (voir [MusicEditorController.window]). */
 internal fun editorWindow(e: MusicEditorUi, v: PlanView?): Pair<Duration, Duration> {
     if (e.from != null && e.to != null) return e.from to e.to
+    // Étape 1 : tout le morceau (le zoom reste à la molette).
+    if (e.step == EditorStep.KILLS && e.duration.isPositive()) return Duration.ZERO to e.duration
     if (v != null) {
         val end = v.musicStart + v.duration + MusicEditorUi.MARGIN
         return (v.musicStart - MusicEditorUi.MARGIN).coerceAtLeast(Duration.ZERO) to (if (e.duration.isPositive()) end.coerceAtMost(e.duration) else end)
@@ -500,13 +612,19 @@ private fun Header(montage: MontageUiState, e: MusicEditorUi, view: PlanView?, a
                 style = MaterialTheme.typography.labelMedium, color = Palette.cyan,
             )
         }
+        StepTabs(e.step)
         Button(onClick = actions::toggleEditorPlayback) {
             Text(if (e.playing) tr("ui.musicEditor.pause", "time" to DropTime.format(e.playhead ?: Duration.ZERO)) else tr("ui.musicEditor.play"))
         }
-        OutlinedButton(onClick = actions::previewEditedMontage, enabled = view != null) { Text(tr("ui.musicEditor.preview")) }
         OutlinedButton(onClick = actions::toggleEditorMagnet) { Text(tr(if (e.magnet) "ui.musicEditor.magnetOn" else "ui.musicEditor.magnetOff")) }
-        OutlinedButton(onClick = actions::resetEditorAuto, enabled = !montage.constraints.isEmpty) { Text(tr("ui.musicEditor.reset")) }
-        Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text(tr("ui.musicEditor.render")) }
+        if (e.step == EditorStep.KILLS) {
+            OutlinedButton(onClick = actions::resetEditorAuto, enabled = e.layout != null && e.layout != e.auto) { Text(tr("ui.musicEditor.reset")) }
+            Button(onClick = actions::placeEditorClips, enabled = !e.layout.isNullOrEmpty()) { Text(tr("ui.musicEditor.placeClips")) }
+        } else {
+            OutlinedButton(onClick = actions::backEditorToKills) { Text(tr("ui.musicEditor.backToKills")) }
+            OutlinedButton(onClick = actions::previewEditedMontage, enabled = view != null) { Text(tr("ui.musicEditor.preview")) }
+            Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text(tr("ui.musicEditor.render")) }
+        }
         OutlinedButton(onClick = actions::closeMusicEditor) { Text(tr("ui.common.close")) }
     }
 }
@@ -794,13 +912,15 @@ private fun EditorBar(e: MusicEditorUi, v: PlanView, constraints: MontageConstra
     Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), color = Palette.surface, border = BorderStroke(1.dp, if (chosen != null) Palette.accent else Palette.outline)) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (chosen == null || chosen.group == null) {
-                Text(tr("ui.musicEditor.hint"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted, modifier = Modifier.weight(1f))
+                Text(tr("ui.musicEditor.clipsHint"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted, modifier = Modifier.weight(1f))
                 return@Row
             }
             val g = chosen.group
             val kill = chosen.kills.lastOrNull()
             val at = kill?.let { v.musicStart + it.at } ?: v.musicStart
-            val pinned = constraints.pins.keys.any { r -> g.refs.any { it.toString() == r.toString() } }
+            // Posé à la main : épinglé, ou posé à l'étape 1 (tous les kills le sont alors).
+            val laidOut = constraints.layout != null
+            val pinned = laidOut || constraints.pins.keys.any { r -> g.refs.any { it.toString() == r.toString() } }
             Column(Modifier.weight(1f)) {
                 Text(tr("ui.musicEditor.selected", "kill" to g.key, "time" to DropTime.format(at)), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
                 Text(
@@ -810,20 +930,24 @@ private fun EditorBar(e: MusicEditorUi, v: PlanView, constraints: MontageConstra
             }
             OutlinedButton(onClick = { actions.listenEditorAround(at.inWholeMicroseconds / 1e6) }) { Text(tr("ui.musicEditor.listen")) }
             kill?.let { k -> OutlinedButton(onClick = { actions.openKillTiming(k.ref.toString()) }) { Text(tr("ui.musicEditor.timing")) } }
-            if (pinned) OutlinedButton(onClick = { actions.editMontageKill(g.refs.map { it.toString() }, KillEdit.CLEAR) }) { Text(tr("ui.musicEditor.unpin")) }
-            OutlinedButton(onClick = { actions.removeEditorKill(g.key) }) { Text(tr("ui.musicEditor.remove"), color = Palette.danger) }
+            // Avec des kills posés (étape 1), on les retire ou les remet là-bas : « Revenir aux kills ».
+            if (pinned && !laidOut) OutlinedButton(onClick = { actions.editMontageKill(g.refs.map { it.toString() }, KillEdit.CLEAR) }) { Text(tr("ui.musicEditor.unpin")) }
+            if (!laidOut) OutlinedButton(onClick = { actions.removeEditorKill(g.key) }) { Text(tr("ui.musicEditor.remove"), color = Palette.danger) }
         }
     }
 }
 
 /** Kills non utilisés : chacun se glisse sur la musique pour l'ajouter à l'instant où on le lâche. */
 @Composable
-private fun UnusedPanel(v: PlanView, thumbnails: Map<String, java.nio.file.Path>, e: MusicEditorUi, actions: UiActions, track: Rect, from: Duration, to: Duration) {
+private fun UnusedPanel(groups: List<PlanGroup>, thumbnails: Map<String, java.nio.file.Path>, e: MusicEditorUi, actions: UiActions, track: Rect, from: Duration, to: Duration, draggable: Boolean) {
     Surface(Modifier.width(300.dp).fillMaxHeight(), shape = RoundedCornerShape(8.dp), color = Palette.surface, border = BorderStroke(1.dp, Palette.outline)) {
         Column(Modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("ui.musicEditor.unused", "count" to v.left.size).uppercase(), style = MaterialTheme.typography.labelMedium, color = Palette.textMuted)
-            Text(tr(if (v.left.isEmpty()) "ui.musicEditor.unusedNone" else "ui.musicEditor.unusedHint"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
-            v.left.forEach { g ->
+            Text(tr("ui.musicEditor.unused", "count" to groups.size).uppercase(), style = MaterialTheme.typography.labelMedium, color = Palette.textMuted)
+            Text(
+                tr(if (groups.isEmpty()) "ui.musicEditor.unusedNone" else if (draggable) "ui.musicEditor.unusedHint" else "ui.musicEditor.unusedStep2"),
+                style = MaterialTheme.typography.bodySmall, color = Palette.textMuted,
+            )
+            groups.forEach { g ->
                 var bounds by remember(g.key) { mutableStateOf(Rect.Zero) }
                 var rootX by remember(g.key) { mutableStateOf(0f) }
                 val dragging = e.drag?.takeIf { it.kind == EditorDragKind.NEW && it.key == g.key }
@@ -832,7 +956,8 @@ private fun UnusedPanel(v: PlanView, thumbnails: Map<String, java.nio.file.Path>
                     Modifier.fillMaxWidth().clip(shape).background(if (dragging != null) Palette.cyan.copy(alpha = 0.15f) else Palette.surfaceHigh)
                         .border(BorderStroke(if (dragging != null) 2.dp else 1.dp, if (dragging != null) Palette.cyan else Palette.outline), shape)
                         .onGloballyPositioned { bounds = it.boundsInRoot() }
-                        .pointerInput(g.key, track, from, to) {
+                        .pointerInput(g.key, track, from, to, draggable) {
+                            if (!draggable) return@pointerInput
                             awaitEachGesture {
                                 val down = awaitFirstDown()
                                 rootX = bounds.left + down.position.x
@@ -873,3 +998,183 @@ private fun UnusedPanel(v: PlanView, thumbnails: Map<String, java.nio.file.Path>
         }
     }
 }
+
+/** Les deux étapes, l'en cours en évidence. */
+@Composable
+private fun StepTabs(step: EditorStep) {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        for ((s, key) in listOf(EditorStep.KILLS to "ui.musicEditor.step1", EditorStep.CLIPS to "ui.musicEditor.step2")) {
+            val on = s == step
+            Text(
+                tr(key), style = MaterialTheme.typography.labelMedium, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                color = if (on) Palette.background else Palette.textMuted,
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (on) Palette.accent else Palette.surfaceHigh).padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Étape 1 : le morceau entier (zoom à la molette), sections, drop, et seulement les kills posés : une vignette reliée à
+ * l'instant de chacun, sur des rangées (réduites quand ils sont serrés). Glisser : déplacer (aimant, Alt : sans) ;
+ * clic : choisir. Aucun plan ici : ils se construisent à l'étape 2.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun KillsTrack(e: MusicEditorUi, thumbnails: Map<String, java.nio.file.Path>, from: Duration, to: Duration, actions: UiActions) {
+    val spanS = (to - from).inWholeMicroseconds / 1e6
+    val fromS = from.inWholeMicroseconds / 1e6
+    BoxWithConstraints(
+        Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)).background(Palette.surface)
+            .onPointerEvent(PointerEventType.Scroll) { ev ->
+                val change = ev.changes.first()
+                val dy = change.scrollDelta.y
+                if (ev.keyboardModifiers.isShiftPressed) actions.scrollEditor(dy * spanS * 0.1)
+                else actions.zoomEditor(if (dy > 0) 1.25 else 0.8, fromS + change.position.x / size.width * spanS)
+            },
+    ) {
+        val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+        val density = LocalDensity.current
+        fun xDp(t: Duration): Dp = maxWidth * ((t.inWholeMicroseconds / 1e6 - fromS) / spanS).toFloat()
+        val pxPerSecond = widthPx / spanS
+        val waveTop = 56f
+        val waveH = with(density) { 170.dp.toPx() }
+        Canvas(
+            Modifier.fillMaxSize().pointerInput(fromS, spanS) {
+                detectTapGestures { p -> if (p.y < 52.dp.toPx()) actions.seekEditor(fromS + p.x / size.width * spanS) else actions.selectEditorKill(null) }
+            },
+        ) {
+            fun x(t: Duration) = ((t.inWholeMicroseconds / 1e6 - fromS) / spanS * size.width).toFloat()
+            e.sections.filter { it.end > from && it.start < to }.forEach { s ->
+                drawRect(sectionTint(s.kind).copy(alpha = 0.75f), Offset(x(maxOf(s.start, from)), 30f), Size(x(minOf(s.end, to)) - x(maxOf(s.start, from)), 18f))
+            }
+            // Les temps, seulement s'ils restent lisibles (4 px au moins entre deux).
+            val beatsIn = e.beats.filter { it in from..to }
+            if (beatsIn.size > 1 && size.width / beatsIn.size >= 4f) beatsIn.forEach { b -> drawLine(Palette.outline.copy(alpha = 0.5f), Offset(x(b), waveTop), Offset(x(b), waveTop + waveH), 1f) }
+            if (e.peaks.isNotEmpty() && e.duration.isPositive()) {
+                val total = e.duration.inWholeMicroseconds / 1e6
+                val i0 = (fromS / total * e.peaks.size).toInt().coerceIn(0, e.peaks.lastIndex)
+                val i1 = ((fromS + spanS) / total * e.peaks.size).toInt().coerceIn(0, e.peaks.lastIndex)
+                val count = (i1 - i0 + 1).coerceAtLeast(1)
+                // Au plus un trait par pixel : la crête la plus haute de ce qu'il couvre.
+                val columns = size.width.toInt().coerceAtLeast(1)
+                for (c in 0 until columns) {
+                    val a = i0 + (c.toLong() * count / columns).toInt()
+                    val b = (i0 + ((c + 1).toLong() * count / columns).toInt()).coerceAtLeast(a + 1).coerceAtMost(i1 + 1)
+                    var p = 0f
+                    for (i in a until b) p = maxOf(p, e.peaks[i])
+                    val h = (p * waveH).coerceAtLeast(1f)
+                    drawRect(Palette.cyan.copy(alpha = 0.75f), Offset(c.toFloat(), waveTop + (waveH - h) / 2), Size(1f, h))
+                }
+            }
+            e.playhead?.let { drawLine(Palette.cyan, Offset(x(it), 0f), Offset(x(it), size.height), 2f) }
+        }
+        var t = kotlin.math.ceil(fromS).toInt()
+        val labelStep = when {
+            spanS > 150 -> 15
+            spanS > 60 -> 10
+            spanS > 20 -> 2
+            else -> 1
+        }
+        while (t <= fromS + spanS) {
+            if (t % labelStep == 0) Text("%d:%02d".format(t / 60, t % 60), fontSize = 10.sp, color = Palette.textMuted, modifier = Modifier.offset(x = xDp(t.seconds) + 2.dp, y = 12.dp))
+            t++
+        }
+        e.sections.filter { it.end > from && it.start < to && xDp(minOf(it.end, to)) - xDp(maxOf(it.start, from)) > 40.dp }.forEach { s ->
+            Text(sectionName(s.kind), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, modifier = Modifier.offset(x = xDp(maxOf(s.start, from)) + 4.dp, y = 31.dp))
+        }
+        // La drop, glissable (aimantée aux temps).
+        e.dropAt?.let { drop ->
+            val shown = e.drag?.takeIf { it.kind == EditorDragKind.DROP }?.at ?: drop
+            var acc by remember { mutableStateOf(0.0) }
+            Box(Modifier.offset(x = xDp(shown) - 1.dp, y = 56.dp).width(3.dp).height(170.dp).background(Palette.accent))
+            Text(
+                tr("ui.musicEditor.drop", "time" to DropTime.format(shown)), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Palette.background,
+                modifier = Modifier.offset(x = xDp(shown) + 4.dp, y = 58.dp).background(Palette.accent, RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp)
+                    .pointerInput(drop) {
+                        dragLoop(
+                            onStart = { acc = drop.inWholeMicroseconds / 1e6 },
+                            onMove = { dx, alt -> acc += dx / pxPerSecond; actions.dragEditor(EditorDragKind.DROP.name, null, acc, alt, true) },
+                            onEnd = actions::dropEditor,
+                            onClick = {},
+                        )
+                    },
+            )
+        }
+        // Les kills posés : vignette reliée à l'instant, rangées gloutonnes ; serrés, vignettes réduites.
+        val cardTop = with(density) { (waveTop + waveH + 24).toDp() }
+        val lineTop = with(density) { (waveTop + waveH).toDp() }
+        // Seuls les kills de la partie affichée se disposent (ceux hors de la vue ne prennent pas de rangée).
+        val layout = e.layout.orEmpty().filter { it.at >= from - 1.seconds && it.at <= to + 1.seconds }
+        val positions = layout.map { xDp(it.at) }
+        fun rowsFor(cardW: Dp, maxRows: Int): List<Int>? {
+            val ends = MutableList(maxRows) { (-1000).dp }
+            return positions.map { x ->
+                val row = ends.indexOfFirst { it <= x - cardW / 2 }.takeIf { it >= 0 } ?: return null
+                ends[row] = x + cardW / 2 + 3.dp
+                row
+            }
+        }
+        val compact = rowsFor(CARD_W, KILL_ROWS) == null
+        val cardW = if (compact) TINY_CARD_W else CARD_W
+        val rows = rowsFor(cardW, KILL_ROWS) ?: positions.indices.map { it % KILL_ROWS }
+        val rowH = cardW * 9 / 16 + 22.dp
+        layout.forEachIndexed { i, k ->
+            val dragged = e.drag?.takeIf { it.kind == EditorDragKind.KILL && it.key == k.key }
+            val dim = e.drag != null && dragged == null
+            val y = cardTop + rowH * rows[i]
+            Box(Modifier.offset(x = xDp(k.at) - 1.dp, y = lineTop).width(2.dp).height(y - lineTop + 4.dp).alpha(if (dim) 0.4f else 1f).background(if (dragged != null) Palette.textMuted else Palette.text))
+            var acc by remember(k.key) { mutableStateOf(0.0) }
+            EditorKillCard(
+                thumbnails[k.key], DropTime.format(k.at), pinned = false, selected = e.selected == k.key, ghost = dragged != null, width = cardW,
+                modifier = Modifier.offset(x = xDp(k.at) - cardW / 2, y = y).alpha(if (dim) 0.45f else 1f).pointerInput(k.key, k.at) {
+                    dragLoop(
+                        onStart = { acc = k.at.inWholeMicroseconds / 1e6 },
+                        onMove = { dx, alt -> acc += dx / pxPerSecond; actions.dragEditor(EditorDragKind.KILL.name, k.key, acc, alt, true) },
+                        onEnd = actions::dropEditor,
+                        onClick = { actions.selectEditorKill(k.key) },
+                    )
+                },
+            )
+        }
+        e.drag?.takeIf { it.over && it.kind != EditorDragKind.DROP }?.let { d ->
+            val color = if (d.kind == EditorDragKind.NEW) Palette.cyan else Color.White
+            val liftTop = minOf(cardTop + rowH * KILL_ROWS + 8.dp, maxHeight - 76.dp)
+            Box(Modifier.offset(x = xDp(d.at) - 1.dp, y = 50.dp).width(2.dp).height(liftTop - 50.dp).background(color))
+            val label = when {
+                d.kind == EditorDragKind.NEW -> tr("ui.musicEditor.addHere", "time" to DropTime.format(d.at))
+                d.snap == "note" -> tr("ui.musicEditor.snapNote", "time" to DropTime.format(d.at))
+                d.snap == "beat" -> tr("ui.musicEditor.snapBeat", "time" to DropTime.format(d.at))
+                else -> tr("ui.musicEditor.free", "time" to DropTime.format(d.at))
+            }
+            Text(
+                label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Palette.background,
+                modifier = Modifier.offset(x = xDp(d.at) + 6.dp, y = 60.dp).background(color, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+            EditorKillCard(
+                d.key?.let { thumbnails[it] }, DropTime.format(d.at), pinned = true, selected = true, lifted = true,
+                modifier = Modifier.offset(x = xDp(d.at) - 48.dp, y = liftTop).shadow(12.dp, RoundedCornerShape(6.dp)),
+            )
+        }
+    }
+}
+
+/** Barre du bas de l'étape 1 : le kill choisi (écouter autour, retirer), sinon l'aide. */
+@Composable
+private fun KillsBar(e: MusicEditorUi, actions: UiActions) {
+    val chosen = e.layout?.firstOrNull { it.key == e.selected }
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), color = Palette.surface, border = BorderStroke(1.dp, if (chosen != null) Palette.accent else Palette.outline)) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (chosen == null) {
+                Text(tr("ui.musicEditor.killsHint", "count" to (e.layout?.size ?: 0)), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted, modifier = Modifier.weight(1f))
+                return@Row
+            }
+            Text(tr("ui.musicEditor.laid", "kill" to chosen.key, "time" to DropTime.format(chosen.at)), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
+            OutlinedButton(onClick = { actions.listenEditorAround(chosen.at.inWholeMicroseconds / 1e6) }) { Text(tr("ui.musicEditor.listen")) }
+            OutlinedButton(onClick = { actions.removeEditorKill(chosen.key) }) { Text(tr("ui.musicEditor.remove"), color = Palette.danger) }
+        }
+    }
+}
+
+private val TINY_CARD_W = 56.dp
+private const val KILL_ROWS = 5

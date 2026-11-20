@@ -96,11 +96,17 @@ data class MontageConstraints(
     val cuts: Map<KillRef, ClipCut> = emptyMap(),
     /** Sections de capture marquées à la main : sans kill, ou à garder entières ([CaptureRange]). */
     val ranges: List<CaptureRange> = emptyList(),
+    /**
+     * « Montage sur la musique », kills posés ([KillLayout]) : TOUS les kills du montage, chacun (désigné par le dernier
+     * kill de son groupe) à son instant du morceau ; les plans se construisent ensuite autour. Null : placement
+     * automatique.
+     */
+    val layout: Map<KillRef, Duration>? = null,
 ) {
-    val isEmpty: Boolean get() = excluded.isEmpty() && forced.isEmpty() && pins.isEmpty() && anchors.isEmpty() && beatShifts.isEmpty() && cuts.isEmpty() && ranges.isEmpty()
+    val isEmpty: Boolean get() = excluded.isEmpty() && forced.isEmpty() && pins.isEmpty() && anchors.isEmpty() && beatShifts.isEmpty() && cuts.isEmpty() && ranges.isEmpty() && layout == null
 
     /** Nombre de corrections posées (ce que la ligne du dialogue de montage annonce). */
-    val count: Int get() = excluded.size + forced.size + pins.size + anchors.size + beatShifts.size + cuts.size + ranges.size
+    val count: Int get() = excluded.size + forced.size + pins.size + anchors.size + beatShifts.size + cuts.size + ranges.size + (layout?.size ?: 0)
 
     /** Début ([start]) ou fin ([end]) du plan du kill [ref] posés à la main ; les bornes déjà posées restent. */
     fun cut(ref: KillRef, start: Duration? = null, end: Duration? = null): MontageConstraints {
@@ -157,7 +163,7 @@ object MontageEdits {
      */
     fun apply(groups: List<KillGroup>, constraints: MontageConstraints, style: KillStyle): List<KillGroup> {
         if (constraints.isEmpty) return groups
-        val all = constraints.excluded + constraints.forced + constraints.pins.keys + constraints.anchors.keys + constraints.beatShifts.keys + constraints.cuts.keys
+        val all = constraints.excluded + constraints.forced + constraints.pins.keys + constraints.anchors.keys + constraints.beatShifts.keys + constraints.cuts.keys + constraints.layout?.keys.orEmpty()
         // Chaque désignation vise un seul kill, le plus proche : deux kills recalés à 0,1 s ne sont pas écartés ensemble.
         val target = all.associateWith { designated(it, groups) }
         target.entries.firstOrNull { it.value == null }?.let {
@@ -180,7 +186,11 @@ object MontageEdits {
             target[ref]?.let { (_, k) -> (c.start != null && c.start >= k) || (c.end != null && c.end <= k) || (c.start != null && c.end != null && c.end <= c.start) } == true
         }?.let { throw InputException(Message("error.montage.edit.cutAroundKill", "kill" to it.key.toString())) }
         fun rangesOf(g: KillGroup, kind: RangeKind) = constraints.ranges.filter { it.kind == kind && it.matches(g.media) }.map { it.range }
+        val layout = constraints.layout
         return groups.mapNotNull { g ->
+            // Kills posés sur la musique : seuls les groupes posés restent, chacun épinglé à son instant.
+            val laid = layout?.entries?.firstOrNull { (ref, _) -> g.kills.any { hit(listOf(ref), g, it) } }?.value
+            if (layout != null && laid == null) return@mapNotNull null
             val skips = rangesOf(g, RangeKind.SKIP)
             // Un kill détecté dans une section sans kill est écarté, comme un kill exclu.
             val kept = g.kills.indices.filter { i -> !hit(constraints.excluded, g, g.kills[i]) && skips.none { g.kills[i] in it } }
@@ -198,7 +208,7 @@ object MontageEdits {
             val clipCuts = constraints.cuts.filterKeys(::designates).values.distinct()
             if (clipCuts.size > 1) throw InputException(Message("error.montage.edit.conflict", "kill" to label(trimmed)))
             val marked = trimmed.copy(
-                forced = constraints.forced.any(::designates), pin = pins.firstOrNull(), beatShift = shifts.firstOrNull() ?: trimmed.beatShift,
+                forced = constraints.forced.any(::designates) || laid != null, pin = laid?.let { MontagePin.At(it) } ?: pins.firstOrNull(), beatShift = shifts.firstOrNull() ?: trimmed.beatShift,
                 cut = clipCuts.firstOrNull(), skips = skips, keeps = rangesOf(g, RangeKind.KEEP),
             )
             anchored(marked, g, constraints, ::hit)

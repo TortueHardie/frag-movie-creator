@@ -52,6 +52,7 @@ import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
 import dev.highlights.montage.FeelEntry
+import dev.highlights.montage.KillLayout
 import dev.highlights.montage.LearnedPins
 import dev.highlights.montage.PinLearner
 import dev.highlights.montage.PinHistory
@@ -1453,8 +1454,12 @@ class HighlightPipeline(
         val variants = options.pick?.variantsFile?.let(MontageVariantsFile::load)
         // Variantes : le choix est glouton dans l'ordre des notes, la liste pour n commence par celle pour n − 1 : la
         // variante choisie se retrouve parmi les [index] premières sans savoir combien d'aperçus ont été faits.
-        fun plans(prepared: MusicAnalysis, own: MontageSettings) =
-            if (count == null) listOf(MontagePlanner.best(groups, prepared, own)) else MontageVariants.distinct(groups, prepared, own, count).map { it.plan }
+        fun plans(prepared: MusicAnalysis, own: MontageSettings) = when {
+            // Kills posés sur la musique : les plans se construisent autour de leurs instants, rien n'est refusé.
+            options.constraints.layout != null -> listOf(KillLayout.plan(groups, prepared, own))
+            count == null -> listOf(MontagePlanner.best(groups, prepared, own))
+            else -> MontageVariants.distinct(groups, prepared, own, count).map { it.plan }
+        }
         val (chosen, choice) = if (music.isDirectory()) {
             // Variante choisie après les aperçus : la musique des aperçus, même si le classement des musiques a bougé
             // depuis (une autre a servi entre-temps et se repose).

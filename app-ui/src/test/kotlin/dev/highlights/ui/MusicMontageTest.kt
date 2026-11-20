@@ -51,27 +51,28 @@ class MusicMontageTest : FunSpec({
         sections = listOf(SongSection(0.seconds, 8.6.seconds, SectionKind.INTRO, 0.1), SongSection(8.6.seconds, 30.522.seconds, SectionKind.BUILD_UP, 0.3), SongSection(30.522.seconds, 92.4.seconds, SectionKind.DROP, 1.0), SongSection(92.4.seconds, 234.seconds, SectionKind.BODY, 0.5)),
     )
 
-    fun controller(initial: MontageConstraints = MontageConstraints.NONE): Pair<MusicEditorController, MutableStateFlow<UiState>> {
-        val state = MutableStateFlow(UiState(montage = MontageUiState(constraints = initial, plan = MontagePlanState(loading = false, view = view), editor = editor)))
+    fun controller(initial: MontageConstraints = MontageConstraints.NONE, step: EditorStep = EditorStep.KILLS): Pair<MusicEditorController, MutableStateFlow<UiState>> {
+        val state = MutableStateFlow(UiState(montage = MontageUiState(constraints = initial, plan = MontagePlanState(loading = false, view = view), editor = editor.copy(step = step))))
         val c = MusicEditorController(
             CoroutineScope(Dispatchers.Unconfined), state, { null },
             { change -> state.value = state.value.copy(montage = state.value.montage?.let(change)) }, {}, sinks = { null },
         )
+        c.planned(view)
         return c to state
     }
+    fun ed(state: MutableStateFlow<UiState>) = state.value.montage!!.editor!!
 
-    test("vue de départ : le passage du montage avec une marge ; zoom autour du pointeur ; défilement borné au morceau") {
+    test("étape 1 : les kills du placement automatique, sur tout le morceau ; les autres groupes dans la liste") {
         val (c, state) = controller()
-        val (from, to) = c.window()
-        from shouldBe musicStart - MusicEditorUi.MARGIN
-        to shouldBe musicStart + view.duration + MusicEditorUi.MARGIN
-        c.zoom(0.5, 40.0)
-        val e = state.value.montage!!.editor!!
-        (e.to!! - e.from!!) shouldBe (to - from) / 2
-        // Le point sous le pointeur reste à la même place relative.
-        ((40.seconds - e.from!!) / (e.to!! - e.from!!)) shouldBe (((40.seconds - from) / (to - from)) plusOrMinus 1e-6)
-        c.scroll(-1000.0)
-        state.value.montage!!.editor!!.from shouldBe Duration.ZERO
+        val e = ed(state)
+        e.layout!!.map { it.key } shouldBe placed.map { it.key }
+        e.layout!!.first().at shouldBe musicStart + (2 * period).seconds
+        e.auto shouldBe e.layout
+        e.groups.map { it.key } shouldBe (placed + left).map { it.key }
+        c.window() shouldBe (Duration.ZERO to 234.seconds)
+        // Étape 2 : le passage du montage, avec une marge.
+        val (c2, _) = controller(step = EditorStep.CLIPS)
+        c2.window() shouldBe ((musicStart - MusicEditorUi.MARGIN) to (musicStart + view.duration + MusicEditorUi.MARGIN))
     }
 
     test("aimant : la note la plus proche (ou le temps) à 70 ms, sinon l'instant tel quel ; Alt ou aimant coupé : tel quel") {
@@ -84,59 +85,74 @@ class MusicMontageTest : FunSpec({
         c.snap(editor.copy(magnet = false), beat + 30.milliseconds, free = false) shouldBe ((beat + 30.milliseconds) to null)
     }
 
-    test("déplacer un kill : épinglé (son groupe) à l'instant aimanté où on le lâche ; plan recalculé") {
+    test("étape 1 : déplacer un kill change seulement son instant (aucun plan, aucune contrainte, aucune erreur)") {
         val (c, state) = controller()
         val g = placed[2]
-        val target = beats[120] + 25.milliseconds
-        c.drag(EditorDragKind.KILL, g.key, target.inWholeMicroseconds / 1e6, free = false)
-        state.value.montage!!.editor!!.drag shouldBe EditorDrag(EditorDragKind.KILL, g.key, beats[120] + 11.milliseconds, "note")
+        c.drag(EditorDragKind.KILL, g.key, (beats[20] + 25.milliseconds).inWholeMicroseconds / 1e6, free = false)
         c.drop()
-        state.value.montage!!.constraints.pins shouldBe mapOf(g.refs.last() to MontagePin.At(beats[120] + 11.milliseconds))
-        state.value.montage!!.editor!!.drag shouldBe null
-        state.value.montage!!.editor!!.selected shouldBe g.refs.last().toString()
+        ed(state).layout!!.single { it.key == g.key }.at shouldBe beats[20] + 11.milliseconds
+        ed(state).layout!!.map { it.at } shouldBe ed(state).layout!!.map { it.at }.sorted()
+        state.value.montage!!.constraints.isEmpty shouldBe true
+        ed(state).notice shouldBe null
     }
 
-    test("lâcher sur la place d'un kill déjà posé : l'autre est poussé au temps libre le plus proche (pas d'échange)") {
-        val a = placed[0]
+    test("étape 1 : lâché sur le temps d'un autre kill, l'autre est poussé au temps libre le plus proche, avec un avertissement") {
+        val (c, state) = controller()
+        val a = ed(state).layout!![0]
         val b = placed[3]
-        val (c, state) = controller(MontageConstraints.NONE.pin(a.refs.last(), MontagePin.At(beats[110])))
-        c.drag(EditorDragKind.KILL, b.key, beats[110].inWholeMicroseconds / 1e6, free = false)
+        c.drag(EditorDragKind.KILL, b.key, a.at.inWholeMicroseconds / 1e6, free = true)
         c.drop()
-        val pins = state.value.montage!!.constraints.pins
-        pins[b.refs.last()] shouldBe MontagePin.At(beats[110])
-        val pushed = (pins[a.refs.last()] as MontagePin.At).music
-        (pushed == beats[112] || pushed == beats[108]) shouldBe true
+        val layout = ed(state).layout!!
+        layout.single { it.key == b.key }.at shouldBe a.at
+        val pushed = layout.single { it.key == a.key }.at
+        (pushed != a.at) shouldBe true
+        ed(state).notice!!.key shouldBe "ui.musicEditor.pushed"
     }
 
-    test("ajouter un kill de la liste : épinglé là où on le lâche au-dessus de la musique ; lâché ailleurs : rien") {
+    test("étape 1 : ajouter un kill de la liste (lâché sur la musique), le retirer, tout remettre en auto") {
         val (c, state) = controller()
         val g = left[0]
-        c.drag(EditorDragKind.NEW, g.key, 40.0, free = true, over = false)
+        c.drag(EditorDragKind.NEW, g.key, 100.0, free = true, over = false)
         c.drop()
-        state.value.montage!!.constraints.isEmpty shouldBe true
-        c.drag(EditorDragKind.NEW, g.key, 40.0, free = true, over = true)
+        ed(state).layout!!.size shouldBe placed.size
+        c.drag(EditorDragKind.NEW, g.key, 100.0, free = true, over = true)
         c.drop()
-        state.value.montage!!.constraints.pins shouldBe mapOf(g.refs.last() to MontagePin.At(40.seconds))
-    }
-
-    test("retirer un kill (tout son groupe), puis tout remettre en auto") {
-        val (c, state) = controller()
-        c.remove(placed[4].key)
-        state.value.montage!!.constraints.excluded shouldBe placed[4].refs.toSet()
+        ed(state).layout!!.single { it.key == g.key }.at shouldBe 100.seconds
+        c.remove(placed[0].key)
+        ed(state).layout!!.none { it.key == placed[0].key } shouldBe true
         c.resetAuto()
-        state.value.montage!!.constraints.isEmpty shouldBe true
+        ed(state).layout shouldBe ed(state).auto
     }
 
-    test("captures : vue d'ensemble, kill en déplacement, ajout depuis la liste (build/ui-snapshots/music_editor*.png)") {
+    test("« Placer les plans » : les kills posés deviennent la contrainte du plan ; étape 2 ; les kills n'y bougent plus") {
+        val (c, state) = controller()
+        c.drag(EditorDragKind.KILL, placed[1].key, 60.0, free = true)
+        c.drop()
+        c.placeClips()
+        val layout = state.value.montage!!.constraints.layout!!
+        layout.size shouldBe placed.size
+        layout[placed[1].refs.last()] shouldBe 60.seconds
+        ed(state).step shouldBe EditorStep.CLIPS
+        c.drag(EditorDragKind.KILL, placed[0].key, 70.0, free = true)
+        ed(state).drag shouldBe null
+        c.backToKills()
+        ed(state).step shouldBe EditorStep.KILLS
+        ed(state).layout!!.single { it.key == placed[1].key }.at shouldBe 60.seconds
+    }
+
+    test("captures : étape 1 (vue, déplacement, ajout) et étape 2 (build/ui-snapshots/music_editor*.png)") {
         val out = Path("build", "ui-snapshots").createDirectories()
-        val base = MontageUiState(music = Path("D:/Musique/Rome Is Burning.mp3"), plan = MontagePlanState(loading = false, view = view), editor = editor.copy(playhead = musicStart + 5.713.seconds))
+        val (_, st) = controller()
+        val laid = ed(st)
+        val base = MontageUiState(music = Path("D:/Musique/Rome Is Burning.mp3"), plan = MontagePlanState(loading = false, view = view), editor = laid.copy(playhead = 30.523.seconds, dropAt = 30.523.seconds))
         val states = listOf(
-            "music_editor" to base,
-            "music_editor_move" to base.copy(
-                constraints = MontageConstraints.NONE.pin(placed[2].refs.last(), MontagePin.At(beats[115])),
-                editor = base.editor!!.copy(selected = placed[2].key, drag = EditorDrag(EditorDragKind.KILL, placed[2].key, musicStart + 15.2.seconds + 11.milliseconds, "note")),
+            "music_editor_kills" to base,
+            "music_editor_kills_move" to base.copy(editor = base.editor!!.copy(selected = placed[2].key, drag = EditorDrag(EditorDragKind.KILL, placed[2].key, 62.011.seconds, "note"))),
+            "music_editor_kills_add" to base.copy(editor = base.editor!!.copy(drag = EditorDrag(EditorDragKind.NEW, left[0].key, 95.seconds, "beat"))),
+            "music_editor_clips" to base.copy(
+                constraints = MontageConstraints(layout = placed.associate { it.refs.last() to (musicStart + (2 * period).seconds) }),
+                editor = base.editor!!.copy(step = EditorStep.CLIPS, selected = placed[2].key),
             ),
-            "music_editor_add" to base.copy(editor = base.editor!!.copy(drag = EditorDrag(EditorDragKind.NEW, left[0].key, musicStart + 14.seconds, "beat"))),
         )
         for ((name, s) in states) {
             for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
@@ -150,4 +166,3 @@ class MusicMontageTest : FunSpec({
         }
     }
 })
-

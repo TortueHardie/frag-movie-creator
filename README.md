@@ -688,21 +688,21 @@ bornée à ±200 ms) appliqué aux kills de cette source ; et le décalage des t
 Vue « Goûts appris » : carte « Calage des kills » et « Oublier les calages appris » ; `app gouts` les liste,
 `app gouts --reset-timing` les oublie (fichier mis de côté, pas effacé).
 
-**Montage sur la musique (mode automatique).** Dès qu'une musique est choisie dans le dialogue de montage, l'écran
-« Montage sur la musique » s'ouvre, plan calculé (bouton **Montage sur la musique…** pour le rouvrir) :
-- en haut, le morceau entier : sections, passage du montage, partie affichée (un clic y centre la vue), drop ;
-- dessous, le passage zoomé : molette pour zoomer, Maj+molette pour défiler, clic sur la règle pour la tête de lecture ;
-  forme d'onde avec les temps, sections, les plans (bandes numérotées, début et fin) et chaque kill en vignette reliée
-  à l'instant exact où il tombe (sur plusieurs rangées, réduites quand ils sont serrés) ;
-- **glisser un kill** le long de la musique le déplace : il s'aimante à la note ou au temps le plus proche (70 ms ;
-  Alt ou « Aimant coupé » : à l'instant exact), on l'entend en lâchant, et il est épinglé là (`MontagePin.At`, exact) ;
-  un kill déjà posé sur la même place est poussé au temps libre le plus proche ; le planificateur refait le reste ;
-- **retirer** (bouton du kill choisi) ; **ajouter** un kill de la liste « Kills non utilisés » en le glissant sur la
-  musique ; **glisser la drop** (aimantée aux temps) la pose pour ce morceau ;
-- **Écouter** / pause, **Aperçu du montage (360p)** lu dans le lecteur intégré, **Tout remettre en auto**, **Rendre le
-  montage** ; pour le kill choisi : écouter autour, caler à l'image, remettre en auto.
-Tout devient des contraintes du plan (les mêmes que la frise, qui reste disponible : **Voir le plan…**) ; les kills posés
-nourrissent l'apprentissage du placement sur la musique.
+**Montage sur la musique.** Dès qu'une musique est choisie dans le dialogue de montage, l'écran « Montage sur la
+musique » s'ouvre (bouton **Montage sur la musique…** pour le rouvrir ; la frise **Voir le plan…** reste). Deux étapes :
+1. **Les kills sur la musique** : le morceau entier (forme d'onde, sections, drop glissable), et seulement les kills,
+   chacun en vignette à l'instant où il tombe : au départ ceux que le placement automatique a choisis. On les **glisse**
+   le long de la musique (aimant sur les notes et les temps à 70 ms, Alt : à l'instant exact ; on l'entend en lâchant),
+   on en **ajoute** depuis la liste « Kills non utilisés », on en **retire** ; molette pour zoomer, Maj+molette pour
+   défiler. Aucun plan ici, donc aucun refus : deux kills sur un même temps, l'autre est poussé au temps libre le plus
+   proche, avec un avertissement. **Tout remettre en auto** revient à la proposition automatique.
+2. **Placer les plans →** : les instants posés deviennent la contrainte du montage (`MontageConstraints.layout`) et
+   les plans se construisent autour (`KillLayout`) : une coupe sur le temps qui frappe entre deux kills, chaque kill
+   exactement à son instant, contexte, ralentis et repères comme d'habitude, coupes dans l'attente pour les longs plans.
+   L'étape montre les plans (bandes numérotées, début et fin) ; **← Revenir aux kills** rouvre l'étape 1 avec les kills
+   posés (replacer les plans refait l'étape 2) ; **Aperçu du montage (360p)**, **Rendre le montage**.
+Les kills posés nourrissent l'apprentissage du placement sur la musique. Le réarrangement des plans à la main
+(bornes, ordre, longueur) est la prochaine étape.
 
 **Kill sur ce moment de la musique.** Pour réarranger les kills sur la musique : clic sur le trait d'un kill dans la
 frise, puis **Sur la musique…** : l'outil d'écoute du morceau (le même que pour la drop : forme d'onde, son, curseur
