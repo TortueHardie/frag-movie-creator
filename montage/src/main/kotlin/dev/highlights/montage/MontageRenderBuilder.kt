@@ -115,7 +115,9 @@ object MontageRenderBuilder {
             args += listOf("-ss", Durations.ffmpegSecondsPrecise(input.start), "-t", sec(range.length), "-i", input.path.toString())
         }
         val musicInput = clips.size
-        args += listOf("-ss", sec(plan.musicStart), "-t", sec(total + plan.period), "-i", plan.music.file.toString())
+        // Carte de fin : la musique continue sous elle et s'y éteint, au lieu de finir en fondu avec la dernière image.
+        val outroMusic = IntroOutroCards.outroLength(CardRequest.of(request.edit, 0, 0))
+        args += listOf("-ss", sec(plan.musicStart), "-t", sec(total + outroMusic + plan.period), "-i", plan.music.file.toString())
         // Souffles fournis : une entrée par fichier servi, à la suite de la musique.
         val whooshCount = if (settings.whip.whoosh > 0) whips.count { it != null } else 0
         val whooshSources = request.whooshFiles.take(whooshCount).mapIndexed { j, file ->
@@ -367,8 +369,15 @@ object MontageRenderBuilder {
             val under = if (audio.game == GameAudio.KILLS) audio.musicUnderKill else audio.musicUnderVoice
             "${num(music)}-${num(music * (1 - under))}*($env)"
         }
-        graph += "[$musicInput:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo," +
-            "$GAIN_FRAMES,volume='$duck':eval=frame,afade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
+        val musicHead = "[$musicInput:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo," +
+            "$GAIN_FRAMES,volume='$duck':eval=frame,"
+        graph += if (outroMusic.isPositive()) {
+            val whole = sec(total + outroMusic)
+            musicHead + "apad=whole_dur=$whole,atrim=duration=$whole,asplit=2[musicall][musicrest];" +
+                "[musicall]atrim=duration=${sec(total)}[music];[musicrest]atrim=start=${sec(total)},asetpts=PTS-STARTPTS[musicoutro]"
+        } else {
+            musicHead + "afade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
+        }
         // Souffle sur chaque whip pan, son sommet sur la coupe (le milieu du raccord) : le mouvement s'entend autant
         // qu'il se voit. Il suit la musique dans `audio.balance` : un habillage, qui reste sous elle quel que soit le réglage.
         val whooshes = if (settings.whip.whoosh > 0) {
@@ -379,7 +388,7 @@ object MontageRenderBuilder {
         val sfx = StoryRenderBuilder.placeSfx(graph, "wh", whooshes, settings.whip.whoosh * audio.musicGain, whooshSources, StoryRenderBuilder.WHOOSH_LENGTH)
         val mix = listOf("[game]", "[music]") + sfx
         graph += mix.joinToString("") + "amix=inputs=${mix.size}:normalize=0:duration=first[amontage]"
-        val cards = cards(args, graph, plan, request.edit, w, h, music)
+        val cards = cards(args, graph, plan, request.edit, w, h, music, "musicoutro".takeIf { outroMusic.isPositive() })
         graph += "[${cards.video}]format=yuv420p[vout]"
         graph += "[${cards.audio}]loudnorm=I=${num(audio.loudnessLufs)}:TP=-1.5:LRA=11,aresample=48000[aout]"
 
@@ -398,7 +407,9 @@ object MontageRenderBuilder {
      * temps et joue l'amorce de la musique, au volume qu'elle a dans le montage ; la vidéo et le son reculent ensemble
      * d'autant, chaque kill reste sur son temps. Fonds floutés : le meilleur groupe en ouverture, le dernier plan en fin.
      */
-    private fun cards(args: MutableList<String>, graph: MutableList<String>, plan: MontagePlan, edit: EditSettings, w: Int, h: Int, music: Double): IntroOutroCards.Appended {
+    private fun cards(
+        args: MutableList<String>, graph: MutableList<String>, plan: MontagePlan, edit: EditSettings, w: Int, h: Int, music: Double, outroMusic: String?,
+    ): IntroOutroCards.Appended {
         val intro = edit.intro ?: return IntroOutroCards.append(args, graph, "vmontage", "amontage", null)
         fun still(clip: MontageClip) = CardStill(clip.group.media.path, clip.group.kills.firstOrNull() ?: clip.start)
         val best = plan.clips.filterNot { it.showcase }.maxByOrNull { it.group.rank } ?: plan.clips.first()
@@ -409,7 +420,7 @@ object MontageRenderBuilder {
             leadIn = MusicLeadIn(plan.music.file, plan.musicStart, music),
             introLength = IntroOutroCards.beatLength(intro.introLength, plan.period),
         )
-        return IntroOutroCards.append(args, graph, "vmontage", "amontage", request)
+        return IntroOutroCards.append(args, graph, "vmontage", "amontage", request, outroMusic)
     }
 
     /** Extraits lus par le rendu de [plan] : ce que [SourceCutter] doit pré-découper. */

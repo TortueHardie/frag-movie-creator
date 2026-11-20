@@ -4,6 +4,7 @@ import dev.highlights.core.InputException
 import dev.highlights.core.config.LoadedConfig
 import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.i18n.Message
+import dev.highlights.core.model.CardAnimation
 import dev.highlights.core.model.CardBackground
 import dev.highlights.core.model.FrameSize
 import dev.highlights.core.model.IntroOutroSettings
@@ -28,9 +29,12 @@ object IntroOutroSupport {
     /**
      * Réglages des cartes d'un export : [override] (choisis dans l'application), sinon ceux du profil, sinon ceux
      * d'app.yaml. [enabled] force leur présence (`--intro` / `--no-intro`) ; null : le réglage `enabled`. Rend null
-     * sans carte ; refuse des cartes demandées sans rien à montrer ou dont une image manque.
+     * sans carte ; refuse des cartes demandées sans rien à montrer ou dont une image manque. [animation] remplace
+     * l'animation des réglages (`--intro-animation`).
      */
-    fun resolve(config: LoadedConfig, profile: GameProfile?, enabled: Boolean?, override: IntroOutroSettings? = null): IntroOutroSettings? {
+    fun resolve(
+        config: LoadedConfig, profile: GameProfile?, enabled: Boolean?, override: IntroOutroSettings? = null, animation: CardAnimation? = null,
+    ): IntroOutroSettings? {
         val base = override ?: profile?.intro ?: config.app.intro ?: IntroOutroSettings()
         if (!(enabled ?: base.enabled) || !(base.intro || base.outro)) return null
         if (!base.hasContent) throw InputException(Message("error.intro.empty"))
@@ -42,6 +46,7 @@ object IntroOutroSupport {
         }
         return base.copy(
             enabled = true,
+            animation = animation ?: base.animation,
             logo = file(base.logo),
             image = if (base.background == CardBackground.IMAGE) file(base.image) else base.image?.let { config.resolve(it).toString() },
         )

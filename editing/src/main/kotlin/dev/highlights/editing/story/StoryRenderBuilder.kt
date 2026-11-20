@@ -186,25 +186,38 @@ object StoryRenderBuilder {
             mixInputs += placeSfx(graph, "im", impacts, sfx.impactVolume, impactSources, IMPACT_LENGTH)
         }
 
+        // Cartes d'ouverture et de fin, posées avant la normalisation : le volume se juge sur la vidéo entière.
+        val (introStill, outroStill) = IntroOutroCards.stills(plan.moments)
+        val cardRequest = CardRequest.of(edit, w, h, introStill, outroStill)
+        // Carte de fin : la musique continue sous elle et s'y éteint, sans le fondu de fin du reste du son.
+        val outroMusic = if (musicInput != null) IntroOutroCards.outroLength(cardRequest) else Duration.ZERO
+
         // --- musique de fond : baissée sous la voix, coupée sur le pic de chaque moment
         if (musicInput != null) {
             val music = story.music
             val voice = shots.indices.flatMap { i -> screen[i].voice.map { TimeRange(offsets[i] + it.start, offsets[i] + it.end) } }
             val drops = if (music.dropOut) shots.indices.flatMap { i -> screen[i].drops.map { offsets[i] + it } } else emptyList()
-            graph += "[$musicInput:a]asetpts=PTS-STARTPTS,$AUDIO_FORMAT,atrim=duration=${sec(total)},$GAIN_FRAMES," +
-                "volume='${musicVolume(music.volume, music.underVoice, voice, drops, music.dropLength)}':eval=frame[music]"
-            mixInputs += "[music]"
+            val volume = "volume='${musicVolume(music.volume, music.underVoice, voice, drops, music.dropLength)}':eval=frame"
+            graph += if (outroMusic.isPositive()) {
+                "[$musicInput:a]asetpts=PTS-STARTPTS,$AUDIO_FORMAT,atrim=duration=${sec(total + outroMusic)},$GAIN_FRAMES,$volume," +
+                    "asplit=2[musicall][musicrest];[musicall]atrim=duration=${sec(total)}[music];" +
+                    "[musicrest]atrim=start=${sec(total)},asetpts=PTS-STARTPTS[musicoutro]"
+            } else {
+                "[$musicInput:a]asetpts=PTS-STARTPTS,$AUDIO_FORMAT,atrim=duration=${sec(total)},$GAIN_FRAMES,$volume[music]"
+            }
+            if (!outroMusic.isPositive()) mixInputs += "[music]"
         }
 
-        val audioTail = (if (fadeOut.isPositive()) "afade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)}," else "") + "anull[astory]"
+        val audioTail = (if (fadeOut.isPositive()) "afade=t=out:st=${sec(total - fadeOut)}:d=${sec(fadeOut)}," else "") + "anull"
+        val faded = if (outroMusic.isPositive()) "astorybase" else "astory"
         graph += if (mixInputs.size == 1) {
-            "[acat]$audioTail"
+            "[acat]$audioTail[$faded]"
         } else {
-            mixInputs.joinToString("") + "amix=inputs=${mixInputs.size}:normalize=0:duration=first,$audioTail"
+            mixInputs.joinToString("") + "amix=inputs=${mixInputs.size}:normalize=0:duration=first,$audioTail[$faded]"
         }
-        // Cartes d'ouverture et de fin, avant la normalisation : le volume se juge sur la vidéo entière.
-        val (introStill, outroStill) = IntroOutroCards.stills(plan.moments)
-        val cards = IntroOutroCards.append(args, graph, "vstory", "astory", CardRequest.of(edit, w, h, introStill, outroStill))
+        // La musique rejoint le mélange après le fondu de fin : elle file sur la carte de fin.
+        if (outroMusic.isPositive()) graph += "[astorybase][music]amix=inputs=2:normalize=0:duration=first[astory]"
+        val cards = IntroOutroCards.append(args, graph, "vstory", "astory", cardRequest, "musicoutro".takeIf { outroMusic.isPositive() })
         graph += "[${cards.video}]format=yuv420p[vout]"
         graph += "[${cards.audio}]" + (edit.loudnessLufs?.let { "loudnorm=I=${fmt(it, 1)}:TP=-1.5:LRA=11," } ?: "") + "aresample=48000[aout]"
 

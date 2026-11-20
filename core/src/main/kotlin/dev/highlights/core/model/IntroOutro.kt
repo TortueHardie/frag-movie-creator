@@ -26,8 +26,11 @@ data class IntroOutroSettings(
      * Durée de l'ouverture. Dans un montage kills, elle est ramenée à un nombre entier de temps de la musique (un au
      * moins) : la carte s'ouvre et se ferme sur un temps.
      */
-    val introLength: SerialDuration = 1500.milliseconds,
-    val outroLength: SerialDuration = 2.seconds,
+    val introLength: SerialDuration = 1.seconds,
+    /** Durée de la fin. La musique (montage, story) continue sous elle et s'éteint en fondu. */
+    val outroLength: SerialDuration = 1500.milliseconds,
+    /** Animation des cartes (choix du joueur, 20/11/2026 : celle d'origine par défaut). */
+    val animation: CardAnimation = CardAnimation.RISE,
     /** Image du logo (PNG avec transparence de préférence). Chemin relatif au fichier de configuration. */
     val logo: String? = null,
     /** Pseudo écrit sous le logo (ou seul au centre, sans logo). */
@@ -74,4 +77,20 @@ enum class CardBackground {
 
     /** Une image de la vidéo, floutée et assombrie : le meilleur moment en ouverture, le dernier en fin. */
     @SerialName("blur") BLUR,
+}
+
+/** Animation des cartes. */
+@Serializable
+enum class CardAnimation {
+    /** Le logo apparaît en montant, le pseudo « pop » juste après ; sortie du noir, coupe franche sur la vidéo. */
+    @SerialName("rise") RISE,
+
+    /** Logo et pseudo posés d'emblée ; un flash blanc à chaque coupe entre une carte et la vidéo. */
+    @SerialName("flash") FLASH,
+
+    /** Logo et pseudo posés ; le fond avance lentement (zoom) ; sortie du noir. */
+    @SerialName("zoom") ZOOM,
+
+    /** Rien d'animé : cartes fixes, coupes franches. */
+    @SerialName("none") NONE,
 }
