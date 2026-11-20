@@ -6,6 +6,7 @@ import dev.highlights.core.serialization.SerialDuration
 import dev.highlights.core.serialization.toTimecode
 import kotlinx.serialization.Serializable
 import java.nio.file.Path
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -89,8 +90,8 @@ data class DetectorScore(
     fun failures(threshold: Threshold?): List<String> {
         threshold ?: return emptyList()
         return listOfNotNull(
-            precision?.takeIf { it < threshold.precision }?.let { "précision %.2f < %.2f".format(it, threshold.precision) },
-            recall?.takeIf { it < threshold.recall }?.let { "rappel %.2f < %.2f".format(it, threshold.recall) },
+            precision?.takeIf { it < threshold.precision }?.let { "précision %.2f < %.2f".format(Locale.ROOT, it, threshold.precision) },
+            recall?.takeIf { it < threshold.recall }?.let { "rappel %.2f < %.2f".format(Locale.ROOT, it, threshold.recall) },
         )
     }
 }

@@ -29,6 +29,7 @@ import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
 import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.seconds
+import java.util.Locale
 
 /**
  * `app verite` : réanalyse les captures dont la vérité terrain est relevée (fichiers YAML de `verite/<jeu>/`) et mesure chaque
@@ -148,8 +149,8 @@ class VeriteCommand : PipelineCommand("verite") {
             val threshold = truth.thresholds[s.detector]?.get(s.kind)
             val verdict = when {
                 threshold == null -> "-"
-                s.failures(threshold).isEmpty() -> "OK (p >= %.2f, r >= %.2f)".format(threshold.precision, threshold.recall)
-                else -> "ÉCHEC (p >= %.2f, r >= %.2f)".format(threshold.precision, threshold.recall)
+                s.failures(threshold).isEmpty() -> "OK (p >= %.2f, r >= %.2f)".format(Locale.ROOT, threshold.precision, threshold.recall)
+                else -> "ÉCHEC (p >= %.2f, r >= %.2f)".format(Locale.ROOT, threshold.precision, threshold.recall)
             }
             echo(
                 "  %-16s %-8s %5d %5d %7d %9s %7s  %s".format(
@@ -161,7 +162,7 @@ class VeriteCommand : PipelineCommand("verite") {
         }
     }
 
-    private fun ratio(v: Double?) = v?.let { "%.2f".format(it) } ?: "-"
+    private fun ratio(v: Double?) = v?.let { "%.2f".format(Locale.ROOT, it) } ?: "-"
 
     private class CaptureResult(val file: Path, val truth: GroundTruth, val analyzedAt: Instant, val scores: List<DetectorScore>)
 

@@ -96,7 +96,7 @@ class GroundTruthTest : FunSpec({
         kills.missed shouldContainExactly listOf(120.seconds)
         scores[1].missed shouldContainExactly listOf(200.seconds)
         scores[2].recall shouldBe 0.0
-        scores[2].failures(truth.thresholds["killfeed"]?.get("kill")) shouldContainExactly listOf("rappel 0,00 < 0,50")
+        scores[2].failures(truth.thresholds["killfeed"]?.get("kill")) shouldContainExactly listOf("rappel 0.00 < 0.50")
     }
 
     test("les fichiers de vérité du dépôt se lisent, triés, dans la durée de leur capture") {
