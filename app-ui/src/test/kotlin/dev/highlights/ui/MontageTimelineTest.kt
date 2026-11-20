@@ -63,7 +63,7 @@ class MontageTimelineTest : FunSpec({
         MontageConstraints.NONE.pinAt(emptyList(), 1.seconds) shouldBe MontageConstraints.NONE
     }
 
-    test("temps visé : le plus proche dans la frise, rendu en instant du morceau, épingles replacées sur leur temps") {
+    test("temps visé : le plus proche dans la frise, rendu en instant du morceau, épingles à leur instant exact") {
         val beats = (0 until 20).map { (it * 500).milliseconds }
         val view = PlanView("m.mp3", 120.0, 55.seconds, 10.seconds, beats, beats.map { 0.5 }, emptyList(), null, emptyList(), emptyList())
         view.beatNear(3.2.seconds) shouldBe 6
@@ -72,8 +72,9 @@ class MontageTimelineTest : FunSpec({
         val g = group(100.0)
         val h = group(200.0)
         val c = MontageConstraints.NONE.pinAt(g.refs, 58.1.seconds).pinAt(h.refs, 120.seconds).edit(group(300.0).refs, KillEdit.DROP)
-        // Dans le passage : arrondie au temps (3,0 s du montage) ; dehors : gardée avec son instant du morceau ; la drop n'y est pas.
-        view.pinMarks(c) shouldBe listOf(PinMark(g.refs.last(), 58.1.seconds, 3.seconds), PinMark(h.refs.last(), 120.seconds, null))
+        // Dans le passage : à son instant exact (3,1 s du montage : le kill y tombe, même entre deux temps) ; dehors : gardée
+        // avec son instant du morceau ; la drop n'y est pas.
+        view.pinMarks(c) shouldBe listOf(PinMark(g.refs.last(), 58.1.seconds, 3.1.seconds), PinMark(h.refs.last(), 120.seconds, null))
     }
 
     test("frise du plan : épingler sur un temps, avant/pendant/après (build/ui-snapshots/montage_plan_pin*.png)") {
@@ -351,5 +352,49 @@ class MontageTimelineTest : FunSpec({
         state.value.montage!!.plan!!.timing shouldNotBe null
         constraints().clearCut(ref, start = true).cuts[ref] shouldBe dev.highlights.montage.ClipCut(null, 1211.4.seconds)
         constraints().removeRange(0).ranges shouldBe emptyList()
+    }
+    test("kill sur ce moment de la musique : l'outil du morceau ouvert pour un kill l'épingle à l'instant exact du curseur (build/ui-snapshots/montage_kill_on_music*.png)") {
+        val out = Path("build", "ui-snapshots").createDirectories()
+        val g = group(900.0)
+        val view = PlanView(
+            music = "Rome Is Burning.mp3", bpm = 126.0, musicStart = 17.seconds, duration = 12.seconds, beats = (0 until 24).map { (it * 476).milliseconds },
+            energy = (0 until 24).map { 0.5 }, sections = listOf(PlanSection(0.seconds, 12.seconds, SectionKind.DROP, 1.0)), dropAt = 4.seconds,
+            clips = listOf(PlanClip(g, 0.seconds, 4.seconds, listOf(PlanKill(2.5.seconds, g.refs.last())), false)), left = emptyList(),
+            musicPath = Path("D:/Musique/Rome Is Burning.mp3"),
+        )
+        val state = kotlinx.coroutines.flow.MutableStateFlow(UiState(montage = MontageUiState(plan = MontagePlanState(loading = false, view = view))))
+        var replans = 0
+        val c = MusicDropController(
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), state, { null }, { replans++ }, sinks = { null },
+            updateMontage = { change -> state.value = state.value.copy(montage = state.value.montage?.let(change)) },
+        )
+        c.openForKill(g.refs.last().toString())
+        val d = state.value.montage!!.plan!!.drop!!
+        d.target shouldBe g.refs.last()
+        // Le curseur part de là où le kill tombe aujourd'hui dans le morceau : début du passage + place dans le montage.
+        d.cursor shouldBe 19.5.seconds
+        d.targetAt shouldBe 19.5.seconds
+        c.text("0:19.623")
+        // Capture : l'outil en mode « kill », forme d'onde de synthèse.
+        val wave = (0 until MusicDropUi.OVERVIEW_BUCKETS).map { i -> (0.3 + 0.6 * ((i * 7) % 11) / 11.0).toFloat() }
+        val shown = state.value.montage!!.plan!!.copy(drop = state.value.montage!!.plan!!.drop!!.copy(loading = false, duration = 228.seconds, overview = wave, detail = wave.take(MusicDropUi.DETAIL_BUCKETS), beats = (0 until 480).map { (it * 476).milliseconds }))
+        for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
+            I18n.withLanguage(tag) {
+                val image = SceneRendering.image(1320, 700) { HighlightsTheme { MontagePlanContent(MontageConstraints.NONE, shown, noop) } }
+                val file: Path = out.resolve("${folder}montage_kill_on_music.png")
+                file.parent.createDirectories()
+                file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            }
+        }
+        c.confirm()
+        state.value.montage!!.constraints.pins shouldBe mapOf(g.refs.last() to MontagePin.At(19.623.seconds))
+        state.value.montage!!.plan!!.drop shouldBe null
+        replans shouldBe 1
+        // Revenir au placement auto : l'épingle part.
+        c.openForKill(g.refs.last().toString())
+        state.value.montage!!.plan!!.drop!!.pinned shouldBe true
+        state.value.montage!!.plan!!.drop!!.cursor shouldBe 19.623.seconds
+        c.clear()
+        state.value.montage!!.constraints.pins shouldBe emptyMap()
     }
 })

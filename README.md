@@ -688,6 +688,20 @@ bornée à ±200 ms) appliqué aux kills de cette source ; et le décalage des t
 Vue « Goûts appris » : carte « Calage des kills » et « Oublier les calages appris » ; `app gouts` les liste,
 `app gouts --reset-timing` les oublie (fichier mis de côté, pas effacé).
 
+**Kill sur ce moment de la musique.** Pour réarranger les kills sur la musique : clic sur le trait d'un kill dans la
+frise, puis **Sur la musique…** : l'outil d'écoute du morceau (le même que pour la drop : forme d'onde, son, curseur
+qu'on glisse en écoutant, `m:ss.mmm`, ±10 ms, ±1 temps, « Depuis 2 s avant »), le curseur là où le kill tombe
+aujourd'hui. **Poser le kill ici** (Entrée) l'épingle à cet instant du morceau : il y tombe **exactement**, même entre
+deux temps (le temps le plus proche porte son plan, le kill est décalé de l'écart, les coupes restent sur les temps) ;
+les autres kills sont replacés autour. **Revenir au placement auto** retire l'épingle (comme un clic sur sa puce). En
+ligne de commande : `--pin partie.mp4@52:38.600=0:44.335`. Deux kills au même instant (au même temps) : refusé, comme
+avant. Chaque montage rendu note où vous posez vos kills (`<sortie>\sessions\kill-pins.json` : écart au temps, force du
+temps et de ceux de son plan) ; à partir de 8 kills, deux choses s'apprennent, chacune seulement si la validation « une
+de côté » la confirme : un **écart régulier au temps** (« juste avant le temps », dispersion ≤ 30 ms, 10 à 120 ms),
+appliqué aux morceaux sans écart à eux, et une **préférence pour les temps qui frappent**, qui oriente le placement
+automatique. « Goûts appris » (carte « Calage des kills ») et `app gouts` les montrent ; `app gouts --reset-pins` les
+oublie.
+
 **Poser la drop à l'oreille.** La drop détectée peut tomber à côté de celle qu'on entend (« Rome Is Burning » : détectée
 à 0:31.474, alors que la basse entre après un silence à 0:30.523, deux temps plus tôt). Clic sur la marque **DROP** de la
 frise : la forme d'onde du morceau entier et celle des 6 s autour du curseur (temps détectés en repères, drop détectée en

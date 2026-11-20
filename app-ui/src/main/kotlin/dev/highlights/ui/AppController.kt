@@ -191,6 +191,13 @@ interface UiActions {
     fun removeMontageRange(index: Int) {}
     /** Oublie les longueurs de plan apprises des coupes (`kill-cuts.json` mis de côté). */
     fun resetLengths() {}
+    /**
+     * « Kill sur ce moment de la musique » : l'outil d'écoute du morceau ([MusicDropUi.target]) pour le kill [kill] ;
+     * « Poser le kill ici » ([confirmMusicDrop]) l'épingle à l'instant du curseur, exactement.
+     */
+    fun openKillOnMusic(kill: String) {}
+    /** Oublie ce qui a été appris des kills posés sur la musique (`kill-pins.json` mis de côté). */
+    fun resetPins() {}
     val killTimingPlayer: dev.highlights.ui.player.VideoPlayer? get() = null
     /** Oublie les calages appris (`kill-timing.json` mis de côté, comme les goûts). */
     fun resetTiming() {}
@@ -1217,7 +1224,18 @@ class AppController(
     override fun excludeTimedKill() = killTiming.exclude()
     override fun closeKillTiming() = killTiming.close()
 
-    private val musicDrop = MusicDropController(scope, _state, { backend?.pipeline }, ::replanMontage)
+    private val musicDrop = MusicDropController(scope, _state, { backend?.pipeline }, ::replanMontage, updateMontage = ::updateMontage)
+    override fun openKillOnMusic(kill: String) {
+        killTiming.close()
+        musicDrop.openForKill(kill)
+    }
+    override fun resetPins() {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            val aside = withContext(Dispatchers.IO) { p.pinHistory.reset() }
+            loadTaste(resetDone = aside?.fileName?.toString())
+        }
+    }
     override fun openMusicDrop() = musicDrop.open()
     override fun seekMusicDrop(seconds: Double) = musicDrop.seek(seconds)
     override fun stepMusicDrop(millis: Int) { musicDrop.step(millis) }

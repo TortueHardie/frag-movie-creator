@@ -1479,11 +1479,13 @@ object MontagePlanner {
      * pose sur la note de piano qu'on entend, pas sur le temps régulier d'à côté), premier temps de mesure, un peu tard
      * dans le plan.
      */
-    private fun anchorScore(music: MusicAnalysis, slot: CutSlot, beat: Int): Double =
+    private fun anchorScore(music: MusicAnalysis, slot: CutSlot, beat: Int, accentBonus: Double = 0.0): Double =
         music.beatAccent[beat.coerceIn(0, music.beatAccent.lastIndex)] +
             SALIENCE_WEIGHT * music.salience.getOrElse(beat) { 0.0 } +
             (if (music.isDownbeat(beat)) 0.4 else 0.0) +
-            0.15 * (beat - slot.startBeat).toDouble() / slot.beats
+            0.15 * (beat - slot.startBeat).toDouble() / slot.beats +
+            // Préférence apprise des kills posés à la main sur la musique : les temps qui frappent ([MusicPins]).
+            accentBonus * music.strength(beat)
 
     /**
      * Position du kill commune à tous les plans de même longueur d'une section : des coupes qui se suivent avec le même
@@ -1561,7 +1563,7 @@ object MontagePlanner {
             slot.dropBeat != null && slot.dropBeat in candidates -> slot.dropBeat
             candidates.isEmpty() -> slot.startBeat + maxOf(1, slot.beats / 2)
             preferred != null && group.cut == null && preferred in candidates && fits(preferred) && matches(preferred) >= bestMatch -> preferred
-            else -> candidates.maxBy { b -> anchorScore(music, slot, b) + matches(b) + room(music.beatTime(b)) }
+            else -> candidates.maxBy { b -> anchorScore(music, slot, b, cuts.accentBonus) + matches(b) + room(music.beatTime(b)) }
         }
         // Contretemps syncopé du plan mieux noté que le temps retenu (même notation, sans le bonus du premier temps de
         // mesure) : le kill y tombe, les coupes restent sur les temps. Pas sur la drop (son temps est la promesse du
@@ -1585,7 +1587,10 @@ object MontagePlanner {
         val onTime = if (anchorHalf) music.halfTime(anchorBeat) else music.beatTime(anchorBeat)
         // Calage du temps (à la main ou appris pour la musique) : le kill avant ou après son temps, les coupes restent sur
         // les temps. Jamais hors du plan : un kill qui ouvre le plan ne passe pas avant sa coupe.
-        val beatShift = (group.beatShift ?: music.killShift).coerceIn(slotStart - onTime, slotEnd - onTime - MIN_AFTER_SHIFT)
+        // Épinglé sur un instant du morceau : le kill y tombe exactement, même entre deux temps (le temps le plus proche
+        // porte le plan, le décalage fait le reste). Sinon le décalage posé à la main, ou appris pour la musique.
+        val pinShift = (group.pin as? MontagePin.At)?.takeIf { pinned != null && anchorBeat == pinned && !anchorHalf }?.let { it.music - onTime }
+        val beatShift = (pinShift ?: group.beatShift ?: music.killShift).coerceIn(slotStart - onTime, slotEnd - onTime - MIN_AFTER_SHIFT)
         val anchorTime = onTime + beatShift
         val preOut = anchorTime - slotStart
         val postOut = slotEnd - anchorTime

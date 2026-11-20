@@ -203,7 +203,8 @@ data class PlanView(
         val music = (pin as? MontagePin.At)?.music ?: return@mapNotNull null
         val t = music - musicStart
         val inside = beats.isNotEmpty() && t >= beats.first() - HALF_BEAT_MARGIN && t <= duration
-        PinMark(ref, music, if (inside) beatNear(t)?.let { beats[it] } else null)
+        // À l'instant posé (le kill y tombe exactement, même entre deux temps).
+        PinMark(ref, music, if (inside) t else null)
     }.sortedBy { it.music }
 
     companion object {

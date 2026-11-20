@@ -514,6 +514,11 @@ data class CutSettings(
      */
     @kotlinx.serialization.Transient val preferredLead: kotlin.time.Duration? = null,
     @kotlinx.serialization.Transient val preferredTail: kotlin.time.Duration? = null,
+    /**
+     * Poids de la force du temps dans le choix du temps du kill, appris des kills que l'utilisateur pose lui-même sur la
+     * musique (`PinLearner` : il les met sur les accents). 0 : la règle d'origine. Posé par le pipeline.
+     */
+    @kotlinx.serialization.Transient val accentBonus: Double = 0.0,
 ) {
     init {
         require(jumpMinBeats >= 4) { "montage.cuts.jumpMinBeats doit valoir au moins 4" }

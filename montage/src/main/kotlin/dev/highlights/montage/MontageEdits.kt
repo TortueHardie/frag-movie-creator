@@ -236,6 +236,9 @@ object MontageEdits {
     /** Écart au kill détecté au-delà duquel un calage est refusé : la frise propose ±0,5 s, la désignation tolère 1 s. */
     val MAX_ANCHOR = 1.seconds
 
+    /** Écart permis entre l'instant d'une épingle et celui où le kill tombe (arrondis des instants). */
+    val PIN_TOLERANCE = 2.milliseconds
+
     /** Décalage du temps au-delà duquel c'est un autre temps qu'on vise (un temps fait 0,4 s à 150 BPM) : l'épingler plutôt. */
     val MAX_BEAT_SHIFT = 250.milliseconds
 
@@ -271,6 +274,11 @@ object MontageEdits {
                     }
                     if (clip == null || clip.anchorBeat != beat || clip.anchorHalf) {
                         throw HighlightsException(Message("error.montage.edit.pinMissed", "kill" to label(g), "time" to KillRef.clock(pin.music)))
+                    }
+                    // Le kill tombe à l'instant posé, pas seulement sur son temps : un plan qui le commence trop tard
+                    // (le kill ne peut pas passer avant sa coupe) ne le tient pas.
+                    if ((music.beatTime(beat) + clip.beatShift - pin.music).absoluteValue > PIN_TOLERANCE) {
+                        throw HighlightsException(Message("error.montage.edit.pinMissed", "kill" to label(g), "time" to KillRef.precise(pin.music)))
                     }
                 }
                 null -> if (clip == null) throw HighlightsException(Message("error.montage.edit.notPlaced", "kill" to label(g)))

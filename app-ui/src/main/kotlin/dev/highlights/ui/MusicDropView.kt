@@ -90,6 +90,13 @@ data class MusicDropUi(
     val textError: Boolean = false,
     val playing: Boolean = false,
     val playhead: Duration? = null,
+    /**
+     * « Kill sur ce moment de la musique » : le kill à poser (sa désignation) ; null : l'outil de la drop. [targetAt] :
+     * où ce kill tombe aujourd'hui dans le morceau ; [pinned] : il y est déjà épinglé à la main.
+     */
+    val target: dev.highlights.montage.KillRef? = null,
+    val targetAt: Duration? = null,
+    val pinned: Boolean = false,
 ) {
     val name: String get() = music.name
 
@@ -182,6 +189,7 @@ internal class MusicDropController(
     private val pipeline: () -> HighlightPipeline?,
     private val replan: () -> Unit,
     private val sinks: () -> AudioSink? = JavaSoundSink::create,
+    private val updateMontage: ((MontageUiState) -> MontageUiState) -> Unit = {},
 ) {
     private var job: Job? = null
     private var follow: Job? = null
@@ -201,17 +209,37 @@ internal class MusicDropController(
     /** Ouvre l'outil sur la musique du plan affiché, curseur sur la drop du plan (posée ou détectée). */
     fun open() {
         val view = state.value.montage?.plan?.view ?: return
+        start(view, view.dropAt?.let { view.musicStart + it } ?: view.musicStart, null)
+    }
+
+    /**
+     * « Kill sur ce moment de la musique » : l'outil sur le morceau, curseur là où le kill [kill] tombe aujourd'hui (son
+     * épingle s'il en a une) ; « Poser le kill ici » l'épingle à l'instant du curseur.
+     */
+    fun openForKill(kill: String) {
+        val montage = state.value.montage ?: return
+        val view = montage.plan?.view ?: return
+        val ref = runCatching { dev.highlights.montage.KillRef.parse(kill) }.getOrNull() ?: return
+        // Le groupe du kill : une épingle désigne le groupe par son dernier kill.
+        val clip = view.clips.firstOrNull { c -> c.kills.any { it.ref.toString() == ref.toString() } }
+        val group = clip?.group?.refs ?: view.left.firstOrNull { g -> g.refs.any { it.toString() == ref.toString() } }?.refs ?: listOf(ref)
+        val now = clip?.kills?.firstOrNull { it.ref.toString() == ref.toString() }?.let { view.musicStart + it.at }
+        val pin = montage.constraints.pins.entries.firstOrNull { (r, _) -> group.any { it.toString() == r.toString() } }?.value as? dev.highlights.montage.MontagePin.At
+        start(view, pin?.music ?: now ?: view.musicStart, group.last(), targetAt = now, pinned = pin != null)
+    }
+
+    private fun start(view: PlanView, at: Duration, target: dev.highlights.montage.KillRef?, targetAt: Duration? = null, pinned: Boolean = false) {
         val music = view.musicPath ?: return
-        val start = view.dropAt?.let { view.musicStart + it } ?: view.musicStart
+        val start = at
         stopPlayback()
-        set(MusicDropUi(music, start))
+        set(MusicDropUi(music, start, target = target, targetAt = targetAt, pinned = pinned))
         val p = pipeline() ?: return
         job?.cancel()
         job = scope.launch {
             try {
                 val tool = withContext(Dispatchers.IO) { p.musicDropTool(music) }
                 pcm = tool.pcm
-                val cursor = tool.byHand ?: start
+                val cursor = if (target == null) tool.byHand ?: start else start
                 val overview = withContext(Dispatchers.Default) { tool.pcm.peaks(MusicDropUi.OVERVIEW_BUCKETS).toList() }
                 update {
                     it.loaded(tool, overview).copy(cursor = cursor, text = DropTime.format(cursor))
@@ -302,9 +330,15 @@ internal class MusicDropController(
 
     fun stop() = stopPlayback()
 
-    /** « La drop est ici » : retenue pour ce morceau, puis le plan recalculé dessus. */
+    /** « La drop est ici » : retenue pour ce morceau, puis le plan recalculé dessus. « Poser le kill ici » : épinglé. */
     fun confirm() {
         val d = drop ?: return
+        d.target?.let { ref ->
+            updateMontage { m -> m.copy(constraints = m.constraints.pinAt(listOf(ref), d.cursor)) }
+            close()
+            replan()
+            return
+        }
         val p = pipeline() ?: return
         close()
         scope.launch {
@@ -313,9 +347,15 @@ internal class MusicDropController(
         }
     }
 
-    /** Revenir à la drop détectée (la drop posée est oubliée). */
+    /** Revenir à la drop détectée (la drop posée est oubliée) ; pour un kill, au placement automatique. */
     fun clear() {
         val d = drop ?: return
+        d.target?.let { ref ->
+            updateMontage { m -> m.copy(constraints = m.constraints.clear(ref)) }
+            close()
+            replan()
+            return
+        }
         val p = pipeline() ?: return
         close()
         scope.launch {
@@ -357,11 +397,16 @@ fun MusicDropPanel(d: MusicDropUi, actions: UiActions, modifier: Modifier = Modi
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Column(Modifier.weight(1f)) {
-                    Text(tr("ui.musicDrop.title", "music" to d.name), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    Text(tr("ui.musicDrop.hint"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                    val kill = d.target
+                    Text(
+                        if (kill == null) tr("ui.musicDrop.title", "music" to d.name) else tr("ui.musicDrop.killTitle", "kill" to kill.toString(), "music" to d.name),
+                        style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+                    )
+                    Text(tr(if (kill == null) "ui.musicDrop.hint" else "ui.musicDrop.killHint"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
                 }
-                if (d.byHand != null) TextButton(onClick = actions::clearMusicDrop) { Text(tr("ui.musicDrop.clear")) }
-                Button(onClick = actions::confirmMusicDrop, enabled = !d.loading && !d.textError) { Text(tr("ui.musicDrop.confirm")) }
+                if (d.target == null && d.byHand != null) TextButton(onClick = actions::clearMusicDrop) { Text(tr("ui.musicDrop.clear")) }
+                if (d.target != null && d.pinned) TextButton(onClick = actions::clearMusicDrop) { Text(tr("ui.musicDrop.killClear")) }
+                Button(onClick = actions::confirmMusicDrop, enabled = !d.loading && !d.textError) { Text(tr(if (d.target == null) "ui.musicDrop.confirm" else "ui.musicDrop.killConfirm")) }
                 OutlinedButton(onClick = actions::closeMusicDrop) { Text(tr("ui.common.close")) }
             }
             d.error?.let { Text(tr("ui.musicDrop.failed", "reason" to it), color = Palette.danger, style = MaterialTheme.typography.bodySmall) }
@@ -397,13 +442,16 @@ fun MusicDropPanel(d: MusicDropUi, actions: UiActions, modifier: Modifier = Modi
                 OutlinedButton(onClick = { actions.playMusicDrop(true) }) { Text(tr("ui.musicDrop.replay")) }
                 OutlinedButton(onClick = actions::markMusicDropHere, enabled = d.playing) { Text(tr("ui.musicDrop.mark")) }
                 Column(Modifier.padding(start = 8.dp)) {
-                    d.detected?.let {
+                    d.targetAt?.takeIf { d.target != null }?.let {
+                        Text(tr("ui.musicDrop.killNow", "time" to DropTime.format(it)), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                    }
+                    d.detected?.takeIf { d.target == null }?.let {
                         Text(
                             tr("ui.musicDrop.detected", "time" to DropTime.format(it), "ms" to (d.offsetFromDetected ?: "0")),
                             style = MaterialTheme.typography.bodySmall, color = Palette.textMuted,
                         )
                     }
-                    d.byHand?.let { Text(tr("ui.musicDrop.byHand", "time" to DropTime.format(it)), style = MaterialTheme.typography.bodySmall, color = Palette.accent) }
+                    d.byHand?.takeIf { d.target == null }?.let { Text(tr("ui.musicDrop.byHand", "time" to DropTime.format(it)), style = MaterialTheme.typography.bodySmall, color = Palette.accent) }
                     d.playhead?.takeIf { d.playing }?.let { Text(tr("ui.musicDrop.playing", "time" to DropTime.format(it)), style = MaterialTheme.typography.bodySmall, color = Palette.cyan) }
                 }
             }
@@ -427,7 +475,7 @@ private fun Waveform(
 ) = TimeWaveform(
     peaks, from, length, beats,
     listOf(
-        WaveMark(d.detected, Palette.textMuted, 2f), WaveMark(d.byHand, Palette.accent, 3f),
+        WaveMark(if (d.target == null) d.detected else d.targetAt, Palette.textMuted, 2f), WaveMark(d.byHand?.takeIf { d.target == null }, Palette.accent, 3f),
         WaveMark(d.playhead?.takeIf { d.playing }, Palette.cyan, 2f), WaveMark(d.cursor, Color.White, 2f),
     ),
     onSeek, modifier,

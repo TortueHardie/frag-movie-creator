@@ -52,6 +52,9 @@ import dev.highlights.export.ExportRequest
 import dev.highlights.export.ExportResult
 import dev.highlights.export.Exporter
 import dev.highlights.montage.FeelEntry
+import dev.highlights.montage.LearnedPins
+import dev.highlights.montage.PinLearner
+import dev.highlights.montage.PinHistory
 import dev.highlights.montage.LearnedLengths
 import dev.highlights.montage.CutHistory
 import dev.highlights.montage.ClipLengthLearner
@@ -312,6 +315,8 @@ data class TasteState(
     val learnedDrop: LearnedDrop = LearnedDrop.NONE,
     /** Longueurs de plan préférées avant et après le kill, apprises des coupes posées à la main. */
     val lengths: LearnedLengths = LearnedLengths.NONE,
+    /** Où l'utilisateur pose ses kills dans la musique (écart au temps, accents). */
+    val pins: LearnedPins = LearnedPins.NONE,
 )
 
 /** Son de la capture autour d'un kill : [pcm] commence à [start] dans la capture. */
@@ -424,6 +429,9 @@ class HighlightPipeline(
 
     /** Calages des kills à l'image faits dans la frise : de quoi apprendre le retard des détections et des morceaux. */
     val timingHistory = TimingHistory(config.outputDir.resolve("sessions").resolve("kill-timing.json"))
+
+    /** Kills posés sur un instant du morceau : de quoi apprendre où l'utilisateur met ses kills dans la musique. */
+    val pinHistory = PinHistory(config.outputDir.resolve("sessions").resolve("kill-pins.json"))
 
     /** Coupes posées à la main (« Couper ici ») : de quoi apprendre la longueur de plan préférée avant et après le kill. */
     val cutHistory = CutHistory(config.outputDir.resolve("sessions").resolve("kill-cuts.json"))
@@ -1066,6 +1074,7 @@ class HighlightPipeline(
             }
         }
         if (constraints.cuts.isNotEmpty()) cutHistory.record(ClipLengthLearner.record(planned.plan, planned.profile.id))
+        if (constraints.pins.values.any { it is MontagePin.At }) pinHistory.record(PinLearner.record(planned.plan, planned.profile.id))
         if (constraints.anchors.isNotEmpty() || constraints.beatShifts.isNotEmpty()) {
             timingHistory.record(KillTimingLearner.record(planned.candidates, planned.plan, constraints, planned.profile.id, MusicFeelStore.keyOf(planned.plan.music.file), now))
         }
@@ -1104,6 +1113,7 @@ class HighlightPipeline(
             drops = musicDropStore.load().drops,
             learnedDrop = DropLearner.learn(dropExamples.load()),
             lengths = ClipLengthLearner.learn(cutHistory.load()),
+            pins = PinLearner.learn(pinHistory.load()),
         )
     }
 
@@ -1328,6 +1338,7 @@ class HighlightPipeline(
         val intro = IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings, options.introAnimation)
         // Les cartes comptent dans la durée maximale de la plateforme : le montage se planifie dans ce qui reste.
         val maxDuration = (options.maxDuration ?: base.maxDuration).let { d -> platform?.maxDuration?.let { minOf(it - IntroOutroSupport.reserved(intro, montage = true), d) } ?: d }
+        val pins = PinLearner.learn(pinHistory.load())
         val settings = base.copy(
             formats = platform?.let { listOf(it.format) } ?: options.formats ?: base.formats,
             maxDuration = maxDuration,
@@ -1387,14 +1398,16 @@ class HighlightPipeline(
             // Longueurs avant et après le kill apprises des coupes posées à la main (sans effet sous ClipLengthLearner.MIN_CUTS).
             if (!s.learnTaste) s
             else ClipLengthLearner.learn(cutHistory.load()).let { l ->
-                s.copy(cuts = s.cuts.copy(preferredLead = l.beforeFor(profile.id), preferredTail = l.afterFor(profile.id)))
+                // Préférence pour les accents apprise des kills posés sur la musique (sans effet sous PinLearner.MIN_PINS).
+                s.copy(cuts = s.cuts.copy(preferredLead = l.beforeFor(profile.id), preferredTail = l.afterFor(profile.id), accentBonus = pins.accentBonus))
             }
         }
         val musicStep = progress.child(tr(if (music.isDirectory()) "progress.musics" else "progress.music"), 0.06)
         // Calages appris (retard d'une détection, temps décalés d'un morceau) : sans effet sous les seuils du learner.
         val timing = if (settings.learnTaste) KillTimingLearner.learn(timingHistory.load().corrections) else LearnedTiming.NONE
+        // Écart au temps appris des kills posés sur la musique : pour les morceaux qui n'ont pas le leur.
         val musics = (if (music.isDirectory()) musicLibrary.load(ffmpeg, music, musicStep) else listOf(MusicAnalyzer.analyze(ffmpeg, music)))
-            .map { m -> timing.songOffset(MusicFeelStore.keyOf(m.file))?.let { m.copy(killShift = it) } ?: m }
+            .map { m -> (timing.songOffset(MusicFeelStore.keyOf(m.file)) ?: pins.killShift.takeIf { settings.learnTaste })?.let { m.copy(killShift = it) } ?: m }
             // Drop posée à la main : elle remplace la drop détectée (grille des temps recalée autour, voir MusicDrops).
             // Sinon, ce qui a été appris des drops posées sur d'autres morceaux (sans effet sous les seuils de DropLearner).
             .let { list ->

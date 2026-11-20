@@ -396,6 +396,8 @@ fun KillTimingPanel(t: KillTimingUi, actions: UiActions, modifier: Modifier = Mo
                     Text(tr("ui.killTiming.title", "kill" to t.ref.toString()), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Text(tr("ui.killTiming.hint"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
                 }
+                // Le kill sur un instant du morceau (l'outil d'écoute de la musique).
+                OutlinedButton(onClick = { actions.openKillOnMusic(t.ref.toString()) }) { Text(tr("ui.killTiming.onMusic")) }
                 TextButton(onClick = actions::excludeTimedKill) { Text(tr("ui.killTiming.exclude"), color = Palette.danger) }
                 TextButton(onClick = actions::clearKillTiming) { Text(tr("ui.killTiming.clear")) }
                 Button(onClick = actions::applyKillTiming, enabled = t.killHereAllowed) { Text(tr("ui.killTiming.apply")) }
@@ -587,6 +589,22 @@ fun TimingTasteCard(state: TasteState, actions: UiActions) {
                 )
             }
             if (!lengths.isEmpty) OutlinedButton(onClick = actions::resetLengths) { Text(tr("ui.taste.timing.resetLengths")) }
+            // Kills posés sur la musique : écart au temps et préférence pour les accents.
+            val pins = state.pins
+            if (!pins.isEmpty) {
+                Text(
+                    tr(
+                        if (pins.offsetActive) "ui.taste.timing.pinsOffsetActive" else "ui.taste.timing.pinsOffsetPending",
+                        "count" to pins.count, "ms" to KillTimingUi.signedMs(pins.offset ?: Duration.ZERO), "min" to dev.highlights.montage.PinLearner.MIN_PINS,
+                    ),
+                    style = MaterialTheme.typography.bodySmall, color = if (pins.offsetActive) Palette.accent else Palette.textMuted,
+                )
+                Text(
+                    tr(if (pins.accentActive) "ui.taste.timing.pinsAccentActive" else "ui.taste.timing.pinsAccentPending", "share" to dev.highlights.core.i18n.I18n.percent(pins.accentShare ?: 0.0)),
+                    style = MaterialTheme.typography.bodySmall, color = if (pins.accentActive) Palette.accent else Palette.textMuted,
+                )
+                OutlinedButton(onClick = actions::resetPins) { Text(tr("ui.taste.timing.resetPins")) }
+            }
         }
     }
 }
