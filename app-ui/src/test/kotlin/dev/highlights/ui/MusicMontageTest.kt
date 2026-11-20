@@ -164,4 +164,24 @@ class MusicMontageTest : FunSpec({
             }
         }
     }
+
+    test("capture : ce qui est appris des placements, dans « Goûts appris » (build/ui-snapshots/taste_layout.png)") {
+        val out = Path("build", "ui-snapshots").createDirectories()
+        val learned = dev.highlights.montage.LearnedLayout(
+            montages = 4, chosen = 41, offset = 25.milliseconds, offsetSpread = 4.milliseconds, offsetActive = true,
+            accentGain = 0.26, accentActive = true, density = 1.21, densityActive = true,
+            offbeatShare = 0.12, autoOffbeatShare = 0.05, afterDropShare = 0.6, autoAfterDropShare = 0.55,
+        )
+        val states = listOf("taste_layout" to learned, "taste_layout_pending" to learned.copy(montages = 2, offsetActive = false, accentActive = false, densityActive = false), "taste_layout_none" to dev.highlights.montage.LearnedLayout.NONE)
+        for ((name, l) in states) {
+            for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
+                I18n.withLanguage(tag) {
+                    val image = SceneRendering.image(760, 300) { HighlightsTheme { LayoutTasteCard(dev.highlights.pipeline.TasteState(Path("taste-history.json"), 0, 0, dev.highlights.montage.TasteLearner.learn(emptyList()), emptyList(), null, null, null, layout = l), noop) } }
+                    val file: Path = out.resolve("$folder$name.png")
+                    file.parent.createDirectories()
+                    file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+                }
+            }
+        }
+    }
 })

@@ -27,6 +27,7 @@ class TasteCommand : PipelineCommand("gouts") {
     private val resetDropLearning by option("--reset-drop-learning", help = "Oublier ce qui a été appris des drops posées (drop-learning.json mis de côté ; les drops posées restent)").flag()
     private val resetCuts by option("--reset-cuts", help = "Oublier les longueurs de plan apprises des coupes (kill-cuts.json mis de côté, pas effacé)").flag()
     private val resetPins by option("--reset-pins", help = "Oublier ce qui a été appris des kills posés sur la musique (kill-pins.json mis de côté, pas effacé)").flag()
+    private val resetLayout by option("--reset-layout", help = "Oublier ce qui a été appris des kills posés à l'étape 1 de « Montage sur la musique » (kill-layout.json mis de côté)").flag()
     private val history by option("--history", help = "Lire cet historique au lieu de <sortie>\\sessions\\taste-history.json").path(mustExist = true, canBeDir = false)
 
     override fun help(context: Context) =
@@ -36,6 +37,11 @@ class TasteCommand : PipelineCommand("gouts") {
     override fun run() {
         val pipeline = Pipelines.create(env.config)
         val file: Path = history ?: pipeline.tasteHistory.file
+        if (resetLayout) {
+            val aside = pipeline.layoutHistory.reset()
+            echo(if (aside == null) "Rien à oublier : ${pipeline.layoutHistory.file} n'existe pas." else "Placements oubliés. Fichier mis de côté : $aside.")
+            if (!reset && !resetTiming && !resetDrops && !resetDropLearning && !resetCuts && !resetPins) return
+        }
         if (resetPins) {
             val aside = pipeline.pinHistory.reset()
             echo(if (aside == null) "Rien à oublier : ${pipeline.pinHistory.file} n'existe pas." else "Placement sur la musique oublié. Fichier mis de côté : $aside.")
@@ -116,6 +122,13 @@ class TasteCommand : PipelineCommand("gouts") {
             echo("  morceau   %-40s %+5d ms  %2d calage(s), écart %3d ms  %s".format(o.key.substringBefore('|'), o.offset.inWholeMilliseconds, o.count, o.spread.inWholeMilliseconds, if (o.active) "appliqué" else "pas encore"))
         }
         if (!timing.isEmpty) echo("  pour les oublier : app gouts --reset-timing")
+        val layout = state.layout
+        if (!layout.isEmpty) {
+            echo("  où vous posez vos kills (étape 1) : ${layout.montages} montage(s), ${layout.chosen} kill(s) placés par vous (à partir de ${dev.highlights.montage.LayoutTasteLearner.MIN_MONTAGES} montages)")
+            echo("    écart au temps ${layout.offset?.inWholeMilliseconds ?: "-"} ms : ${if (layout.offsetActive) "appliqué" else "pas encore"}")
+            echo("    accents ${layout.accentGain?.let { "%+.2f".format(it) } ?: "-"} : ${if (layout.accentActive) "appliqué" else "pas encore"} ; densité ×${layout.density?.let { "%.2f".format(it) } ?: "-"} : ${if (layout.densityActive) "appliquée" else "pas encore"}")
+            echo("  pour l'oublier : app gouts --reset-layout")
+        }
         val pins = state.pins
         if (!pins.isEmpty) {
             echo("  kills posés sur la musique : ${pins.count} (à partir de ${dev.highlights.montage.PinLearner.MIN_PINS})")

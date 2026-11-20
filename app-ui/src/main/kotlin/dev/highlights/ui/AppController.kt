@@ -220,6 +220,8 @@ interface UiActions {
     fun removeEditorKill(kill: String) {}
     fun resetEditorAuto() {}
     fun previewEditedMontage() {}
+    /** Oublie ce qui a été appris des placements de l'étape 1 (`kill-layout.json` mis de côté). */
+    fun resetLayoutTaste() {}
     /** Étape 1 → 2 : les plans se construisent autour des kills posés ; étape 2 → 1 : revenir aux kills. */
     fun placeEditorClips() {}
     fun backEditorToKills() {}
@@ -1252,7 +1254,24 @@ class AppController(
     override fun closeKillTiming() = killTiming.close()
 
     private val musicDrop = MusicDropController(scope, _state, { backend?.pipeline }, ::replanMontage, updateMontage = ::updateMontage)
-    private val musicEditor = MusicEditorController(scope, _state, { backend?.pipeline }, ::updateMontage, ::replanMontage)
+    private val musicEditor = MusicEditorController(scope, _state, { backend?.pipeline }, ::updateMontage, ::replanMontage, recordLayout = ::recordLayout)
+
+    /** Dernier plan calculé (celui de la proposition quand on valide l'étape 1). */
+    @Volatile private var lastPlanned: dev.highlights.pipeline.PlannedMontage? = null
+
+    private fun recordLayout(auto: List<LaidKill>, final: List<LaidKill>) {
+        val planned = lastPlanned ?: return
+        val p = backend?.pipeline ?: return
+        fun map(list: List<LaidKill>) = list.mapNotNull { k -> runCatching { dev.highlights.montage.KillRef.parse(k.key) }.getOrNull()?.let { it to k.at } }.toMap()
+        scope.launch(Dispatchers.IO) { runCatching { p.recordLayout(planned, map(auto), map(final)) } }
+    }
+    override fun resetLayoutTaste() {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            val aside = withContext(Dispatchers.IO) { p.layoutHistory.reset() }
+            loadTaste(resetDone = aside?.fileName?.toString())
+        }
+    }
     override fun openMusicEditor() = musicEditor.open()
     override fun closeMusicEditor() {
         planJob?.cancel()
@@ -1342,7 +1361,10 @@ class AppController(
             try {
                 val tracker = ProgressTracker { snap -> updatePlan { it.copy(fraction = snap.fraction) } }
                 // Pas de rendu : la musique, l'inspection des kills (en cache après le premier plan) et la planification.
-                val view = withContext(Dispatchers.Default) { PlanView.of(p.planKillMontage(session.sessions, music, montageOptions(montage, s), tracker.root)) }
+                val planned = withContext(Dispatchers.Default) { p.planKillMontage(session.sessions, music, montageOptions(montage, s), tracker.root) }
+                // Gardé tant que l'étape 1 n'est pas validée : c'est la proposition qu'on enregistre avec le placement.
+                if (state.value.montage?.constraints?.layout == null) lastPlanned = planned
+                val view = PlanView.of(planned)
                 updatePlan { it.copy(loading = false, view = view, planned = constraints, error = null) }
                 musicEditor.planned(view)
                 val known = state.value.montage?.plan?.thumbnails.orEmpty()

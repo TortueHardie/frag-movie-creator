@@ -705,8 +705,20 @@ musique » s'ouvre (bouton **Montage sur la musique…** pour le rouvrir ; la fr
    complète des kills posés).
    L'étape montre les plans (bandes numérotées, début et fin) ; **← Revenir aux kills** rouvre l'étape 1 avec les kills
    posés (replacer les plans refait l'étape 2) ; **Aperçu du montage (360p)**, **Rendre le montage**.
-Les kills posés nourrissent l'apprentissage du placement sur la musique. Le réarrangement des plans à la main
-(bornes, ordre, longueur) est la prochaine étape.
+Le réarrangement des plans à la main (bornes, ordre, longueur) est la prochaine étape.
+
+**Apprendre d'où vous posez vos kills.** Chaque **Placer les plans** enregistre la proposition automatique et votre
+placement final (`<sortie>/sessions/kill-layout.json`) : kills déplacés (d'où vers où), ajoutés, retirés, et le
+contexte musical de chaque instant (temps le plus proche et écart en ms, contretemps, attaque de note, force du temps,
+section, avant ou après la drop, kills dans la mesure). Après au moins 3 montages qui concordent (chaque goût vérifié
+« une de côté » : appris sans un montage, prédit-il ce montage ?), la proposition automatique de l'étape 1 suit :
+l'écart préféré au temps (entre 10 et 120 ms, dispersion ≤ 30 ms), la préférence pour les temps qui frappent, et la
+densité (plus serré ou plus espacé, ×0,7 à ×1,5 sur la durée visée par kill). Jamais par-dessus un kill posé à la
+main. Les kills retirés et ajoutés nourrissent les goûts par sorte de kill (multi-kill, tête, one tap…). Contretemps
+et kills après la drop sont montrés, pas encore appliqués. **Goûts appris** le dit en clair (« Vous posez vos kills
+~25 ms après le temps : appliqué ») ; **Oublier…** (ou `app gouts --reset-layout`) met le fichier de côté. Démo à goût
+caché (`LayoutTasteTest`) : un goût net ou flou (le temps fort 6 fois sur 10, ±15 ms) est appliqué dès le 3e montage ;
+sans goût ou au hasard, rien ne s'applique.
 
 **Kill sur ce moment de la musique.** Pour réarranger les kills sur la musique : clic sur le trait d'un kill dans la
 frise, puis **Sur la musique…** : l'outil d'écoute du morceau (le même que pour la drop : forme d'onde, son, curseur

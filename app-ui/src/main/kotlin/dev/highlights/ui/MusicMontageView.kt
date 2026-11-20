@@ -65,7 +65,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.rememberDialogState
+import dev.highlights.core.i18n.I18n
 import dev.highlights.core.i18n.tr
+import dev.highlights.pipeline.TasteState
 import dev.highlights.montage.DropTime
 import dev.highlights.montage.KillRef
 import dev.highlights.montage.MontageConstraints
@@ -175,6 +177,8 @@ internal class MusicEditorController(
     private val updateMontage: ((MontageUiState) -> MontageUiState) -> Unit,
     private val replan: () -> Unit,
     private val sinks: () -> AudioSink? = JavaSoundSink::create,
+    /** « Placer les plans » : la proposition et le placement final, à enregistrer pour apprendre. */
+    private val recordLayout: (auto: List<LaidKill>, final: List<LaidKill>) -> Unit = { _, _ -> },
 ) {
     private var job: Job? = null
     private var follow: Job? = null
@@ -233,6 +237,8 @@ internal class MusicEditorController(
         val e = editor ?: return
         val layout = e.layout ?: return
         val map = layout.mapNotNull { k -> runCatching { KillRef.parse(k.key) }.getOrNull()?.let { it to k.at } }.toMap()
+        // Apprendre d'où l'utilisateur met ses kills (demande insistante du 20/11) : proposition et placement final.
+        runCatching { recordLayout(e.auto, layout) }
         updateMontage { m -> m.copy(constraints = m.constraints.copy(layout = map, pins = emptyMap(), excluded = emptySet(), forced = emptySet())) }
         update { it.copy(step = EditorStep.CLIPS, selected = null, notice = null, drag = null, from = null, to = null) }
         replan()
@@ -1150,3 +1156,43 @@ private fun KillsBar(e: MusicEditorUi, actions: UiActions) {
 
 private val TINY_CARD_W = 56.dp
 private const val KILL_ROWS = 5
+
+/**
+ * Où l'utilisateur pose ses kills (étape 1), dit en clair dans « Goûts appris » (« Vous posez vos kills ~20 ms après
+ * le temps, sur les temps qui frappent ») : chaque goût dit s'il est appliqué à la proposition ; contretemps et kills
+ * après la drop sont montrés sans être appliqués ; de quoi l'oublier.
+ */
+@Composable
+fun LayoutTasteCard(state: TasteState, actions: UiActions) {
+    val l = state.layout
+    val min = dev.highlights.montage.LayoutTasteLearner.MIN_MONTAGES
+    Surface(shape = RoundedCornerShape(10.dp), color = Palette.surface, border = BorderStroke(1.dp, Palette.outline)) {
+        Column(Modifier.padding(14.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(tr("ui.taste.layout.title"), style = MaterialTheme.typography.titleMedium)
+            if (l.isEmpty) {
+                Text(tr("ui.taste.layout.none"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                return@Column
+            }
+            Text(tr("ui.taste.layout.intro", "count" to l.montages, "chosen" to l.chosen, "min" to min), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+            fun status(active: Boolean) = if (active) tr("ui.taste.layout.applied") else tr("ui.taste.layout.pending", "min" to min)
+            @Composable
+            fun line(text: String, active: Boolean) =
+                Text(text + " : " + status(active), style = MaterialTheme.typography.bodySmall, color = if (active) Palette.accent else Palette.textMuted)
+            l.offset?.let { o ->
+                val ms = o.inWholeMilliseconds
+                line(tr(if (ms >= 0) "ui.taste.layout.offsetAfter" else "ui.taste.layout.offsetBefore", "ms" to kotlin.math.abs(ms)), l.offsetActive)
+            }
+            l.accentGain?.let { g ->
+                val text = I18n.fixed(kotlin.math.abs(g), 2)
+                line(tr(if (g >= 0) "ui.taste.layout.accentStrong" else "ui.taste.layout.accentCalm", "gain" to (if (g >= 0) text else "-$text")), l.accentActive)
+            }
+            l.density?.let { d -> line(tr(if (d >= 1) "ui.taste.layout.denser" else "ui.taste.layout.sparser", "factor" to I18n.fixed(d, 2)), l.densityActive) }
+            val pct = { x: Double? -> I18n.percent(x ?: 0.0) }
+            Text(
+                tr("ui.taste.layout.observed", "you" to pct(l.offbeatShare), "auto" to pct(l.autoOffbeatShare), "youDrop" to pct(l.afterDropShare), "autoDrop" to pct(l.autoAfterDropShare)),
+                style = MaterialTheme.typography.bodySmall, color = Palette.textMuted,
+            )
+            OutlinedButton(onClick = actions::resetLayoutTaste) { Text(tr("ui.taste.layout.reset")) }
+        }
+    }
+}
