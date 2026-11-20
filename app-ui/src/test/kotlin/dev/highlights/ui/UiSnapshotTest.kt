@@ -48,6 +48,21 @@ class UiSnapshotTest : FunSpec({
     val languages = listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/") +
         I18n.available().map { it.tag }.filter { it != "fr" && it != "en" }.sorted().map { it to "$it/" }
 
+    /** La fenêtre du parcours du montage (une fenêtre à part : rendue seule, comme dans l'application). */
+    fun renderFlow(name: String, state: UiState): Path {
+        var french: Path? = null
+        for ((tag, folder) in languages) {
+            I18n.withLanguage(tag) {
+                val image = SceneRendering.image(1440, 900) { HighlightsTheme { MontageFlowContent(state.montage!!, state.copy(language = tag), NoopActions) } }
+                val file = outDir.resolve("$folder$name.png")
+                file.parent.createDirectories()
+                file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+                if (tag == "fr") french = file
+            }
+        }
+        return french!!
+    }
+
     fun render(name: String, state: UiState, width: Int = 1440, height: Int = 920): Path {
         var french: Path? = null
         for ((tag, folder) in languages) {
@@ -217,7 +232,10 @@ class UiSnapshotTest : FunSpec({
             session = SessionState(session, Path("D:/Highlights/sessions/x.session.json"), selectedId = "h003"),
             montage = MontageUiState(music = Path("D:/Musique/phonk_128.mp3")),
         )
-        render("06_montage", state).fileSize() shouldBeGreaterThan 0L
+        renderFlow("06_montage", state).fileSize() shouldBeGreaterThan 0L
+        for (step in listOf(MontageStep.MUSIC, MontageStep.FINISHING, MontageStep.PREVIEW)) {
+            renderFlow("06_montage_${step.ordinal + 1}_${step.name.lowercase()}", state.copy(montage = state.montage!!.copy(step = step, reached = step.ordinal))).fileSize() shouldBeGreaterThan 0L
+        }
     }
 
     test("ouverture et fin : réglages du logo, du pseudo et du fond") {
@@ -252,7 +270,7 @@ class UiSnapshotTest : FunSpec({
             session = SessionState(session, Path("D:/Highlights/sessions/x.session.json")),
             montage = MontageUiState(music = Path("D:/Musique/phonk_128.mp3"), platform = "shorts"),
         )
-        render("12_plateforme", state).fileSize() shouldBeGreaterThan 0L
+        renderFlow("12_plateforme", state).fileSize() shouldBeGreaterThan 0L
         render("13_plateforme_reglages", state.copy(montage = null)).fileSize() shouldBeGreaterThan 0L
     }
 
@@ -271,7 +289,7 @@ class UiSnapshotTest : FunSpec({
         )
         render("18_prereglages_export", state).fileSize() shouldBeGreaterThan 0L
         val montage = MontageUiState(music = Path("D:/Musique/phonk_128.mp3")).choosePreset("shorts", presets)
-        render("19_prereglages_montage", state.copy(montage = montage)).fileSize() shouldBeGreaterThan 0L
+        renderFlow("19_prereglages_montage", state.copy(montage = montage)).fileSize() shouldBeGreaterThan 0L
     }
 
     test("statistiques par soirée") {

@@ -1,6 +1,8 @@
 package dev.highlights.ui
 
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import dev.highlights.core.i18n.I18n
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.VideoStream
@@ -77,100 +79,6 @@ class MontageTimelineTest : FunSpec({
         view.pinMarks(c) shouldBe listOf(PinMark(g.refs.last(), 58.1.seconds, 3.1.seconds), PinMark(h.refs.last(), 120.seconds, null))
     }
 
-    test("frise du plan : épingler sur un temps, avant/pendant/après (build/ui-snapshots/montage_plan_pin*.png)") {
-        val out = Path("build", "ui-snapshots").createDirectories()
-        val duration = 24.seconds
-        val beats = (0 until 48).map { (it * 500).milliseconds }
-        val placed = listOf(group(312.0) to (0.0 to 6.0), group(905.0, 906.2) to (6.0 to 12.0), group(1500.0) to (12.0 to 18.0), group(2100.0) to (18.0 to 24.0))
-        fun view(order: List<Int>) = PlanView(
-            music = "Rome Is Burning.mp3", bpm = 120.0, musicStart = 55.seconds, duration = duration, beats = beats,
-            energy = beats.map { t -> 0.5 + 0.4 * sin(t.inWholeMilliseconds / 1000.0 * 3.1) },
-            sections = listOf(PlanSection(0.seconds, 8.seconds, SectionKind.BUILD_UP, 0.5), PlanSection(8.seconds, duration, SectionKind.DROP, 1.0)),
-            dropAt = 8.seconds,
-            clips = order.mapIndexed { slot, i ->
-                val g = placed[i].first
-                val (a, b) = placed[slot].second
-                PlanClip(g, a.seconds, b.seconds, listOf(PlanKill((b - 1.0).seconds, g.refs.last())), a == 6.0)
-            },
-            left = listOf(group(400.0), group(1000.0)),
-        )
-        val pinnedGroup = placed[0].first
-        // Après : le groupe 1 épinglé au temps de 17,0 s du montage (72,0 s du morceau), le plan l'y a mis.
-        val pinned = MontageConstraints.NONE.pinAt(pinnedGroup.refs, 72.seconds)
-        val shots = listOf(
-            Triple("montage_plan_pin_avant", MontagePlanState(loading = false, view = view(listOf(0, 1, 2, 3))) to MontageConstraints.NONE, null),
-            Triple("montage_plan_pin_glisser", MontagePlanState(loading = false, view = view(listOf(0, 1, 2, 3))) to MontageConstraints.NONE, pinnedGroup to 34),
-            Triple("montage_plan_pin_apres", MontagePlanState(loading = false, view = view(listOf(1, 2, 0, 3)), planned = pinned) to pinned, null),
-        )
-        for ((name, stateAndConstraints, drag) in shots) {
-            val (state, constraints) = stateAndConstraints
-            for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/")) {
-                I18n.withLanguage(tag) {
-                    val image = SceneRendering.image(1320, 600) {
-                        HighlightsTheme { MontagePlanContent(constraints, state, noop, previewDrag = drag) }
-                    }
-                    val file: Path = out.resolve("$folder$name.png")
-                    file.parent.createDirectories()
-                    file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
-                }
-            }
-        }
-    }
-
-    test("frise du plan : rendu hors écran (build/ui-snapshots/montage_plan*.png)") {
-        val out = Path("build", "ui-snapshots").createDirectories()
-        val duration = 42.seconds
-        val beats = (0 until 84).map { (it * 500).milliseconds }
-        val drop = 16.seconds
-        val placed = listOf(
-            group(312.0) to (0.0 to 4.0), group(640.0) to (4.0 to 8.0), group(905.0, 906.2) to (8.0 to 12.0),
-            group(1210.0, 1211.0, 1212.4, rank = 3.5) to (12.0 to 18.0), group(1500.0) to (18.0 to 22.0), group(1620.0) to (22.0 to 26.0),
-            group(1800.0) to (26.0 to 30.0), group(1950.0, 1951.0) to (30.0 to 36.0), group(2100.0) to (36.0 to 42.0),
-        )
-        val view = PlanView(
-            music = "Rome Is Burning.mp3", bpm = 120.0, musicStart = 55.seconds, duration = duration, beats = beats,
-            energy = beats.map { t -> val s = t.inWholeMilliseconds / 1000.0; (if (s < 16) 0.35 + 0.3 * s / 16 else 0.9) * (0.75 + 0.25 * sin(s * 6.3)) },
-            sections = listOf(
-                PlanSection(0.seconds, 8.seconds, SectionKind.INTRO, 0.2),
-                PlanSection(8.seconds, drop, SectionKind.BUILD_UP, 0.55),
-                PlanSection(drop, 34.seconds, SectionKind.DROP, 1.0),
-                PlanSection(34.seconds, duration, SectionKind.BODY, 0.7),
-            ),
-            dropAt = drop,
-            clips = placed.map { (g, span) ->
-                val (a, b) = span
-                PlanClip(g, a.seconds, b.seconds, g.kills.mapIndexed { i, k -> PlanKill((b - 1.5 - (g.kills.last() - k).inWholeMilliseconds / 1000.0).seconds, KillRef.of(media, k)) }, a.seconds <= drop && drop < b.seconds)
-            },
-            left = listOf(group(400.0), group(700.0, 702.0), group(1000.0), group(1300.0), group(2300.0)),
-        )
-        val constraints = MontageConstraints.NONE
-            .edit(placed[1].first.refs, KillEdit.EXCLUDE)
-            .edit(placed[5].first.refs, KillEdit.DROP)
-            .edit(view.left[2].refs, KillEdit.FORCE)
-        val states = listOf(
-            "montage_plan" to MontagePlanState(loading = false, view = view, planned = MontageConstraints.NONE),
-            "montage_plan_impossible" to MontagePlanState(
-                loading = false, view = view, planned = constraints,
-                error = "error.montage.edit.notPlaced",
-            ),
-        )
-        for ((name, state) in states) {
-            for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
-                I18n.withLanguage(tag) {
-                    val image = SceneRendering.image(1320, 600) {
-                        HighlightsTheme {
-                            val error = state.error?.let { dev.highlights.core.i18n.Message(it, "kill" to view.left[2].key).text() }
-                            MontagePlanContent(constraints, state.copy(error = error), noop)
-                        }
-                    }
-                    val file: Path = out.resolve("$folder$name.png")
-                    file.parent.createDirectories()
-                    file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
-                }
-            }
-        }
-    }
-
     test("calage d'un kill à l'image : bande d'images, image choisie, décalage du temps (build/ui-snapshots/montage_kill_timing*.png)") {
         val out = Path("build", "ui-snapshots").createDirectories()
         // Images de synthèse : un réticule au centre, la marque d'impact rouge à partir de la 9e image (kill vu 3 images
@@ -224,7 +132,10 @@ class MontageTimelineTest : FunSpec({
             I18n.withLanguage(tag) {
                 val image = SceneRendering.image(1320, 1060) {
                     HighlightsTheme {
-                        MontagePlanContent(markers, MontagePlanState(loading = false, view = view, timing = timing.copy(sectionStart = detected + 900.milliseconds)), noop)
+                        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.padding(16.dp)) {
+                            KillTimingPanel(timing.copy(sectionStart = detected + 900.milliseconds), noop, constraints = markers)
+                            MarkerChips(markers, noop)
+                        }
                     }
                 }
                 val file: Path = out.resolve("${folder}montage_kill_timing.png")
@@ -253,7 +164,7 @@ class MontageTimelineTest : FunSpec({
         for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
             I18n.withLanguage(tag) {
                 val image = SceneRendering.image(1320, 760) {
-                    HighlightsTheme { MontagePlanContent(MontageConstraints.NONE, MontagePlanState(loading = false, view = view, drop = drop), noop) }
+                    HighlightsTheme { MusicDropPanel(drop, noop, androidx.compose.ui.Modifier.padding(16.dp)) }
                 }
                 val file: Path = out.resolve("${folder}montage_music_drop.png")
                 file.parent.createDirectories()
@@ -380,7 +291,7 @@ class MontageTimelineTest : FunSpec({
         val shown = state.value.montage!!.plan!!.copy(drop = state.value.montage!!.plan!!.drop!!.copy(loading = false, duration = 228.seconds, overview = wave, detail = wave.take(MusicDropUi.DETAIL_BUCKETS), beats = (0 until 480).map { (it * 476).milliseconds }))
         for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
             I18n.withLanguage(tag) {
-                val image = SceneRendering.image(1320, 700) { HighlightsTheme { MontagePlanContent(MontageConstraints.NONE, shown, noop) } }
+                val image = SceneRendering.image(1320, 700) { HighlightsTheme { MusicDropPanel(shown.drop!!, noop, androidx.compose.ui.Modifier.padding(16.dp)) } }
                 val file: Path = out.resolve("${folder}montage_kill_on_music.png")
                 file.parent.createDirectories()
                 file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)

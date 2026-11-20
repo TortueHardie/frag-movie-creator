@@ -74,12 +74,12 @@ class ControlBridgeTest : FunSpec({
 
     test("les actions update* reçoivent les champs à changer") {
         val patch = BridgeJson.fromJson(
-            buildJsonObject { put("fast", true); put("maxDurationText", "30s"); put("density", "heavy") },
+            buildJsonObject { put("oneTaps", true); put("maxDurationText", "30s"); put("density", "heavy") },
             typeOf<(MontageUiState) -> MontageUiState>(),
         )
         @Suppress("UNCHECKED_CAST")
         val changed = (patch as (MontageUiState) -> MontageUiState)(MontageUiState())
-        changed.fast shouldBe true
+        changed.oneTaps shouldBe true
         changed.maxDurationText shouldBe "30s"
         changed.density shouldBe EffectDensity.HEAVY
         changed.zoom shouldBe true

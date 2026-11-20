@@ -504,18 +504,56 @@ internal class MusicEditorController(
      */
     private fun putOnMark(intents: MusicIntents, key: String, refs: List<KillRef>, at: Duration) {
         val v = view ?: return
-        val target = intents.killMarks.minByOrNull { (it.at - at).absoluteValue } ?: return
         val owners = markOwners(v, intents)
         val ref = refs.last()
         val keyOfGroup = v.clips.mapNotNull { it.group }.firstOrNull { g -> g.key == key || g.refs.any { it.toString() == key } }?.key ?: key
         val source = owners.entries.firstOrNull { it.value.key == keyOfGroup }?.key
+        val target = intents.killMarks.filter { (it.at - at).absoluteValue <= MARK_REACH }.minByOrNull { (it.at - at).absoluteValue }
+        if (target == null || target.id == source) {
+            // Lâché loin de tout repère : le plan va là (son repère déplacé), ou un nouveau plan s'ajoute là.
+            val moved = intents.marks.map { m -> if (m.id == source) m.copy(at = at, byHand = true) else m }
+            val next = if (source != null) intents.copy(marks = moved.sortedBy { it.at }, fixed = intents.fixed + (source to ref))
+            else IntentMark(intents.nextId, IntentKind.KILL, at, byHand = true).let { m -> intents.copy(marks = (intents.marks + m).sortedBy { it.at }, fixed = intents.fixed + (m.id to ref)) }
+            updateMontage { m -> m.copy(constraints = m.constraints.copy(intents = next, forced = m.constraints.forced + refs, excluded = m.constraints.excluded - refs.toSet())) }
+            update { it.copy(selected = ref.toString(), intents = next) }
+            replan()
+            listenAround(at)
+            return
+        }
         var fixed = intents.fixed.filterValues { r -> refs.none { it.toString() == r.toString() } } + (target.id to ref)
         val displaced = owners[target.id]
         if (source != null && source != target.id && displaced != null) fixed = fixed + (source to displaced.refs.last())
-        updateMontage { m -> m.copy(constraints = m.constraints.copy(intents = intents.copy(fixed = fixed), forced = m.constraints.forced + refs)) }
-        update { it.copy(selected = ref.toString()) }
+        updateMontage { m -> m.copy(constraints = m.constraints.copy(intents = intents.copy(fixed = fixed), forced = m.constraints.forced + refs, excluded = m.constraints.excluded - refs.toSet())) }
+        update { it.copy(selected = ref.toString(), intents = intents.copy(fixed = fixed)) }
         replan()
         listenAround(target.at)
+    }
+
+    /** Étape 3b : retire le plan du kill [kill] et son repère (ou ses repères rapprochés) ; le montage se refait. */
+    fun removeClip(kill: String) {
+        val v = view ?: return
+        val intents = state.value.montage?.constraints?.intents ?: return remove(kill)
+        val g = (v.clips.mapNotNull { it.group } + v.left).firstOrNull { g -> g.key == kill || g.refs.any { it.toString() == kill } } ?: return
+        val marks = markOwners(v, intents).filterValues { it.key == g.key }.keys
+        if (marks.isEmpty()) return remove(kill)
+        val next = intents.copy(marks = intents.marks.filter { it.id !in marks }, fixed = intents.fixed - marks)
+        if (next.killMarks.isEmpty()) return
+        updateMontage { m -> m.copy(constraints = m.constraints.copy(intents = next)) }
+        update { it.copy(selected = null, intents = next) }
+        replan()
+    }
+
+    /** Étape 3b : un passage sans kill (vitrine) de deux temps à partir de [seconds] ; une seule plage de vitrine. */
+    fun addShowcase(seconds: Double) {
+        val intents = state.value.montage?.constraints?.intents ?: return
+        val e = editor ?: return
+        val at = (seconds * 1000).toLong().milliseconds
+        val start = e.beats.minByOrNull { (it - at).absoluteValue } ?: at
+        val period = e.beats.zipWithNext().firstOrNull()?.let { (a, b) -> b - a } ?: 500.milliseconds
+        val next = intents.copy(showcase = IntentRange(start, start + period * 2, byHand = true))
+        updateMontage { m -> m.copy(constraints = m.constraints.copy(intents = next)) }
+        update { it.copy(intents = next) }
+        replan()
     }
 
     /**
@@ -581,6 +619,9 @@ internal class MusicEditorController(
 
     companion object {
         val LISTEN = 1.5.seconds
+
+        /** Lâché à moins de ça d'un repère « kill », un kill va sur ce repère (remplace, échange) ; plus loin, il en pose un. */
+        val MARK_REACH = 400.milliseconds
 
         /** Vitrine d'un temps au moins. */
         val MIN_SHOWCASE = 250.milliseconds
@@ -653,13 +694,13 @@ fun MusicMontageWindow(montage: MontageUiState, editor: MusicEditorUi, actions: 
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun MusicMontageContent(montage: MontageUiState, editor: MusicEditorUi, actions: UiActions, modifier: Modifier = Modifier) {
+fun MusicMontageContent(montage: MontageUiState, editor: MusicEditorUi, actions: UiActions, modifier: Modifier = Modifier, embedded: Boolean = false) {
     val plan = montage.plan
     val view = plan?.view
     var trackBounds by remember { mutableStateOf(Rect.Zero) }
     Surface(modifier, color = Palette.background) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Header(montage, editor, view, actions)
+            Header(montage, editor, view, actions, embedded)
             plan?.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodySmall) }
             editor.error?.let { Text(tr("ui.musicEditor.failed", "reason" to it), color = Palette.danger, style = MaterialTheme.typography.bodySmall) }
             if (editor.loading || view == null) {
@@ -685,6 +726,8 @@ fun MusicMontageContent(montage: MontageUiState, editor: MusicEditorUi, actions:
                         else Track(montage.constraints, editor, view, plan.thumbnails, from, to, actions)
                     }
                     plan.timing?.let { KillTimingPanel(it, actions, constraints = montage.constraints) }
+                    plan.drop?.let { MusicDropPanel(it, actions) }
+                    if (!kills) MarkerChips(montage.constraints, actions)
                     if (kills) IntentsBar(editor, actions) else EditorBar(editor, view, montage.constraints, actions)
                 }
                 // Étape 1 : ce qu'on prépare ; étape 2 : les kills non utilisés, à glisser sur un repère.
@@ -708,10 +751,10 @@ internal fun editorWindow(e: MusicEditorUi, v: PlanView?): Pair<Duration, Durati
 }
 
 @Composable
-private fun Header(montage: MontageUiState, e: MusicEditorUi, view: PlanView?, actions: UiActions) {
+private fun Header(montage: MontageUiState, e: MusicEditorUi, view: PlanView?, actions: UiActions, embedded: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Column(Modifier.weight(1f)) {
-            Text(tr("ui.musicEditor.title"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            if (!embedded) Text(tr("ui.musicEditor.title"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             val kills = view?.clips?.sumOf { it.kills.size } ?: 0
             Text(
                 view?.let {
@@ -729,20 +772,20 @@ private fun Header(montage: MontageUiState, e: MusicEditorUi, view: PlanView?, a
                 style = MaterialTheme.typography.labelMedium, color = Palette.cyan,
             )
         }
-        StepTabs(e.step)
+        StepTabs(e.step, embedded)
         Button(onClick = actions::toggleEditorPlayback) {
             Text(if (e.playing) tr("ui.musicEditor.pause", "time" to DropTime.format(e.playhead ?: Duration.ZERO)) else tr("ui.musicEditor.play"))
         }
         OutlinedButton(onClick = actions::toggleEditorMagnet) { Text(tr(if (e.magnet) "ui.musicEditor.magnetOn" else "ui.musicEditor.magnetOff")) }
         if (e.step == EditorStep.KILLS) {
             OutlinedButton(onClick = actions::resetEditorAuto, enabled = e.intents != null && e.intents != e.proposal) { Text(tr("ui.musicEditor.reset")) }
-            Button(onClick = actions::placeEditorClips, enabled = e.intents?.killMarks?.isNotEmpty() == true) { Text(tr("ui.musicEditor.placeClips")) }
-        } else {
+            if (!embedded) Button(onClick = actions::placeEditorClips, enabled = e.intents?.killMarks?.isNotEmpty() == true) { Text(tr("ui.musicEditor.placeClips")) }
+        } else if (!embedded) {
             OutlinedButton(onClick = actions::backEditorToKills) { Text(tr("ui.musicEditor.backToKills")) }
             OutlinedButton(onClick = actions::previewEditedMontage, enabled = view != null) { Text(tr("ui.musicEditor.preview")) }
             Button(onClick = actions::createMontage, enabled = montage.canCreate) { Text(tr("ui.musicEditor.render")) }
         }
-        OutlinedButton(onClick = actions::closeMusicEditor) { Text(tr("ui.common.close")) }
+        if (!embedded) OutlinedButton(onClick = actions::closeMusicEditor) { Text(tr("ui.common.close")) }
     }
 }
 
@@ -907,6 +950,15 @@ private fun Track(
         e.sections.filter { it.end > from && it.start < to }.forEach { s ->
             Text(sectionName(s.kind), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.offset(x = xDp(maxOf(s.start, from)) + 4.dp, y = 31.dp))
         }
+        // Un « + » sur chaque coupe : un passage sans kill (vitrine) à cet endroit ; un kill, lui, se glisse là.
+        if (edits.intents != null) v.clips.zipWithNext().filter { (a, b) -> a.group != null && b.group != null }.forEach { (_, c) ->
+            val at = musicStart + c.start
+            Text(
+                "+", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Palette.background,
+                modifier = Modifier.offset(x = xDp(at) - 6.dp, y = with(density) { (waveTop + waveH + 32).toDp() }).size(12.dp)
+                    .clip(RoundedCornerShape(6.dp)).background(Palette.cyan).clickable { actions.addEditorShowcase(at.inWholeMicroseconds / 1e6) }.padding(start = 3.dp),
+            )
+        }
         var n = 0
         v.clips.forEach { c ->
             if (c.group == null) return@forEach
@@ -1055,10 +1107,11 @@ private fun EditorBar(e: MusicEditorUi, v: PlanView, constraints: MontageConstra
                 )
             }
             OutlinedButton(onClick = { actions.listenEditorAround(at.inWholeMicroseconds / 1e6) }) { Text(tr("ui.musicEditor.listen")) }
-            kill?.let { k -> OutlinedButton(onClick = { actions.openKillTiming(k.ref.toString()) }) { Text(tr("ui.musicEditor.timing")) } }
+            kill?.let { k -> OutlinedButton(onClick = { actions.openKillTiming(k.ref.toString()) }) { Text(tr(if (constraints.intents != null) "ui.musicEditor.passage3b" else "ui.musicEditor.timing")) } }
+            if (constraints.intents != null) OutlinedButton(onClick = { actions.removeEditorClip(g.key) }) { Text(tr("ui.musicEditor.removeClip"), color = Palette.danger) }
             // Avec des kills posés (étape 1), on les retire ou les remet là-bas : « Revenir aux kills ».
             if (pinned && !laidOut && !onMark) OutlinedButton(onClick = { actions.editMontageKill(g.refs.map { it.toString() }, KillEdit.CLEAR) }) { Text(tr("ui.musicEditor.unpin")) }
-            if (!laidOut) OutlinedButton(onClick = { actions.removeEditorKill(g.key) }) { Text(tr("ui.musicEditor.remove"), color = Palette.danger) }
+            if (!laidOut) OutlinedButton(onClick = { actions.removeEditorKill(g.key) }) { Text(tr(if (constraints.intents != null) "ui.musicEditor.removeKill" else "ui.musicEditor.remove"), color = Palette.danger) }
             // Avec des repères, le repère reste et prend le meilleur kill suivant ; glisser un kill sur un autre : échange.
         }
     }
@@ -1128,9 +1181,12 @@ private fun UnusedPanel(groups: List<PlanGroup>, thumbnails: Map<String, java.ni
 
 /** Les deux étapes, l'en cours en évidence. */
 @Composable
-private fun StepTabs(step: EditorStep) {
+private fun StepTabs(step: EditorStep, embedded: Boolean = false) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        for ((s, key) in listOf(EditorStep.KILLS to "ui.musicEditor.step1", EditorStep.CLIPS to "ui.musicEditor.step2")) {
+        // Dans le parcours, l'éditeur est l'étape 3 : ses deux temps s'appellent 3a et 3b.
+        val tabs = if (embedded) listOf(EditorStep.KILLS to "ui.flow.sub.marks", EditorStep.CLIPS to "ui.flow.sub.clips")
+        else listOf(EditorStep.KILLS to "ui.musicEditor.step1", EditorStep.CLIPS to "ui.musicEditor.step2")
+        for ((s, key) in tabs) {
             val on = s == step
             Text(
                 tr(key), style = MaterialTheme.typography.labelMedium, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,

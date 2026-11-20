@@ -143,8 +143,6 @@ interface UiActions {
     fun closeVariants() {}
 
     /** Frise du plan de montage ([MontagePlanState]) : l'ouvrir (plan calculé aussitôt), la fermer. */
-    fun openMontagePlan() {}
-    fun closeMontagePlan() {}
     /** Recalcule le plan avec les corrections posées, sans réanalyser (inspection des kills en cache). */
     fun replanMontage() {}
     /** Corrige un groupe : [kills], ses désignations « capture@instant » ([dev.highlights.montage.KillRef]). */
@@ -224,6 +222,15 @@ interface UiActions {
     fun resetLayoutTaste() {}
     /** Étape 1 → 2 : les plans se construisent autour des kills posés ; étape 2 → 1 : revenir aux kills. */
     fun placeEditorClips() {}
+    /** Parcours du montage ([MontageStep]) : aller à une étape, suivante, précédente, tout en auto, musique changée. */
+    fun goMontageStep(step: String) {}
+    fun nextMontageStep() {}
+    fun previousMontageStep() {}
+    fun montageAllAuto() {}
+    fun montageMusicChanged() {}
+    /** Étape 3b : retirer un plan (son repère avec), ajouter un passage sans kill à [seconds]. */
+    fun removeEditorClip(kill: String) {}
+    fun addEditorShowcase(seconds: Double) {}
     /** Étape 1 : l'outil d'un double-clic ([EditorTool]), poser un repère, repères « kill » en trop ([dev.highlights.montage.ExtraMarks]). */
     fun setEditorTool(tool: String) {}
     fun addEditorMark(seconds: Double, free: Boolean) {}
@@ -1023,7 +1030,7 @@ class AppController(
                     fitKills = montage?.length?.fitKills ?: true,
                     formats = montage?.formats?.toSet() ?: setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
                     rounds = montage?.killStyle?.deathEvent?.isNotEmpty() ?: true,
-                    fastParts = montage?.fastParts?.enabled ?: true,
+                    gameName = runCatching { p.profiles.byId(profileId).name }.getOrDefault(profileId),
                     skipAbilityKills = montage?.skipAbilityKills ?: false,
                     abilityKillsKnown = runCatching { p.profiles.byId(profileId).detectors.any { d -> d.enabled && d.type == "ammo-counter" } }.getOrDefault(false),
                     balance = montage?.audio?.balance ?: 0.0,
@@ -1036,15 +1043,21 @@ class AppController(
                 ).chooseStyle(styles.default).choosePreset(it.settings.preset, it.presets),
             )
         }
+        flow.loadKills()
+        flow.loadSong()
     }
 
-    override fun closeMontage() = _state.update { it.copy(montage = null) }
+    override fun closeMontage() {
+        planJob?.cancel()
+        musicEditor.close()
+        _state.update { it.copy(montage = null) }
+    }
 
     override fun chooseMusic() {
         platform.chooseAudio(state.value.montage?.music?.parent ?: state.value.lastMusic?.parent)?.let { music ->
-            _state.update { it.copy(montage = it.montage?.copy(music = music, musicFromStart = musicPrefs.fromStart(music)), lastMusic = music) }
-            // « Montage sur la musique » s'ouvre aussitôt, plan calculé (choix de l'utilisateur, 20/11) ; rouvrable du dialogue.
-            if (state.value.montage?.useLibrary == false) openMusicEditor()
+            _state.update { it.copy(montage = it.montage?.copy(music = music, useLibrary = false, musicFromStart = musicPrefs.fromStart(music)), lastMusic = music) }
+            // Parcours : l'éditeur s'ouvrira à l'étape 3 ; une autre musique fait repartir ses repères de zéro.
+            flow.musicChanged()
         }
     }
 
@@ -1052,6 +1065,7 @@ class AppController(
         val current = state.value.montage?.musicLibrary ?: musicPrefs.library()
         platform.chooseDirectory(current ?: state.value.lastMusic?.parent, tr("ui.dialog.musicFolder"))?.let { dir ->
             _state.update { it.copy(montage = it.montage?.copy(musicLibrary = dir, useLibrary = true)) }
+            flow.musicChanged()
         }
     }
 
@@ -1139,25 +1153,23 @@ class AppController(
     /** Réglages du dialogue pour le pipeline : les mêmes pour la frise et pour le rendu, sinon le plan montré mentirait. */
     private fun montageOptions(montage: MontageUiState, s: UiState) = MontageOptions(
         // Miniature (habillage par défaut) de chaque vidéo : prête dans la fenêtre de publication ; le préréglage peut l'ôter.
-        thumbnail = ThumbnailStyle.DEFAULT.takeIf { montage.thumbnail },
+        thumbnail = montage.thumbnailStyle.takeIf { montage.thumbnail },
         webcam = s.settings.webcam.choice,
         webcamOffset = s.settings.webcam.offset,
         formats = OutputFormat.entries.filter { it in montage.formats },
         outputDir = s.settings.outputDir,
         maxDuration = montage.maxDuration,
         fitKills = montage.fitKills,
-        order = if (montage.buildUp) dev.highlights.core.model.MontageOrder.BUILD_UP else dev.highlights.core.model.MontageOrder.CHRONOLOGICAL,
+        // Montée en puissance, whip pan, vitrine, ralenti, rythme rapide : plus dans l'application (les repères les
+        // remplacent) ; le style les pose pour la proposition automatique.
         effectDensity = montage.density,
         zoom = montage.zoom,
         flash = montage.flash,
-        whip = montage.whip,
         whoosh = montage.whoosh,
-        showcase = montage.showcase,
         boostColors = montage.boostColors,
         motionBlur = montage.motionBlur,
         matchCut = montage.matchCut,
         rounds = montage.rounds,
-        slowMotion = montage.slowMotion,
         text = montage.text,
         killCounter = montage.killCounter,
         roundScore = montage.roundScore,
@@ -1172,8 +1184,6 @@ class AppController(
         oneTaps = montage.oneTaps,
         reactionMontage = montage.reactionMontage,
         reactionSpacing = if (montage.reactionSpacing) null else false,
-        fast = montage.fast,
-        fastParts = montage.fastParts,
         skipAbilityKills = montage.skipAbilityKills,
         // Les cases de la fenêtre sont déjà passées ; le style garde ce qu'elle ne montre pas (accroche, rampes…).
         style = montage.style,
@@ -1183,16 +1193,6 @@ class AppController(
     )
 
     // ---------------------------------------------------------------- frise du plan de montage
-
-    override fun openMontagePlan() {
-        _state.update { s -> s.copy(montage = s.montage?.let { it.copy(plan = it.plan ?: MontagePlanState()) }) }
-        replanMontage()
-    }
-
-    override fun closeMontagePlan() {
-        planJob?.cancel()
-        _state.update { s -> s.copy(montage = s.montage?.copy(plan = null)) }
-    }
 
     /**
      * Toute correction replanifie aussitôt, comme l'épingle : l'utilisateur voit l'effet de son clic sans passer par
@@ -1304,6 +1304,21 @@ class AppController(
         runCatching { dev.highlights.montage.ExtraMarks.valueOf(mode) }.getOrNull()?.let(musicEditor::setExtras)
     }
     override fun backEditorToKills() = musicEditor.backToKills()
+    override fun removeEditorClip(kill: String) = musicEditor.removeClip(kill)
+    override fun addEditorShowcase(seconds: Double) = musicEditor.addShowcase(seconds)
+
+    private val flow = MontageFlowController(
+        scope, _state, { backend?.pipeline }, ::replanMontage,
+        openEditor = { musicEditor.open() }, closeEditor = { musicEditor.close() },
+        placeClips = { musicEditor.placeClips() }, backToKills = { musicEditor.backToKills() },
+    )
+    override fun goMontageStep(step: String) {
+        runCatching { MontageStep.valueOf(step) }.getOrNull()?.let(flow::go)
+    }
+    override fun nextMontageStep() = flow.next()
+    override fun previousMontageStep() = flow.back()
+    override fun montageAllAuto() = flow.allAuto()
+    override fun montageMusicChanged() = flow.musicChanged()
 
     /** Aperçu 360p du montage tel que l'éditeur le montre (une variante, la mieux notée), lu dans le lecteur intégré. */
     override fun previewEditedMontage() {
@@ -1376,6 +1391,19 @@ class AppController(
                 if (state.value.montage?.constraints?.let { it.layout == null && it.intents == null } == true) lastPlanned = planned
                 val view = PlanView.of(planned)
                 updatePlan { it.copy(loading = false, view = view, planned = constraints, error = null) }
+                // La drop du plan (posée à l'instant dans l'outil) suit dans le morceau du parcours.
+                _state.update { s ->
+                    s.copy(montage = s.montage?.let { m -> m.song?.takeIf { it.file == view.musicPath }?.let { song -> m.copy(song = song.copy(drop = view.dropAt?.let { view.musicStart + it } ?: song.drop)) } ?: m })
+                }
+                // Dossier de musiques : le morceau retenu par le plan devient celui de l'éditeur (étape 3).
+                state.value.montage?.takeIf { it.useLibrary && it.step == MontageStep.ON_MUSIC }?.let { m ->
+                    view.musicPath?.let { file ->
+                        _state.update { s -> s.copy(montage = s.montage?.copy(music = file, useLibrary = false)) }
+                        flow.loadSong()
+                        musicEditor.open()
+                        return@launch
+                    }
+                }
                 musicEditor.planned(view)
                 val known = state.value.montage?.plan?.thumbnails.orEmpty()
                 for (g in (view.clips.mapNotNull { it.group } + view.left.take(PLAN_THUMBNAILS)).filter { it.key !in known }) {

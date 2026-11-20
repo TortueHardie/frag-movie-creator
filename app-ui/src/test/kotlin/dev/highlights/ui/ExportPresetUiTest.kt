@@ -58,7 +58,6 @@ class ExportPresetUiTest : FunSpec({
         t.platform shouldBe "tiktok"
         t.maxDuration shouldBe 30.seconds
         t.style shouldBe "tiktok"
-        t.fast shouldBe true
         t.thumbnail shouldBe false
         t.presetTouched shouldBe emptySet()
         // Style choisi à la main sous le préréglage : noté, et gardé au changement de préréglage.

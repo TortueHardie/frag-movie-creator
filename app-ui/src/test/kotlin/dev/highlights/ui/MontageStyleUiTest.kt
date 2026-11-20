@@ -15,11 +15,11 @@ class MontageStyleUiTest : FunSpec({
 
     test("choisir un style pose ses cases sur celles du profil, « Aucun » les rend au profil") {
         val styled = base.chooseStyle("tiktok")
-        styled.fast shouldBe true
+        styled.flash shouldBe true
         styled.boostColors shouldBe true
         styled.zoom shouldBe true
         val clean = styled.chooseStyle("propre")
-        clean.fast shouldBe false
+        clean.zoom shouldBe false
         clean.boostColors shouldBe false
         clean.flash shouldBe false
         clean.density shouldBe EffectDensity.SOBER
@@ -34,7 +34,7 @@ class MontageStyleUiTest : FunSpec({
         clean.boostColors shouldBe false
         val back = clean.edit { it.chooseStyle("tiktok") }
         back.boostColors shouldBe false
-        back.fast shouldBe true
+        back.flash shouldBe true
         back.edit { it.resetToStyle() }.let {
             it.touched shouldBe emptySet()
             it.boostColors shouldBe true
@@ -43,7 +43,7 @@ class MontageStyleUiTest : FunSpec({
 
     test("un style posé par une simple copie (pont de pilotage) pose aussi ses cases") {
         val styled = base.edit { it.copy(style = "tiktok") }
-        styled.fast shouldBe true
+        styled.flash shouldBe true
         styled.touched shouldBe emptySet()
     }
 
