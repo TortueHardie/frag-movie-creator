@@ -150,7 +150,9 @@ class ReactionMontageTest : FunSpec({
         MontageSettings(fails = MontageSettings().fails.copy(enabled = true)).forReactions().fails.enabled shouldBe false
         r.matchCut.enabled shouldBe false
         r.killStyle.deathEvent shouldBe ""
-        r.audio.musicUnderVoice shouldBe base.reactionMontage.musicUnderVoice
+        // Musique en fond (0,35) et 0,12 sous la voix, en volume absolu.
+        r.audio.musicVolume shouldBe 0.35
+        (r.audio.musicVolume * r.audio.musicUnderVoice) shouldBe (0.12 plusOrMinus 1e-9)
         r.text.labels shouldBe emptyList()
         base.reactionMontage.enabled shouldBe false
     }
@@ -169,6 +171,8 @@ class ReactionMontageTest : FunSpec({
         val request = MontageRenderRequest(plan, OutputFormat.VERTICAL, EditSettings(), EncoderProfile("libx264", listOf("-c:v", "libx264"), false), Path("out.mp4"), Path("f.txt"), captions = listOf(listOf(caption)))
         val graph = MontageRenderBuilder.build(request).filterGraph
         graph shouldContain "[0:a:1][0:a:2]amix=inputs=2:weights='1 2.000'"
+        // Musique : 0,35 hors de la voix, descend de 0,23 sous elle (0,12).
+        graph shouldContain "volume='0.3500-0.2300*("
         // Le sous-titre est dessiné (mot à mot quand un mot est mis en couleur), sur le temps où la phrase est dite.
         graph shouldContain "EST"
         graph shouldContain "between(t"

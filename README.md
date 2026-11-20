@@ -1452,7 +1452,7 @@ du tout), montés sur la musique avec le même moteur : un plan par réaction, s
   mort ou une aide moins de 5 s avant (`montage.reactionMontage.causeBonus`). Deux réactions à moins de 8 s : la plus
   forte seule ; case « Espacer les réactions » décochée, `--no-reaction-spacing` ou `spacing: 0s` dans le profil :
   aucun écart minimal, deux réactions proches peuvent faire deux plans.
-- Micro mixé par-dessus la piste du jeu (×2, +6 dB), musique baissée à 25 % sous la voix, plan prolongé jusqu'à la fin
+- Micro mixé par-dessus la piste du jeu (×2, +6 dB), musique en fond sonore (35 % de son volume, 12 % quand le joueur parle : mesurée 9 LU sous la voix sur tout le montage, 14 LU pendant les réactions ; `musicVolume`, `musicUnderVoice`), plan prolongé jusqu'à la fin
   de la phrase, et ce qui est dit en sous-titres (whisper, modèle de `edit.story.captions`, une phrase criée en rouge).
   Ni ralenti ni image figée (même si le profil active le montage des morts) : l'image continue pendant la réaction. Pas de plans d'un temps sur les parties rapides de la musique.
 - Réglages : `montage.reactionMontage` du profil (`rise`, `preRoll`, `postRoll`, `perClip`, `spacing`, `micGain`,
