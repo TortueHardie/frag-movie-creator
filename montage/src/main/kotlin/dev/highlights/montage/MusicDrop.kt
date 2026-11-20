@@ -184,11 +184,17 @@ class MusicPcm(val rate: Int, val samples: ShortArray) {
     }
 
     companion object {
-        /** Décode [file] en mono 16 bits à [rate] Hz par FFmpeg (mêmes instants que [MusicAnalyzer], qui décode aussi par FFmpeg). */
-        suspend fun decode(ffmpeg: FfmpegService, file: Path, rate: Int = 48_000): MusicPcm {
+        /**
+         * Décode [file] en mono 16 bits à [rate] Hz par FFmpeg (mêmes instants que [MusicAnalyzer], qui décode aussi par
+         * FFmpeg). [from] et [length] : un passage seulement (l'échantillon 0 est à [from]) ; première piste son, celle
+         * que joue le lecteur intégré.
+         */
+        suspend fun decode(ffmpeg: FfmpegService, file: Path, rate: Int = 48_000, from: Duration? = null, length: Duration? = null): MusicPcm {
             val bytes = ByteArrayOutputStream()
+            val seek = from?.let { listOf("-ss", dev.highlights.core.serialization.Durations.ffmpegSeconds(it)) }.orEmpty()
+            val span = length?.let { listOf("-t", dev.highlights.core.serialization.Durations.ffmpegSeconds(it)) }.orEmpty()
             ffmpeg.run(
-                FfmpegCommand(listOf("-i", file.toString(), "-vn", "-ac", "1", "-ar", rate.toString(), "-f", "s16le", "-"), "son de ${file.name}"),
+                FfmpegCommand(seek + listOf("-i", file.toString()) + span + listOf("-map", "0:a:0", "-vn", "-ac", "1", "-ar", rate.toString(), "-f", "s16le", "-"), "son de ${file.name}"),
                 StdoutHandler.Binary { input -> input.copyTo(bytes) },
             )
             val buffer = ByteBuffer.wrap(bytes.toByteArray()).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()

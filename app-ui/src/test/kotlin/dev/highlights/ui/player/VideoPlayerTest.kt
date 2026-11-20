@@ -219,6 +219,35 @@ class VideoPlayerTest : FunSpec({
             }
         }
 
+        test("Kill ici : l'écoute du panneau part 1 s avant le curseur, suit l'image montrée et s'arrête 1 s après lui") {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val media = dev.highlights.core.model.MediaInfo(video, 1, 6.seconds, video = dev.highlights.core.model.VideoStream(0, "h264", 320, 240, 30.0))
+            val detected = 3.seconds
+            val ref = dev.highlights.montage.KillRef.of(media, detected)
+            val state = kotlinx.coroutines.flow.MutableStateFlow(
+                dev.highlights.ui.UiState(
+                    montage = dev.highlights.ui.MontageUiState(
+                        plan = dev.highlights.ui.MontagePlanState(loading = false, timing = dev.highlights.ui.KillTimingUi(ref, media, current = detected, loading = false, cursor = detected)),
+                    ),
+                ),
+            )
+            val c = dev.highlights.ui.KillTimingController(scope, state, { null }, {}, {}, players = { VideoPlayer(TestMedia.requireFfmpeg(), scope, sinks = { null }, hwaccel = null) })
+            fun t() = state.value.montage!!.plan!!.timing!!
+            try {
+                c.play(fromBefore = true)
+                withTimeout(15.seconds) { state.first { it.montage!!.plan!!.timing!!.playhead?.let { p -> p > detected } == true } }
+                withTimeout(15.seconds) { state.first { !it.montage!!.plan!!.timing!!.playing } }
+                // Arrêtée peu après « curseur + 1 s », bien avant la fin de la vidéo (6 s).
+                val last = t().playhead!!
+                (last >= detected + 900.milliseconds) shouldBe true
+                (last <= detected + 1500.milliseconds) shouldBe true
+                c.player!!.view.value.playing shouldBe false
+            } finally {
+                c.close()
+                scope.cancel()
+            }
+        }
+
         test("sans sortie son : l'horloge murale cadence la lecture jusqu'au bout") {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val player = VideoPlayer(TestMedia.requireFfmpeg(), scope, sinks = { null }, hwaccel = null)

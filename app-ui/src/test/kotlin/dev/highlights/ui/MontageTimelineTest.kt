@@ -191,7 +191,16 @@ class MontageTimelineTest : FunSpec({
             dev.highlights.montage.KillFrame(detected - 83.milliseconds + (i * 1000 / 60).milliseconds, file)
         }
         val ref = KillRef.of(media, detected)
-        val timing = KillTimingUi(ref, media, current = detected, frames = frames, loading = false, selected = 8, beatShift = 17.milliseconds, songShift = Duration.ZERO)
+        // Son du jeu ±2 s : bruit de fond, puis la rafale du tir à partir de l'image 8 (detected + 50 ms).
+        val waveStart = detected - 2.seconds
+        val wave = (0 until KillTimingUi.WAVE_BUCKETS).map { i ->
+            val t = i * 4.0 / KillTimingUi.WAVE_BUCKETS - 2.0
+            (if (t in 0.05..0.6) 0.9 - 0.4 * ((t - 0.05) % 0.1) / 0.1 else 0.12 + 0.05 * sin(i * 0.7)).toFloat()
+        }
+        val timing = KillTimingUi(
+            ref, media, current = detected, frames = frames, loading = false, selected = 8, beatShift = 17.milliseconds, songShift = Duration.ZERO,
+            cursor = frames[8].at, wave = wave, waveStart = waveStart, waveLength = 4.seconds, text = KillRef.precise(frames[8].at),
+        )
         val view = PlanView(
             music = "Rome Is Burning.mp3", bpm = 120.0, musicStart = 55.seconds, duration = 12.seconds, beats = (0 until 24).map { (it * 500).milliseconds },
             energy = (0 until 24).map { 0.4 + 0.5 * (it % 4 == 0).compareTo(false) }, sections = listOf(PlanSection(0.seconds, 12.seconds, SectionKind.DROP, 1.0)), dropAt = 4.seconds,
@@ -207,7 +216,7 @@ class MontageTimelineTest : FunSpec({
         KillTimingUi.signedMs((-17).milliseconds) shouldBe "−17"
         for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
             I18n.withLanguage(tag) {
-                val image = SceneRendering.image(1320, 820) {
+                val image = SceneRendering.image(1320, 960) {
                     HighlightsTheme {
                         MontagePlanContent(MontageConstraints.NONE.anchor(ref, frames[8].at), MontagePlanState(loading = false, view = view, timing = timing), noop)
                     }
@@ -271,5 +280,38 @@ class MontageTimelineTest : FunSpec({
         d().playing shouldBe false
         c.close()
         state.value.montage!!.plan!!.drop shouldBe null
+    }
+    test("Kill ici : pas d'une image ou de 10 ms, saisie de l'instant, borné à ±1 s de la détection, sans lecteur") {
+        val detected = 1210.seconds
+        val ref = KillRef.of(media, detected)
+        val frames = (0 until 61).map { i -> dev.highlights.montage.KillFrame(detected - 500.milliseconds + (i * 1000 / 60).milliseconds, Path("k_$i.jpg")) }
+        val state = kotlinx.coroutines.flow.MutableStateFlow(
+            UiState(montage = MontageUiState(plan = MontagePlanState(loading = false, timing = KillTimingUi(ref, media, current = detected, frames = frames, loading = false, selected = 30, cursor = detected)))),
+        )
+        val c = KillTimingController(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), state, { null }, {}, {})
+        fun t() = state.value.montage!!.plan!!.timing!!
+        c.step(1)
+        t().chosen shouldBe frames[31].at
+        t().selected shouldBe 31
+        c.stepMs(10)
+        t().chosen shouldBe frames[31].at + 10.milliseconds
+        t().text shouldBe KillRef.precise(frames[31].at + 10.milliseconds)
+        // Hors d'une image : un pas d'image depuis le curseur, l'image montrée reste la plus proche.
+        c.step(-1)
+        t().chosen shouldBe frames[31].at + 10.milliseconds - t().frameStep
+        c.pick(10)
+        t().chosen shouldBe frames[10].at
+        c.text("20:10.250")
+        t().chosen shouldBe 1210.25.seconds
+        t().textError shouldBe false
+        c.text("20:1x")
+        t().textError shouldBe true
+        // Au-delà de ±1 s de la détection : borné (le planificateur refuserait le calage).
+        c.seek(1215.0)
+        t().chosen shouldBe detected + dev.highlights.montage.MontageEdits.MAX_ANCHOR
+        c.play(true)
+        t().playing shouldBe false
+        c.close()
+        state.value.montage!!.plan!!.timing shouldBe null
     }
 })

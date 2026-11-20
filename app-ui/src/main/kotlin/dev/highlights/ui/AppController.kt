@@ -169,6 +169,17 @@ interface UiActions {
     fun clearKillTiming() {}
     fun excludeTimedKill() {}
     fun closeKillTiming() {}
+    /**
+     * « Kill ici » à l'écoute ([KillTimingUi.cursor]) : déplacer le curseur de [millis] ms, le placer à [seconds] de la
+     * capture, saisir l'instant, écouter image et son (depuis 1 s avant si [fromBefore] ; rejouer arrête), poser le
+     * curseur sur l'image montrée. Le lecteur du panneau : [killTimingPlayer].
+     */
+    fun stepKillMs(millis: Int) {}
+    fun seekKillTiming(seconds: Double) {}
+    fun setKillTimingText(text: String) {}
+    fun playKillTiming(fromBefore: Boolean) {}
+    fun markKillHere() {}
+    val killTimingPlayer: dev.highlights.ui.player.VideoPlayer? get() = null
     /** Oublie les calages appris (`kill-timing.json` mis de côté, comme les goûts). */
     fun resetTiming() {}
     /**
@@ -1156,7 +1167,16 @@ class AppController(
         replanIfOpen()
     }
 
-    private val killTiming = KillTimingController(scope, _state, { backend?.pipeline }, ::updateMontage, ::replanMontage)
+    private val killTiming = KillTimingController(
+        scope, _state, { backend?.pipeline }, ::updateMontage, ::replanMontage,
+        players = { backend?.ffmpeg?.let { dev.highlights.ui.player.VideoPlayer(it, scope) } },
+    )
+    override fun stepKillMs(millis: Int) = killTiming.stepMs(millis)
+    override fun seekKillTiming(seconds: Double) = killTiming.seek(seconds)
+    override fun setKillTimingText(text: String) = killTiming.text(text)
+    override fun playKillTiming(fromBefore: Boolean) = killTiming.play(fromBefore)
+    override fun markKillHere() = killTiming.markHere()
+    override val killTimingPlayer get() = killTiming.player
     override fun openKillTiming(kill: String) = killTiming.open(kill)
     override fun stepKillFrame(delta: Int) = killTiming.step(delta)
     override fun pickKillFrame(index: Int) = killTiming.pick(index)

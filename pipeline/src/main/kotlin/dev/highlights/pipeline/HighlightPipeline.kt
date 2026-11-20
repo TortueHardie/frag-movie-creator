@@ -309,6 +309,12 @@ data class TasteState(
     val learnedDrop: LearnedDrop = LearnedDrop.NONE,
 )
 
+/** Son de la capture autour d'un kill : [pcm] commence à [start] dans la capture. */
+class KillAudio(val start: Duration, val pcm: MusicPcm)
+
+/** Demi-fenêtre du son autour d'un kill : ±2 s, la montée et la suite du kill (le calage reste borné à ±1 s). */
+val KILL_AUDIO_HALF: Duration = kotlin.time.Duration.parse("2s")
+
 /** Outil de la drop d'un morceau : [pcm] pour l'écouter et dessiner sa forme d'onde, [detected] l'analyse sans drop posée, [byHand] celle posée. */
 class MusicDropTool(val music: Path, val pcm: MusicPcm, val detected: MusicAnalysis, val byHand: Duration?) {
     val detectedDrop: Duration get() = detected.beatTime(detected.dropBeat)
@@ -415,6 +421,16 @@ class HighlightPipeline(
     val timingHistory = TimingHistory(config.outputDir.resolve("sessions").resolve("kill-timing.json"))
 
     private val killFrames = KillFrames(ffmpeg, config.workDir.resolve("cache").resolve("kill-frames"))
+
+    /**
+     * Son de la capture autour d'un kill ([half] de chaque côté de [center]), pour le caler à l'écoute : son début dans la
+     * capture et le PCM (16 kHz : forme d'onde seulement, l'écoute passe par le lecteur intégré). Null sans piste son.
+     */
+    suspend fun killAudio(media: MediaInfo, center: Duration, half: Duration = KILL_AUDIO_HALF): KillAudio? {
+        if (media.audio.isEmpty()) return null
+        val start = (center - half).coerceAtLeast(Duration.ZERO)
+        return KillAudio(start, MusicPcm.decode(ffmpeg, media.path, rate = 16_000, from = start, length = center + half - start))
+    }
 
     /** Toutes les images de la capture autour de l'instant [center] d'un kill, pour le caler à l'image (frise du plan). */
     suspend fun killFrames(media: MediaInfo, center: Duration): List<KillFrame> = killFrames.around(media, center)

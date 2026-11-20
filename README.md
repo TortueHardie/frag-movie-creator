@@ -651,6 +651,13 @@ longueur. Le plan est recalculé aussitôt ; un kill calé à la main a un trait
 appris un trait blanc. En ligne de commande : `--anchor capture@instant=3:12.483` et `--beat-shift capture@instant=+17ms`
 (répétables ; la désignation reste l'instant détecté, celui que `--plan` affiche).
 
+**Kill ici, à l'écoute.** Le même panneau a aussi l'ergonomie de l'outil de la drop : le son du jeu ±2 s autour de la
+détection (forme d'onde, images de la bande en repères, détection en gris, hors de ±1 s assombri), un curseur qu'on place
+d'un clic ou d'un glisser, par image (← →) ou par 10 ms (Maj+← →), ou en tapant l'instant (`m:ss.mmm`).
+**Écouter** (Espace) et **Depuis 1 s avant** (R, arrêt 1 s après le curseur) jouent l'image et le son de la capture dans
+le panneau (lecteur intégré) ; **Marquer ici** (M) pose le curseur sur l'image montrée ; **Kill ici** (Entrée) pose le
+calage (même contrainte `anchors` que le choix d'une image, donc même apprentissage par source) et recalcule le plan.
+
   ```powershell
   & $app montage partie.session.json --music son.mp3 --anchor partie.mp4@31:41.392=31:41.309 --beat-shift partie.mp4@31:41.392=+17ms
   ```

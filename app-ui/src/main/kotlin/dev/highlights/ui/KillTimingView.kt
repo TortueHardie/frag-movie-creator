@@ -61,6 +61,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.isShiftPressed
+import dev.highlights.montage.DropTime
+import dev.highlights.ui.player.VideoPlayer
+import dev.highlights.ui.player.VideoSurface
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -84,11 +93,29 @@ data class KillTimingUi(
     val beatShift: Duration = Duration.ZERO,
     val songShift: Duration = Duration.ZERO,
     val error: String? = null,
+    /**
+     * Instant du kill posé à l'écoute (« Kill ici ») : curseur de la forme d'onde, déplacé par image, par 10 ms, à la
+     * saisie ou à l'instant entendu ; null : l'image choisie ([selected]) fait foi.
+     */
+    val cursor: Duration? = null,
+    /** Forme d'onde du son de la capture de [waveStart] sur [waveLength] (vide : pas de son, ou pas encore lu). */
+    val wave: List<Float> = emptyList(),
+    val waveStart: Duration = Duration.ZERO,
+    val waveLength: Duration = Duration.ZERO,
+    val text: String = "",
+    val textError: Boolean = false,
+    /** Lecture en cours dans le lecteur du panneau (image et son), et l'instant de l'image montrée. */
+    val playing: Boolean = false,
+    val playhead: Duration? = null,
 ) {
     val detected: Duration get() = ref.at
 
-    /** Instant choisi ; null tant que les images ne sont pas lues. */
-    val chosen: Duration? get() = frames.getOrNull(selected)?.at
+    /** Instant choisi : le curseur, sinon l'image choisie ; null tant que rien n'est lu. */
+    val chosen: Duration? get() = cursor ?: frames.getOrNull(selected)?.at
+
+    /** Le calage permis autour de la détection ([dev.highlights.montage.MontageEdits.MAX_ANCHOR] de chaque côté). */
+    val allowed: ClosedRange<Duration>
+        get() = (detected - dev.highlights.montage.MontageEdits.MAX_ANCHOR)..(detected + dev.highlights.montage.MontageEdits.MAX_ANCHOR)
 
     /** Une image de la capture : le pas du décalage du temps. */
     val frameStep: Duration get() = (1.0 / (media.video?.fps?.takeIf { it > 0 } ?: 60.0)).seconds
@@ -100,6 +127,12 @@ data class KillTimingUi(
     val detectedIndex: Int get() = nearest(detected)
 
     companion object {
+        /** Écoute « depuis 1 s avant » : départ avant le curseur, arrêt après lui. */
+        val BEFORE: Duration = 1.seconds
+        val AFTER: Duration = 1.seconds
+
+        const val WAVE_BUCKETS = 800
+
         /** « +33 », « −17 », « 0 » : écart en millisecondes, signe toujours écrit. */
         fun signedMs(d: Duration): String {
             val ms = d.inWholeMilliseconds
@@ -122,8 +155,15 @@ internal class KillTimingController(
     private val pipeline: () -> HighlightPipeline?,
     private val updateMontage: ((MontageUiState) -> MontageUiState) -> Unit,
     private val replan: () -> Unit,
+    /** Lecteur du panneau (image et son de la capture) ; null : pas d'écoute (tests, FFmpeg absent). */
+    private val players: () -> VideoPlayer? = { null },
 ) {
     private var job: Job? = null
+    private var follow: Job? = null
+    private var engine: VideoPlayer? = null
+
+    /** Lecteur en service, dont le panneau montre les images pendant l'écoute. */
+    val player: VideoPlayer? get() = engine
 
     private fun update(change: (KillTimingUi) -> KillTimingUi) = state.update { s ->
         s.copy(montage = s.montage?.let { m -> m.plan?.let { p -> m.copy(plan = p.copy(timing = p.timing?.let(change))) } ?: m })
@@ -152,12 +192,19 @@ internal class KillTimingController(
                 beatShift = shift ?: Duration.ZERO, songShift = if (shift == null) clip.beatShift else Duration.ZERO,
             ),
         )
+        update { it.copy(cursor = current, text = KillRef.precise(current)) }
         val p = pipeline() ?: return
         job?.cancel()
         job = scope.launch {
             try {
                 val frames = withContext(Dispatchers.IO) { p.killFrames(media, shown.ref.at) }
-                update { t -> if (t.ref != shown.ref) t else t.copy(frames = frames, loading = false, selected = t.copy(frames = frames).nearest(t.current)) }
+                update { t -> if (t.ref != shown.ref) t else t.copy(frames = frames, loading = false, selected = t.copy(frames = frames).nearest(t.cursor ?: t.current)) }
+                // Le son ensuite : la bande d'images sert déjà pendant qu'il se lit.
+                val audio = runCatching { withContext(Dispatchers.IO) { p.killAudio(media, shown.ref.at) } }.getOrNull()
+                if (audio != null) {
+                    val peaks = withContext(Dispatchers.Default) { audio.pcm.peaks(KillTimingUi.WAVE_BUCKETS).toList() }
+                    update { t -> if (t.ref != shown.ref) t else t.copy(wave = peaks, waveStart = audio.start, waveLength = audio.pcm.duration) }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -166,9 +213,81 @@ internal class KillTimingController(
         }
     }
 
-    fun step(delta: Int) = update { t -> if (t.frames.isEmpty()) t else t.copy(selected = (t.selected + delta).coerceIn(0, t.frames.lastIndex)) }
+    /** Curseur à [t], borné au calage permis ; l'image la plus proche devient l'image montrée. */
+    private fun moveTo(t: Duration) = update { k ->
+        val at = t.coerceIn(k.allowed.start, k.allowed.endInclusive)
+        k.copy(cursor = at, text = KillRef.precise(at), textError = false, selected = if (k.frames.isEmpty()) k.selected else k.nearest(at))
+    }
 
-    fun pick(index: Int) = update { t -> if (index in t.frames.indices) t.copy(selected = index) else t }
+    /** D'une image à l'autre (instants exacts de la capture) ; au-delà de la bande, d'un pas d'image. */
+    fun step(delta: Int) {
+        val t = timing ?: return
+        val from = t.chosen ?: t.current
+        val index = if (t.frames.isEmpty()) -1 else t.nearest(from) + delta
+        moveTo(if (index in t.frames.indices && (t.frames[t.nearest(from)].at - from).absoluteValue < 1.milliseconds) t.frames[index].at else from + t.frameStep * delta)
+    }
+
+    fun pick(index: Int) {
+        val t = timing ?: return
+        if (index in t.frames.indices) moveTo(t.frames[index].at)
+    }
+
+    fun stepMs(millis: Int) {
+        val t = timing ?: return
+        moveTo((t.chosen ?: t.current) + millis.milliseconds)
+    }
+
+    fun seek(seconds: Double) = moveTo((seconds * 1000).toLong().milliseconds)
+
+    /** Saisie de l'instant (m:ss.mmm, ou h:mm:ss.mmm) : le curseur suit dès que le texte est un instant valable. */
+    fun text(value: String) {
+        val parsed = DropTime.parse(value) ?: runCatching { KillRef.parse("x@$value").at }.getOrNull()
+        update { it.copy(text = value, textError = parsed == null) }
+        if (parsed != null) update { k -> k.copy(cursor = parsed.coerceIn(k.allowed.start, k.allowed.endInclusive), selected = if (k.frames.isEmpty()) k.selected else k.nearest(parsed)) }
+    }
+
+    /**
+     * Écoute dans le lecteur du panneau, image et son du jeu : [fromBefore] depuis [KillTimingUi.BEFORE] avant le
+     * curseur jusqu'à [KillTimingUi.AFTER] après ; sinon depuis le curseur (rejouer arrête).
+     */
+    fun play(fromBefore: Boolean) {
+        val t = timing ?: return
+        if (t.playing && !fromBefore) return stopPlayback()
+        val e = engine ?: players()?.also { engine = it } ?: return
+        val cursor = t.chosen ?: t.current
+        val start = if (fromBefore) (cursor - KillTimingUi.BEFORE).coerceAtLeast(Duration.ZERO) else cursor
+        val end = if (fromBefore) cursor + KillTimingUi.AFTER else null
+        e.open(t.media.path, start, play = true)
+        update { it.copy(playing = true, playhead = start) }
+        follow?.cancel()
+        follow = scope.launch {
+            // L'ouverture passe par la file du lecteur : attendre qu'elle ait commencé (vu : sans cette attente, la vue
+            // encore vide disait « ni lecture ni chargement » et l'écoute s'arrêtait avant de partir).
+            var waited = 0
+            while (isActive && !e.view.value.playing && waited < 5000) { delay(40); waited += 40 }
+            while (isActive) {
+                val at = e.frame.value?.pts
+                update { it.copy(playhead = at ?: it.playhead) }
+                val view = e.view.value
+                if ((end != null && at != null && at >= end) || (!view.playing && !view.loading)) break
+                delay(40)
+            }
+            e.pause()
+            update { it.copy(playing = false) }
+        }
+    }
+
+    /** Pendant l'écoute : le curseur sur l'image montrée à cet instant. */
+    fun markHere() {
+        val at = engine?.frame?.value?.pts ?: timing?.playhead ?: return
+        moveTo(at)
+    }
+
+    private fun stopPlayback() {
+        follow?.cancel()
+        engine?.pause()
+        update { it.copy(playing = false) }
+    }
 
     /** Décalage du temps de [frames] images, borné à ce que le planificateur accepte. */
     fun shiftBeat(frames: Int) = update { t ->
@@ -204,6 +323,9 @@ internal class KillTimingController(
 
     fun close() {
         job?.cancel()
+        follow?.cancel()
+        engine?.dispose()
+        engine = null
         set(null)
     }
 }
@@ -217,14 +339,18 @@ internal class KillTimingController(
 @Composable
 fun KillTimingPanel(t: KillTimingUi, actions: UiActions, modifier: Modifier = Modifier) {
     // Le clavier va au panneau, qui prend le focus à l'ouverture : sans élément focalisé, la fenêtre ne voyait pas les
-    // flèches (vérifié en pilotant l'application). ← → : une image ; Entrée : appliquer ; Échap : fermer le panneau.
+    // flèches (vérifié en pilotant l'application). Comme l'outil de la drop : ← → une image (Maj : 10 ms), Espace
+    // écouter, R rejouer depuis 1 s avant, M marquer l'instant vu et entendu, Entrée « Kill ici », Échap fermer.
     val focus = remember { FocusRequester() }
     LaunchedEffect(t.ref) { runCatching { focus.requestFocus() } }
     val keys = Modifier.focusRequester(focus).focusable().onPreviewKeyEvent { e ->
         if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
         when (e.key) {
-            Key.DirectionLeft -> { actions.stepKillFrame(-1); true }
-            Key.DirectionRight -> { actions.stepKillFrame(1); true }
+            Key.DirectionLeft -> { if (e.isShiftPressed) actions.stepKillMs(-10) else actions.stepKillFrame(-1); true }
+            Key.DirectionRight -> { if (e.isShiftPressed) actions.stepKillMs(10) else actions.stepKillFrame(1); true }
+            Key.Spacebar -> { actions.playKillTiming(false); true }
+            Key.R -> { actions.playKillTiming(true); true }
+            Key.M -> { actions.markKillHere(); true }
             Key.Enter -> { actions.applyKillTiming(); true }
             Key.Escape -> { actions.closeKillTiming(); true }
             else -> false
@@ -254,19 +380,23 @@ fun KillTimingPanel(t: KillTimingUi, actions: UiActions, modifier: Modifier = Mo
             val frame = t.frames[t.selected.coerceIn(0, t.frames.lastIndex)]
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
                 // L'image choisie, entière : 640 dp de large, une capture 21:9 y tient sur 274 dp de haut.
+                // Pendant l'écoute, le lecteur du panneau (image et son du jeu) ; sinon l'image du curseur.
                 val image = rememberImage(frame.file)
+                val engine = actions.killTimingPlayer
                 Box(Modifier.height(300.dp).width(640.dp).clip(RoundedCornerShape(6.dp)).background(Palette.surfaceHigh)) {
-                    image?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
+                    if (t.playing && engine != null) VideoSurface(engine, Modifier.fillMaxSize())
+                    else image?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         tr("ui.killTiming.frame", "n" to t.selected + 1, "total" to t.frames.size, "time" to KillRef.precise(frame.at)),
                         style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
                     )
+                    val chosen = t.chosen ?: frame.at
                     Text(
-                        tr("ui.killTiming.offset", "ms" to KillTimingUi.signedMs(frame.at - t.detected)),
+                        tr("ui.killTiming.offset", "ms" to KillTimingUi.signedMs(chosen - t.detected)),
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (t.selected == t.detectedIndex) Palette.textMuted else Palette.accent,
+                        color = if ((chosen - t.detected).absoluteValue < 1.milliseconds) Palette.textMuted else Palette.accent,
                     )
                     if (t.learned) {
                         Text(tr("ui.killTiming.learned", "ms" to KillTimingUi.signedMs(t.current - t.detected)), style = MaterialTheme.typography.bodySmall, color = Palette.cyan)
@@ -292,6 +422,7 @@ fun KillTimingPanel(t: KillTimingUi, actions: UiActions, modifier: Modifier = Mo
                     }
                 }
             }
+            KillListening(t, actions)
             // Toutes les images, celle de la détection soulignée, la choisie encadrée.
             val scroll = rememberScrollState()
             val step = with(LocalDensity.current) { 76.dp.toPx() }
@@ -323,6 +454,41 @@ private fun FilmFrame(frame: KillFrame, selected: Boolean, detected: Boolean, on
             rememberImage(frame.file)?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer(scaleX = 1.6f, scaleY = 1.6f)) }
         }
         Box(Modifier.width(72.dp).height(3.dp).background(if (detected) Palette.cyan else Palette.background))
+    }
+}
+
+/**
+ * « Kill ici » à l'écoute, comme la drop : le son du jeu ±2 s autour de la détection (images de la bande en repères,
+ * détection en gris, hors du calage permis assombri), le curseur, sa saisie et ses pas, l'écoute image et son.
+ */
+@Composable
+private fun KillListening(t: KillTimingUi, actions: UiActions) {
+    if (t.wave.isNotEmpty()) {
+        TimeWaveform(
+            peaks = t.wave, from = t.waveStart, length = t.waveLength, ticks = t.frames.map { it.at },
+            marks = listOf(
+                WaveMark(t.detected, Palette.textMuted, 2f), WaveMark(t.playhead?.takeIf { t.playing }, Palette.cyan, 2f),
+                WaveMark(t.chosen, Color.White, 2f),
+            ),
+            onSeek = actions::seekKillTiming, modifier = Modifier.fillMaxWidth().height(110.dp), allowed = t.allowed,
+        )
+    } else {
+        Text(tr("ui.killTiming.noAudio"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedTextField(
+            value = t.text, onValueChange = actions::setKillTimingText, singleLine = true, isError = t.textError,
+            label = { Text(tr("ui.killTiming.time"), maxLines = 1) }, modifier = Modifier.width(210.dp),
+        )
+        OutlinedButton(onClick = { actions.stepKillFrame(-1) }) { Text(tr("ui.killTiming.earlier")) }
+        OutlinedButton(onClick = { actions.stepKillMs(-10) }) { Text(tr("ui.musicDrop.fineBack")) }
+        OutlinedButton(onClick = { actions.stepKillMs(10) }) { Text(tr("ui.musicDrop.fineForward")) }
+        OutlinedButton(onClick = { actions.stepKillFrame(1) }) { Text(tr("ui.killTiming.later")) }
+        Spacer(Modifier.width(8.dp))
+        Button(onClick = { actions.playKillTiming(false) }) { Text(tr(if (t.playing) "ui.musicDrop.stop" else "ui.musicDrop.play")) }
+        OutlinedButton(onClick = { actions.playKillTiming(true) }) { Text(tr("ui.killTiming.replay")) }
+        OutlinedButton(onClick = actions::markKillHere, enabled = t.playing) { Text(tr("ui.musicDrop.mark")) }
+        t.playhead?.takeIf { t.playing }?.let { Text(tr("ui.musicDrop.playing", "time" to KillRef.precise(it)), style = MaterialTheme.typography.bodySmall, color = Palette.cyan) }
     }
 }
 

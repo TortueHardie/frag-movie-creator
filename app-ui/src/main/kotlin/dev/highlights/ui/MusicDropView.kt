@@ -424,6 +424,33 @@ private fun Waveform(
     d: MusicDropUi,
     onSeek: (Double) -> Unit,
     modifier: Modifier,
+) = TimeWaveform(
+    peaks, from, length, beats,
+    listOf(
+        WaveMark(d.detected, Palette.textMuted, 2f), WaveMark(d.byHand, Palette.accent, 3f),
+        WaveMark(d.playhead?.takeIf { d.playing }, Palette.cyan, 2f), WaveMark(d.cursor, Color.White, 2f),
+    ),
+    onSeek, modifier,
+)
+
+/** Un trait sur une forme d'onde ([TimeWaveform]) ; [at] null : pas de trait. */
+data class WaveMark(val at: Duration?, val color: Color, val width: Float)
+
+/**
+ * Forme d'onde de [from] sur [length], commune à l'outil de la drop et au calage d'un kill : crêtes symétriques,
+ * repères fins ([ticks] : temps, images), traits ([marks], dessinés dans l'ordre), hors de [allowed] assombri.
+ * Clic ou glisser : [onSeek] (secondes depuis le début du fichier).
+ */
+@Composable
+fun TimeWaveform(
+    peaks: List<Float>,
+    from: Duration,
+    length: Duration,
+    ticks: List<Duration>,
+    marks: List<WaveMark>,
+    onSeek: (Double) -> Unit,
+    modifier: Modifier,
+    allowed: ClosedRange<Duration>? = null,
 ) {
     val lengthS = length.inWholeMicroseconds / 1e6
     val fromS = from.inWholeMicroseconds / 1e6
@@ -437,7 +464,7 @@ private fun Waveform(
         if (lengthS <= 0) return@Canvas
         fun x(t: Duration) = ((t.inWholeMicroseconds / 1e6 - fromS) / lengthS * size.width).toFloat()
         val mid = size.height / 2
-        beats.forEach { b ->
+        ticks.forEach { b ->
             val bx = x(b)
             if (bx in 0f..size.width) drawLine(Palette.outline, Offset(bx, 0f), Offset(bx, size.height), 1f)
         }
@@ -448,10 +475,14 @@ private fun Waveform(
                 drawRect(Palette.cyan.copy(alpha = 0.8f), Offset(i * w, mid - h / 2), Size(w.coerceAtLeast(1f), h))
             }
         }
-        mark(d.detected, ::x, Palette.textMuted, 2f)
-        mark(d.byHand, ::x, Palette.accent, 3f)
-        mark(d.playhead?.takeIf { d.playing }, ::x, Palette.cyan, 2f)
-        mark(d.cursor, ::x, Color.White, 2f)
+        allowed?.let { r ->
+            val shade = Palette.background.copy(alpha = 0.6f)
+            val left = x(r.start).coerceIn(0f, size.width)
+            val right = x(r.endInclusive).coerceIn(0f, size.width)
+            if (left > 0f) drawRect(shade, Offset.Zero, Size(left, size.height))
+            if (right < size.width) drawRect(shade, Offset(right, 0f), Size(size.width - right, size.height))
+        }
+        marks.forEach { mark(it.at, ::x, it.color, it.width) }
     }
 }
 
