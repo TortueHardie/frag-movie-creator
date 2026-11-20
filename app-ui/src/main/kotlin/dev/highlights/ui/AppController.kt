@@ -291,7 +291,8 @@ interface UiActions {
     fun playVideo(path: Path) {}
     /** Glissement sur la frise de la capture [entry] : son image à [at], lecteur en pause. */
     fun scrubSource(entry: Int, at: Duration) {}
-    fun scrubSourceEnd() {}
+    /** Fin d'un glissement sur la frise : [play] lance la lecture à l'endroit relâché (faux : glissement annulé). */
+    fun scrubSourceEnd(play: Boolean = true) {}
     fun playerToggle() {}
     fun playerSeek(at: Duration) {}
     fun playerScrub(at: Duration) {}
@@ -1087,6 +1088,7 @@ class AppController(
         onlyKills = montage.pick,
         oneTaps = montage.oneTaps,
         reactionMontage = montage.reactionMontage,
+        reactionSpacing = if (montage.reactionSpacing) null else false,
         fast = montage.fast,
         fastParts = montage.fastParts,
         skipAbilityKills = montage.skipAbilityKills,
@@ -1885,8 +1887,8 @@ class AppController(
         player.scrub(backend?.ffmpeg, file, entry, at)
     }
 
-    override fun scrubSourceEnd() {
-        player.endScrub()
+    override fun scrubSourceEnd(play: Boolean) {
+        player.endScrub(play)
     }
 
     override fun playerToggle() {

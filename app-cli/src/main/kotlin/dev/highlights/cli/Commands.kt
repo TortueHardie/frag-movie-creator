@@ -280,6 +280,10 @@ class MontageCommand : PipelineCommand("montage") {
         "--reaction-montage",
         help = "Montage des réactions du joueur au micro (rires, cris, coups de gueule), quelle qu'en soit la cause : micro devant, sous-titres. Demande une piste micro séparée",
     ).flag()
+    private val noReactionSpacing by option(
+        "--no-reaction-spacing",
+        help = "Montage des réactions : aucun écart minimal entre deux réactions (deux réactions proches peuvent faire deux plans)",
+    ).flag()
     private val fails by option("--fails", help = "Montage des morts du joueur : les secondes d'avant, ralenti, image figée et petit texte (OUPS, RIP…), sur la musique").flag()
     private val style by option(
         "--style",
@@ -509,6 +513,7 @@ class MontageCommand : PipelineCommand("montage") {
         oneTaps = if (oneTaps) true else null,
         fails = if (fails) true else null,
         reactionMontage = if (reactionMontage) true else null,
+        reactionSpacing = if (noReactionSpacing) false else null,
         fast = if (fast) true else null,
         fastParts = if (noFastParts) false else null,
         style = style.takeIf { it != "none" },

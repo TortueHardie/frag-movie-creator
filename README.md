@@ -258,7 +258,8 @@ main ». Ces retouches sont enregistrées dans la session (`origin`, `order` de 
 de seuil ou de durée : un moment détecté qui recouvre un moment retouché laisse la place à la retouche.
 **Lecteur intégré.** Les vidéos se lisent dans l'application : « Lire » d'une variante, « ▶ Lire » d'un export fini
 (sous le résultat et dans la file des traitements), « ▶ Revoir » d'un moment, et la frise d'une session (glisser le
-long de la courbe montre l'image de la capture à cet endroit, une ligne blanche marque la tête de lecture). Lecture/pause,
+long de la courbe montre l'image de la capture à cet endroit, relâcher lance la lecture à partir de là, une ligne
+blanche marque la tête de lecture). Lecture/pause,
 barre de position (image par image pendant le glissement), temps écoulé et total ; clavier : Espace (ou K) lecture/pause,
 ← / → (ou J / L) 5 s en arrière ou en avant, Échap ferme. « Lecteur du système » reste à côté, en secours.
 Aucune dépendance nouvelle : le FFmpeg livré décode les images réduites à 720p (RGBA brut) et le son (PCM 48 kHz vers
@@ -830,12 +831,15 @@ en ajouter ou en retirer.
 
 | | Plateforme / format | Durée | Highlights | Style du montage kills | Miniature |
 |---|---|---|---|---|---|
-| `tiktok` (TikTok) | `tiktok` (9:16) | 30 s | story | `tiktok` | non (TikTok choisit la couverture à la publication) |
-| `shorts` (YouTube court) | `shorts` (9:16) | 60 s | story | `cinematique` | non (un Short ne prend pas de miniature envoyée) |
-| `complet` (vidéo complète) | 16:9 | 3 min | story | `cinematique` | oui |
+| `tiktok` (TikTok) | `tiktok` (9:16) | 30 s au plus | story | `tiktok` | oui |
+| `shorts` (YouTube court) | `shorts` (9:16) | 60 s au plus | story | `cinematique` | oui |
+| `complet` (vidéo complète) | format de la capture (21:9 reste 21:9) | 3 min au plus | story | `cinematique` | oui |
 
-- **Durée** : durée cible des highlights (les moments sont resélectionnés aussitôt dans l'application, comme quand on
-  tape la durée) et durée maximale du montage kills (la durée adaptée au nombre de kills reste un plafond).
+- **Durée** : un maximum. Durée cible des highlights (les moments sont resélectionnés aussitôt dans l'application, comme
+  quand on tape la durée ; les jump cuts du style story la raccourcissent, sans compensation : 30 s visées ont donné
+  23 s sur une partie WARDOGS) et durée maximale du montage kills (la durée adaptée au nombre de kills reste un plafond).
+- **Format de la vidéo complète** : celui de la capture, sans bandes noires (une capture 21:9 donne une vidéo 21:9 ;
+  YouTube l'affiche telle quelle). Pour un 16:9 imposé : `-f 16:9` ou la case du format, qui passent devant.
   `export` repart des moments déjà choisis dans la session : la durée du préréglage n'y change rien.
 - **Personnalisé** : aucun préréglage, les réglages restent tels qu'ils sont.
 - **Ce qu'on choisit à la main passe devant** : un réglage changé sous un préréglage (plateforme, formats, durée, style,
@@ -858,10 +862,13 @@ en ajouter ou en retirer.
 La vidéo du joueur, enregistrée à côté de la partie, posée sur le montage : highlights simples, montage story et montage
 kills.
 
-- **9:16** : bandeau de webcam en haut, sur toute la largeur (30 % de la hauteur) ; le jeu, recadré plus large, occupe
-  le reste dessous. Le HUD recollé, le point visé par les zooms et la zone sûre des textes (DOUBLÉ, sous-titres,
+- **9:16** : bandeau de webcam en haut, sur toute la largeur (30 % de la hauteur), un liseré blanc de 4 px dessous ; le
+  jeu, recadré plus large, occupe le reste dessous. Le HUD recollé, le point visé par les zooms et la zone sûre des textes (DOUBLÉ, sous-titres,
   compteur de kills) descendent avec lui : rien ne passe sous la webcam.
-- **16:9 et format source** : incrustation dans un coin (bas gauche par défaut, 24 % de la largeur), le jeu reste entier.
+- **16:9 et format source** : incrustation dans un coin, 24 % de la largeur, coins arrondis et liseré blanc ; le jeu
+  reste entier. Le coin est celui que le HUD du jeu laisse libre, choisi dans chaque profil : haut gauche pour WARDOGS
+  (la mini-carte est en bas à gauche), Apex, Fortnite et League of Legends ; bas gauche pour VALORANT, CS2 et les
+  autres jeux.
 - **Les effets ne touchent que le jeu** : zoom, punch-in, secousse, flous, whip pan, flash, couleurs boostées et
   étalonnage. La webcam suit la chronologie du plan (au ralenti avec lui, figée avec lui) mais reste fixe et nette.
 - **Trouver la webcam** : un fichier choisi, ou « auto » : second flux vidéo de la capture (OBS peut enregistrer jeu et
@@ -873,13 +880,15 @@ kills.
   (un clap au début de l'enregistrement aide). Le décalage n'est retenu que si la ressemblance est nette ; sinon l'heure
   seule, ou début contre début. Le **décalage** réglé à la main (`--webcam-offset`, champ de l'application) s'ajoute,
   positif si la webcam est en retard sur le jeu.
-- Une capture sans webcam trouvée : l'emplacement reste vide sur ses plans, et le résultat le signale.
+- Une capture sans webcam trouvée : ses plans montrent le jeu en plein cadre (pas de bandeau vide en 9:16), et le
+  résultat le signale.
 - Application : section **Webcam** du panneau des réglages (pas de webcam / la trouver automatiquement / choisir une
   vidéo, décalage) et bouton **Aperçu de la disposition** (9:16 et 16:9 côte à côte, avec le calage trouvé). Le choix
   vaut pour l'export et le montage kills.
 - Profil (`edit.webcam`) : `band` (hauteur du bandeau), `corner` (`top-left`, `top-right`, `bottom-left`,
   `bottom-right`), `size`, `margin`, `aspect` (rapport de l'incrustation du coin), `crop` (partie de l'image de la
-  webcam à garder, ex. le visage), `border` / `borderColor` (liseré, aucun par défaut), `offset`, `audioSync`.
+  webcam à garder, ex. le visage), `border` / `borderColor` (liseré en pixels de sortie, 4 par défaut, 0 = aucun), `radius` (arrondi des coins du 16:9,
+  en part de la hauteur de l'incrustation, 0,12 par défaut, 0 = coins droits), `offset`, `audioSync`.
 - Vérifié sur des vidéos synthétiques seulement (aucune vraie webcam enregistrée au 19/11/2026).
 
 ```powershell
@@ -1451,10 +1460,11 @@ du tout), montés sur la musique avec le même moteur : un plan par réaction, s
   putain ! », « c'est pas le moment ! »), entre +12 et +17 dB souvent de la conversation ou des annonces.
 - Classement par la force de la réaction : montée au-dessus de la voix habituelle, durée, rire reconnu, et un kill, une
   mort ou une aide moins de 5 s avant (`montage.reactionMontage.causeBonus`). Deux réactions à moins de 8 s : la plus
-  forte seule.
+  forte seule ; case « Espacer les réactions » décochée, `--no-reaction-spacing` ou `spacing: 0s` dans le profil :
+  aucun écart minimal, deux réactions proches peuvent faire deux plans.
 - Micro mixé par-dessus la piste du jeu (×2, +6 dB), musique baissée à 25 % sous la voix, plan prolongé jusqu'à la fin
   de la phrase, et ce qui est dit en sous-titres (whisper, modèle de `edit.story.captions`, une phrase criée en rouge).
-  Ni ralenti ni image figée : ils déformeraient la voix. Pas de plans d'un temps sur les parties rapides de la musique.
+  Ni ralenti ni image figée (même si le profil active le montage des morts) : l'image continue pendant la réaction. Pas de plans d'un temps sur les parties rapides de la musique.
 - Réglages : `montage.reactionMontage` du profil (`rise`, `preRoll`, `postRoll`, `perClip`, `spacing`, `micGain`,
   `musicUnderVoice`, `captions`…). Fichiers : `<jeu>_<date>_reactions.mp4` ; le rapport liste toutes les réactions
   trouvées (`reactions`, avec `used` pour celles montées).

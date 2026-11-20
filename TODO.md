@@ -222,8 +222,8 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Dossier surveillé : monter seul chaque soirée finie, notifier (case « Monter chaque soirée finie », `app soiree`).
 - [x] Préréglages d'export (« TikTok », « YouTube court », « complet ») : `config/export-presets.yaml`, `--preset`,
   puces en haut de la barre d'export et de la fenêtre de montage ; un réglage changé à la main passe devant.
-  - [ ] Valeurs à confirmer par l'utilisateur (durées 30 s / 60 s / 3 min, miniature, 16:9 du complet) :
-    `output/revue/prereglages-export/LOG.md`.
+  - [x] Valeurs confirmées par l'utilisateur le 20/11 : durées = maximum sans compensation, miniature pour tous,
+    vidéo complète au format de la capture (21:9 reste 21:9), styles et noms gardés.
 
 ## Qualité de détection
 - [x] Jeu de vérité terrain versionné (`verite/`, timecodes validés par le joueur) + `app verite` (précision/rappel par

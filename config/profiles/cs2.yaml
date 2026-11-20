@@ -84,6 +84,8 @@ selection:
   target: { totalDuration: 60s }
 
 edit:
+  # Webcam en incrustation (16:9, format source) : coin libre du HUD ; radar en haut à gauche, killfeed en haut à droite, munitions en bas à droite : le bas gauche ne couvre que l'argent et le chat.
+  webcam: { corner: bottom-left }
   style: story
   story:
     # Rounds courts et denses comme VALORANT : les kills d'un même round forment une scène.

@@ -56,7 +56,7 @@ class PlayerController(
     fun toggle() = engine?.toggle()
     fun seek(at: Duration) = engine?.seek(at)
     fun scrub(at: Duration) = engine?.scrub(at)
-    fun endScrub() = engine?.endScrub()
+    fun endScrub(play: Boolean = false) = engine?.endScrub(play)
 
     fun close() {
         engine?.stop()

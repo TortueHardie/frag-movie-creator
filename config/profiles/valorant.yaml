@@ -186,6 +186,8 @@ selection:
   target: { totalDuration: 60s }
 
 edit:
+  # Webcam en incrustation (16:9, format source) : coin libre du HUD ; mini-carte en haut à gauche, killfeed en haut à droite, munitions en bas à droite : le bas gauche est libre.
+  webcam: { corner: bottom-left }
   # story : montage façon YouTube (temps morts coupés en jump cuts, accroche du meilleur moment en ouverture,
   # punch-in sur les rires et cris, secousse sur les kills, flash + whoosh entre les moments).
   # simple : les moments bout à bout, séparés par un fondu.
