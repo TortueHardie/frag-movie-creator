@@ -198,6 +198,28 @@ interface UiActions {
     fun openKillOnMusic(kill: String) {}
     /** Oublie ce qui a été appris des kills posés sur la musique (`kill-pins.json` mis de côté). */
     fun resetPins() {}
+    /**
+     * « Montage sur la musique » ([MusicEditorUi]) : ouvrir (aussi tout seul après le choix d'une musique), fermer, vue
+     * (zoom de [factor] autour de [center] s, défiler de [seconds], centrer), lecture (bascule, tête de lecture, écouter
+     * autour), aimant, choisir un kill ([kill] : désignation de son groupe, null : aucun), glisser ([kind] : KILL, NEW ou
+     * DROP ; [free] : Alt, sans aimant ; [over] : au-dessus de la musique) puis lâcher, retirer, tout remettre en auto,
+     * aperçu 360p du montage tel quel.
+     */
+    fun openMusicEditor() {}
+    fun closeMusicEditor() {}
+    fun zoomEditor(factor: Double, center: Double) {}
+    fun scrollEditor(seconds: Double) {}
+    fun centerEditor(seconds: Double) {}
+    fun toggleEditorPlayback() {}
+    fun seekEditor(seconds: Double) {}
+    fun listenEditorAround(seconds: Double) {}
+    fun toggleEditorMagnet() {}
+    fun selectEditorKill(kill: String?) {}
+    fun dragEditor(kind: String, key: String?, seconds: Double, free: Boolean, over: Boolean) {}
+    fun dropEditor() {}
+    fun removeEditorKill(kill: String) {}
+    fun resetEditorAuto() {}
+    fun previewEditedMontage() {}
     val killTimingPlayer: dev.highlights.ui.player.VideoPlayer? get() = null
     /** Oublie les calages appris (`kill-timing.json` mis de côté, comme les goûts). */
     fun resetTiming() {}
@@ -1012,6 +1034,8 @@ class AppController(
     override fun chooseMusic() {
         platform.chooseAudio(state.value.montage?.music?.parent ?: state.value.lastMusic?.parent)?.let { music ->
             _state.update { it.copy(montage = it.montage?.copy(music = music, musicFromStart = musicPrefs.fromStart(music)), lastMusic = music) }
+            // « Montage sur la musique » s'ouvre aussitôt, plan calculé (choix de l'utilisateur, 20/11) ; rouvrable du dialogue.
+            if (state.value.montage?.useLibrary == false) openMusicEditor()
         }
     }
 
@@ -1225,6 +1249,45 @@ class AppController(
     override fun closeKillTiming() = killTiming.close()
 
     private val musicDrop = MusicDropController(scope, _state, { backend?.pipeline }, ::replanMontage, updateMontage = ::updateMontage)
+    private val musicEditor = MusicEditorController(scope, _state, { backend?.pipeline }, ::updateMontage, ::replanMontage)
+    override fun openMusicEditor() = musicEditor.open()
+    override fun closeMusicEditor() {
+        planJob?.cancel()
+        musicEditor.close()
+    }
+    override fun zoomEditor(factor: Double, center: Double) = musicEditor.zoom(factor, center)
+    override fun scrollEditor(seconds: Double) = musicEditor.scroll(seconds)
+    override fun centerEditor(seconds: Double) = musicEditor.center(seconds)
+    override fun toggleEditorPlayback() = musicEditor.toggle()
+    override fun seekEditor(seconds: Double) = musicEditor.seek(seconds)
+    override fun listenEditorAround(seconds: Double) = musicEditor.listenAround((seconds * 1000).toLong().milliseconds)
+    override fun toggleEditorMagnet() = musicEditor.toggleMagnet()
+    override fun selectEditorKill(kill: String?) = musicEditor.select(kill)
+    override fun dragEditor(kind: String, key: String?, seconds: Double, free: Boolean, over: Boolean) {
+        val k = runCatching { EditorDragKind.valueOf(kind) }.getOrNull() ?: return
+        musicEditor.drag(k, key, seconds, free, over)
+    }
+    override fun dropEditor() = musicEditor.drop()
+    override fun removeEditorKill(kill: String) = musicEditor.remove(kill)
+    override fun resetEditorAuto() = musicEditor.resetAuto()
+
+    /** Aperçu 360p du montage tel que l'éditeur le montre (une variante, la mieux notée), lu dans le lecteur intégré. */
+    override fun previewEditedMontage() {
+        val s = state.value
+        val montage = s.montage ?: return
+        val music = montage.musicSource ?: return
+        val session = s.session ?: return
+        val p = backend?.pipeline ?: return
+        val options = montageOptions(montage, s)
+        val title = tr("ui.job.previews", "track" to music.name)
+        withMemory(title, MEMORY_MONTAGE) {
+            enqueue(title) { progress ->
+                val previews = p.montagePreviews(session.sessions, music, options, 1, progress) { _, _ -> }
+                previews.previews.firstOrNull()?.video?.also { video -> scope.launch { playVideo(video) } }
+            }
+        }
+    }
+
     override fun openKillOnMusic(kill: String) {
         killTiming.close()
         musicDrop.openForKill(kill)

@@ -266,6 +266,7 @@ data class PlanView(
 @Composable
 fun MontagePlanEntry(montage: MontageUiState, actions: UiActions) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Button(onClick = actions::openMusicEditor, enabled = montage.music != null && !montage.useLibrary) { Text(tr("ui.musicEditor.open")) }
         OutlinedButton(onClick = actions::openMontagePlan, enabled = montage.musicSource != null) { Text(tr("ui.montagePlan.open")) }
         val c = montage.constraints
         val count = c.count
