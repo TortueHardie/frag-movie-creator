@@ -232,7 +232,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `SourceCuts.kt` : `SourceCut`, `CutInput`, `SourceCuts.input`, `SourceCutter.prepare` (MIN_CUTS=12 ; découpe si ≥ ; vérif espace disque).
 - `story/StoryPlanner.kt` : `StoryShot`, `ShotRole{COLD_OPEN,OPENING,JUMP}`, `StoryPlan`, `plan()` (accroche → scènes → `liveRanges` jump cuts → `decorate` punch/shake/slow/labels), `streakLabels`, `withCaptions`.
 - `story/StoryRenderBuilder.kt` : graphe story (framing zoom/shake, slowVideo, SFX générés `WHOOSH_SOURCE_*`/`IMPACT_SOURCE_*` ou `SfxBank` dossiers, musique `musicVolume`, `envelope`).
-- `story/Captions.kt` : parse sortie whisper, `clean` (garder ce qui recouvre de la voix), `readable`, `drawText` (drawtext, emphasis jaune, cri rouge), `transcriptionFilter`.
+- `story/Captions.kt` : parse sortie whisper, `clean` (garder ce qui recouvre de la voix), `readable`, `drawText` (drawtext, emphasis jaune, cri rouge ; trop large → deux lignes à la taille nominale, `lines`), `transcriptionFilter`.
 - `story/TextMeasure.kt` : largeur de texte AWT pour ajuster la taille, `canDisplay` (glyphes présents dans la police).
 - `story/VideoFonts.kt` : **choix de la police de tout texte incrusté** (`forText(configurée, texte)`) : la police du profil
   si elle a tous les caractères (Impact : latin + cyrillique), sinon repli Windows selon l'écriture (`JAPANESE` Yu Gothic Bold,

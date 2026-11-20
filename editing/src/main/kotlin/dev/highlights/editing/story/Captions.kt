@@ -10,6 +10,7 @@ import kotlinx.serialization.json.long
 import java.nio.file.Path
 import java.text.Normalizer
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.time.Duration
@@ -286,8 +287,8 @@ object Captions {
      * Sous-titre dans l'image : gros, blanc cerné de noir, qui grossit de 70 à 100 % de sa taille en
      * [CaptionSettings.pop] à son apparition. Une phrase criée passe toute en couleur, plus grosse ; sinon les mots
      * forts ([CaptionSettings.emphasis]) sont colorés, chacun dessiné à sa place dans la ligne. [y] : position
-     * verticale du centre (part de la hauteur). Une phrase trop large pour l'image ([width]) est réduite jusqu'à y
-     * tenir : en 9:16, dix-huit caractères à la taille nominale débordent. [safe] : marges recouvertes par l'interface
+     * verticale du centre (part de la hauteur). Une phrase trop large pour l'image ([width]) passe sur deux lignes
+     * ([lines]), centrées ensemble sur [y]. [safe] : marges recouvertes par l'interface
      * de la plateforme visée, dont le texte reste à l'écart (centré dans la largeur utile). Renvoie un filtre par
      * morceau de texte.
      */
@@ -300,17 +301,44 @@ object Captions {
         val nominal = settings.size * height * (if (caption.loud) settings.shoutScale else 1.0)
         // Police qui a tous les caractères de la phrase (sous-titre japonais avec Impact configuré : Yu Gothic).
         val font = VideoFonts.forText(settings.font, words.joinToString(" "))
-        val base = fit(font, nominal, words.joinToString(" "), (width * safe.width).roundToInt())
-        val t0 = caption.range.start
-        val t1 = caption.range.end
-        val style = TextStyle(font, base, height, safe.centerY(y, LINE_HEIGHT * base / height), t0, t1, settings.pop, safe = safe)
-        if (caption.loud) return listOf(style.draw(words.joinToString(" "), settings.shoutColor))
-        val marked = emphasized(words, settings.emphasis)
+        val room = (width * safe.width).roundToInt()
+        val lines = lines(words) { fit(font, nominal, it, room) / nominal }
+        val base = lines.minOf { fit(font, nominal, it.joinToString(" "), room) }
+        val lineHeight = LINE_HEIGHT * base / height
+        val center = safe.centerY(y, lineHeight * lines.size)
+        val marked = if (caption.loud) List(words.size) { false } else emphasized(words, settings.emphasis)
+        var first = 0
+        return lines.flatMapIndexed { i, line ->
+            val style = TextStyle(font, base, height, center + (i - (lines.size - 1) / 2.0) * lineHeight, caption.range.start, caption.range.end, settings.pop, safe = safe)
+            val lineMarks = marked.subList(first, first + line.size)
+            first += line.size
+            drawLine(line, lineMarks, style, settings, caption.loud)
+        }
+    }
+
+    /**
+     * Une phrase trop large pour tenir à la taille nominale passe sur deux lignes, coupées à l'espace le plus proche du
+     * milieu, jamais dans un mot (choix du joueur : plus de texte rapetissé). Réunie par [readable], « BEN, JE SAIS PAS
+     * S'IL EST RENTRÉ. » tombait à 53 % de la taille nominale (micro WARDOGS, 9:16) ; les morceaux de whisper seuls
+     * (`maxChars` 18) tiennent presque tous sur une ligne. Deux lignes encore trop larges rapetissent ensemble.
+     * [scale] : taille à laquelle un texte tient sur une ligne, en part de la taille nominale.
+     */
+    internal fun lines(words: List<String>, scale: (String) -> Double): List<List<String>> {
+        val text = words.joinToString(" ")
+        if (words.size < 2 || scale(text) >= 1.0) return listOf(words)
+        val middle = text.length / 2.0
+        val cut = (1 until words.size).minBy { k -> abs(words.take(k).joinToString(" ").length - middle) }
+        return listOf(words.take(cut), words.drop(cut))
+    }
+
+    /** Une ligne de sous-titre : d'un bloc (criée, ou sans mot fort), sinon mot par mot pour colorer les mots forts. */
+    private fun drawLine(words: List<String>, marked: List<Boolean>, style: TextStyle, settings: CaptionSettings, loud: Boolean): List<String> {
+        if (loud) return listOf(style.draw(words.joinToString(" "), settings.shoutColor))
         if (marked.none { it }) return listOf(style.draw(words.joinToString(" "), "white"))
 
         // Mots placés un à un : largeur de chaque mot et de l'espace, mesurées dans la police, à la taille finale.
-        val widths = words.map { TextMeasure.width(font, base, it) }
-        val space = TextMeasure.width(font, base, " ")
+        val widths = words.map { TextMeasure.width(style.font, style.size, it) }
+        val space = TextMeasure.width(style.font, style.size, " ")
         if (widths.any { it == null } || space == null) {
             // Police illisible par Java : la phrase entière prend la couleur, faute de pouvoir placer les mots.
             return listOf(style.draw(words.joinToString(" "), settings.emphasisColor))
