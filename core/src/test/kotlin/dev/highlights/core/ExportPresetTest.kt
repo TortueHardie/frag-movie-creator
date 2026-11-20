@@ -43,7 +43,8 @@ class ExportPresetTest : FunSpec({
                 }
             }
         }
-        I18n.withLanguage("fr") { presets.byId("shorts")!!.name shouldBe "YouTube court" }
+        // Les noms de plateformes ne se traduisent pas (choix du joueur, 20/11) : « YouTube Shorts » dans toutes les langues.
+        for (tag in I18n.available().map { it.tag }) I18n.withLanguage(tag) { presets.byId("shorts")!!.name shouldBe "YouTube Shorts" }
     }
 
     test("sans fichier, aucun préréglage ; une clé inconnue ou une plateforme avec un format sont refusées") {

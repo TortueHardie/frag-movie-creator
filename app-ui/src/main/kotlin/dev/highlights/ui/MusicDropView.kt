@@ -208,8 +208,14 @@ internal class MusicDropController(
 
     /** Ouvre l'outil sur la musique du plan affiché, curseur sur la drop du plan (posée ou détectée). */
     fun open() {
-        val view = state.value.montage?.plan?.view ?: return
-        start(view, view.dropAt?.let { view.musicStart + it } ?: view.musicStart, null)
+        val montage = state.value.montage ?: return
+        val view = montage.plan?.view
+        val music = montage.music?.takeIf { !montage.useLibrary }
+        if (view != null && (music == null || view.musicPath == music)) return start(view.musicPath ?: return, view.dropAt?.let { view.musicStart + it } ?: view.musicStart, null)
+        // Pas encore de plan (étape 2 du parcours) : le morceau choisi, curseur sur sa drop.
+        music ?: return
+        state.update { s -> s.copy(montage = s.montage?.let { it.copy(plan = it.plan ?: MontagePlanState()) }) }
+        start(music, montage.song?.drop ?: Duration.ZERO, null)
     }
 
     /**
@@ -225,11 +231,10 @@ internal class MusicDropController(
         val group = clip?.group?.refs ?: view.left.firstOrNull { g -> g.refs.any { it.toString() == ref.toString() } }?.refs ?: listOf(ref)
         val now = clip?.kills?.firstOrNull { it.ref.toString() == ref.toString() }?.let { view.musicStart + it.at }
         val pin = montage.constraints.pins.entries.firstOrNull { (r, _) -> group.any { it.toString() == r.toString() } }?.value as? dev.highlights.montage.MontagePin.At
-        start(view, pin?.music ?: now ?: view.musicStart, group.last(), targetAt = now, pinned = pin != null)
+        start(view.musicPath ?: return, pin?.music ?: now ?: view.musicStart, group.last(), targetAt = now, pinned = pin != null)
     }
 
-    private fun start(view: PlanView, at: Duration, target: dev.highlights.montage.KillRef?, targetAt: Duration? = null, pinned: Boolean = false) {
-        val music = view.musicPath ?: return
+    private fun start(music: java.nio.file.Path, at: Duration, target: dev.highlights.montage.KillRef?, targetAt: Duration? = null, pinned: Boolean = false) {
         val start = at
         stopPlayback()
         set(MusicDropUi(music, start, target = target, targetAt = targetAt, pinned = pinned))

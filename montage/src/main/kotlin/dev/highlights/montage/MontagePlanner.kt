@@ -1563,7 +1563,14 @@ object MontagePlanner {
         fun room(at: Duration) = (if (at - slotStart >= group.span + cuts.minLead) 0.3 else 0.0) +
             (if (slotEnd - at >= reaction + cuts.minTail) 0.3 else 0.0) + preferred(at) + cutFits(at)
         // Épinglé sur un temps par l'utilisateur : celui-là, même s'il coupe le début du plan.
-        val pinned = (group.pin as? MontagePin.At)?.let { MontageEdits.nearestBeat(music, it.music) }
+        // Le temps le plus proche de l'épingle, dans le plan quand elle y tombe : un temps de coupe ajouté juste après
+        // le kill (plan court du suivant, KillLayout) appartient au plan suivant, il ne doit pas lui voler son ancrage.
+        val pinned = (group.pin as? MontagePin.At)?.let { pin ->
+            val global = MontageEdits.nearestBeat(music, pin.music)
+            val inside = pin.music >= slotStart && pin.music < slotEnd
+            if (!inside || global in slot.startBeat until slot.endBeat) global
+            else (slot.startBeat until slot.endBeat).minByOrNull { (music.beatTime(it) - pin.music).absoluteValue } ?: global
+        }
         val onBeat = when {
             pinned != null && pinned >= slot.startBeat && pinned < slot.endBeat -> pinned
             single -> slot.startBeat

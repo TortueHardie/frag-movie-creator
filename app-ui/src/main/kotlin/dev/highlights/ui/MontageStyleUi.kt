@@ -2,47 +2,37 @@ package dev.highlights.ui
 
 import dev.highlights.core.model.EffectDensity
 import dev.highlights.core.model.GameAudio
-import dev.highlights.core.model.MontageOrder
 import dev.highlights.core.model.MontageSettings
 import dev.highlights.core.model.MontageStyle
 
 /**
- * Les cases de la fenêtre de montage qu'un style peut poser. Gardées à part pour savoir ce qu'un style change et
+ * Les cases de la fenêtre de montage qu'un style peut poser (sans celles que les repères de l'étape 1 remplacent :
+ * montée en puissance, rythme rapide, whip pan, ouverture vitrine, ralenti ; le style les pose seul, 20/11). Gardées à part pour savoir ce qu'un style change et
  * lesquelles l'utilisateur a modifiées à la main : celles-là ne bougent plus quand il change de style.
  */
 data class StyleKnobs(
-    val fast: Boolean = false,
     val oneTaps: Boolean = false,
-    val buildUp: Boolean = true,
     val density: EffectDensity = EffectDensity.BALANCED,
     val zoom: Boolean = true,
     val flash: Boolean = true,
-    val whip: Boolean = true,
     val whoosh: Boolean = false,
-    val showcase: Boolean = true,
     val boostColors: Boolean = true,
     val motionBlur: Boolean = true,
     val matchCut: Boolean = true,
-    val slowMotion: Boolean = true,
     val text: Boolean = true,
     val gameAudio: GameAudio = GameAudio.FULL,
     val reactions: Boolean = false,
 ) {
     /** Ces réglages, avec ce que [style] change par-dessus. */
     fun styled(style: MontageStyle?): StyleKnobs = if (style == null) this else StyleKnobs(
-        fast = style.fast ?: fast,
         oneTaps = style.oneTaps ?: oneTaps,
-        buildUp = style.order?.let { it == MontageOrder.BUILD_UP } ?: buildUp,
         density = style.effectDensity ?: density,
         zoom = style.zoom ?: zoom,
         flash = style.flash ?: flash,
-        whip = style.whip ?: whip,
         whoosh = style.whoosh ?: whoosh,
-        showcase = style.showcase ?: showcase,
         boostColors = style.colors ?: boostColors,
         motionBlur = style.motionBlur ?: motionBlur,
         matchCut = style.matchCut ?: matchCut,
-        slowMotion = style.slowMotion ?: slowMotion,
         text = style.text ?: text,
         gameAudio = style.gameAudio ?: gameAudio,
         reactions = style.reactions ?: reactions,
@@ -51,18 +41,13 @@ data class StyleKnobs(
     companion object {
         /** Cases telles que le profil les règle (section montage), sans style. */
         fun of(montage: MontageSettings?): StyleKnobs = if (montage == null) StyleKnobs() else StyleKnobs(
-            fast = montage.fast.enabled,
-            buildUp = montage.order != MontageOrder.CHRONOLOGICAL,
             density = montage.effectDensity,
             zoom = montage.zoom.enabled,
             flash = montage.flash.enabled,
-            whip = montage.whip.enabled,
             whoosh = montage.whip.whoosh > 0,
-            showcase = montage.showcase.enabled,
             boostColors = montage.colors.enabled,
             motionBlur = montage.motionBlur.enabled,
             matchCut = montage.matchCut.enabled,
-            slowMotion = montage.slowMotion.enabled,
             text = montage.text.enabled,
             gameAudio = montage.audio.game,
             reactions = montage.reactions,
@@ -72,23 +57,18 @@ data class StyleKnobs(
 
 /** Les cases qu'un style peut poser, telles qu'elles sont dans la fenêtre. */
 val MontageUiState.knobs: StyleKnobs
-    get() = StyleKnobs(fast, oneTaps, buildUp, density, zoom, flash, whip, whoosh, showcase, boostColors, motionBlur, matchCut, slowMotion, text, gameAudio, reactions)
+    get() = StyleKnobs(oneTaps, density, zoom, flash, whoosh, boostColors, motionBlur, matchCut, text, gameAudio, reactions)
 
 /** Noms des cases qui diffèrent entre [a] et [b]. */
 internal fun changedKnobs(a: StyleKnobs, b: StyleKnobs): Set<String> = buildSet {
-    if (a.fast != b.fast) add("fast")
     if (a.oneTaps != b.oneTaps) add("oneTaps")
-    if (a.buildUp != b.buildUp) add("buildUp")
     if (a.density != b.density) add("density")
     if (a.zoom != b.zoom) add("zoom")
     if (a.flash != b.flash) add("flash")
-    if (a.whip != b.whip) add("whip")
     if (a.whoosh != b.whoosh) add("whoosh")
-    if (a.showcase != b.showcase) add("showcase")
     if (a.boostColors != b.boostColors) add("boostColors")
     if (a.motionBlur != b.motionBlur) add("motionBlur")
     if (a.matchCut != b.matchCut) add("matchCut")
-    if (a.slowMotion != b.slowMotion) add("slowMotion")
     if (a.text != b.text) add("text")
     if (a.gameAudio != b.gameAudio) add("gameAudio")
     if (a.reactions != b.reactions) add("reactions")
@@ -106,19 +86,14 @@ fun MontageUiState.chooseStyle(id: String?): MontageUiState {
     val target = profileKnobs.styled(next.chosenStyle)
     fun <T> keep(name: String, current: T, styled: T): T = if (name in touched) current else styled
     return next.copy(
-        fast = keep("fast", fast, target.fast),
         oneTaps = keep("oneTaps", oneTaps, target.oneTaps),
-        buildUp = keep("buildUp", buildUp, target.buildUp),
         density = keep("density", density, target.density),
         zoom = keep("zoom", zoom, target.zoom),
         flash = keep("flash", flash, target.flash),
-        whip = keep("whip", whip, target.whip),
         whoosh = keep("whoosh", whoosh, target.whoosh),
-        showcase = keep("showcase", showcase, target.showcase),
         boostColors = keep("boostColors", boostColors, target.boostColors),
         motionBlur = keep("motionBlur", motionBlur, target.motionBlur),
         matchCut = keep("matchCut", matchCut, target.matchCut),
-        slowMotion = keep("slowMotion", slowMotion, target.slowMotion),
         text = keep("text", text, target.text),
         gameAudio = keep("gameAudio", gameAudio, target.gameAudio),
         reactions = keep("reactions", reactions, target.reactions),

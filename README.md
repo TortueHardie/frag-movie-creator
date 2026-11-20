@@ -368,7 +368,34 @@ meilleurs moments ne sont plus posés bout à bout : chacun est remonté comme l
 ## Montage « tous les kills » (style TikTok)
 
 Dans l'application : bouton **Montage kills** au-dessus de la liste des moments (après une analyse avec un profil qui
-détecte les kills). En ligne de commande :
+détecte les kills). Une fenêtre s'ouvre sur le **parcours du montage**, en cinq étapes, avec un fil d'Ariane en haut
+(on revient librement en arrière ou sur une étape déjà vue, rien n'est perdu) :
+1. **Quoi** : « C'est pour où ? » (TikTok, YouTube Shorts, Vidéo complète ou « À ma façon »), « Avec quoi ? » (vos
+   kills, vos réactions au micro, que des one taps), les formats (une plateforme impose le sien), le style, et vos
+   parties avec leurs kills en vignettes.
+2. **Musique** : un morceau ou un dossier où l'application choisit ; le morceau avec sa forme d'onde, sa drop (« Écouter
+   la drop » ouvre l'outil de la drop ici même) et la partie prise dans le montage ; « Commencer au début du morceau » ;
+   la durée (« Selon mes kills », ou 30 s, 1 min, 3 min, ou une durée tapée).
+3. **Sur la musique** : l'éditeur, dans la même fenêtre (voir « Montage sur la musique » plus bas) : **3a** les repères,
+   **3b** les plans. En 3b, glisser un kill sur un autre les échange ; le lâcher loin de tout repère y déplace son plan
+   (ou y ajoute un plan, pour un kill de la liste) ; « Un autre kill ici » écarte le kill et le repère prend le suivant ;
+   « Retirer ce plan » retire le plan et son repère ; « + » entre deux plans ajoute un passage sans kill (vitrine) ;
+   « Passage de la partie, longueur… » ouvre le calage (couper ici, sections). L'ancienne frise « Voir le plan… »
+   n'existe plus : tout se fait ici.
+4. **Finitions** : le son (tout le jeu ou autour des kills, équilibre, réactions au micro, « whoosh » sur les
+   transitions), les textes (compteur de kills, « Doublé / Triplé », score des rounds), les cartes de début et de fin,
+   les effets (densité, zoom, flash, couleurs, flou) et « Plus de réglages ». Ce qui change le montage est marqué ⟳ :
+   le plan est refait, repères gardés.
+5. **Aperçu** : « Regarder l'aperçu » (360p, en quelques secondes) ou « 3 idées de l'appli » (variantes, qui remplacent
+   vos repères), ce que vous allez avoir (durée, plans, kills dans l'ordre, celui de la drop en rouge), la **miniature**
+   et **Créer le montage**. Rien n'est rendu avant.
+
+« Tout en auto ⏭ » (étapes 1 et 2) saute les étapes 3 et 4 : placement automatique, droit à l'aperçu.
+Montée en puissance, rythme rapide (et par partie), whip pan, ouverture vitrine et ralenti ne sont plus des cases de
+l'application : les repères les remplacent (transition ici, vitrine ici, ralenti ici) ; les styles et la ligne de
+commande les gardent pour le placement automatique.
+
+En ligne de commande :
 
 ```powershell
 & $app montage output\sessions\partie.session.json --music D:\Musique\son.mp3 --max 60s --format 9:16,source
@@ -622,7 +649,8 @@ détecte les kills). En ligne de commande :
 Quand le planificateur se trompe sur un kill (un faux kill, le mauvais sur la drop, un beau kill écarté), on corrige le
 plan au lieu de tout relancer à l'aveugle.
 
-- **Dans l'application** : bouton **Voir le plan…** du dialogue du montage. Une fenêtre montre la musique (volume de
+- **Dans l'application** : depuis le 20/11, l'étape 3b du parcours (voir plus haut) ; la frise décrite ici n'existe plus.
+  Elle montrait la musique (volume de
   chaque temps, sections, drop) et les plans placés dessus, une vignette par groupe de kills, chaque kill en trait ; les
   groupes que le plan écarte sont listés dessous. Clic sur un plan : l'écarter ; clic sur un trait : ouvrir le
   **calage du kill à l'image** (voir plus bas, et de là l'écarter seul) ; clic sur un groupe écarté : le forcer dans le montage ; glisser un groupe sur la drop : l'y épingler ; un
@@ -690,8 +718,7 @@ bornée à ±200 ms) appliqué aux kills de cette source ; et le décalage des t
 Vue « Goûts appris » : carte « Calage des kills » et « Oublier les calages appris » ; `app gouts` les liste,
 `app gouts --reset-timing` les oublie (fichier mis de côté, pas effacé).
 
-**Montage sur la musique.** Dès qu'une musique est choisie dans le dialogue de montage, l'écran « Montage sur la
-musique » s'ouvre (bouton **Montage sur la musique…** pour le rouvrir ; la frise **Voir le plan…** reste). Deux étapes :
+**Montage sur la musique.** L'étape 3 du parcours du montage (la même fenêtre). Deux temps :
 1. **Vos intentions sur la musique** : le morceau entier (forme d'onde, sections, drop glissable) et des **repères**,
    sans dire quel kill : ◆ **Kill ici**, ◆◆ **Multi-kill ici** (un repère qui vaut plusieurs kills), ┃ **Coupe ici**
    (un plan commence là), ◐ **Ralenti ici**, ↯ **Transition ici** (whip pan sur la coupe la plus proche), ▭ **Vitrine

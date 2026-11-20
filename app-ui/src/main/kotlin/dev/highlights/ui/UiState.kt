@@ -345,7 +345,6 @@ data class MontageUiState(
     val maxDurationText: String = I18n.duration(60.seconds),
     /** Durée tirée du nombre de kills, la durée maximale restant un plafond. */
     val fitKills: Boolean = true,
-    val buildUp: Boolean = true,
     val formats: Set<OutputFormat> = setOf(OutputFormat.VERTICAL, OutputFormat.SOURCE),
     /** Plateforme visée : impose le format, et sa durée maximale devient un plafond. */
     val platform: String? = null,
@@ -355,16 +354,27 @@ data class MontageUiState(
     val presetTouched: Set<String> = emptySet(),
     /** Miniature YouTube écrite à côté de chaque vidéo du rendu final. */
     val thumbnail: Boolean = true,
+    /** Habillage de la miniature (étape 5 du parcours). */
+    val thumbnailStyle: dev.highlights.montage.ThumbnailStyle = dev.highlights.montage.ThumbnailStyle.DEFAULT,
+    /** Étape du parcours ([MontageStep]) et la plus loin atteinte (le fil d'Ariane y mène). */
+    val step: MontageStep = MontageStep.WHAT,
+    val reached: Int = 0,
+    /** Nom du jeu des parties ouvertes, pour l'en-tête. */
+    val gameName: String = "",
+    /** Kills des parties ouvertes et leurs vignettes (panneau « Votre montage »). */
+    val flowKills: List<FlowKill> = emptyList(),
+    val flowThumbs: Map<String, Path> = emptyMap(),
+    /** Le morceau choisi, lu pour l'aperçu ; null : pas encore (ou un dossier). */
+    val song: FlowSong? = null,
+    /** Un réglage qui change le plan a bougé depuis le dernier plan : l'aperçu le refait. */
+    val planDirty: Boolean = false,
     /** Seulement ces moments (choisis dans la recherche) ; null : tous les kills des parties ouvertes. */
     val pick: dev.highlights.pipeline.MomentPick? = null,
     val density: EffectDensity = EffectDensity.BALANCED,
     val zoom: Boolean = true,
     val flash: Boolean = true,
-    val whip: Boolean = true,
     /** Souffle sur les whip pans (sans whip pan, rien à faire sonner). */
     val whoosh: Boolean = false,
-    /** Ouverture vitrine : passages calmes avant le premier kill. */
-    val showcase: Boolean = true,
     /** Couleurs boostées (vibrance, saturation, contraste), comme les kill montages de TikTok. */
     val boostColors: Boolean = true,
     /** Flou de mouvement : traînées sur les mouvements rapides, flou radial sur les coupes. */
@@ -373,7 +383,6 @@ data class MontageUiState(
     val matchCut: Boolean = true,
     /** Kills classés selon leur round : mort juste après, ace, clutch (captures avec les morts d'Outplayed). */
     val rounds: Boolean = true,
-    val slowMotion: Boolean = true,
     val text: Boolean = true,
     /** Compteur de kills à l'écran : aucun, par plan ou cumulé (voir [dev.highlights.core.model.KillCounterMode]). */
     val killCounter: dev.highlights.core.model.KillCounterMode = dev.highlights.core.model.KillCounterMode.OFF,
@@ -392,10 +401,6 @@ data class MontageUiState(
     val reactionMontage: Boolean = false,
     /** Montage des réactions : écart minimal entre deux réactions (réglage du profil) ; décoché : aucun. */
     val reactionSpacing: Boolean = true,
-    /** Rythme rapide : un kill par temps de musique, sur chaque coup de basse. */
-    val fast: Boolean = false,
-    /** Rythme rapide sur les seules parties rapides et intenses de la musique (drop et après). */
-    val fastParts: Boolean = true,
     /** Kills à la capacité écartés (aucune balle au compteur de munitions), réglage du profil au départ. */
     val skipAbilityKills: Boolean = false,
     /** Le profil lit le compteur de munitions : sans lui, la case [skipAbilityKills] ne ferait rien et n'est pas montrée. */
