@@ -148,9 +148,11 @@ object MontageRenderBuilder {
             val own = RenderCommandBuilder.outputSize(request.format, media, edit)
             // HUD recollé en 9:16 (bandeau, killfeed, bloc du bas) : empilé sous l'image, recollé fixe après zoom et
             // flous, sous couleurs, textes et compteur (HudPin). Seulement quand le plan a déjà la taille du montage.
-            val targets = if (own == w to h) RenderCommandBuilder.hudTargets(request.format, media, edit) else emptyList()
             val cam = if (own == w to h) sourceRange(clip, bleeds[i], leads[i]).let { WebcamLayout.input(args, request.webcams, media, it.start, it.length, edit, camBox) } else null
-            graph += RenderCommandBuilder.videoChain(i, media, request.format, edit, "g$i", pinHud = targets.isNotEmpty() || cam != null, webcam = cam)
+            // Capture sans webcam : le jeu reprend toute l'image (WebcamLayout.forClip) ; HUD et zoom suivent ce cadre.
+            val clipEdit = WebcamLayout.forClip(edit, cam)
+            val targets = if (own == w to h) RenderCommandBuilder.hudTargets(request.format, media, clipEdit) else emptyList()
+            graph += RenderCommandBuilder.videoChain(i, media, request.format, clipEdit, "g$i", pinHud = targets.isNotEmpty() || cam != null, webcam = cam)
             val sized = if (own == w to h) {
                 "g$i"
             } else {
@@ -206,7 +208,7 @@ object MontageRenderBuilder {
                 // Recadrage recentré à chaque image (voir ZoomCrop : `iw` resterait celui de la première image).
                 // Vers le réticule réel : le centre de la capture, qui n'est plus au centre du cadre si le 9:16 est décalé.
                 // Ou la hauteur choisie par le profil (vertical.zoomFocus) : VALORANT vise sous le réticule, l'icône du kill reste dans l'image.
-                val (fx, fy) = RenderCommandBuilder.zoomFocus(request.format, media, edit)
+                val (fx, fy) = RenderCommandBuilder.zoomFocus(request.format, media, clipEdit)
                 motion += ZoomCrop.filters(w, h, z, settings.zoom.scaleFlags, focusX = fx, focusY = fy)
             }
             // Flou de mouvement après le zoom : le punch-in traîne lui aussi ; avant textes et flash, qui restent nets.
@@ -214,13 +216,13 @@ object MontageRenderBuilder {
             // Flou par vecteurs : une traînée dans le sens où le décor glisse, de la longueur parcourue.
             val track = request.motion.getOrNull(i)
             if (track != null && settings.motionBlur.usesVectors) {
-                val pixelsPerWidth = (media.video?.width ?: w) * RenderCommandBuilder.pixelScale(request.format, media, edit)
+                val pixelsPerWidth = (media.video?.width ?: w) * RenderCommandBuilder.pixelScale(request.format, media, clipEdit)
                 motion += VectorBlur.filters("vb$i", VectorBlur.sigmas(clip, track, lead, frames, fps, pixelsPerWidth, w, settings.motionBlur, outKills), fps)
             }
             val effects = mutableListOf<String>()
             // Webcam sortie de la trame avant zoom, flous, flash et couleurs ; reposée sur la vidéo finie (WebcamLayout).
             val (game, camLabel) = WebcamLayout.detach(graph, base, cam, camBox, targets.sumOf { it.h }, w, h, "wd$i")
-            camBox?.let { WebcamLayout.finish(graph, camLabel, it, pre, frames, fps, "wc$i") }
+            camBox?.let { WebcamLayout.finish(graph, camLabel, it, pre, frames, fps, "wc$i", request.format, edit) }
             val start = HudPin.statements(game, pre, motion, targets, w, h, "hp$i")?.let { (lines, out) ->
                 graph += lines
                 out

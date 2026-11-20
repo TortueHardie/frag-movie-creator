@@ -13,6 +13,7 @@ import dev.highlights.core.model.WebcamCorner
 import dev.highlights.core.model.WebcamFeed
 import dev.highlights.core.model.WebcamSettings
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.doubles.plusOrMinus
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -89,9 +90,9 @@ class WebcamLayoutTest : FunSpec({
         val face = on.copy(webcam = on.webcam.copy(crop = CropRegion(0.25, 0.0, 0.5, 1.0)))
         val piece = WebcamLayout.piece(input, RenderCommandBuilder.CropBox(0, 0, 1080, 576), OutputFormat.VERTICAL, face)
         piece shouldContain "[3:v:0]setpts=PTS-STARTPTS,fps=60"
-        // Zone 640x720 au rapport 1080:576 (1,875) → 640 x 340, centrée sur la zone.
-        piece shouldContain "crop=640:340:320:190"
-        piece shouldContain "scale=1080:576"
+        // Zone 640x720 au rapport 1080:572 (bandeau moins le liseré de 4 px) → 640 x 338, centrée sur la zone.
+        piece shouldContain "crop=640:338:320:191"
+        piece shouldContain "scale=1080:572"
         piece shouldContain "tpad=stop_mode=clone:stop=-1"
     }
 
@@ -109,7 +110,7 @@ class WebcamLayoutTest : FunSpec({
         chain shouldContain "[c0l0]eq=saturation=1.200"
         chain shouldContain "[c0gr][c0cam]overlay=x=38:y=784:shortest=1,format=yuv420p,settb=AVTB[v0]"
         // La webcam elle-même n'est pas étalonnée.
-        chain.substringAfter("[1:v:0]").substringBefore("[c0cam]") shouldNotContain "eq="
+        chain.substringAfter("[1:v:0]").substringBefore("[c0cam]") shouldNotContain "eq=saturation"
     }
 
     test("trame empilée : webcam sous l'image et le HUD, rendue à la largeur de l'image") {
@@ -146,14 +147,60 @@ class WebcamLayoutTest : FunSpec({
     test("webcam d'un plan à sa longueur en images ; plan sans webcam : image transparente") {
         val graph = mutableListOf<String>()
         val box = RenderCommandBuilder.CropBox(0, 0, 1080, 576)
-        WebcamLayout.finish(graph, "wd0c", box, listOf("tpad=start_mode=clone:start_duration=0.200"), 90, 60, "wc0")
-        WebcamLayout.finish(graph, null, box, emptyList(), 45, 60, "wc1")
+        WebcamLayout.finish(graph, "wd0c", box, listOf("tpad=start_mode=clone:start_duration=0.200"), 90, 60, "wc0", OutputFormat.VERTICAL, on)
+        WebcamLayout.finish(graph, null, box, emptyList(), 45, 60, "wc1", OutputFormat.VERTICAL, on)
         graph[0] shouldContain "[wd0c]tpad=start_mode=clone:start_duration=0.200,tpad=stop_mode=clone:stop=-1,setpts=PTS-STARTPTS,trim=end_frame=90"
         graph[1] shouldContain "color=c=black@0.0:s=1080x576:r=60"
         graph[1] shouldContain "trim=end_frame=45"
         WebcamLayout.overlay(graph, "vcat", listOf("wc0", "wc1"), box) shouldBe "wcam"
         graph.last() shouldBe "[vcat][wcat]overlay=x=0:y=0:shortest=1[wcam]"
         WebcamLayout.overlay(mutableListOf(), "vcat", emptyList(), box) shouldBe "vcat"
+    }
+
+    test("liseré et coins arrondis par défaut ; bandeau du 9:16 toujours droit") {
+        WebcamSettings().border shouldBe 4
+        val corner = RenderCommandBuilder.CropBox(38, 784, 460, 258)
+        WebcamLayout.radius(corner, OutputFormat.LANDSCAPE, on) shouldBe 31
+        WebcamLayout.radius(RenderCommandBuilder.CropBox(0, 0, 1080, 576), OutputFormat.VERTICAL, on) shouldBe 0
+        WebcamLayout.radius(corner, OutputFormat.LANDSCAPE, on.copy(webcam = on.webcam.copy(radius = 0.0))) shouldBe 0
+    }
+
+    test("coins arrondis : masques calculés une fois puis répétés, liseré qui suit l'arrondi") {
+        val graph = mutableListOf<String>()
+        val box = RenderCommandBuilder.CropBox(38, 784, 460, 258)
+        WebcamLayout.round(graph, "in", box, OutputFormat.LANDSCAPE, on, 60, "k") shouldBe "krd"
+        graph.count { it.contains("loop=loop=-1:size=1") } shouldBe 2
+        graph.filter { it.contains("geq=") }.forEach { it shouldContain "color=c=black:s=460x258:r=60:d=1,trim=end_frame=1" }
+        graph shouldContain "color=c=white:s=460x258:r=60,format=yuv420p[kpl]"
+        graph shouldContain "[in][kpl][kmi]maskedmerge[kmm]"
+        graph.last() shouldBe "[kmm][kmo]alphamerge[krd]"
+        // Sans liseré : seulement la transparence des coins.
+        val plain = mutableListOf<String>()
+        WebcamLayout.round(plain, "in", box, OutputFormat.LANDSCAPE, on.copy(webcam = on.webcam.copy(border = 0)), 60, "k")
+        plain.last() shouldBe "[in][kmo]alphamerge[krd]"
+        // Coins droits : rien.
+        WebcamLayout.round(mutableListOf(), "in", box, OutputFormat.VERTICAL, on, 60, "k") shouldBe "in"
+    }
+
+    test("coins arrondis du coin 16:9 : rendu simple et plan empilé") {
+        val input = WebcamLayout.Input(1, feed, Duration.ZERO)
+        val chain = RenderCommandBuilder.videoChain(0, media, OutputFormat.LANDSCAPE, on, "v0", webcam = input).joinToString(";")
+        chain shouldContain "alphamerge[c0krd]"
+        chain shouldContain "[c0krd]null[c0cam]"
+        val graph = mutableListOf<String>()
+        WebcamLayout.finish(graph, "wd0c", RenderCommandBuilder.CropBox(38, 784, 460, 258), emptyList(), 90, 60, "wc0", OutputFormat.LANDSCAPE, on)
+        graph.first() shouldContain "trim=end_frame=90,setpts=N/(60*TB),setsar=1,settb=1/60,setpts=N,format=yuv420p[wc0r]"
+        graph.last() shouldBe "[wc0rd]format=yuva420p,settb=AVTB[wc0]"
+        // Masques et aplat bornés à la longueur du plan (sans fin, la webcam perdait des images dans le montage).
+        graph.filter { it.contains("loop=") || it.startsWith("color=c=white") }.forEach { it shouldContain "trim=end_frame=90" }
+    }
+
+    test("plan d'une capture sans webcam : le jeu reprend toute l'image, pas de bandeau vide") {
+        val alone = WebcamLayout.forClip(on, null)
+        alone.webcam.enabled shouldBe false
+        RenderCommandBuilder.pixelScale(OutputFormat.VERTICAL, media, alone) shouldBe (1920.0 / 1080 plusOrMinus 1e-9)
+        WebcamLayout.forClip(on, WebcamLayout.Input(1, feed, Duration.ZERO)) shouldBe on
+        WebcamLayout.forClip(EditSettings(), null) shouldBe EditSettings()
     }
 
     test("9:16 avec bandeau : la zone sûre des textes commence sous la webcam ; 16:9 inchangé") {
