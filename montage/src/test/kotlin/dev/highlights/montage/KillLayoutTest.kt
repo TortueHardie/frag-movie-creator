@@ -51,8 +51,9 @@ class KillLayoutTest : FunSpec({
         p.clips.forEach { c ->
             val at = layout.entries.single { (r, _) -> (c.group.kills.last() - r.at).absoluteValue < 1.milliseconds }.value
             withClue("kill ${c.anchor}") {
-                s(music.beatTime(c.slot.startBeat) + c.toOutput(c.anchor)) shouldBe (s(at) plusOrMinus 1e-3)
-                s(c.outputLength) shouldBe (s(music.beatTime(c.slot.endBeat) - music.beatTime(c.slot.startBeat)) plusOrMinus 1e-6)
+                // Grille du plan (temps de coupe des plans courts compris).
+                s(p.music.beatTime(c.slot.startBeat) + c.toOutput(c.anchor)) shouldBe (s(at) plusOrMinus 1e-3)
+                s(c.outputLength) shouldBe (s(p.music.beatTime(c.slot.endBeat) - p.music.beatTime(c.slot.startBeat)) plusOrMinus 1e-6)
             }
         }
     }
@@ -68,11 +69,41 @@ class KillLayoutTest : FunSpec({
         p.clips.none { 780.seconds in it.group.kills || 900.seconds in it.group.kills } shouldBe true
     }
 
-    test("deux kills sur le même temps, ou à un temps l'un de l'autre : pas de refus, le plan se construit") {
-        val layout = mapOf(ref(60) to 30.0.seconds, ref(180) to 30.1.seconds, ref(300) to 30.5.seconds)
+    test("3 kills à un temps d'écart : chacun ouvre son plan d'un temps, coupe juste avant lui, à son instant exact") {
+        val layout = mapOf(ref(60) to 30.0.seconds, ref(180) to 30.5.seconds, ref(300) to 31.0.seconds)
         val p = plan(layout)
-        p.clips.size shouldBe 3
+        check(p, layout)
+        // Le plan du milieu dure un temps ; le dernier garde ses temps de fin.
+        p.clips[1].beats shouldBe 1
         p.clips.zipWithNext().all { (a, b) -> a.slot.endBeat == b.slot.startBeat } shouldBe true
+    }
+
+    test("2 kills à 100 ms d'écart (parties différentes) : plan court du second, coupe 50 ms avant lui ; tous deux à leur instant") {
+        val layout = mapOf(ref(60) to 30.02.seconds, ref(180) to 30.12.seconds)
+        val p = plan(layout)
+        check(p, layout)
+        val second = p.clips.last()
+        // Le plan court s'ouvre sur un temps de coupe ajouté, 50 ms avant le kill.
+        s(p.music.beatTime(second.slot.startBeat)) shouldBe (30.07 plusOrMinus 1e-6)
+        (second.slot.startBeat in p.music.virtualBeats) shouldBe true
+        // Coupe du plan court à 0,2 ms d'un vrai temps (30,5 s) : elle se pose sur lui, le kill reste à son instant.
+        val nearBeat = mapOf(ref(60) to 30.2.seconds, ref(180) to 30.5502.seconds)
+        check(plan(nearBeat), nearBeat)
+        // Jamais d'erreur, même posés au même instant.
+        val same = plan(mapOf(ref(60) to 30.0.seconds, ref(180) to 30.0.seconds))
+        same.clips.size shouldBe 2
+    }
+
+    test("2 kills proches de la même capture, écart réel ≈ écart voulu : un seul plan qui montre les deux") {
+        val g = MontagePlanner.groups(listOf(session), settings).single { 300.seconds in it.kills }
+        val first = g.copy(pin = MontagePin.At(30.0.seconds))
+        val second = g.copy(kills = listOf(300.12.seconds), pin = MontagePin.At(30.12.seconds))
+        val p = KillLayout.plan(listOf(first, second), music, settings)
+        p.clips.size shouldBe 1
+        val c = p.clips.single()
+        c.group.kills shouldBe listOf(300.seconds, 300.12.seconds)
+        s(p.music.beatTime(c.slot.startBeat) + c.toOutput(300.12.seconds)) shouldBe (30.12 plusOrMinus 1e-3)
+        s(p.music.beatTime(c.slot.startBeat) + c.toOutput(300.seconds)) shouldBe (30.0 plusOrMinus 0.01)
     }
 
     test("l'ordre du montage suit les instants posés, pas l'ordre des parties") {

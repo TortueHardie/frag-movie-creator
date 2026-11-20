@@ -1590,7 +1590,8 @@ object MontagePlanner {
         // Épinglé sur un instant du morceau : le kill y tombe exactement, même entre deux temps (le temps le plus proche
         // porte le plan, le décalage fait le reste). Sinon le décalage posé à la main, ou appris pour la musique.
         val pinShift = (group.pin as? MontagePin.At)?.takeIf { pinned != null && anchorBeat == pinned && !anchorHalf }?.let { it.music - onTime }
-        val beatShift = (pinShift ?: group.beatShift ?: music.killShift).coerceIn(slotStart - onTime, slotEnd - onTime - MIN_AFTER_SHIFT)
+        // Plan très court (kills posés à quelques images l'un de l'autre) : la marge d'après le kill peut manquer.
+        val beatShift = (pinShift ?: group.beatShift ?: music.killShift).coerceIn(slotStart - onTime, maxOf(slotStart - onTime, slotEnd - onTime - MIN_AFTER_SHIFT))
         val anchorTime = onTime + beatShift
         val preOut = anchorTime - slotStart
         val postOut = slotEnd - anchorTime

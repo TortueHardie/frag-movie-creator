@@ -158,6 +158,11 @@ data class MusicAnalysis(
     val dropByHand: Duration? = null,
     /** Drop corrigée par ce qui a été appris des drops posées ([LearnedDrop.dropFor]) ; null : pas corrigée. Jamais enregistré. */
     val dropLearned: Duration? = null,
+    /**
+     * Temps de coupe ajoutés à la grille pour des plans courts ([KillLayout.withCuts]) : ni vrais temps du morceau ni
+     * frappes ; ce qu'on apprend des temps les ignore. Jamais enregistré.
+     */
+    val virtualBeats: Set<Int> = emptySet(),
 ) {
     /** Force musicale d'un temps : son attaque, ou sa saillance si elle le distingue davantage. */
     fun strength(beat: Int): Double = maxOf(beatAccent.getOrElse(beat) { 0.0 }, salience.getOrElse(beat) { 0.0 })

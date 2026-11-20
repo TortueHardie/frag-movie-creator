@@ -352,6 +352,13 @@ class MontageCommand : PipelineCommand("montage") {
         .convert { runCatching { CaptureRange.parse(it, RangeKind.SKIP) }.getOrElse { e -> throw BadParameterValue(e.localizedMessage ?: it) } }.multiple()
     private val keep by option("--keep", help = "« Section à garder entière » : un plan qui en montre une partie la montre toute, « capture@1:02.5..1:04 » ; répétable")
         .convert { runCatching { CaptureRange.parse(it, RangeKind.KEEP) }.getOrElse { e -> throw BadParameterValue(e.localizedMessage ?: it) } }.multiple()
+    private val killAt by option(
+        "--kill-at",
+        help = "Montage sur la musique : pose un kill à un instant du morceau, « capture@instant=0:31.200 » ; répétable. Les kills posés sont TOUS ceux du montage, les plans se construisent autour (deux kills proches : un plan court, jamais d'erreur)",
+    ).convert { text ->
+        val (kill, value) = text.substringBeforeLast('=') to text.substringAfterLast('=', "")
+        killRef(kill) to (DropTime.parse(value) ?: Durations.parseOrNull(value) ?: throw BadParameterValue("instant invalide dans '$text' (attendu « capture@instant=0:31.200 »)"))
+    }.multiple()
     private val planOnly by option("--plan", help = "Affiche le plan sans rendre : la place de chaque kill et sa désignation pour --exclude, --force, --drop, --pin").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
     private val thumbnail by thumbnailFlag()
@@ -505,6 +512,7 @@ class MontageCommand : PipelineCommand("montage") {
         beatShifts = beatShift.toMap(),
         cuts = cut.groupBy({ it.first }, { it.second }).mapValues { (_, list) -> list.reduce { a, b -> a.with(b) } },
         ranges = skip + keep,
+        layout = killAt.toMap().takeIf { it.isNotEmpty() },
     )
 
     /** Style par défaut de `montage-styles.yaml` (lu dans la configuration : à part, pour que [montageOptions] reste pure). */

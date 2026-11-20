@@ -694,11 +694,15 @@ musique » s'ouvre (bouton **Montage sur la musique…** pour le rouvrir ; la fr
    chacun en vignette à l'instant où il tombe : au départ ceux que le placement automatique a choisis. On les **glisse**
    le long de la musique (aimant sur les notes et les temps à 70 ms, Alt : à l'instant exact ; on l'entend en lâchant),
    on en **ajoute** depuis la liste « Kills non utilisés », on en **retire** ; molette pour zoomer, Maj+molette pour
-   défiler. Aucun plan ici, donc aucun refus : deux kills sur un même temps, l'autre est poussé au temps libre le plus
-   proche, avec un avertissement. **Tout remettre en auto** revient à la proposition automatique.
+   défiler. Aucun plan ici, donc rien n'est bloqué ni poussé, même deux kills collés. **Tout remettre en auto**
+   revient à la proposition automatique.
 2. **Placer les plans →** : les instants posés deviennent la contrainte du montage (`MontageConstraints.layout`) et
    les plans se construisent autour (`KillLayout`) : une coupe sur le temps qui frappe entre deux kills, chaque kill
    exactement à son instant, contexte, ralentis et repères comme d'habitude, coupes dans l'attente pour les longs plans.
+   Deux kills à moins d'un temps l'un de l'autre : un plan court pour le second (la coupe 50 ms avant lui, même sous le
+   minimum habituel), ou un seul plan s'ils viennent de la même capture et que leur écart réel correspond à 150 ms près
+   à l'écart voulu. Jamais d'erreur. En ligne de commande : `--kill-at capture@kill=0:31.200` (répétable : la liste
+   complète des kills posés).
    L'étape montre les plans (bandes numérotées, début et fin) ; **← Revenir aux kills** rouvre l'étape 1 avec les kills
    posés (replacer les plans refait l'étape 2) ; **Aperçu du montage (360p)**, **Rendre le montage**.
 Les kills posés nourrissent l'apprentissage du placement sur la musique. Le réarrangement des plans à la main

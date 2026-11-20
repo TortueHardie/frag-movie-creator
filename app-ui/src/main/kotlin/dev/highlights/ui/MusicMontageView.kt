@@ -376,8 +376,9 @@ internal class MusicEditorController(
         if (e.step == EditorStep.KILLS && d.kind != EditorDragKind.DROP) {
             if (!d.over) return
             val key = d.key ?: return
-            val (layout, notice) = laid(e.layout.orEmpty().filter { it.key != key } + LaidKill(key, d.at), key, e)
-            update { it.copy(layout = layout, selected = key, notice = notice) }
+            // Jamais de blocage ni de poussée : deux kills proches donneront un plan court à l'étape 2 (choix du 20/11).
+            val layout = (e.layout.orEmpty().filter { it.key != key } + LaidKill(key, d.at)).sortedBy { it.at }
+            update { it.copy(layout = layout, selected = key, notice = null) }
             listenAround(d.at)
             return
         }
@@ -426,33 +427,6 @@ internal class MusicEditorController(
         return next
     }
 
-    /**
-     * Kills posés après avoir posé [moved] : un autre kill à moins de [MIN_GAP_BEATS] temps (trop proche pour tenir
-     * chacun un plan) est poussé au temps libre le plus proche ; l'avertissement le dit (pas d'erreur).
-     */
-    internal fun laid(layout: List<LaidKill>, moved: String, e: MusicEditorUi): Pair<List<LaidKill>, dev.highlights.core.i18n.Message?> {
-        val beats = e.beats
-        if (beats.isEmpty()) return layout.sortedBy { it.at } to null
-        fun beatOf(t: Duration) = beats.indices.minByOrNull { (beats[it] - t).absoluteValue } ?: 0
-        val fixed = layout.first { it.key == moved }
-        val target = beatOf(fixed.at)
-        var notice: dev.highlights.core.i18n.Message? = null
-        val result = mutableListOf(fixed)
-        for (k in layout.filter { it.key != moved }.sortedBy { (beatOf(it.at) - target).let(::abs) }) {
-            val b = beatOf(k.at)
-            val taken = result.map { beatOf(it.at) }
-            if (taken.none { abs(it - b) < MIN_GAP_BEATS }) {
-                result += k
-                continue
-            }
-            val free = (1..beats.size).asSequence().flatMap { s -> sequenceOf(b + s, b - s) }
-                .firstOrNull { c -> c in beats.indices && taken.all { abs(it - c) >= MIN_GAP_BEATS } } ?: b
-            result += k.copy(at = beats[free])
-            notice = dev.highlights.core.i18n.Message("ui.musicEditor.pushed", "kill" to k.key, "time" to DropTime.format(beats[free]))
-        }
-        return result.sortedBy { it.at } to notice
-    }
-
     /** Retire le kill [kill] (son groupe entier) du montage. */
     fun remove(kill: String) {
         val e = editor ?: return
@@ -493,8 +467,6 @@ internal class MusicEditorController(
         /** Un kill poussé va au moins à ce nombre de temps de celui qui prend sa place (son plan ne peut pas le partager). */
         const val PUSH_GAP = 2
 
-        /** Étape 1 : deux kills à moins de ce nombre de temps ne tiennent pas chacun un plan (approche + fin du kill). */
-        const val MIN_GAP_BEATS = 1
     }
 }
 

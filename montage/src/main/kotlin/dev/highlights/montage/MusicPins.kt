@@ -165,7 +165,8 @@ object PinLearner {
         val key = MusicFeelStore.keyOf(music.file) ?: music.file.name
         return plan.clips.mapNotNull { c ->
             val pin = c.group.pin as? MontagePin.At ?: return@mapNotNull null
-            val beat = MontageEdits.nearestBeat(music, pin.music)
+            // Le vrai temps le plus proche (pas un temps de coupe ajouté pour un plan court).
+            val beat = music.beats.indices.filter { it !in music.virtualBeats }.minByOrNull { (music.beats[it] - pin.music).absoluteValue } ?: 0
             val slotBeats = c.slot.startBeat until c.slot.endBeat
             PinExample(
                 now.toString(), profile, key, c.group.media.path.fileName.toString(), c.group.detectedOf(c.anchor).inWholeMilliseconds,

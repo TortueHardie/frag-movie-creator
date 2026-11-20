@@ -96,17 +96,16 @@ class MusicMontageTest : FunSpec({
         ed(state).notice shouldBe null
     }
 
-    test("étape 1 : lâché sur le temps d'un autre kill, l'autre est poussé au temps libre le plus proche, avec un avertissement") {
+    test("étape 1 : lâché sur l'instant d'un autre kill, rien n'est bloqué ni poussé (l'étape 2 en fera un plan court)") {
         val (c, state) = controller()
         val a = ed(state).layout!![0]
         val b = placed[3]
-        c.drag(EditorDragKind.KILL, b.key, a.at.inWholeMicroseconds / 1e6, free = true)
+        c.drag(EditorDragKind.KILL, b.key, (a.at + 100.milliseconds).inWholeMicroseconds / 1e6, free = true)
         c.drop()
         val layout = ed(state).layout!!
-        layout.single { it.key == b.key }.at shouldBe a.at
-        val pushed = layout.single { it.key == a.key }.at
-        (pushed != a.at) shouldBe true
-        ed(state).notice!!.key shouldBe "ui.musicEditor.pushed"
+        layout.single { it.key == b.key }.at shouldBe a.at + 100.milliseconds
+        layout.single { it.key == a.key }.at shouldBe a.at
+        ed(state).notice shouldBe null
     }
 
     test("étape 1 : ajouter un kill de la liste (lâché sur la musique), le retirer, tout remettre en auto") {
