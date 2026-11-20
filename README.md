@@ -258,7 +258,8 @@ main ». Ces retouches sont enregistrées dans la session (`origin`, `order` de 
 de seuil ou de durée : un moment détecté qui recouvre un moment retouché laisse la place à la retouche.
 **Lecteur intégré.** Les vidéos se lisent dans l'application : « Lire » d'une variante, « ▶ Lire » d'un export fini
 (sous le résultat et dans la file des traitements), « ▶ Revoir » d'un moment, et la frise d'une session (glisser le
-long de la courbe montre l'image de la capture à cet endroit, une ligne blanche marque la tête de lecture). Lecture/pause,
+long de la courbe montre l'image de la capture à cet endroit, relâcher lance la lecture à partir de là, une ligne
+blanche marque la tête de lecture). Lecture/pause,
 barre de position (image par image pendant le glissement), temps écoulé et total ; clavier : Espace (ou K) lecture/pause,
 ← / → (ou J / L) 5 s en arrière ou en avant, Échap ferme. « Lecteur du système » reste à côté, en secours.
 Aucune dépendance nouvelle : le FFmpeg livré décode les images réduites à 720p (RGBA brut) et le son (PCM 48 kHz vers

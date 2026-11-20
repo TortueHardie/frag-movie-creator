@@ -198,6 +198,27 @@ class VideoPlayerTest : FunSpec({
             }
         }
 
+        test("frise : relâcher le glissement lance la lecture à l'endroit relâché") {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val player = VideoPlayer(TestMedia.requireFfmpeg(), scope, sinks = { RealTimeSink() }, hwaccel = null)
+            try {
+                player.open(video, at = 1.seconds, play = false)
+                withTimeout(10.seconds) { player.frame.first { it != null } }
+                listOf(2.0, 3.0).forEach { player.scrub(it.seconds) }
+                withTimeout(10.seconds) { player.frame.first { it?.pts == 3.seconds } }
+                player.endScrub(play = true)
+                withTimeout(5.seconds) { player.view.first { it.playing } }
+                // Lecture repartie de 3 s, pas du début ni de la position d'avant le glissement.
+                val later = withTimeout(10.seconds) { player.view.first { it.position >= 3.5.seconds } }
+                later.position shouldBeLessThanDuration 5.seconds
+                player.frame.value!!.pts shouldBeLessThanDuration 5.seconds
+                (player.frame.value!!.pts >= 3.seconds) shouldBe true
+            } finally {
+                player.dispose()
+                scope.cancel()
+            }
+        }
+
         test("sans sortie son : l'horloge murale cadence la lecture jusqu'au bout") {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val player = VideoPlayer(TestMedia.requireFfmpeg(), scope, sinks = { null }, hwaccel = null)
