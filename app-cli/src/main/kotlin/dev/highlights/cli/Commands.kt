@@ -40,6 +40,9 @@ import dev.highlights.core.session.SessionStore
 import dev.highlights.export.ExportResult
 import dev.highlights.ffmpeg.FfmpegEncoderSelector
 import dev.highlights.montage.DropTime
+import dev.highlights.montage.RangeKind
+import dev.highlights.montage.CaptureRange
+import dev.highlights.montage.ClipCut
 import dev.highlights.montage.CutGrid
 import dev.highlights.montage.MontageChoiceRecord
 import dev.highlights.montage.KillRef
@@ -335,6 +338,20 @@ class MontageCommand : PipelineCommand("montage") {
         if (text.trim().equals("auto", ignoreCase = true)) DropAtChoice(null)
         else DropAtChoice(DropTime.parse(text) ?: throw BadParameterValue("instant invalide '$text' (attendu « 1:23.456 » ou « auto »)"))
     }
+    private val cut by option(
+        "--cut",
+        help = "« Couper ici » : début et/ou fin du plan d'un kill dans sa capture, « capture@instant=31:40.2..31:42.9 » (« =31:40.2.. » ou « =..31:42.9 » pour un seul bord) ; le plan garde sa longueur (ralenti ou accéléré ×2 au plus) ; répétable",
+    ).convert { text ->
+        val (kill, value) = text.substringBeforeLast('=') to text.substringAfterLast('=', "")
+        val parts = value.split("..")
+        fun at(s: String) = s.trim().takeIf { it.isNotEmpty() }?.let { Durations.parseOrNull(it) ?: throw BadParameterValue("instant invalide '$it' dans '$text'") }
+        if (parts.size != 2 || (parts[0].isBlank() && parts[1].isBlank())) throw BadParameterValue("coupe invalide '$text' (attendu « capture@instant=début..fin »)")
+        killRef(kill) to ClipCut(at(parts[0]), at(parts[1]))
+    }.multiple()
+    private val skip by option("--skip", help = "« Section sans kill » : passage jamais montré, « capture@1:02.5..1:10 » ; un kill détecté dedans est écarté ; répétable")
+        .convert { runCatching { CaptureRange.parse(it, RangeKind.SKIP) }.getOrElse { e -> throw BadParameterValue(e.localizedMessage ?: it) } }.multiple()
+    private val keep by option("--keep", help = "« Section à garder entière » : un plan qui en montre une partie la montre toute, « capture@1:02.5..1:04 » ; répétable")
+        .convert { runCatching { CaptureRange.parse(it, RangeKind.KEEP) }.getOrElse { e -> throw BadParameterValue(e.localizedMessage ?: it) } }.multiple()
     private val planOnly by option("--plan", help = "Affiche le plan sans rendre : la place de chaque kill et sa désignation pour --exclude, --force, --drop, --pin").flag()
     private val out by option("-o", "--out").path(canBeFile = false)
     private val thumbnail by thumbnailFlag()
@@ -486,6 +503,8 @@ class MontageCommand : PipelineCommand("montage") {
         pins = pin.toMap() + listOfNotNull(drop?.let { it to MontagePin.Drop }),
         anchors = anchor.toMap(),
         beatShifts = beatShift.toMap(),
+        cuts = cut.groupBy({ it.first }, { it.second }).mapValues { (_, list) -> list.reduce { a, b -> a.with(b) } },
+        ranges = skip + keep,
     )
 
     /** Style par défaut de `montage-styles.yaml` (lu dans la configuration : à part, pour que [montageOptions] reste pure). */

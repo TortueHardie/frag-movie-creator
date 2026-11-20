@@ -436,6 +436,9 @@ private fun Waveform(
 /** Un trait sur une forme d'onde ([TimeWaveform]) ; [at] null : pas de trait. */
 data class WaveMark(val at: Duration?, val color: Color, val width: Float)
 
+/** Une plage colorée sur une forme d'onde ([TimeWaveform]) : section marquée. */
+data class WaveZone(val range: ClosedRange<Duration>, val color: Color)
+
 /**
  * Forme d'onde de [from] sur [length], commune à l'outil de la drop et au calage d'un kill : crêtes symétriques,
  * repères fins ([ticks] : temps, images), traits ([marks], dessinés dans l'ordre), hors de [allowed] assombri.
@@ -451,6 +454,7 @@ fun TimeWaveform(
     onSeek: (Double) -> Unit,
     modifier: Modifier,
     allowed: ClosedRange<Duration>? = null,
+    zones: List<WaveZone> = emptyList(),
 ) {
     val lengthS = length.inWholeMicroseconds / 1e6
     val fromS = from.inWholeMicroseconds / 1e6
@@ -474,6 +478,11 @@ fun TimeWaveform(
                 val h = (p * (size.height - 4)).coerceAtLeast(1f)
                 drawRect(Palette.cyan.copy(alpha = 0.8f), Offset(i * w, mid - h / 2), Size(w.coerceAtLeast(1f), h))
             }
+        }
+        zones.forEach { z ->
+            val left = x(z.range.start).coerceIn(0f, size.width)
+            val right = x(z.range.endInclusive).coerceIn(0f, size.width)
+            if (right > left) drawRect(z.color, Offset(left, 0f), Size(right - left, size.height))
         }
         allowed?.let { r ->
             val shade = Palette.background.copy(alpha = 0.6f)

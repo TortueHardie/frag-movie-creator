@@ -397,7 +397,7 @@ fun MontagePlanContent(
             Box(Modifier.alpha(if (plan.loading) 0.55f else 1f).onGloballyPositioned { lane = it.boundsInRoot() }) {
                 Timeline(view, constraints, plan.thumbnails, dragged != null, target(), pins, actions, ::dragHandlers) { dropZone = it }
             }
-            plan.timing?.let { KillTimingPanel(it, actions) }
+            plan.timing?.let { KillTimingPanel(it, actions, constraints = constraints) }
             plan.drop?.let { MusicDropPanel(it, actions) }
             // Les épingles sur un temps, chacune retirable d'un clic (le plan est recalculé sans elle).
             if (pins.isNotEmpty()) {
@@ -419,6 +419,7 @@ fun MontagePlanContent(
                     }
                 }
             }
+            MarkerChips(constraints, actions)
             Text(tr("ui.montagePlan.left", "count" to view.left.size).uppercase(), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
             if (view.left.isEmpty()) {
                 Text(tr("ui.montagePlan.noneLeft"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
@@ -669,4 +670,34 @@ private fun LeftCard(group: PlanGroup, mark: GroupMark, thumbnail: Path?, action
             minLines = 2,
         )
     }
+}
+
+/** Repères posés (bornes de plans, sections), chacun retiré d'un clic (le plan est recalculé sans lui). */
+@Composable
+private fun MarkerChips(constraints: MontageConstraints, actions: UiActions) {
+    val cuts = constraints.cuts.entries.flatMap { (ref, c) -> listOfNotNull(c.start?.let { Triple(ref, true, it) }, c.end?.let { Triple(ref, false, it) }) }
+    if (cuts.isEmpty() && constraints.ranges.isEmpty()) return
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(tr("ui.montagePlan.markersHint"), style = MaterialTheme.typography.labelSmall, color = Palette.textMuted)
+        cuts.forEach { (ref, start, at) ->
+            Chip(tr(if (start) "ui.montagePlan.cutStartChip" else "ui.montagePlan.cutEndChip", "time" to KillRef.precise(at), "kill" to ref.toString()), Palette.accent) {
+                actions.clearKillCut(ref.toString(), start)
+            }
+        }
+        constraints.ranges.forEachIndexed { i, r ->
+            val skip = r.kind == dev.highlights.montage.RangeKind.SKIP
+            Chip(tr(if (skip) "ui.montagePlan.skipChip" else "ui.montagePlan.keepChip", "range" to r.toString()), if (skip) Palette.danger else Palette.cyan) {
+                actions.removeMontageRange(i)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Chip(text: String, color: Color, onClick: () -> Unit) {
+    Text(
+        text, style = MaterialTheme.typography.labelMedium, color = color, maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(12.dp)).border(BorderStroke(1.dp, color), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 4.dp),
+    )
 }

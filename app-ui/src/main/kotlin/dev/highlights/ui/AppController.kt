@@ -179,6 +179,18 @@ interface UiActions {
     fun setKillTimingText(text: String) {}
     fun playKillTiming(fromBefore: Boolean) {}
     fun markKillHere() {}
+    /**
+     * Repères du panneau de calage, au curseur : début ([start]) ou fin du plan du kill, début d'une section, fin d'une
+     * section sans kill ou à garder entière ([keep]). Sur la frise : retirer une borne de plan ([kill] : sa désignation)
+     * ou une section ([index] dans la liste). Chacun replanifie.
+     */
+    fun markKillCut(start: Boolean) {}
+    fun markSectionStart() {}
+    fun markSectionEnd(keep: Boolean) {}
+    fun clearKillCut(kill: String, start: Boolean) {}
+    fun removeMontageRange(index: Int) {}
+    /** Oublie les longueurs de plan apprises des coupes (`kill-cuts.json` mis de côté). */
+    fun resetLengths() {}
     val killTimingPlayer: dev.highlights.ui.player.VideoPlayer? get() = null
     /** Oublie les calages appris (`kill-timing.json` mis de côté, comme les goûts). */
     fun resetTiming() {}
@@ -1176,6 +1188,25 @@ class AppController(
     override fun setKillTimingText(text: String) = killTiming.text(text)
     override fun playKillTiming(fromBefore: Boolean) = killTiming.play(fromBefore)
     override fun markKillHere() = killTiming.markHere()
+    override fun markKillCut(start: Boolean) = killTiming.markCut(start)
+    override fun markSectionStart() = killTiming.markSectionStart()
+    override fun markSectionEnd(keep: Boolean) = killTiming.markSectionEnd(keep)
+    override fun clearKillCut(kill: String, start: Boolean) {
+        val ref = runCatching { dev.highlights.montage.KillRef.parse(kill) }.getOrNull() ?: return
+        updateMontage { it.copy(constraints = it.constraints.clearCut(ref, start)) }
+        replanIfOpen()
+    }
+    override fun removeMontageRange(index: Int) {
+        updateMontage { it.copy(constraints = it.constraints.removeRange(index)) }
+        replanIfOpen()
+    }
+    override fun resetLengths() {
+        val p = backend?.pipeline ?: return
+        scope.launch {
+            val aside = withContext(Dispatchers.IO) { p.cutHistory.reset() }
+            loadTaste(resetDone = aside?.fileName?.toString())
+        }
+    }
     override val killTimingPlayer get() = killTiming.player
     override fun openKillTiming(kill: String) = killTiming.open(kill)
     override fun stepKillFrame(delta: Int) = killTiming.step(delta)

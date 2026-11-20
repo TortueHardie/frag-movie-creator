@@ -25,6 +25,7 @@ class TasteCommand : PipelineCommand("gouts") {
     private val resetTiming by option("--reset-timing", help = "Oublier les calages appris (kill-timing.json mis de côté, pas effacé)").flag()
     private val resetDrops by option("--reset-drops", help = "Oublier les drops posées à la main (music-drops.json mis de côté, pas effacé)").flag()
     private val resetDropLearning by option("--reset-drop-learning", help = "Oublier ce qui a été appris des drops posées (drop-learning.json mis de côté ; les drops posées restent)").flag()
+    private val resetCuts by option("--reset-cuts", help = "Oublier les longueurs de plan apprises des coupes (kill-cuts.json mis de côté, pas effacé)").flag()
     private val history by option("--history", help = "Lire cet historique au lieu de <sortie>\\sessions\\taste-history.json").path(mustExist = true, canBeDir = false)
 
     override fun help(context: Context) =
@@ -34,6 +35,11 @@ class TasteCommand : PipelineCommand("gouts") {
     override fun run() {
         val pipeline = Pipelines.create(env.config)
         val file: Path = history ?: pipeline.tasteHistory.file
+        if (resetCuts) {
+            val aside = pipeline.cutHistory.reset()
+            echo(if (aside == null) "Rien à oublier : ${pipeline.cutHistory.file} n'existe pas." else "Longueurs apprises oubliées. Fichier mis de côté : $aside.")
+            if (!reset && !resetTiming && !resetDrops && !resetDropLearning) return
+        }
         if (resetDropLearning) {
             val aside = pipeline.dropExamples.reset()
             echo(if (aside == null) "Rien à oublier : ${pipeline.dropExamples.file} n'existe pas." else "Apprentissage des drops oublié. Fichier mis de côté : $aside.")
@@ -104,6 +110,15 @@ class TasteCommand : PipelineCommand("gouts") {
             echo("  morceau   %-40s %+5d ms  %2d calage(s), écart %3d ms  %s".format(o.key.substringBefore('|'), o.offset.inWholeMilliseconds, o.count, o.spread.inWholeMilliseconds, if (o.active) "appliqué" else "pas encore"))
         }
         if (!timing.isEmpty) echo("  pour les oublier : app gouts --reset-timing")
+        val lengths = state.lengths
+        if (!lengths.isEmpty) {
+            echo("  longueurs de plan apprises des coupes (à partir de ${dev.highlights.montage.ClipLengthLearner.MIN_CUTS} coupes concordantes) :")
+            (lengths.before.keys + lengths.after.keys).forEach { p ->
+                fun t(l: dev.highlights.montage.LearnedLength?) = l?.let { "%.2f s (%d coupe(s), écart %d ms, %s)".format(it.length.inWholeMilliseconds / 1000.0, it.count, it.spread.inWholeMilliseconds, if (it.active) "appliqué" else "pas encore") } ?: "-"
+                echo("    $p : avant le kill ${t(lengths.before[p])} ; après ${t(lengths.after[p])}")
+            }
+            echo("  pour les oublier : app gouts --reset-cuts")
+        }
         echo("")
         echo("Drops posées à la main (${state.drops.size}) :")
         if (state.drops.isEmpty()) echo("  aucune (outil de la drop dans la frise, ou montage --drop-at 1:23.456)")

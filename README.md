@@ -658,6 +658,23 @@ d'un clic ou d'un glisser, par image (← →) ou par 10 ms (Maj+← →), ou en
 le panneau (lecteur intégré) ; **Marquer ici** (M) pose le curseur sur l'image montrée ; **Kill ici** (Entrée) pose le
 calage (même contrainte `anchors` que le choix d'une image, donc même apprentissage par source) et recalcule le plan.
 
+**Repères.** Le même curseur pose d'autres repères sur la capture (« Repères : » sous la forme d'onde), chacun
+contrainte du plan, recalculé aussitôt, visible sous la frise (« Repères (clic : retirer) ») :
+- **Le plan commence ici** / **Le plan finit ici** (« Couper ici ») : bornes du plan du kill dans la capture. Le plan garde
+  sa longueur : la partie d'avant ou d'après le kill est ralentie ou accélérée pour remplir sa place, ×2 au plus ; une zone
+  trop courte est refusée avec un message qui dit combien il faut (jamais de coupe silencieuse). Pas de coupe dans
+  l'attente ni de passage vitrine autour d'un plan qui a des repères.
+- **Début de section ici**, puis **Fin ici : section sans kill** : passage jamais montré (un temps mort, un menu) ; un kill
+  détecté dedans est écarté, et un plan qui le recouvrirait commence après ou finit avant.
+- **Fin ici : section à garder entière** : un plan qui en montrerait une partie la montre toute (sa borne va au bord de
+  la section, partie accélérée ×2 au plus).
+
+En ligne de commande : `--cut capture@instant=31:40.2..31:42.9` (« =31:40.2.. » ou « =..31:42.9 » pour un seul bord),
+`--skip capture@1:02.5..1:10`, `--keep capture@1:02.5..1:04` (répétables). Les coupes posées s'enregistrent
+(`<sortie>\sessions\kill-cuts.json`) : à partir de 8 coupes concordantes d'un profil (écart médian ≤ 0,3 s), la longueur
+préférée avant et après le kill oriente la place du kill dans ses plans (`app gouts` la montre, `app gouts --reset-cuts` et
+le bouton « Oublier les longueurs apprises » l'oublient).
+
   ```powershell
   & $app montage partie.session.json --music son.mp3 --anchor partie.mp4@31:41.392=31:41.309 --beat-shift partie.mp4@31:41.392=+17ms
   ```

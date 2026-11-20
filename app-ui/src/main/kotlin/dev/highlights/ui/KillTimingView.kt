@@ -107,11 +107,16 @@ data class KillTimingUi(
     /** Lecture en cours dans le lecteur du panneau (image et son), et l'instant de l'image montrée. */
     val playing: Boolean = false,
     val playhead: Duration? = null,
+    /** Début d'une section posé au curseur (« Début de section ici »), en attente de sa fin ; null : aucune. */
+    val sectionStart: Duration? = null,
 ) {
     val detected: Duration get() = ref.at
 
     /** Instant choisi : le curseur, sinon l'image choisie ; null tant que rien n'est lu. */
     val chosen: Duration? get() = cursor ?: frames.getOrNull(selected)?.at
+
+    /** « Kill ici » possible au curseur : à [allowed] de la détection (les autres repères vont n'importe où). */
+    val killHereAllowed: Boolean get() = chosen?.let { it in allowed } == true
 
     /** Le calage permis autour de la détection ([dev.highlights.montage.MontageEdits.MAX_ANCHOR] de chaque côté). */
     val allowed: ClosedRange<Duration>
@@ -215,7 +220,7 @@ internal class KillTimingController(
 
     /** Curseur à [t], borné au calage permis ; l'image la plus proche devient l'image montrée. */
     private fun moveTo(t: Duration) = update { k ->
-        val at = t.coerceIn(k.allowed.start, k.allowed.endInclusive)
+        val at = t.coerceIn(k.media.bounds.start, k.media.duration)
         k.copy(cursor = at, text = KillRef.precise(at), textError = false, selected = if (k.frames.isEmpty()) k.selected else k.nearest(at))
     }
 
@@ -243,7 +248,7 @@ internal class KillTimingController(
     fun text(value: String) {
         val parsed = DropTime.parse(value) ?: runCatching { KillRef.parse("x@$value").at }.getOrNull()
         update { it.copy(text = value, textError = parsed == null) }
-        if (parsed != null) update { k -> k.copy(cursor = parsed.coerceIn(k.allowed.start, k.allowed.endInclusive), selected = if (k.frames.isEmpty()) k.selected else k.nearest(parsed)) }
+        if (parsed != null) update { k -> k.copy(cursor = parsed.coerceIn(k.media.bounds.start, k.media.duration), selected = if (k.frames.isEmpty()) k.selected else k.nearest(parsed)) }
     }
 
     /**
@@ -296,9 +301,37 @@ internal class KillTimingController(
         t.copy(beatShift = next.coerceIn(-max, max))
     }
 
+    /**
+     * « Le plan commence ici » ([start]) ou « finit ici » au curseur ([dev.highlights.montage.MontageConstraints.cut]),
+     * puis le plan recalculé ; le panneau reste ouvert pour poser d'autres repères.
+     */
+    fun markCut(start: Boolean) {
+        val t = timing ?: return
+        val at = t.chosen ?: return
+        updateMontage { m -> m.copy(constraints = if (start) m.constraints.cut(t.ref, start = at) else m.constraints.cut(t.ref, end = at)) }
+        replan()
+    }
+
+    /** « Début de section ici » : la fin se pose ensuite, avec la sorte de la section. */
+    fun markSectionStart() = update { it.copy(sectionStart = it.chosen ?: it.current) }
+
+    /** Fin de la section au curseur : sans kill ([keep] faux) ou à garder entière, dans la capture du kill ; plan recalculé. */
+    fun markSectionEnd(keep: Boolean) {
+        val t = timing ?: return
+        val from = t.sectionStart ?: return
+        val to = t.chosen ?: return
+        if (from == to) return
+        val range = dev.highlights.core.model.TimeRange(minOf(from, to), maxOf(from, to))
+        val kind = if (keep) dev.highlights.montage.RangeKind.KEEP else dev.highlights.montage.RangeKind.SKIP
+        updateMontage { m -> m.copy(constraints = m.constraints.addRange(dev.highlights.montage.CaptureRange(t.ref.capture, range, kind))) }
+        update { it.copy(sectionStart = null) }
+        replan()
+    }
+
     /** Pose le calage choisi et replanifie (comme une épingle posée à la souris). */
     fun apply() {
         val t = timing ?: return
+        if (!t.killHereAllowed) return
         val chosen = t.chosen ?: return
         updateMontage { m -> m.copy(constraints = m.constraints.anchor(t.ref, chosen).shiftBeat(t.ref, t.beatShift)) }
         close()
@@ -337,7 +370,7 @@ internal class KillTimingController(
  * (20/11), le kill se juge à l'ennemi et à l'éclair du tir autant qu'au centre.
  */
 @Composable
-fun KillTimingPanel(t: KillTimingUi, actions: UiActions, modifier: Modifier = Modifier) {
+fun KillTimingPanel(t: KillTimingUi, actions: UiActions, modifier: Modifier = Modifier, constraints: dev.highlights.montage.MontageConstraints = dev.highlights.montage.MontageConstraints.NONE) {
     // Le clavier va au panneau, qui prend le focus à l'ouverture : sans élément focalisé, la fenêtre ne voyait pas les
     // flèches (vérifié en pilotant l'application). Comme l'outil de la drop : ← → une image (Maj : 10 ms), Espace
     // écouter, R rejouer depuis 1 s avant, M marquer l'instant vu et entendu, Entrée « Kill ici », Échap fermer.
@@ -365,7 +398,7 @@ fun KillTimingPanel(t: KillTimingUi, actions: UiActions, modifier: Modifier = Mo
                 }
                 TextButton(onClick = actions::excludeTimedKill) { Text(tr("ui.killTiming.exclude"), color = Palette.danger) }
                 TextButton(onClick = actions::clearKillTiming) { Text(tr("ui.killTiming.clear")) }
-                Button(onClick = actions::applyKillTiming, enabled = t.chosen != null) { Text(tr("ui.killTiming.apply")) }
+                Button(onClick = actions::applyKillTiming, enabled = t.killHereAllowed) { Text(tr("ui.killTiming.apply")) }
                 OutlinedButton(onClick = actions::closeKillTiming) { Text(tr("ui.common.close")) }
             }
             t.error?.let { Text(tr("ui.killTiming.failed", "reason" to it), color = Palette.danger, style = MaterialTheme.typography.bodySmall) }
@@ -422,7 +455,8 @@ fun KillTimingPanel(t: KillTimingUi, actions: UiActions, modifier: Modifier = Mo
                     }
                 }
             }
-            KillListening(t, actions)
+            KillListening(t, actions, constraints)
+            KillMarkers(t, actions)
             // Toutes les images, celle de la détection soulignée, la choisie encadrée.
             val scroll = rememberScrollState()
             val step = with(LocalDensity.current) { 76.dp.toPx() }
@@ -462,15 +496,20 @@ private fun FilmFrame(frame: KillFrame, selected: Boolean, detected: Boolean, on
  * détection en gris, hors du calage permis assombri), le curseur, sa saisie et ses pas, l'écoute image et son.
  */
 @Composable
-private fun KillListening(t: KillTimingUi, actions: UiActions) {
+private fun KillListening(t: KillTimingUi, actions: UiActions, constraints: dev.highlights.montage.MontageConstraints) {
     if (t.wave.isNotEmpty()) {
+        // Repères déjà posés sur cette capture : sections (rouge : sans kill, vert : à garder), bornes du plan (accent).
+        val ranges = constraints.ranges.filter { it.capture.equals(t.ref.capture, ignoreCase = true) }
+        val cut = constraints.cuts.entries.firstOrNull { it.key.toString() == t.ref.toString() }?.value
         TimeWaveform(
             peaks = t.wave, from = t.waveStart, length = t.waveLength, ticks = t.frames.map { it.at },
             marks = listOf(
-                WaveMark(t.detected, Palette.textMuted, 2f), WaveMark(t.playhead?.takeIf { t.playing }, Palette.cyan, 2f),
-                WaveMark(t.chosen, Color.White, 2f),
+                WaveMark(t.detected, Palette.textMuted, 2f), WaveMark(cut?.start, Palette.accent, 3f), WaveMark(cut?.end, Palette.accent, 3f),
+                WaveMark(t.sectionStart, Palette.cyan.copy(alpha = 0.7f), 2f),
+                WaveMark(t.playhead?.takeIf { t.playing }, Palette.cyan, 2f), WaveMark(t.chosen, Color.White, 2f),
             ),
             onSeek = actions::seekKillTiming, modifier = Modifier.fillMaxWidth().height(110.dp), allowed = t.allowed,
+            zones = ranges.map { r -> WaveZone(r.range.start..r.range.end, if (r.kind == dev.highlights.montage.RangeKind.SKIP) Palette.danger.copy(alpha = 0.3f) else Color(0x5543A047)) },
         )
     } else {
         Text(tr("ui.killTiming.noAudio"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
@@ -492,6 +531,30 @@ private fun KillListening(t: KillTimingUi, actions: UiActions) {
     }
 }
 
+/**
+ * Repères posés au curseur, en plus de « Kill ici » : bornes du plan (« Couper ici ») et sections de la capture (sans
+ * kill, à garder entière). Chacun devient une contrainte du plan, visible et effaçable sur la frise.
+ */
+@Composable
+private fun KillMarkers(t: KillTimingUi, actions: UiActions) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(tr("ui.killTiming.markers"), style = MaterialTheme.typography.labelMedium, color = Palette.textMuted)
+        OutlinedButton(onClick = { actions.markKillCut(true) }) { Text(tr("ui.killTiming.cutStart")) }
+        OutlinedButton(onClick = { actions.markKillCut(false) }) { Text(tr("ui.killTiming.cutEnd")) }
+        Spacer(Modifier.width(8.dp))
+        if (t.sectionStart == null) {
+            OutlinedButton(onClick = actions::markSectionStart) { Text(tr("ui.killTiming.sectionStart")) }
+        } else {
+            Text(tr("ui.killTiming.sectionPending", "time" to KillRef.precise(t.sectionStart)), style = MaterialTheme.typography.bodySmall, color = Palette.cyan)
+            OutlinedButton(onClick = { actions.markSectionEnd(false) }) { Text(tr("ui.killTiming.sectionSkip")) }
+            OutlinedButton(onClick = { actions.markSectionEnd(true) }) { Text(tr("ui.killTiming.sectionKeep")) }
+        }
+    }
+    if (t.chosen != null && !t.killHereAllowed) {
+        Text(tr("ui.killTiming.killFar"), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+    }
+}
+
 /** Calages appris, dans la vue des goûts : décalage par source de détection et par morceau, et de quoi les oublier. */
 @Composable
 fun TimingTasteCard(state: TasteState, actions: UiActions) {
@@ -507,6 +570,23 @@ fun TimingTasteCard(state: TasteState, actions: UiActions) {
             timing.sources.forEach { o -> OffsetRow(tr("ui.taste.timing.source", "profile" to o.key.substringBefore('|'), "source" to o.key.substringAfter('|')), o) }
             timing.songs.forEach { o -> OffsetRow(tr("ui.taste.timing.song", "song" to o.key.substringBefore('|')), o) }
             if (!timing.isEmpty) OutlinedButton(onClick = actions::resetTiming) { Text(tr("ui.taste.timing.reset")) }
+            // Longueurs de plan apprises des coupes posées à la main, par profil.
+            val lengths = state.lengths
+            (lengths.before.keys + lengths.after.keys).forEach { p ->
+                val b = lengths.before[p]
+                val a = lengths.after[p]
+                val active = b?.active == true || a?.active == true
+                fun sec(l: dev.highlights.montage.LearnedLength?) = l?.let { dev.highlights.core.i18n.I18n.fixed(it.length.inWholeMilliseconds / 1000.0, 2) } ?: "-"
+                Text(
+                    tr(
+                        if (active) "ui.taste.timing.lengthsActive" else "ui.taste.timing.lengthsPending",
+                        "profile" to p, "before" to sec(b), "after" to sec(a), "count" to maxOf(b?.count ?: 0, a?.count ?: 0),
+                        "min" to dev.highlights.montage.ClipLengthLearner.MIN_CUTS,
+                    ),
+                    style = MaterialTheme.typography.bodySmall, color = if (active) Palette.accent else Palette.textMuted,
+                )
+            }
+            if (!lengths.isEmpty) OutlinedButton(onClick = actions::resetLengths) { Text(tr("ui.taste.timing.resetLengths")) }
         }
     }
 }

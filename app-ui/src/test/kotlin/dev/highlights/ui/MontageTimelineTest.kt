@@ -10,6 +10,7 @@ import dev.highlights.montage.MontagePin
 import dev.highlights.montage.SectionKind
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import org.jetbrains.skia.EncodedImageFormat
 import java.nio.file.Path
 import kotlin.io.path.Path
@@ -211,14 +212,18 @@ class MontageTimelineTest : FunSpec({
             ),
             left = emptyList(),
         )
+        // Repères posés : bornes du plan de ce kill, une section sans kill et une à garder entière.
+        val markers = MontageConstraints.NONE.anchor(ref, frames[8].at).cut(ref, detected - 1.2.seconds, detected + 0.8.seconds)
+            .addRange(dev.highlights.montage.CaptureRange(ref.capture, dev.highlights.core.model.TimeRange(detected - 1.9.seconds, detected - 1.4.seconds), dev.highlights.montage.RangeKind.SKIP))
+            .addRange(dev.highlights.montage.CaptureRange(ref.capture, dev.highlights.core.model.TimeRange(detected + 1.seconds, detected + 1.6.seconds), dev.highlights.montage.RangeKind.KEEP))
         timing.nearest(detected) shouldBe 5
         timing.chosen shouldBe frames[8].at
         KillTimingUi.signedMs((-17).milliseconds) shouldBe "−17"
         for ((tag, folder) in listOf("fr" to "", "en" to "en/", I18n.PSEUDO_TAG to "long/", "ja" to "ja/")) {
             I18n.withLanguage(tag) {
-                val image = SceneRendering.image(1320, 960) {
+                val image = SceneRendering.image(1320, 1060) {
                     HighlightsTheme {
-                        MontagePlanContent(MontageConstraints.NONE.anchor(ref, frames[8].at), MontagePlanState(loading = false, view = view, timing = timing), noop)
+                        MontagePlanContent(markers, MontagePlanState(loading = false, view = view, timing = timing.copy(sectionStart = detected + 900.milliseconds)), noop)
                     }
                 }
                 val file: Path = out.resolve("${folder}montage_kill_timing.png")
@@ -306,12 +311,45 @@ class MontageTimelineTest : FunSpec({
         t().textError shouldBe false
         c.text("20:1x")
         t().textError shouldBe true
-        // Au-delà de ±1 s de la détection : borné (le planificateur refuserait le calage).
+        // Au-delà de ±1 s de la détection : le curseur y va (pour les autres repères), « Kill ici » n'y est pas possible.
         c.seek(1215.0)
-        t().chosen shouldBe detected + dev.highlights.montage.MontageEdits.MAX_ANCHOR
+        t().chosen shouldBe 1215.seconds
+        t().killHereAllowed shouldBe false
+        c.apply()
+        state.value.montage!!.plan!!.timing shouldNotBe null
         c.play(true)
         t().playing shouldBe false
         c.close()
         state.value.montage!!.plan!!.timing shouldBe null
+    }
+    test("repères : couper ici et sections posés au curseur deviennent des contraintes, la frise les retire") {
+        val detected = 1210.seconds
+        val ref = KillRef.of(media, detected)
+        val state = kotlinx.coroutines.flow.MutableStateFlow(
+            UiState(montage = MontageUiState(plan = MontagePlanState(loading = false, timing = KillTimingUi(ref, media, current = detected, loading = false, cursor = detected)))),
+        )
+        var replans = 0
+        val c = KillTimingController(
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), state, { null },
+            { change -> state.value = state.value.copy(montage = state.value.montage?.let(change)) }, { replans++ },
+        )
+        fun constraints() = state.value.montage!!.constraints
+        c.seek(1208.5)
+        c.markCut(start = true)
+        c.seek(1211.4)
+        c.markCut(start = false)
+        constraints().cuts[ref] shouldBe dev.highlights.montage.ClipCut(1208.5.seconds, 1211.4.seconds)
+        c.seek(1205.0)
+        c.markSectionStart()
+        state.value.montage!!.plan!!.timing!!.sectionStart shouldBe 1205.seconds
+        c.seek(1203.0)
+        c.markSectionEnd(keep = false)
+        constraints().ranges.single() shouldBe dev.highlights.montage.CaptureRange(ref.capture, dev.highlights.core.model.TimeRange(1203.seconds, 1205.seconds), dev.highlights.montage.RangeKind.SKIP)
+        state.value.montage!!.plan!!.timing!!.sectionStart shouldBe null
+        replans shouldBe 3
+        // Le panneau reste ouvert pour d'autres repères.
+        state.value.montage!!.plan!!.timing shouldNotBe null
+        constraints().clearCut(ref, start = true).cuts[ref] shouldBe dev.highlights.montage.ClipCut(null, 1211.4.seconds)
+        constraints().removeRange(0).ranges shouldBe emptyList()
     }
 })
