@@ -1088,6 +1088,7 @@ class AppController(
         onlyKills = montage.pick,
         oneTaps = montage.oneTaps,
         reactionMontage = montage.reactionMontage,
+        reactionSpacing = if (montage.reactionSpacing) null else false,
         fast = montage.fast,
         fastParts = montage.fastParts,
         skipAbilityKills = montage.skipAbilityKills,

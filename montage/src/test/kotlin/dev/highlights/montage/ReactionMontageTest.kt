@@ -105,6 +105,10 @@ class ReactionMontageTest : FunSpec({
     test("espacement : de deux réactions proches, la plus forte seule") {
         val r = { s: Int, rise: Double -> Reaction(TimeRange(s.seconds, (s + 1).seconds), s.seconds, rise, ReactionKind.VOICE, strength = rise) }
         ReactionFinder.spaced(listOf(r(100, 11.0), r(105, 15.0), r(120, 12.0)), 8.seconds).map { it.range.start.inWholeSeconds } shouldContainExactly listOf(105L, 120L)
+        // Écart minimal coupé (0s) : toutes gardées.
+        ReactionFinder.spaced(listOf(r(100, 11.0), r(105, 15.0), r(120, 12.0)), Duration.ZERO).map { it.range.start.inWholeSeconds } shouldContainExactly listOf(100L, 105L, 120L)
+        ReactionFinder.find(levels(talk, listOf(100.0..101.0, 105.0..106.0)), timeline(), settings.copy(spacing = Duration.ZERO), emptySet()) shouldHaveSize 2
+        ReactionFinder.find(levels(talk, listOf(100.0..101.0, 105.0..106.0)), timeline(), settings, emptySet()) shouldHaveSize 1
         ReactionFinder.merge(listOf(r(100, 11.0), r(101, 15.0)), 1500.milliseconds).single().let {
             it.range shouldBe TimeRange(100.seconds, 102.seconds)
             it.rise shouldBe 15.0
@@ -142,6 +146,8 @@ class ReactionMontageTest : FunSpec({
         r.speedRamp.enabled shouldBe false
         r.fastParts.enabled shouldBe false
         r.fails.enabled shouldBe false
+        // Image figée jamais, même si le profil a le montage des morts actif.
+        MontageSettings(fails = MontageSettings().fails.copy(enabled = true)).forReactions().fails.enabled shouldBe false
         r.matchCut.enabled shouldBe false
         r.killStyle.deathEvent shouldBe ""
         r.audio.musicUnderVoice shouldBe base.reactionMontage.musicUnderVoice
@@ -157,6 +163,8 @@ class ReactionMontageTest : FunSpec({
         )
         val group = KillGroup(media, listOf(100.seconds), 1.0, listOf(TimeRange(100.seconds, 101.seconds)), listOf(TimeRange(100.seconds, 101.seconds)))
         val plan = MontagePlanner.plan(listOf(group), music, s)
+        // L'image continue pendant la réaction : ni gel, ni ralenti.
+        plan.clips.flatMap { it.speeds }.none { it.kind == SpeedKind.FREEZE || it.kind == SpeedKind.SLOW } shouldBe true
         val caption = Caption(TimeRange(100.seconds, 101.seconds), "il est dead")
         val request = MontageRenderRequest(plan, OutputFormat.VERTICAL, EditSettings(), EncoderProfile("libx264", listOf("-c:v", "libx264"), false), Path("out.mp4"), Path("f.txt"), captions = listOf(listOf(caption)))
         val graph = MontageRenderBuilder.build(request).filterGraph

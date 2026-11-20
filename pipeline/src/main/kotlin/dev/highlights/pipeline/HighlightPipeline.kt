@@ -232,6 +232,8 @@ data class MontageOptions(
      * micro devant, sous-titres. Demande une piste micro séparée. null ou false : montage kills.
      */
     val reactionMontage: Boolean? = null,
+    /** Montage des réactions : false = aucun écart minimal entre deux réactions ([ReactionMontage.spacing] à 0) ; null : réglage du profil. */
+    val reactionSpacing: Boolean? = null,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
     /** Cartes d'ouverture et de fin (`--intro` / `--no-intro`) ; null : réglage `intro.enabled`. */
@@ -1283,6 +1285,7 @@ class HighlightPipeline(
             showcase = base.showcase.copy(enabled = options.showcase ?: base.showcase.enabled),
             fastParts = base.fastParts.copy(enabled = options.fastParts ?: base.fastParts.enabled),
             reactions = options.reactions ?: base.reactions,
+            reactionMontage = if (options.reactionSpacing == false) base.reactionMontage.copy(spacing = Duration.ZERO) else base.reactionMontage,
             skipAbilityKills = options.skipAbilityKills ?: base.skipAbilityKills,
             audio = base.audio.copy(
                 balance = options.audioBalance ?: base.audio.balance,
@@ -1309,7 +1312,7 @@ class HighlightPipeline(
         feels.forEach { (file, r) -> if (r.source != FeelSource.DEFAULT) log.info { "Ressenti de ${file.fileName} : ${r.feel} (${r.source}${r.probability?.let { p -> ", %.2f".format(p) } ?: ""})" } }
         fun feelOf(file: Path) = feels[file]?.feel ?: MusicFeel.AUTO
         // Montage des réactions : les réactions au micro deviennent les ancres des plans, classées par leur force.
-        val reactions = if (settings.reactionMontage.enabled) findReactions(sessions, base, profile, progress.child(tr("progress.reactions"), 0.04)) else emptyList()
+        val reactions = if (settings.reactionMontage.enabled) findReactions(sessions, base.copy(reactionMontage = settings.reactionMontage), profile, progress.child(tr("progress.reactions"), 0.04)) else emptyList()
         val anchored = if (settings.reactionMontage.enabled) reactions.map { it.session } else sessions
         val picked = MontagePlanner.groups(anchored, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: withoutAbilityKills(all, sessions, settings, options) }
             .let { if (settings.reactionMontage.enabled) Reactions.rescore(it, reactions) else it }
