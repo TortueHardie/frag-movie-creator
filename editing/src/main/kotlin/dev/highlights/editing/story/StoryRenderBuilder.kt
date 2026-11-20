@@ -122,9 +122,11 @@ object StoryRenderBuilder {
             val shot = screen[i]
             val fits = RenderCommandBuilder.outputSize(request.format, shot.media, edit) == w to h
             // HUD recollé en 9:16 : empilé sous l'image, recollé fixe après le punch-in et la secousse (HudPin).
-            val targets = if (fits) RenderCommandBuilder.hudTargets(request.format, shot.media, edit) else emptyList()
             val cam = if (fits) WebcamLayout.input(args, request.webcams, source.media, source.range.start, source.length, edit, camBox) else null
-            graph += RenderCommandBuilder.videoChain(i, shot.media, request.format, edit, "g$i", pinHud = targets.isNotEmpty() || cam != null, webcam = cam)
+            // Capture sans webcam : le jeu reprend toute l'image (WebcamLayout.forClip).
+            val own = WebcamLayout.forClip(edit, cam)
+            val targets = if (fits) RenderCommandBuilder.hudTargets(request.format, shot.media, own) else emptyList()
+            graph += RenderCommandBuilder.videoChain(i, shot.media, request.format, own, "g$i", pinHud = targets.isNotEmpty() || cam != null, webcam = cam)
             val sized = if (fits) {
                 "g$i"
             } else {
@@ -165,7 +167,7 @@ object StoryRenderBuilder {
             effects += "format=yuv420p"
             effects += "settb=AVTB"
             graph += "[$start]${effects.joinToString(",")}[v$i]"
-            camBox?.let { WebcamLayout.finish(graph, camLabel, it, emptyList(), frames[i], edit.fps, "wc$i") }
+            camBox?.let { WebcamLayout.finish(graph, camLabel, it, emptyList(), frames[i], edit.fps, "wc$i", request.format, edit) }
             graph += audioChain(graph, i, source, edit.audioIndices(AudioTracks.of(shot.media.audio, request.audioLayout)), story.transition.audioFade)
         }
         graph += shots.indices.joinToString("") { "[v$it][a$it]" } + "concat=n=${shots.size}:v=1:a=1[vcat][acat]"

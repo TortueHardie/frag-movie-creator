@@ -154,7 +154,12 @@ class VideoPlayer(
 
     /** Glissement de la barre (ou de la frise) : met en pause et montre l'image de [at] ; [endScrub] reprend. */
     fun scrub(at: Duration) = send(Command.Scrub(at))
-    fun endScrub() = send(Command.EndScrub)
+
+    /**
+     * Fin du glissement : la lecture reprend si elle était en cours avant, ou dans tous les cas si [play] (frise d'une
+     * session : relâcher lance la lecture à l'endroit relâché, choix du joueur du 20/11).
+     */
+    fun endScrub(play: Boolean = false) = send(Command.EndScrub(play))
 
     /** Arrête la lecture et oublie la vidéo ; le lecteur reste utilisable. */
     fun stop() = send(Command.Stop)
@@ -176,7 +181,7 @@ class VideoPlayer(
         data object Toggle : Command
         data class Seek(val at: Duration) : Command
         data class Scrub(val at: Duration) : Command
-        data object EndScrub : Command
+        data class EndScrub(val play: Boolean) : Command
         data object Stop : Command
         class Ended(val session: Session) : Command
         class Lagging(val session: Session) : Command
@@ -246,9 +251,12 @@ class VideoPlayer(
                 _view.update { it.copy(position = position, playing = false, ended = false) }
                 showStill(position)
             }
-            Command.EndScrub -> {
+            is Command.EndScrub -> {
                 scrubbing = false
-                if (resumeAfterScrub) startSession(position)
+                if (resumeAfterScrub || command.play) {
+                    still?.cancel()
+                    startSession(position)
+                }
                 resumeAfterScrub = false
             }
             Command.Stop -> {

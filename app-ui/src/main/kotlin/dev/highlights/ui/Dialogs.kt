@@ -262,6 +262,7 @@ fun MontageDialog(montage: MontageUiState, state: UiState, actions: UiActions) {
                             actions.updateMontage { it.copy(oneTaps = v) }
                         }
                         MontageToggle(tr("ui.montage.reactionMontage"), montage.reactionMontage) { v -> actions.updateMontage { it.copy(reactionMontage = v) } }
+                        if (montage.reactionMontage) MontageToggle(tr("ui.montage.reactionSpacing"), montage.reactionSpacing) { v -> actions.updateMontage { it.copy(reactionSpacing = v) } }
                         MontageToggle(tr("ui.montage.fast"), montage.fast) { v ->
                             actions.updateMontage { it.copy(fast = v) }
                         }

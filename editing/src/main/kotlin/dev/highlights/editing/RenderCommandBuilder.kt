@@ -73,10 +73,12 @@ object RenderCommandBuilder {
         val (w, h) = outputSize(request.format, clips.first().media, settings)
         val graph = mutableListOf<String>()
         clips.forEachIndexed { i, clip ->
+            // Capture sans webcam : le jeu reprend toute l'image (WebcamLayout.forClip).
+            val own = WebcamLayout.forClip(settings, cams[i])
             if (outputSize(request.format, clip.media, settings) == w to h) {
-                graph += videoChain(i, clip.media, request.format, settings, "v$i", webcam = cams[i])
+                graph += videoChain(i, clip.media, request.format, own, "v$i", webcam = cams[i])
             } else {
-                graph += videoChain(i, clip.media, request.format, settings, "g$i", webcam = cams[i])
+                graph += videoChain(i, clip.media, request.format, own, "g$i", webcam = cams[i])
                 graph += "[g$i]scale=$w:$h:force_original_aspect_ratio=decrease:flags=lanczos,pad=$w:$h:(ow-iw)/2:(oh-ih)/2,setsar=1[v$i]"
             }
             graph += audioChain(i, clip, settings, request.audioLayout)
@@ -198,7 +200,16 @@ object RenderCommandBuilder {
         }
         val boxes = hudBoxes(video.width, video.height, settings, overlays)
         if (cam != null && camBox != null) {
-            statements += if (pinHud) "$cam,pad=$width:${camBox.h}:0:0[${p}cam]" else "$cam[${p}cam]"
+            if (pinHud) {
+                // Coins arrondis posés plus tard (WebcamLayout.finish) : l'empilement n'a pas de transparence.
+                statements += "$cam,pad=$width:${camBox.h}:0:0[${p}cam]"
+            } else if (WebcamLayout.radius(camBox, format, settings) == 0) {
+                statements += "$cam[${p}cam]"
+            } else {
+                statements += "$cam,format=yuv420p[${p}cr]"
+                val rounded = WebcamLayout.round(statements, "${p}cr", camBox, format, settings, settings.fps, "${p}k")
+                statements += "[$rounded]null[${p}cam]"
+            }
         }
         boxes.forEachIndexed { k, (src, dst) ->
             val piece = "[${p}hud$k]crop=${src.w}:${src.h}:${src.x}:${src.y},scale=${dst.w}:${dst.h}:flags=lanczos,setsar=1"

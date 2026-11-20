@@ -46,7 +46,11 @@ data class ReactionMontage(
      */
     val causeWindow: SerialDuration = 5.seconds,
     val causeBonus: Double = 0.5,
-    /** Réactions distantes de moins que ça : la plus forte seulement (un même fou rire ne fait pas deux plans). */
+    /**
+     * Réactions distantes de moins que ça : la plus forte seulement (un même fou rire ne fait pas deux plans). 0s : aucun
+     * écart minimal, chaque réaction garde sa chance (choix du joueur, 20/11 : « j'ai coupé mon parachute » et « c'est
+     * un Toulousain », 11 s d'écart, peuvent faire deux plans) ; `--no-reaction-spacing`, case de l'application.
+     */
     val spacing: SerialDuration = 8.seconds,
     /** Gain du micro mixé par-dessus le jeu (2 : +6 dB). */
     val micGain: Double = 2.0,
@@ -57,6 +61,7 @@ data class ReactionMontage(
 ) {
     init {
         require(rise > 0.0) { "montage.reactionMontage.rise doit être positif" }
+        require(!spacing.isNegative()) { "montage.reactionMontage.spacing ne peut pas être négatif" }
         require(micGain > 0.0) { "montage.reactionMontage.micGain doit être positif" }
         require(musicUnderVoice in 0.0..1.0) { "montage.reactionMontage.musicUnderVoice doit être entre 0 et 1" }
     }
@@ -92,6 +97,8 @@ fun MontageSettings.forReactions(): MontageSettings {
             singleBeat = false, offbeatKills = false, jumpCuts = false,
         ),
         slowMotion = slowMotion.copy(enabled = false),
+        // Ni image figée : l'image continue pendant la réaction (choix du joueur, 20/11), même si le profil active les morts.
+        fails = fails.copy(enabled = false),
         speedRamp = speedRamp.copy(enabled = false),
         matchCut = matchCut.copy(enabled = false),
         whip = whip.copy(enabled = false),
