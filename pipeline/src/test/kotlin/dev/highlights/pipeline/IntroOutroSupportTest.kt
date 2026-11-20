@@ -4,6 +4,7 @@ import dev.highlights.core.InputException
 import dev.highlights.core.config.AppConfig
 import dev.highlights.core.config.ConfigYaml
 import dev.highlights.core.config.LoadedConfig
+import dev.highlights.core.model.CardAnimation
 import dev.highlights.core.model.CardBackground
 import dev.highlights.core.model.IntroOutroSettings
 import dev.highlights.core.profile.GameProfile
@@ -32,6 +33,7 @@ class IntroOutroSupportTest : FunSpec({
               background: color
               color: "#1B1035"
               introLength: 2s
+              animation: zoom
             """.trimIndent(),
         )
         val config = ConfigYaml.load(dir.resolve("app.yaml"))
@@ -39,6 +41,9 @@ class IntroOutroSupportTest : FunSpec({
         cards.logo shouldBe dir.resolve("images/logo.png").toAbsolutePath().normalize().toString()
         cards.background shouldBe CardBackground.COLOR
         cards.introLength shouldBe 2.seconds
+        cards.animation shouldBe CardAnimation.ZOOM
+        // --intro-animation l'emporte sur le fichier.
+        IntroOutroSupport.resolve(config, null, null, animation = CardAnimation.NONE)?.animation shouldBe CardAnimation.NONE
         // --no-intro l'emporte.
         IntroOutroSupport.resolve(config, null, false).shouldBeNull()
     }

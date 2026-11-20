@@ -69,3 +69,4 @@ publish:
 #   logo: images/logo.png
 #   name: MonPseudo
 #   background: blur
+#   animation: rise          # rise, flash, zoom ou none (--intro-animation)

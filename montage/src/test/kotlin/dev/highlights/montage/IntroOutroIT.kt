@@ -2,6 +2,7 @@ package dev.highlights.montage
 
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.ffmpeg.FfmpegCommand
+import dev.highlights.core.model.CardAnimation
 import dev.highlights.core.model.CardBackground
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.Highlight
@@ -75,7 +76,7 @@ class IntroOutroIT : FunSpec({
         val ffmpeg = TestMedia.requireFfmpeg()
         val video = TestMedia.generate(root.resolve("partie.mp4"), durationSeconds = 20)
         val media = ffmpeg.probe(video)
-        val cards = IntroOutroSettings(enabled = true, logo = logo(root.resolve("logo.png")).toString(), name = "ZeroX", background = CardBackground.BLUR)
+        val cards = IntroOutroSettings(enabled = true, logo = logo(root.resolve("logo.png")).toString(), name = "ZeroX", background = CardBackground.BLUR, animation = CardAnimation.FLASH)
         val edit = EditSettings(fps = 30, sourceHeight = 360, intro = cards)
         val clips = listOf(5.seconds, 12.seconds).mapIndexed { i, at ->
             PlannedClip(Highlight("h$i", video, TimeRange(at, at + 3.seconds), at + 1.seconds, 0.5 + i * 0.1), media)
@@ -86,8 +87,9 @@ class IntroOutroIT : FunSpec({
         val render = RenderCommandBuilder.build(RenderRequest(plan, OutputFormat.SOURCE, encoder, out, script, filterScriptOption = ffmpeg.filterScriptOption()))
         script.writeText(render.filterGraph)
         ffmpeg.run(render.command)
-        render.expectedDuration shouldBe 9500.milliseconds
-        duration(out) shouldBe (9.5 plusOrMinus 0.1)
+        // 6 s de moments + ouverture 1 s + fin 1,5 s.
+        render.expectedDuration shouldBe 8500.milliseconds
+        duration(out) shouldBe (8.5 plusOrMinus 0.1)
 
         val (w, h) = RenderCommandBuilder.outputSize(OutputFormat.VERTICAL, media, edit)
         val png = root.resolve("carte.png")
@@ -114,7 +116,7 @@ class IntroOutroIT : FunSpec({
             KillGroup(media, listOf(10.seconds, 12.seconds), 1.0, emptyList(), emptyList()),
             KillGroup(media, listOf(25.seconds), 0.5, emptyList(), emptyList()),
         )
-        val cards = IntroOutroSettings(enabled = true, introLength = 1300.milliseconds, name = "ZeroX", background = CardBackground.COLOR)
+        val cards = IntroOutroSettings(enabled = true, introLength = 1300.milliseconds, name = "ZeroX", background = CardBackground.COLOR, animation = CardAnimation.ZOOM)
         val edit = EditSettings(fps = 30, sourceHeight = 360, intro = cards)
         val plan = MontagePlanner.plan(groups, music, MontageSettings(killOffset = Duration.ZERO))
         // 1,3 s à 120 BPM : trois temps, 1,5 s.
@@ -131,5 +133,8 @@ class IntroOutroIT : FunSpec({
         } else {
             meanVolume(out, 0.0, 0.2) shouldBeLessThan -60.0
         }
+        // La musique continue sous la carte de fin (1,5 s, tenue le premier tiers) au lieu d'une fin muette.
+        val end = render.expectedDuration.inWholeMilliseconds / 1000.0
+        meanVolume(out, end - 1.45, end - 1.05) shouldBeGreaterThan -40.0
     }
 })

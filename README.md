@@ -797,15 +797,24 @@ du joueur sur un fond au choix. Désactivée par défaut.
   des fichiers pour les exports lancés depuis l'application.
 - **Fond** : `blur` (une image de la vidéo floutée et assombrie : le meilleur moment en ouverture, le dernier plan en
   fin), `color` (`color: "#RRGGBB"`) ou `image` (`image: chemin`, recadrée pour remplir l'écran).
-- **Animation** : le logo apparaît en montant légèrement (0,35 s), le pseudo « pop » juste après ; l'ouverture sort du
-  noir et coupe franc sur la vidéo, la fin entre et sort par le noir.
-- **Montage kills** : l'ouverture dure un nombre entier de temps de la musique (1,5 s demandée → 3 temps à 120 BPM) et
+- **Durées** : ouverture 1 s, fin 1,5 s par défaut (`introLength`, `outroLength`, de 0,5 à 5 s).
+- **Animation** (`animation`, fenêtre « Personnaliser… », `--intro-animation`) :
+  - `rise` (par défaut) : le logo apparaît en montant légèrement (0,35 s), le pseudo « pop » juste après ; l'ouverture
+    sort du noir et coupe franc sur la vidéo, la fin entre et sort par le noir ;
+  - `flash` : logo et pseudo posés d'emblée, flash blanc à chaque coupe entre une carte et la vidéo ;
+  - `zoom` : logo et pseudo posés, le fond avance lentement (8 % sur la carte) ;
+  - `none` : rien d'animé, cartes fixes et coupes franches.
+- **Son de la fin** : la musique (montage kills, highlights story avec musique) continue sous la carte de fin et s'y
+  éteint en fondu (tenue un tiers de la carte) au lieu de s'arrêter avec la dernière image. Sans musique (highlights
+  simples), la fin est muette.
+- **Montage kills** : l'ouverture dure un nombre entier de temps de la musique (1 s demandée → 2 temps à 120 BPM) et
   joue l'amorce de la musique, ce qui précède le passage choisi, en montée de volume ; le premier plan arrive sur un
   temps et chaque kill reste sur le sien (vidéo et son reculent ensemble d'autant). Si la musique démarre trop tôt
   pour avoir une amorce, du silence la précède.
 - **Plateformes** : logo et pseudo restent dans la zone sûre ; le pseudo prend une police qui a tous ses caractères
   (comme les autres textes incrustés). Les cartes comptent dans la durée maximale de la plateforme.
-- **Ligne de commande** : `--intro` / `--no-intro` sur `export`, `process` et `montage` (sans l'option : `intro.enabled`).
+- **Ligne de commande** : `--intro` / `--no-intro` sur `export`, `process` et `montage` (sans l'option : `intro.enabled`),
+  `--intro-animation rise|flash|zoom|none` (sans l'option : `intro.animation`).
 
 ```yaml
 intro:
@@ -814,8 +823,9 @@ intro:
   name: ZeroX
   background: blur             # blur, color ou image
   color: "#101820"             # fond uni, et fond de secours
-  introLength: 1500ms          # 0,5 à 5 s
-  outroLength: 2s
+  introLength: 1s              # 0,5 à 5 s
+  outroLength: 1500ms
+  animation: rise              # rise, flash, zoom ou none
   intro: true                  # carte d'ouverture
   outro: true                  # carte de fin
 ```
