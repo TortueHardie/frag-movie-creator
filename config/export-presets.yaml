@@ -28,7 +28,7 @@ presets:
 
   # Short YouTube : vertical, un peu plus long, montage qui monte jusqu'au meilleur kill.
   - id: shorts
-    displayName: YouTube Short
+    displayName: YouTube Shorts
     description: Vertical 9:16, up to 60 seconds, building up to the best kill, with a thumbnail.
     platform: shorts
     length: 60s
