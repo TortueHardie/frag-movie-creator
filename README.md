@@ -829,12 +829,15 @@ en ajouter ou en retirer.
 
 | | Plateforme / format | Durée | Highlights | Style du montage kills | Miniature |
 |---|---|---|---|---|---|
-| `tiktok` (TikTok) | `tiktok` (9:16) | 30 s | story | `tiktok` | non (TikTok choisit la couverture à la publication) |
-| `shorts` (YouTube court) | `shorts` (9:16) | 60 s | story | `cinematique` | non (un Short ne prend pas de miniature envoyée) |
-| `complet` (vidéo complète) | 16:9 | 3 min | story | `cinematique` | oui |
+| `tiktok` (TikTok) | `tiktok` (9:16) | 30 s au plus | story | `tiktok` | oui |
+| `shorts` (YouTube court) | `shorts` (9:16) | 60 s au plus | story | `cinematique` | oui |
+| `complet` (vidéo complète) | format de la capture (21:9 reste 21:9) | 3 min au plus | story | `cinematique` | oui |
 
-- **Durée** : durée cible des highlights (les moments sont resélectionnés aussitôt dans l'application, comme quand on
-  tape la durée) et durée maximale du montage kills (la durée adaptée au nombre de kills reste un plafond).
+- **Durée** : un maximum. Durée cible des highlights (les moments sont resélectionnés aussitôt dans l'application, comme
+  quand on tape la durée ; les jump cuts du style story la raccourcissent, sans compensation : 30 s visées ont donné
+  23 s sur une partie WARDOGS) et durée maximale du montage kills (la durée adaptée au nombre de kills reste un plafond).
+- **Format de la vidéo complète** : celui de la capture, sans bandes noires (une capture 21:9 donne une vidéo 21:9 ;
+  YouTube l'affiche telle quelle). Pour un 16:9 imposé : `-f 16:9` ou la case du format, qui passent devant.
   `export` repart des moments déjà choisis dans la session : la durée du préréglage n'y change rien.
 - **Personnalisé** : aucun préréglage, les réglages restent tels qu'ils sont.
 - **Ce qu'on choisit à la main passe devant** : un réglage changé sous un préréglage (plateforme, formats, durée, style,
