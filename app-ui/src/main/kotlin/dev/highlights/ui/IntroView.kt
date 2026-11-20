@@ -33,6 +33,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.highlights.core.i18n.tr
+import dev.highlights.core.model.CardAnimation
 import dev.highlights.core.model.CardBackground
 import dev.highlights.core.model.IntroOutroSettings
 import dev.highlights.core.model.OutputFormat
@@ -327,6 +328,31 @@ fun IntroDialog(dialog: IntroUiState, cards: IntroOutroSettings, actions: UiActi
                             OutlinedButton(onClick = actions::chooseIntroImage) { Text(tr("ui.common.chooseEllipsis")) }
                         }
                     }
+                }
+
+                DialogGroup(tr("ui.intro.animation")) {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        val choices = listOf(
+                            CardAnimation.RISE to tr("ui.intro.animationRise"),
+                            CardAnimation.FLASH to tr("ui.intro.animationFlash"),
+                            CardAnimation.ZOOM to tr("ui.intro.animationZoom"),
+                            CardAnimation.NONE to tr("ui.intro.animationNone"),
+                        )
+                        choices.forEachIndexed { i, (animation, label) ->
+                            SegmentedButton(
+                                selected = cards.animation == animation,
+                                onClick = { actions.updateIntro { it.copy(animation = animation) } },
+                                shape = SegmentedButtonDefaults.itemShape(i, choices.size),
+                            ) { Text(label) }
+                        }
+                    }
+                    val hint = when (cards.animation) {
+                        CardAnimation.RISE -> tr("ui.intro.animationRiseHint")
+                        CardAnimation.FLASH -> tr("ui.intro.animationFlashHint")
+                        CardAnimation.ZOOM -> tr("ui.intro.animationZoomHint")
+                        CardAnimation.NONE -> tr("ui.intro.animationNoneHint")
+                    }
+                    Text(hint, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
                 }
 
                 DialogGroup(tr("ui.intro.cards")) {

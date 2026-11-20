@@ -2,9 +2,11 @@ package dev.highlights.editing.story
 
 import dev.highlights.core.ffmpeg.EncoderProfile
 import dev.highlights.core.model.AudioStream
+import dev.highlights.core.model.CardBackground
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.EditStyle
 import dev.highlights.core.model.Highlight
+import dev.highlights.core.model.IntroOutroSettings
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.OutputFormat
 import dev.highlights.core.model.TimeRange
@@ -148,6 +150,20 @@ class StoryRenderBuilderTest : FunSpec({
         // Voix du 2e plan : 3 s + 1 s = 4 s ; pic du dernier plan : 3 + 4,3 + 4,3 + 5 = 16,6 s.
         music shouldContain "min(max((t-3.920)/0.0800"
         music shouldContain "*(1-(min(max((t-16.580)/0.0200"
+    }
+
+    test("carte de fin : la musique la traverse, hors du fondu de fin du son du jeu") {
+        val cards = IntroOutroSettings(enabled = true, name = "ZeroX", background = CardBackground.COLOR, intro = false)
+        val edit = settings.copy(story = settings.story.copy(music = settings.story.music.copy(file = "D:/musique/fond.mp3")), intro = cards)
+        val graph = build(plan(edit)).filterGraph
+        // 21,6 s de montage + 1,5 s de fin : musique lue jusqu'au bout, coupée en deux.
+        graph shouldContain "atrim=duration=23.100"
+        graph shouldContain "asplit=2[musicall][musicrest]"
+        graph shouldContain "[musicrest]atrim=start=21.600,asetpts=PTS-STARTPTS[musicoutro]"
+        // Le jeu s'éteint seul, la musique rejoint le mélange après lui, puis file sous la carte.
+        graph shouldContain "afade=t=out:st=21.000:d=0.600,anull[astorybase]"
+        graph shouldContain "[astorybase][music]amix=inputs=2:normalize=0:duration=first[astory]"
+        graph shouldContain "[musicoutro]asetpts=PTS-STARTPTS"
     }
 
     test("fondu au noir final, image et son") {

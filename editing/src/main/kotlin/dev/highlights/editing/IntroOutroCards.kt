@@ -2,6 +2,7 @@ package dev.highlights.editing
 
 import dev.highlights.core.ffmpeg.FfmpegCommand
 import dev.highlights.core.ffmpeg.FfmpegService
+import dev.highlights.core.model.CardAnimation
 import dev.highlights.core.model.CardBackground
 import dev.highlights.core.model.EditSettings
 import dev.highlights.core.model.IntroOutroSettings
@@ -54,14 +55,16 @@ data class CardRequest(
 }
 
 /**
- * Cartes d'ouverture et de fin : un fond (couleur, image, ou image de la vidéo floutée et assombrie), le logo qui
- * apparaît en montant légèrement, le pseudo dessous qui « pop » un instant après. Elles sont générées dans le même
+ * Cartes d'ouverture et de fin : un fond (couleur, image, ou image de la vidéo floutée et assombrie), le logo et le
+ * pseudo dessous, animés selon [IntroOutroSettings.animation] (par défaut le logo apparaît en montant légèrement et le
+ * pseudo « pop » un instant après ; sinon flash blanc aux coupes, zoom lent du fond, ou rien). Elles sont générées dans le même
  * graphe que le montage et concaténées autour de lui, avant la normalisation du son : pas de second encodage, et le
  * volume est jugé sur la vidéo entière.
  *
  * L'ouverture d'un montage kills joue sur l'amorce de la musique ([MusicLeadIn]) et dure un nombre entier de temps
  * ([beatLength]) : l'image et le son du montage reculent ensemble d'autant, la musique continue sans couture sur le
- * premier plan, et chaque kill reste sur son temps. Les cartes sont comptées en images, comme les plans du montage.
+ * premier plan, et chaque kill reste sur son temps. La musique continue de même sous la carte de fin et s'y éteint
+ * (le rendu passe sa suite : `outroMusic` d'[append]). Les cartes sont comptées en images, comme les plans du montage.
  *
  * Les textes et le logo restent dans la zone sûre de la plateforme ; le pseudo prend une police qui a tous ses
  * caractères ([VideoFonts.forText]).
@@ -76,6 +79,11 @@ object IntroOutroCards {
     private val NAME_POP = 300.milliseconds
     private val FADE_FROM_BLACK = 250.milliseconds
     private val OUTRO_FADE_OUT = 500.milliseconds
+    private val FLASH_OUT = 120.milliseconds
+    private val FLASH_IN = 250.milliseconds
+
+    /** Le fond de l'animation « zoom » avance de 8 % sur la durée de la carte : lent, mais visible sur 1 s. */
+    private const val ZOOM_AMOUNT = 0.08
 
     /**
      * Durée d'une ouverture de [wanted] sur une musique dont un temps dure [period] : le nombre entier de temps le plus
@@ -110,11 +118,27 @@ object IntroOutroCards {
     }
 
     /**
+     * Durée de la carte de fin de [request] (zéro sans elle) : la longueur de musique que le rendu prolonge au-delà de
+     * la vidéo pour la passer en `outroMusic` à [append].
+     */
+    fun outroLength(request: CardRequest?): Duration {
+        if (request == null || !request.settings.outro) return Duration.ZERO
+        return duration(frames(request.settings.outroLength, request.fps), request.fps)
+    }
+
+    /**
      * Ajoute les entrées ([args]) et les filtres ([graph]) des cartes autour de la vidéo [video] et du son [audio]
      * (son pas encore normalisé). Sans carte, rend les labels tels quels. Les entrées sont ajoutées à la suite de
      * celles déjà dans [args].
+     *
+     * [outroMusic] : label d'un son qui prolonge la musique au-delà de la vidéo (déjà à son volume, au moins
+     * [outroLength] de long), joué sous la carte de fin et éteint en fondu (choix du joueur, 20/11/2026). Sans lui
+     * (highlights sans musique), la fin est muette.
      */
-    fun append(args: MutableList<String>, graph: MutableList<String>, video: String, audio: String, request: CardRequest?): Appended {
+    fun append(
+        args: MutableList<String>, graph: MutableList<String>, video: String, audio: String, request: CardRequest?,
+        outroMusic: String? = null,
+    ): Appended {
         if (request == null) return Appended(video, audio, Duration.ZERO)
         val s = request.settings
         val parts = mutableListOf<String>()
@@ -127,11 +151,19 @@ object IntroOutroCards {
         // Horodatage refait échantillon par échantillon : le son mixé d'un montage (amix de plans décalés) a des
         // horodatages qui reculent parfois d'un rien, et concat refuse alors un segment sur deux (« Invalid data »).
         graph += "[$audio]$AUDIO_FORMAT,asetpts=N/SR/TB[iomaina]"
-        parts += "[$video][iomaina]"
+        // Flash : la vidéo sort du blanc où l'ouverture s'est fondue.
+        val main = if (s.intro && s.animation == CardAnimation.FLASH) {
+            graph += "[$video]fade=t=in:st=0:d=${sec(FLASH_OUT)}:color=white[iomainv]"
+            "iomainv"
+        } else {
+            video
+        }
+        parts += "[$main][iomaina]"
         if (s.outro) {
             val frames = frames(s.outroLength, request.fps)
+            val length = duration(frames, request.fps)
             val v = card(args, graph, "ioo", false, frames, request, request.outroStill)
-            val a = cardAudio(args, graph, "ioo", duration(frames, request.fps), null)
+            val a = outroMusic?.let { outroAudio(graph, it, length) } ?: cardAudio(args, graph, "ioo", length, null)
             parts += "[$v][$a]"
         }
         graph += parts.joinToString("") + "concat=n=${parts.size}:v=1:a=1[iov][ioa]"
@@ -183,29 +215,65 @@ object IntroOutroCards {
 
             else -> "color=c=0x${s.color.drop(1)}:s=${w}x$h:r=$fps"
         }
-        graph += "$background,trim=end_frame=$frames,setpts=N/($fps*TB),format=yuv420p,setsar=1[${p}bg]"
+        val animation = s.animation
+        // Zoom lent : le fond seul avance (point fixe au centre, voir ZoomCrop), le logo et le pseudo restent posés.
+        val zoom = if (animation == CardAnimation.ZOOM) {
+            "," + ZoomCrop.filters(w, h, "(1+$ZOOM_AMOUNT*n/$frames)", "bicubic").joinToString(",")
+        } else {
+            ""
+        }
+        graph += "$background,trim=end_frame=$frames,setpts=N/($fps*TB)$zoom,format=yuv420p,setsar=1[${p}bg]"
 
+        val animated = animation == CardAnimation.RISE
         val layout = layout(s, r)
         var current = "${p}bg"
         layout.logo?.let { logo ->
             val i = input(args, listOf("-loop", "1", "-framerate", "$fps", "-t", sec(length), "-i", logo.file.toString()))
             val fade = sec(LOGO_FADE)
-            graph += "[$i:v]format=rgba,scale=${logo.width}:${logo.height}:flags=lanczos,setsar=1,fade=t=in:st=0:d=$fade:alpha=1[${p}logo]"
+            val appear = if (animated) ",fade=t=in:st=0:d=$fade:alpha=1" else ""
+            graph += "[$i:v]format=rgba,scale=${logo.width}:${logo.height}:flags=lanczos,setsar=1$appear[${p}logo]"
             // Le logo monte de 3 % de la hauteur en apparaissant.
             val rise = (h * 0.03).roundToInt()
-            graph += "[$current][${p}logo]overlay=x=${logo.x}:y='${logo.y}+$rise*(1-min(t/$fade\\,1))':shortest=1:format=auto[${p}l]"
+            val y = if (animated) "'${logo.y}+$rise*(1-min(t/$fade\\,1))'" else "${logo.y}"
+            graph += "[$current][${p}logo]overlay=x=${logo.x}:y=$y:shortest=1:format=auto[${p}l]"
             current = "${p}l"
         }
 
-        val fades = mutableListOf<String>()
-        layout.name?.let { name -> fades += drawName(name, s.textColor, h) }
-        fades += if (intro) {
-            "fade=t=in:st=0:d=${sec(FADE_FROM_BLACK)}"
-        } else {
-            "fade=t=in:st=0:d=${sec(FADE_FROM_BLACK)},fade=t=out:st=${sec((length - OUTRO_FADE_OUT).coerceAtLeast(Duration.ZERO))}:d=${sec(minOf(OUTRO_FADE_OUT, length))}"
-        }
-        graph += "[$current]" + fades.joinToString(",") + ",trim=end_frame=$frames,format=yuv420p,setsar=1[${p}v]"
+        val filters = mutableListOf<String>()
+        layout.name?.let { name -> filters += drawName(name, s.textColor, h, animated) }
+        filters += fades(animation, intro, length)
+        graph += "[$current]" + (filters + "trim=end_frame=$frames").joinToString(",") + ",format=yuv420p,setsar=1[${p}v]"
         return "${p}v"
+    }
+
+    /**
+     * Fondus d'une carte de [length] selon l'animation : sortie du noir (et retour au noir en fin) pour « monte » et
+     * « zoom » ; flash blanc à la coupe avec la vidéo pour « flash » ; rien pour « aucune ».
+     */
+    private fun fades(animation: CardAnimation, intro: Boolean, length: Duration): List<String> {
+        val fromBlack = "fade=t=in:st=0:d=${sec(FADE_FROM_BLACK)}"
+        val toBlack = "fade=t=out:st=${sec((length - OUTRO_FADE_OUT).coerceAtLeast(Duration.ZERO))}:d=${sec(minOf(OUTRO_FADE_OUT, length))}"
+        return when (animation) {
+            CardAnimation.NONE -> emptyList()
+            CardAnimation.FLASH -> if (intro) {
+                listOf(fromBlack, "fade=t=out:st=${sec((length - FLASH_OUT).coerceAtLeast(Duration.ZERO))}:d=${sec(minOf(FLASH_OUT, length))}:color=white")
+            } else {
+                listOf("fade=t=in:st=0:d=${sec(FLASH_IN)}:color=white", toBlack)
+            }
+            CardAnimation.RISE, CardAnimation.ZOOM -> if (intro) listOf(fromBlack) else listOf(fromBlack, toBlack)
+        }
+    }
+
+    /**
+     * Son de la carte de fin : la suite de la musique ([music]), tenue un tiers de la carte puis éteinte en fondu
+     * jusqu'à la dernière image.
+     */
+    private fun outroAudio(graph: MutableList<String>, music: String, length: Duration): String {
+        val total = sec(length)
+        val hold = length / 3
+        graph += "[$music]asetpts=PTS-STARTPTS,$AUDIO_FORMAT,apad=whole_dur=$total,atrim=duration=$total," +
+            "afade=t=out:st=${sec(hold)}:d=${sec(length - hold)}[iooa]"
+        return "iooa"
     }
 
     /** Son d'une carte : l'amorce de la musique (ouverture d'un montage) ou du silence. */
@@ -227,16 +295,19 @@ object IntroOutroCards {
         return "${p}a"
     }
 
-    /** Pseudo centré dans la zone sûre, qui « pop » (0,8 → 1) en apparaissant un instant après le logo. */
-    private fun drawName(name: NameBox, color: String, height: Int): String {
+    /**
+     * Pseudo centré dans la zone sûre ; [animated] : il « pop » (0,8 → 1) en apparaissant un instant après le logo,
+     * sinon il est posé d'emblée.
+     */
+    private fun drawName(name: NameBox, color: String, height: Int, animated: Boolean): String {
         val t0 = sec(NAME_DELAY)
         val pop = sec(NAME_POP)
-        val scale = "(0.8+0.2*min(max((t-$t0)/$pop\\,0)\\,1))"
-        val alpha = "min(max((t-$t0)/$pop\\,0)\\,1)"
+        val size = if (animated) "'${name.size}*(0.8+0.2*min(max((t-$t0)/$pop\\,0)\\,1))'" else "${name.size}"
+        val alpha = if (animated) ":alpha='min(max((t-$t0)/$pop\\,0)\\,1)'" else ""
         val border = (height * 0.005).roundToInt().coerceAtLeast(2)
-        return "drawtext=fontfile='${VideoFonts.drawtextPath(name.font)}':text='${name.text}':expansion=none:fontsize='${name.size}*$scale'" +
+        return "drawtext=fontfile='${VideoFonts.drawtextPath(name.font)}':text='${name.text}':expansion=none:fontsize=$size" +
             ":fontcolor=0x${color.drop(1)}:borderw=$border:bordercolor=black@0.7:shadowx=0:shadowy=${border + 1}:shadowcolor=black@0.5" +
-            ":x='${name.left}+(${name.room}-text_w)/2':y='${name.centerY}-th/2':alpha='$alpha'"
+            ":x='${name.left}+(${name.room}-text_w)/2':y='${name.centerY}-th/2'$alpha"
     }
 
     internal data class LogoBox(val file: Path, val width: Int, val height: Int, val x: Int, val y: Int)
