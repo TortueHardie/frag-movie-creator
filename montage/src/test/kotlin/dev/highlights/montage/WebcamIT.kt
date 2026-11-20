@@ -26,12 +26,14 @@ import dev.highlights.editing.story.StoryRenderRequest
 import dev.highlights.editing.story.StoryShot
 import dev.highlights.ffmpeg.ProcessFfmpegService
 import dev.highlights.testing.TestMedia
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.engine.spec.tempdir
 import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import java.nio.file.Path
 import kotlin.io.path.writeText
+import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -49,6 +51,7 @@ class WebcamIT : FunSpec({
     lateinit var ffmpeg: ProcessFfmpegService
     lateinit var dir: Path
     lateinit var media: MediaInfo
+    lateinit var other: MediaInfo
     lateinit var feeds: Map<Path, WebcamFeed>
 
     beforeSpec {
@@ -68,7 +71,9 @@ class WebcamIT : FunSpec({
         )
         make("red", "640x360", game)
         make("blue", "320x180", cam)
+        make("red", "640x360", dir.resolve("autre.mp4"))
         media = ffmpeg.probe(game)
+        other = ffmpeg.probe(dir.resolve("autre.mp4"))
         feeds = mapOf(media.path to WebcamFeed(cam, 0, (-1).seconds, 40.seconds, 320, 180))
     }
 
@@ -93,6 +98,9 @@ class WebcamIT : FunSpec({
 
     fun blue(c: Triple<Int, Int, Int>) = c.third > 180 && c.first < 80 && c.second < 80
     fun reddish(c: Triple<Int, Int, Int>) = c.first > 150 && c.third < 150
+    /** Le jeu rouge, même mêlé d'un peu de liseré par la compression (angle arrondi). */
+    fun gameShows(c: Triple<Int, Int, Int>) = c.first > c.second + 60 && c.first > c.third + 60
+    fun white(c: Triple<Int, Int, Int>) = c.first > 200 && c.second > 200 && c.third > 200
 
     test("highlights simples en 16:9 : webcam dans le coin bas gauche, jeu ailleurs").config(enabledIf = { TestMedia.available }, timeout = 120.seconds) {
         val h = Highlight("h1", media.path, TimeRange(5.seconds, 8.seconds), 6.seconds, 1.0)
@@ -106,8 +114,61 @@ class WebcamIT : FunSpec({
         val images = frames(render, script, out, 640, 360)
         images.size shouldBeGreaterThan 20
         images.forEach { f ->
-            blue(pixel(f, 640, box.x + box.w / 2, box.y + box.h / 2)) shouldBe true
-            reddish(pixel(f, 640, 400, 100)) shouldBe true
+            withClue("blue " + pixel(f, 640, box.x + box.w / 2, box.y + box.h / 2) + " (box.x + box.w / 2, box.y + box.h / 2)") { blue(pixel(f, 640, box.x + box.w / 2, box.y + box.h / 2)) shouldBe true }
+            withClue("reddish " + pixel(f, 640, 400, 100) + " (400, 100)") { reddish(pixel(f, 640, 400, 100)) shouldBe true }
+            // Coins arrondis : le jeu se voit dans l'angle de l'emplacement ; liseré blanc au milieu du bord gauche.
+            withClue("gameShows " + pixel(f, 640, box.x + 1, box.y + 1) + " (box.x + 1, box.y + 1)") { gameShows(pixel(f, 640, box.x + 1, box.y + 1)) shouldBe true }
+            withClue("white " + pixel(f, 640, box.x + 1, box.y + box.h / 2) + " (box.x + 1, box.y + box.h / 2)") { white(pixel(f, 640, box.x + 1, box.y + box.h / 2)) shouldBe true }
+        }
+    }
+
+    test("story en 16:9 : coin arrondi et liseré aussi sur les plans empilés (punch-in)").config(enabledIf = { TestMedia.available }, timeout = 120.seconds) {
+        val h1 = Highlight("h1", media.path, TimeRange(5.seconds, 9.seconds), 7.seconds, 1.0)
+        val story = edit.copy(style = EditStyle.STORY)
+        val plan = StoryPlan(
+            shots = listOf(StoryShot(media, TimeRange(5.seconds, 9.seconds), h1, ShotRole.OPENING, zoom = 1.3, punchIns = listOf(TimeRange(0.5.seconds, 2.5.seconds)))),
+            moments = listOf(PlannedClip(h1, media)),
+            settings = story,
+        )
+        val out = dir.resolve("story_169.mp4")
+        val script = dir.resolve("story_169.txt")
+        val render = StoryRenderBuilder.build(
+            StoryRenderRequest(plan, OutputFormat.LANDSCAPE, enc, out, script, filterScriptOption = ffmpeg.filterScriptOption(), webcams = feeds),
+        )
+        val box = dev.highlights.editing.WebcamLayout.target(OutputFormat.LANDSCAPE, 640, 360, edit)!!
+        val images = frames(render, script, out, 640, 360)
+        images.size shouldBeGreaterThan 20
+        images.dropLast(10).forEach { f ->
+            withClue("blue " + pixel(f, 640, box.x + box.w / 2, box.y + box.h / 2) + " (box.x + box.w / 2, box.y + box.h / 2)") { blue(pixel(f, 640, box.x + box.w / 2, box.y + box.h / 2)) shouldBe true }
+            withClue("gameShows " + pixel(f, 640, box.x + 1, box.y + 1) + " (box.x + 1, box.y + 1)") { gameShows(pixel(f, 640, box.x + 1, box.y + 1)) shouldBe true }
+            withClue("white " + pixel(f, 640, box.x + 1, box.y + box.h / 2) + " (box.x + 1, box.y + box.h / 2)") { white(pixel(f, 640, box.x + 1, box.y + box.h / 2)) shouldBe true }
+        }
+    }
+
+    test("story en 9:16 : plan d'une capture sans webcam en plein cadre, sans bandeau vide").config(enabledIf = { TestMedia.available }, timeout = 120.seconds) {
+        val h1 = Highlight("h1", media.path, TimeRange(5.seconds, 9.seconds), 7.seconds, 1.0)
+        val h2 = Highlight("h2", other.path, TimeRange(20.seconds, 24.seconds), 22.seconds, 1.0)
+        val story = edit.copy(style = EditStyle.STORY)
+        val plan = StoryPlan(
+            shots = listOf(
+                StoryShot(media, TimeRange(5.seconds, 8.seconds), h1, ShotRole.OPENING),
+                StoryShot(other, TimeRange(20.seconds, 23.seconds), h2, ShotRole.OPENING),
+            ),
+            moments = listOf(PlannedClip(h1, media), PlannedClip(h2, other)),
+            settings = story,
+        )
+        val out = dir.resolve("story_sans.mp4")
+        val script = dir.resolve("story_sans.txt")
+        val render = StoryRenderBuilder.build(
+            StoryRenderRequest(plan, OutputFormat.VERTICAL, enc, out, script, filterScriptOption = ffmpeg.filterScriptOption(), webcams = feeds),
+        )
+        val images = frames(render, script, out, 360, 640)
+        images.size shouldBeGreaterThan 50
+        // Premier plan (0..3 s) : bandeau bleu ; second (3..6 s) : le jeu rouge jusqu'en haut.
+        withClue("blue " + pixel(images[15], 360, 180, 96) + " (180, 96)") { blue(pixel(images[15], 360, 180, 96)) shouldBe true }
+        images.subList(36, 44).forEach { f ->
+            withClue("reddish " + pixel(f, 360, 180, 20) + " (180, 20)") { reddish(pixel(f, 360, 180, 20)) shouldBe true }
+            withClue("reddish " + pixel(f, 360, 180, 96) + " (180, 96)") { reddish(pixel(f, 360, 180, 96)) shouldBe true }
         }
     }
 
@@ -133,14 +194,49 @@ class WebcamIT : FunSpec({
         // Fondu de fin exclu : il assombrit toute l'image, webcam comprise.
         images.dropLast(10).forEach { f ->
             // Bandeau : 30 % de 640 = 192 px.
-            blue(pixel(f, 360, 180, 96)) shouldBe true
-            blue(pixel(f, 360, 10, 180)) shouldBe true
+            withClue("blue " + pixel(f, 360, 180, 96) + " (180, 96)") { blue(pixel(f, 360, 180, 96)) shouldBe true }
+            withClue("blue " + pixel(f, 360, 10, 180) + " (10, 180)") { blue(pixel(f, 360, 10, 180)) shouldBe true }
         }
         // Le flash blanc de l'ouverture du second moment (3 s) blanchit le jeu, pas la webcam.
         val flash = images[30]
         val game = pixel(flash, 360, 180, 420)
         (game.second > 120 && game.third > 120) shouldBe true
-        reddish(pixel(images[15], 360, 180, 420)) shouldBe true
+        withClue("reddish " + pixel(images[15], 360, 180, 420) + " (180, 420)") { reddish(pixel(images[15], 360, 180, 420)) shouldBe true }
+    }
+
+    test("montage kills en 16:9 avec coins arrondis : la vidéo garde toutes ses images, plans sans webcam compris").config(enabledIf = { TestMedia.available }, timeout = 180.seconds) {
+        val music = dir.resolve("musique169.wav")
+        ffmpeg.run(FfmpegCommand(listOf("-y", "-f", "lavfi", "-i", "sine=f=220:d=120", music.toString()), "musique de test"))
+        val analysis = MusicAnalysis(
+            music, 120.seconds, 120.0, List(240) { (it * 0.5).seconds }, 0, DoubleArray(240) { 1.0 }, DoubleArray(240) { 0.8 },
+            listOf(MusicSection(0, 16, -14.0, 0.4), MusicSection(16, 240, -8.0, 1.0)), 16,
+        )
+        val groups = listOf(
+            KillGroup(media, listOf(10.seconds, 11.seconds), 1.0, emptyList(), emptyList()),
+            KillGroup(other, listOf(15.seconds), 0.8, emptyList(), emptyList()),
+            KillGroup(media, listOf(25.seconds), 0.5, emptyList(), emptyList()),
+            KillGroup(other, listOf(30.seconds), 0.4, emptyList(), emptyList()),
+        )
+        val settings = MontageSettings(killOffset = Duration.ZERO).earlierDefaults()
+        val plan = MontagePlanner.plan(groups, analysis, settings.copy(flash = settings.flash.copy(enabled = true, onEveryCut = true)))
+        val out = dir.resolve("montage169.mp4")
+        val script = dir.resolve("montage169.txt")
+        val render = MontageRenderBuilder.build(
+            MontageRenderRequest(plan, OutputFormat.LANDSCAPE, edit, enc, out, script, filterScriptOption = ffmpeg.filterScriptOption(), webcams = feeds),
+        )
+        script.writeText(render.filterGraph)
+        ffmpeg.run(render.command)
+        // Toutes les images comptées (16x9 gris : 144 octets chacune), pas un échantillon. Défauts vus le 20/11 : masques des
+        // coins sans fin (12 s de montage, 10 s de webcam, vidéo coupée d'autant par `overlay`), puis une image perdue par
+        // plan arrondi (base de temps de la webcam différente de celle des masques).
+        val bytes = java.io.ByteArrayOutputStream()
+        ffmpeg.run(
+            FfmpegCommand(listOf("-i", out.toString(), "-map", "0:v", "-s", "16x9", "-f", "rawvideo", "-pix_fmt", "gray", "-"), "comptage des images"),
+            stdout = StdoutHandler.Binary { it.copyTo(bytes) },
+        )
+        val counted = bytes.size() / 144
+        val expected = (plan.duration.inWholeMicroseconds * 30 / 1_000_000.0).roundToInt()
+        withClue("$counted images pour ${plan.duration} à 30 img/s") { counted shouldBe expected }
     }
 
     test("montage kills en 9:16 : bandeau bleu intact pendant zooms et flashs").config(enabledIf = { TestMedia.available }, timeout = 180.seconds) {
@@ -165,7 +261,7 @@ class WebcamIT : FunSpec({
         images.size shouldBeGreaterThan 10
         // Fondu de fin exclu : il assombrit toute l'image, webcam comprise.
         images.dropLast(8).forEach { f ->
-            blue(pixel(f, 360, 180, 96)) shouldBe true
+            withClue("blue " + pixel(f, 360, 180, 96) + " (180, 96)") { blue(pixel(f, 360, 180, 96)) shouldBe true }
         }
         images.dropLast(8).count { reddish(pixel(it, 360, 180, 420)) } shouldBeGreaterThan images.size / 2
     }

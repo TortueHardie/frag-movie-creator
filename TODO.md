@@ -222,8 +222,8 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Dossier surveillé : monter seul chaque soirée finie, notifier (case « Monter chaque soirée finie », `app soiree`).
 - [x] Préréglages d'export (« TikTok », « YouTube court », « complet ») : `config/export-presets.yaml`, `--preset`,
   puces en haut de la barre d'export et de la fenêtre de montage ; un réglage changé à la main passe devant.
-  - [ ] Valeurs à confirmer par l'utilisateur (durées 30 s / 60 s / 3 min, miniature, 16:9 du complet) :
-    `output/revue/prereglages-export/LOG.md`.
+  - [x] Valeurs confirmées par l'utilisateur le 20/11 : durées = maximum sans compensation, miniature pour tous,
+    vidéo complète au format de la capture (21:9 reste 21:9), styles et noms gardés.
 
 ## Qualité de détection
 - [x] Jeu de vérité terrain versionné (`verite/`, timecodes validés par le joueur) + `app verite` (précision/rappel par
@@ -343,7 +343,8 @@ Pistes, de la plus simple à la plus lourde :
 - [x] Intro/outro personnalisées (logo, pseudo, fond) définies dans le profil. `IntroOutroCards` (editing), section `intro:`
   d'app.yaml ou du profil, « Ouverture et fin » dans l'application, `--intro/--no-intro`. Montage : ouverture en temps
   entiers sur l'amorce de la musique, kills inchangés sur leurs temps.
-  - [ ] À trancher par l'utilisateur : durées (1,5 s / 2 s), animation, activé ou non par défaut.
+  - [x] Tranché le 20/11 : ouverture 1 s, fin 1,5 s ; animation au choix (`animation` : rise par défaut, flash, zoom,
+    none ; `--intro-animation`) ; désactivé tant que logo/pseudo ne sont pas réglés ; la musique continue sous la fin.
 - [x] Miniature automatique : image du meilleur kill + punch-in + texte, PNG prêt pour YouTube (`--thumbnail`,
   `app thumbnail`, fenêtre de publication).
 - [x] Choisir l'habillage de miniature par défaut : le vif (18/11), `ThumbnailStyle.DEFAULT`.

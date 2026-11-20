@@ -1,6 +1,7 @@
 package dev.highlights.pipeline
 
 import dev.highlights.core.i18n.tr
+import dev.highlights.core.model.CardAnimation
 import dev.highlights.core.model.MusicFeel
 import dev.highlights.core.userMessage
 import dev.highlights.core.i18n.Message
@@ -162,6 +163,8 @@ data class ExportOptions(
     val intro: Boolean? = null,
     /** Réglages des cartes choisis dans l'application, à la place de ceux du profil et d'app.yaml. */
     val introSettings: IntroOutroSettings? = null,
+    /** Animation des cartes (`--intro-animation`) ; null : celle des réglages. */
+    val introAnimation: CardAnimation? = null,
     /** Ordre des moments ; null = ordre manuel si l'interface en a fixé un ([ClipOrder.MANUAL]), sinon celui du profil. */
     val order: ClipOrder? = null,
     /** Miniature de chaque vidéo, dans cet habillage ([Thumbnails]) ; null : pas de miniature. */
@@ -239,12 +242,16 @@ data class MontageOptions(
      * micro devant, sous-titres. Demande une piste micro séparée. null ou false : montage kills.
      */
     val reactionMontage: Boolean? = null,
+    /** Montage des réactions : false = aucun écart minimal entre deux réactions ([ReactionMontage.spacing] à 0) ; null : réglage du profil. */
+    val reactionSpacing: Boolean? = null,
     /** Rythme rapide : un kill par temps de musique ([MontageSettings.forFast]) ; null : réglage du profil. */
     val fast: Boolean? = null,
     /** Cartes d'ouverture et de fin (`--intro` / `--no-intro`) ; null : réglage `intro.enabled`. */
     val intro: Boolean? = null,
     /** Réglages des cartes choisis dans l'application, à la place de ceux du profil et d'app.yaml. */
     val introSettings: IntroOutroSettings? = null,
+    /** Animation des cartes (`--intro-animation`) ; null : celle des réglages. */
+    val introAnimation: CardAnimation? = null,
     /** Kills à la capacité écartés ([MontageSettings.skipAbilityKills]) ; null : réglage du profil. */
     val skipAbilityKills: Boolean? = null,
     /** Rythme rapide sur les parties rapides de la musique ([dev.highlights.core.model.FastParts]) ; null : réglage du profil. */
@@ -792,7 +799,7 @@ class HighlightPipeline(
             style = options.style ?: edit.style,
             order = options.order ?: if (sessions.any { s -> s.highlights.any { it.enabled && it.order != null } }) ClipOrder.MANUAL else edit.order,
             story = options.music?.let { edit.story.copy(music = edit.story.music.copy(file = it.toAbsolutePath().toString())) } ?: edit.story,
-            intro = IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings),
+            intro = IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings, options.introAnimation),
         ).let { platform?.applyTo(it) ?: it }
         val cams = Webcams(ffmpeg).setup(sessions.map { it.media }, options.webcam, options.webcamOffset, settings, profile.audio)
         return withJobDir { workDir ->
@@ -1082,7 +1089,7 @@ class HighlightPipeline(
         val profile = planned.profile
         // Cartes d'ouverture et de fin : rendu final seulement, les aperçus servent à comparer les coupes.
         val edit = profile.gradedEdit().let { planned.platform?.applyTo(it) ?: it }
-            .copy(intro = if (preview) null else IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings))
+            .copy(intro = if (preview) null else IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings, options.introAnimation))
         val cams = Webcams(ffmpeg).setup(sessions.map { it.media }, options.webcam, options.webcamOffset, edit, profile.audio)
         return MontageExportRequest(
             formats = planned.plan.settings.formats,
@@ -1292,7 +1299,7 @@ class HighlightPipeline(
         val profile = profiles.byId(sessions.first().profileId)
         val base = profile.montage
         val platform = platform(options.platform)
-        val intro = IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings)
+        val intro = IntroOutroSupport.resolve(config, profile, options.intro, options.introSettings, options.introAnimation)
         // Les cartes comptent dans la durée maximale de la plateforme : le montage se planifie dans ce qui reste.
         val maxDuration = (options.maxDuration ?: base.maxDuration).let { d -> platform?.maxDuration?.let { minOf(it - IntroOutroSupport.reserved(intro, montage = true), d) } ?: d }
         val settings = base.copy(
@@ -1335,6 +1342,7 @@ class HighlightPipeline(
             showcase = base.showcase.copy(enabled = options.showcase ?: base.showcase.enabled),
             fastParts = base.fastParts.copy(enabled = options.fastParts ?: base.fastParts.enabled),
             reactions = options.reactions ?: base.reactions,
+            reactionMontage = if (options.reactionSpacing == false) base.reactionMontage.copy(spacing = Duration.ZERO) else base.reactionMontage,
             skipAbilityKills = options.skipAbilityKills ?: base.skipAbilityKills,
             audio = base.audio.copy(
                 balance = options.audioBalance ?: base.audio.balance,
@@ -1367,7 +1375,7 @@ class HighlightPipeline(
         feels.forEach { (file, r) -> if (r.source != FeelSource.DEFAULT) log.info { "Ressenti de ${file.fileName} : ${r.feel} (${r.source}${r.probability?.let { p -> ", %.2f".format(p) } ?: ""})" } }
         fun feelOf(file: Path) = feels[file]?.feel ?: MusicFeel.AUTO
         // Montage des réactions : les réactions au micro deviennent les ancres des plans, classées par leur force.
-        val reactions = if (settings.reactionMontage.enabled) findReactions(sessions, base, profile, progress.child(tr("progress.reactions"), 0.04)) else emptyList()
+        val reactions = if (settings.reactionMontage.enabled) findReactions(sessions, base.copy(reactionMontage = settings.reactionMontage), profile, progress.child(tr("progress.reactions"), 0.04)) else emptyList()
         val anchored = if (settings.reactionMontage.enabled) reactions.map { it.session } else sessions
         val picked = MontagePlanner.groups(anchored, settings).let { all -> options.onlyKills?.let { pick -> all.filter(pick::keeps) } ?: withoutAbilityKills(all, sessions, settings, options) }
             .let { if (settings.reactionMontage.enabled) Reactions.rescore(it, reactions) else it }

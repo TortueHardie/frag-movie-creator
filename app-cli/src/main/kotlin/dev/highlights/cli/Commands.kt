@@ -20,6 +20,7 @@ import com.github.ajalt.clikt.parameters.types.double
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.clikt.parameters.types.restrictTo
+import dev.highlights.core.model.CardAnimation
 import dev.highlights.core.model.AudioRole
 import dev.highlights.core.model.AudioTracks
 import dev.highlights.core.model.EditStyle
@@ -81,6 +82,12 @@ private fun PipelineCommand.introOption() = option(
     "--intro",
     help = "Cartes d'ouverture et de fin (logo, pseudo, fond : section intro du profil ou d'app.yaml) ; --no-intro : sans elles. Défaut : intro.enabled",
 ).nullableFlag("--no-intro")
+
+private fun PipelineCommand.introAnimationOption() = option(
+    "--intro-animation",
+    help = "Animation des cartes d'ouverture et de fin : rise (logo qui monte, pseudo qui « pop »), flash (flash blanc aux coupes), " +
+        "zoom (zoom lent du fond), none (rien d'animé). Défaut : intro.animation",
+).choice(*CardAnimation.entries.map { it.name.lowercase() to it }.toTypedArray())
 /** `--preset <id>` : préréglage d'export de `config/export-presets.yaml` (voir [presetNamed]). */
 internal fun PipelineCommand.presetOption() = option(
     "--preset",
@@ -127,6 +134,7 @@ class ProcessCommand : PipelineCommand("process") {
     private val style by styleOption()
     private val music by musicOption()
     private val intro by introOption()
+    private val introAnimation by introAnimationOption()
     private val out by option("-o", "--out", help = "Dossier de sortie").path(canBeFile = false)
     private val preset by presetOption()
     private val webcam by webcamOption()
@@ -142,7 +150,7 @@ class ProcessCommand : PipelineCommand("process") {
             val pipeline = Pipelines.create(env.config)
             val chosen = preset?.let { presetNamed(env.config, it) }
             val analyze = AnalyzeOptions(profile, threshold, target, requiredEvent = if (kills) "kill" else null, reuse = !reanalyze)
-            val export = ExportOptions(formats, out, style, music, platform, intro = intro, webcam = webcam, webcamOffset = webcamOffset)
+            val export = ExportOptions(formats, out, style, music, platform, intro = intro, introAnimation = introAnimation, webcam = webcam, webcamOffset = webcamOffset)
             try {
                 pipeline.processAll(
                     files,
@@ -193,6 +201,7 @@ class ExportCommand : PipelineCommand("export") {
     private val style by styleOption()
     private val music by musicOption()
     private val intro by introOption()
+    private val introAnimation by introAnimationOption()
     private val out by option("-o", "--out").path(canBeFile = false)
     private val thumbnail by thumbnailFlag()
     private val thumbnailStyle by thumbnailStyleOption()
@@ -219,7 +228,7 @@ class ExportCommand : PipelineCommand("export") {
 
     /** Options lues sur la ligne de commande, sans rien lancer (testées seules). */
     internal fun exportOptions(preset: ExportPreset? = null) =
-        ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail }, intro = intro, webcam = webcam, webcamOffset = webcamOffset).let { o -> preset?.let(o::withPreset) ?: o }
+        ExportOptions(formats, out, style, music, platform, thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail }, intro = intro, introAnimation = introAnimation, webcam = webcam, webcamOffset = webcamOffset).let { o -> preset?.let(o::withPreset) ?: o }
 }
 
 class MontageCommand : PipelineCommand("montage") {
@@ -277,9 +286,14 @@ class MontageCommand : PipelineCommand("montage") {
     ).flag()
     private val oneTaps by option("--onetaps", help = "Que les kills d'une balle à la tête, un plan très court chacun, enchaînés sur le rythme").flag()
     private val intro by introOption()
+    private val introAnimation by introAnimationOption()
     private val reactionMontage by option(
         "--reaction-montage",
         help = "Montage des réactions du joueur au micro (rires, cris, coups de gueule), quelle qu'en soit la cause : micro devant, sous-titres. Demande une piste micro séparée",
+    ).flag()
+    private val noReactionSpacing by option(
+        "--no-reaction-spacing",
+        help = "Montage des réactions : aucun écart minimal entre deux réactions (deux réactions proches peuvent faire deux plans)",
     ).flag()
     private val fails by option("--fails", help = "Montage des morts du joueur : les secondes d'avant, ralenti, image figée et petit texte (OUPS, RIP…), sur la musique").flag()
     private val style by option(
@@ -523,6 +537,7 @@ class MontageCommand : PipelineCommand("montage") {
         oneTaps = if (oneTaps) true else null,
         fails = if (fails) true else null,
         reactionMontage = if (reactionMontage) true else null,
+        reactionSpacing = if (noReactionSpacing) false else null,
         fast = if (fast) true else null,
         fastParts = if (noFastParts) false else null,
         style = style.takeIf { it != "none" },
@@ -531,6 +546,7 @@ class MontageCommand : PipelineCommand("montage") {
         webcamOffset = webcamOffset,
         thumbnail = thumbnailStyle ?: ThumbnailStyle.DEFAULT.takeIf { thumbnail },
         intro = intro,
+        introAnimation = introAnimation,
     )
         val presetted = preset?.let(options::withPreset) ?: options
         // --style passe devant le préréglage, qui passe devant le style par défaut ; « none » : aucun style du tout.

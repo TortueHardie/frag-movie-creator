@@ -115,7 +115,9 @@ object MontageRenderBuilder {
             args += listOf("-ss", Durations.ffmpegSecondsPrecise(input.start), "-t", sec(range.length), "-i", input.path.toString())
         }
         val musicInput = clips.size
-        args += listOf("-ss", sec(plan.musicStart), "-t", sec(total + plan.period), "-i", plan.music.file.toString())
+        // Carte de fin : la musique continue sous elle et s'y éteint, au lieu de finir en fondu avec la dernière image.
+        val outroMusic = IntroOutroCards.outroLength(CardRequest.of(request.edit, 0, 0))
+        args += listOf("-ss", sec(plan.musicStart), "-t", sec(total + outroMusic + plan.period), "-i", plan.music.file.toString())
         // Souffles fournis : une entrée par fichier servi, à la suite de la musique.
         val whooshCount = if (settings.whip.whoosh > 0) whips.count { it != null } else 0
         val whooshSources = request.whooshFiles.take(whooshCount).mapIndexed { j, file ->
@@ -148,9 +150,11 @@ object MontageRenderBuilder {
             val own = RenderCommandBuilder.outputSize(request.format, media, edit)
             // HUD recollé en 9:16 (bandeau, killfeed, bloc du bas) : empilé sous l'image, recollé fixe après zoom et
             // flous, sous couleurs, textes et compteur (HudPin). Seulement quand le plan a déjà la taille du montage.
-            val targets = if (own == w to h) RenderCommandBuilder.hudTargets(request.format, media, edit) else emptyList()
             val cam = if (own == w to h) sourceRange(clip, bleeds[i], leads[i]).let { WebcamLayout.input(args, request.webcams, media, it.start, it.length, edit, camBox) } else null
-            graph += RenderCommandBuilder.videoChain(i, media, request.format, edit, "g$i", pinHud = targets.isNotEmpty() || cam != null, webcam = cam)
+            // Capture sans webcam : le jeu reprend toute l'image (WebcamLayout.forClip) ; HUD et zoom suivent ce cadre.
+            val clipEdit = WebcamLayout.forClip(edit, cam)
+            val targets = if (own == w to h) RenderCommandBuilder.hudTargets(request.format, media, clipEdit) else emptyList()
+            graph += RenderCommandBuilder.videoChain(i, media, request.format, clipEdit, "g$i", pinHud = targets.isNotEmpty() || cam != null, webcam = cam)
             val sized = if (own == w to h) {
                 "g$i"
             } else {
@@ -206,7 +210,7 @@ object MontageRenderBuilder {
                 // Recadrage recentré à chaque image (voir ZoomCrop : `iw` resterait celui de la première image).
                 // Vers le réticule réel : le centre de la capture, qui n'est plus au centre du cadre si le 9:16 est décalé.
                 // Ou la hauteur choisie par le profil (vertical.zoomFocus) : VALORANT vise sous le réticule, l'icône du kill reste dans l'image.
-                val (fx, fy) = RenderCommandBuilder.zoomFocus(request.format, media, edit)
+                val (fx, fy) = RenderCommandBuilder.zoomFocus(request.format, media, clipEdit)
                 motion += ZoomCrop.filters(w, h, z, settings.zoom.scaleFlags, focusX = fx, focusY = fy)
             }
             // Flou de mouvement après le zoom : le punch-in traîne lui aussi ; avant textes et flash, qui restent nets.
@@ -214,13 +218,13 @@ object MontageRenderBuilder {
             // Flou par vecteurs : une traînée dans le sens où le décor glisse, de la longueur parcourue.
             val track = request.motion.getOrNull(i)
             if (track != null && settings.motionBlur.usesVectors) {
-                val pixelsPerWidth = (media.video?.width ?: w) * RenderCommandBuilder.pixelScale(request.format, media, edit)
+                val pixelsPerWidth = (media.video?.width ?: w) * RenderCommandBuilder.pixelScale(request.format, media, clipEdit)
                 motion += VectorBlur.filters("vb$i", VectorBlur.sigmas(clip, track, lead, frames, fps, pixelsPerWidth, w, settings.motionBlur, outKills), fps)
             }
             val effects = mutableListOf<String>()
             // Webcam sortie de la trame avant zoom, flous, flash et couleurs ; reposée sur la vidéo finie (WebcamLayout).
             val (game, camLabel) = WebcamLayout.detach(graph, base, cam, camBox, targets.sumOf { it.h }, w, h, "wd$i")
-            camBox?.let { WebcamLayout.finish(graph, camLabel, it, pre, frames, fps, "wc$i") }
+            camBox?.let { WebcamLayout.finish(graph, camLabel, it, pre, frames, fps, "wc$i", request.format, edit) }
             val start = HudPin.statements(game, pre, motion, targets, w, h, "hp$i")?.let { (lines, out) ->
                 graph += lines
                 out
@@ -365,8 +369,15 @@ object MontageRenderBuilder {
             val under = if (audio.game == GameAudio.KILLS) audio.musicUnderKill else audio.musicUnderVoice
             "${num(music)}-${num(music * (1 - under))}*($env)"
         }
-        graph += "[$musicInput:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo," +
-            "$GAIN_FRAMES,volume='$duck':eval=frame,afade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
+        val musicHead = "[$musicInput:a]asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo," +
+            "$GAIN_FRAMES,volume='$duck':eval=frame,"
+        graph += if (outroMusic.isPositive()) {
+            val whole = sec(total + outroMusic)
+            musicHead + "apad=whole_dur=$whole,atrim=duration=$whole,asplit=2[musicall][musicrest];" +
+                "[musicall]atrim=duration=${sec(total)}[music];[musicrest]atrim=start=${sec(total)},asetpts=PTS-STARTPTS[musicoutro]"
+        } else {
+            musicHead + "afade=t=out:st=${sec(fadeStart)}:d=${sec(fadeOut)},apad=whole_dur=${sec(total)},atrim=duration=${sec(total)}[music]"
+        }
         // Souffle sur chaque whip pan, son sommet sur la coupe (le milieu du raccord) : le mouvement s'entend autant
         // qu'il se voit. Il suit la musique dans `audio.balance` : un habillage, qui reste sous elle quel que soit le réglage.
         val whooshes = if (settings.whip.whoosh > 0) {
@@ -377,7 +388,7 @@ object MontageRenderBuilder {
         val sfx = StoryRenderBuilder.placeSfx(graph, "wh", whooshes, settings.whip.whoosh * audio.musicGain, whooshSources, StoryRenderBuilder.WHOOSH_LENGTH)
         val mix = listOf("[game]", "[music]") + sfx
         graph += mix.joinToString("") + "amix=inputs=${mix.size}:normalize=0:duration=first[amontage]"
-        val cards = cards(args, graph, plan, request.edit, w, h, music)
+        val cards = cards(args, graph, plan, request.edit, w, h, music, "musicoutro".takeIf { outroMusic.isPositive() })
         graph += "[${cards.video}]format=yuv420p[vout]"
         graph += "[${cards.audio}]loudnorm=I=${num(audio.loudnessLufs)}:TP=-1.5:LRA=11,aresample=48000[aout]"
 
@@ -396,7 +407,9 @@ object MontageRenderBuilder {
      * temps et joue l'amorce de la musique, au volume qu'elle a dans le montage ; la vidéo et le son reculent ensemble
      * d'autant, chaque kill reste sur son temps. Fonds floutés : le meilleur groupe en ouverture, le dernier plan en fin.
      */
-    private fun cards(args: MutableList<String>, graph: MutableList<String>, plan: MontagePlan, edit: EditSettings, w: Int, h: Int, music: Double): IntroOutroCards.Appended {
+    private fun cards(
+        args: MutableList<String>, graph: MutableList<String>, plan: MontagePlan, edit: EditSettings, w: Int, h: Int, music: Double, outroMusic: String?,
+    ): IntroOutroCards.Appended {
         val intro = edit.intro ?: return IntroOutroCards.append(args, graph, "vmontage", "amontage", null)
         fun still(clip: MontageClip) = CardStill(clip.group.media.path, clip.group.kills.firstOrNull() ?: clip.start)
         val best = plan.clips.filterNot { it.showcase }.maxByOrNull { it.group.rank } ?: plan.clips.first()
@@ -407,7 +420,7 @@ object MontageRenderBuilder {
             leadIn = MusicLeadIn(plan.music.file, plan.musicStart, music),
             introLength = IntroOutroCards.beatLength(intro.introLength, plan.period),
         )
-        return IntroOutroCards.append(args, graph, "vmontage", "amontage", request)
+        return IntroOutroCards.append(args, graph, "vmontage", "amontage", request, outroMusic)
     }
 
     /** Extraits lus par le rendu de [plan] : ce que [SourceCutter] doit pré-découper. */

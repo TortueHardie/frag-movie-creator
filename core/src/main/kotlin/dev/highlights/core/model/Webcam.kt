@@ -34,8 +34,16 @@ data class WebcamSettings(
     val aspect: Double = 16.0 / 9.0,
     /** Partie de l'image de la webcam à garder (coordonnées 0..1), ex. le visage ; null = l'image entière, recadrée au centre. */
     val crop: CropRegion? = null,
-    /** Liseré autour de l'incrustation du coin, sous le bandeau du 9:16 (pixels de sortie ; 0 = aucun). */
-    val border: Int = 0,
+    /**
+     * Liseré autour de l'incrustation du coin, sous le bandeau du 9:16 (pixels de sortie ; 0 = aucun). Actif par défaut :
+     * choix du joueur (20/11), il détache le visage du jeu.
+     */
+    val border: Int = 4,
+    /**
+     * Rayon des coins arrondis de l'incrustation du coin (16:9, format source), en part de sa hauteur ; 0 = coins droits.
+     * Le bandeau du 9:16 reste droit : il touche les bords de l'image.
+     */
+    val radius: Double = 0.12,
     /** Couleur du liseré (nom ou #RRGGBB, comme FFmpeg). */
     val borderColor: String = "white",
     /** Décalage ajouté à la synchronisation : positif si la webcam est en retard sur le jeu (le clap s'y entend plus tard). */
@@ -49,6 +57,7 @@ data class WebcamSettings(
         require(margin in 0.0..0.1) { "webcam.margin doit être entre 0 et 0,1" }
         require(aspect in 0.5..3.0) { "webcam.aspect doit être entre 0,5 et 3" }
         require(border in 0..20) { "webcam.border doit être entre 0 et 20 px" }
+        require(radius in 0.0..0.5) { "webcam.radius doit être entre 0 et 0,5" }
     }
 
     /** Hauteur du bandeau en pixels pour une image haute de [height] (paire), 0 hors 9:16 ou webcam éteinte. */

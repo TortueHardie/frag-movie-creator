@@ -126,6 +126,8 @@ class CommandOptionsTest : FunSpec({
     test("montage des morts : --fails, rien par défaut") {
         parse(MontageCommand(), "montage", session.toString(), "-m", music.toString()) { it.montageOptions().fails } shouldBe null
         parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--fails") { it.montageOptions().fails } shouldBe true
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString()) { it.montageOptions().reactionSpacing } shouldBe null
+        parse(MontageCommand(), "montage", session.toString(), "-m", music.toString(), "--reaction-montage", "--no-reaction-spacing") { it.montageOptions().reactionSpacing } shouldBe false
     }
 
     test("montage : --colors boost allume les couleurs vives") {
