@@ -91,6 +91,8 @@ selection:
   target: { totalDuration: 60s }
 
 edit:
+  # Webcam en incrustation (16:9, format source) : coin libre du HUD ; mini-carte en haut à droite, vie en bas à gauche, inventaire en bas à droite : le haut gauche n'a que les quêtes.
+  webcam: { corner: top-left }
   style: story
   story:
     scenes: { gap: 10s, maxLength: 30s }

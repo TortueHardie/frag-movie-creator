@@ -162,14 +162,89 @@ object WebcamLayout {
         frames: Int,
         fps: Int,
         out: String,
+        format: OutputFormat,
+        settings: EditSettings,
     ) {
         val tail = "trim=end_frame=$frames,setpts=N/($fps*TB),setsar=1,format=yuva420p,settb=AVTB[$out]"
-        graph += if (cam == null) {
-            "color=c=black@0.0:s=${box.w}x${box.h}:r=$fps,format=yuva420p,$tail"
-        } else {
-            "[$cam]" + (pre + "tpad=stop_mode=clone:stop=-1" + "setpts=PTS-STARTPTS").joinToString(",") + ",$tail"
+        if (cam == null) {
+            graph += "color=c=black@0.0:s=${box.w}x${box.h}:r=$fps,format=yuva420p,$tail"
+            return
         }
+        val timed = "[$cam]" + (pre + "tpad=stop_mode=clone:stop=-1" + "setpts=PTS-STARTPTS").joinToString(",") +
+            ",trim=end_frame=$frames,setpts=N/($fps*TB),setsar=1"
+        if (radius(box, format, settings) == 0) {
+            graph += "$timed,format=yuva420p,settb=AVTB[$out]"
+            return
+        }
+        // Même base de temps que les masques (1/fps, horodatages entiers) : avec celle du plan (AVTB), arrondie à la
+        // microseconde, la synchronisation des masques perdait une image par plan (montage 16:9 : 1370 images sur 1375).
+        graph += "$timed,settb=1/$fps,setpts=N,format=yuv420p[${out}r]"
+        val rounded = round(graph, "${out}r", box, format, settings, fps, out, frames)
+        graph += "[$rounded]format=yuva420p,settb=AVTB[$out]"
     }
+
+    /**
+     * Rayon des coins arrondis en pixels pour l'emplacement [box] ; 0 : coins droits (bandeau du 9:16, rayon réglé à 0,
+     * incrustation trop petite).
+     */
+    fun radius(box: RenderCommandBuilder.CropBox, format: OutputFormat, settings: EditSettings): Int {
+        if (format == OutputFormat.VERTICAL || settings.webcam.radius <= 0.0) return 0
+        return (settings.webcam.radius * box.h).roundToInt().coerceAtMost(minOf(box.w, box.h) / 2)
+    }
+
+    /**
+     * Arrondit les coins de l'image [label] (yuv420p, taille de [box], liseré déjà posé par [piece]) : l'extérieur de
+     * l'arrondi devient transparent, et le liseré suit la courbe (sans cela, l'image de la webcam dépassait du liseré
+     * dans chaque coin). Les deux masques sont calculés une seule fois puis répétés (`loop`) : un `geq` sur chaque image
+     * coûtait 1,1 s de rendu par seconde de vidéo à 60 img/s (mesuré le 20/11 sur une incrustation 460x260), le masque
+     * répété 0,03 s. [frames] : longueur exacte de [label] (plan empilé du story et du montage) ; masques et aplat du
+     * liseré s'arrêtent alors avec lui. Laissés sans fin, ils faisaient perdre des images à la webcam dans le vrai graphe
+     * du montage (16:9 de 12 s : 10 s de webcam, la vidéo coupée d'autant par `overlay` ; vu le 20/11). null : [label]
+     * est sans fin et le filtre qui le consomme s'arrête avec le jeu (rendu simple, `overlay` shortest).
+     * Renvoie le label de l'image arrondie (yuva420p), ou [label] si les coins restent droits.
+     */
+    fun round(
+        graph: MutableList<String>,
+        label: String,
+        box: RenderCommandBuilder.CropBox,
+        format: OutputFormat,
+        settings: EditSettings,
+        fps: Int,
+        prefix: String,
+        frames: Int? = null,
+    ): String {
+        val r = radius(box, format, settings)
+        if (r == 0) return label
+        val b = settings.webcam.border.coerceAtMost(r)
+        val (w, h) = box.w to box.h
+        // Distance au rectangle arrondi (en pixels de luminance : X/SW sur les plans de chrominance), signe : dehors > 0.
+        val d = "hypot(max(abs(X/SW+0.5-${w / 2.0})-${w / 2.0 - r}\\,0)\\,max(abs(Y/SH+0.5-${h / 2.0})-${h / 2.0 - r}\\,0))"
+        val outside = "255*clip(0.5-$d+$r\\,0\\,1)"
+        val frame = "color=c=black:s=${w}x$h:r=$fps:d=1,trim=end_frame=1"
+        val end = frames?.let { ",trim=end_frame=$it" } ?: ""
+        val repeat = "loop=loop=-1:size=1,setpts=N/($fps*TB)$end"
+        graph += "$frame,format=gray,geq=lum='$outside',$repeat[${prefix}mo]"
+        val inner = if (b > 0) {
+            // Liseré arrondi : dans l'anneau entre l'arrondi intérieur (rayon r − b) et le bord, la couleur du liseré.
+            val ring = "255*clip(0.5+$d-${r - b}\\,0\\,1)"
+            val color = settings.webcam.borderColor.replace(":", "\\:")
+            graph += "$frame,format=yuv420p,geq=lum='$ring':cb='$ring':cr='$ring',$repeat[${prefix}mi]"
+            graph += "color=c=$color:s=${w}x$h:r=$fps,format=yuv420p$end[${prefix}pl]"
+            graph += "[$label][${prefix}pl][${prefix}mi]maskedmerge[${prefix}mm]"
+            "${prefix}mm"
+        } else {
+            label
+        }
+        graph += "[$inner][${prefix}mo]alphamerge[${prefix}rd]"
+        return "${prefix}rd"
+    }
+
+    /**
+     * Réglages d'un plan : sans webcam ([cam] null, la capture n'en a pas), le jeu reprend toute l'image (pas de bandeau
+     * vide en 9:16 ; choix du joueur, 20/11). L'emplacement de la webcam reste transparent sur ce plan.
+     */
+    fun forClip(settings: EditSettings, cam: Input?): EditSettings =
+        if (cam != null || !settings.webcam.enabled) settings else settings.copy(webcam = settings.webcam.copy(enabled = false))
 
     /**
      * Pose les webcams des plans ([pieces], une par plan, dans l'ordre) sur la vidéo concaténée [video]. Renvoie le
