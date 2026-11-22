@@ -393,7 +393,7 @@ class UiSnapshotTest : FunSpec({
         render("05_erreur", state).fileSize() shouldBeGreaterThan 0L
     }
 
-    test("premier lancement : enregistreurs trouvés, conseils, rien trouvé") {
+    test("premier lancement : les quatre étapes, rien trouvé, recherche") {
         val at = Instant.parse("2026-11-20T21:40:00Z")
         fun videos(folder: String, count: Int) = List(count) { i -> FoundVideo(Path("$folder/VALORANT/VALORANT 11-20-2026_21-${10 + i}-00.mp4"), at.minusSeconds(1800L * i)) }
         val outplayed = SetupRecorder(
@@ -407,10 +407,12 @@ class UiSnapshotTest : FunSpec({
             firstPick = outplayed.videos.take(4).reversed().map { it.path },
         )
         val state = UiState(config = ready, setup = setup)
-        render("30_premier_lancement", state).fileSize() shouldBeGreaterThan 0L
-        render("31_premier_lancement_conseils", state.copy(setup = setup.copy(page = SetupPage.TIPS))).fileSize() shouldBeGreaterThan 0L
+        render("30_premier_lancement_1_enregistreur", state).fileSize() shouldBeGreaterThan 0L
+        render("31_premier_lancement_2_jeux", state.copy(setup = setup.copy(step = SetupStep.GAMES))).fileSize() shouldBeGreaterThan 0L
+        render("31_premier_lancement_3_langue", state.copy(setup = setup.copy(step = SetupStep.LANGUAGE))).fileSize() shouldBeGreaterThan 0L
+        render("31_premier_lancement_4_montage", state.copy(setup = setup.copy(step = SetupStep.FIRST))).fileSize() shouldBeGreaterThan 0L
         render("32_premier_lancement_vide", state.copy(setup = SetupUiState(loading = false))).fileSize() shouldBeGreaterThan 0L
-        render("33_premier_lancement_sans_video", state.copy(setup = setup.copy(folder = nvidia.folder, firstPick = emptyList(), watch = false))).fileSize() shouldBeGreaterThan 0L
+        render("33_premier_lancement_sans_video", state.copy(setup = setup.copy(folder = nvidia.folder, firstPick = emptyList(), watch = false, step = SetupStep.FIRST))).fileSize() shouldBeGreaterThan 0L
         render("34_premier_lancement_recherche", state.copy(setup = SetupUiState())).fileSize() shouldBeGreaterThan 0L
     }
 })

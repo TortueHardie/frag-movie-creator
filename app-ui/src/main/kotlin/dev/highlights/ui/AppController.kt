@@ -295,7 +295,8 @@ interface UiActions {
     fun chooseSetupFolder(folder: Path) {}
     fun chooseOtherSetupFolder() {}
     fun setSetupWatch(watch: Boolean) {}
-    fun setSetupPage(page: SetupPage) {}
+    fun setSetupStep(step: SetupStep) {}
+    fun chooseSetupGame(profileId: String) {}
     fun startFirstMontage() {}
     fun openRecorderSite(kind: RecorderKind) {}
     fun chooseSetupVideo() {}
@@ -1777,7 +1778,8 @@ class AppController(
     override fun chooseSetupFolder(folder: Path) = firstRun.chooseFolder(folder)
     override fun chooseOtherSetupFolder() = firstRun.chooseOtherFolder()
     override fun setSetupWatch(watch: Boolean) = firstRun.setWatch(watch)
-    override fun setSetupPage(page: SetupPage) = firstRun.setPage(page)
+    override fun setSetupStep(step: SetupStep) = firstRun.setStep(step)
+    override fun chooseSetupGame(profileId: String) = firstRun.chooseGame(profileId)
     override fun startFirstMontage() = firstRun.startFirstMontage()
     override fun openRecorderSite(kind: RecorderKind) = firstRun.openSite(kind)
     override fun chooseSetupVideo() = firstRun.chooseVideo(::chooseSource)

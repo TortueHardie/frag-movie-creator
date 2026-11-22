@@ -64,10 +64,14 @@ data class SetupRecorder(
     val latest: Instant? get() = videos.firstOrNull()?.modified
 }
 
-enum class SetupPage { WELCOME, TIPS }
+/**
+ * Étapes de l'assistant de premier lancement, dans l'ordre (choix du joueur, 22/11 : pas à pas plutôt qu'un seul écran ;
+ * les conseils de réglage vont dans l'étape de l'enregistreur).
+ */
+enum class SetupStep { RECORDER, GAMES, LANGUAGE, FIRST }
 
 /**
- * Écran de premier lancement ([FirstRunView]). [folder] : dossier choisi (celui d'un enregistreur trouvé ou un autre),
+ * Assistant de premier lancement ([FirstRunView]). [folder] : dossier choisi (celui d'un enregistreur trouvé ou un autre),
  * [watch] : le surveiller ensuite, [firstRun] : montré de lui-même au lancement (false : rouvert depuis le menu « ? »).
  */
 data class SetupUiState(
@@ -77,37 +81,48 @@ data class SetupUiState(
     /** Dossier choisi à la main (pas celui d'un enregistreur trouvé), et ses vidéos. */
     val other: SetupRecorder? = null,
     val watch: Boolean = true,
-    val page: SetupPage = SetupPage.WELCOME,
+    val step: SetupStep = SetupStep.RECORDER,
+    /** Jeu du premier montage choisi à l'étape des jeux (id de profil) ; null : le plus joué du dossier. */
+    val game: String? = null,
     val firstRun: Boolean = true,
-    /** Vidéos que « Faire mon premier montage » analysera (soirée la plus récente du dossier choisi). */
+    /** Vidéos que « Faire mon premier montage » analysera (dernière soirée du jeu le plus joué du dossier choisi). */
     val firstPick: List<Path> = emptyList(),
 ) {
     val chosen: SetupRecorder? get() = recorders.firstOrNull { it.folder == folder } ?: other?.takeIf { it.folder == folder }
     val canStart: Boolean get() = !loading && firstPick.isNotEmpty()
+    /** Jeu du premier montage : celui choisi, sinon le plus joué du dossier (premier de [SetupRecorder.games]). */
+    val montageGame: SetupGame? get() = chosen?.games?.let { games -> games.firstOrNull { it.profileId == game } ?: games.firstOrNull() }
+
     /** Rien trouvé du tout : ni enregistreur, ni dossier choisi à la main. */
     val empty: Boolean get() = !loading && recorders.isEmpty() && other == null
 }
 
 /**
- * Choix des parties du premier montage : la soirée la plus récente (vidéos à moins de [GAP] l'une de l'autre), d'un
- * jeu reconnu de préférence (un profil sait où sont les kills), [MAX] parties au plus, dans l'ordre où elles ont été
- * jouées. Une capture encore en cours d'écriture (modifiée il y a moins de [SETTLE]) est laissée de côté.
+ * Choix des parties du premier montage : le jeu le plus joué du dossier (choix du joueur, 22/11 : la vidéo la plus
+ * récente était une vidéo YouTube téléchargée), un jeu reconnu de préférence (un profil sait où sont les kills), puis sa
+ * soirée la plus récente (vidéos à moins de [GAP] l'une de l'autre), [MAX] parties au plus, dans l'ordre où elles ont
+ * été jouées. Une capture encore en cours d'écriture (modifiée il y a moins de [SETTLE]) est laissée de côté.
  */
 object FirstMontage {
     val GAP: Duration = Duration.ofHours(3)
     val SETTLE: Duration = Duration.ofSeconds(30)
     const val MAX = 5
 
-    fun pick(videos: List<FoundVideo>, profileOf: (Path) -> String, now: Instant): List<Path> {
+    /** Jeu le plus joué (le plus de vidéos), un jeu reconnu avant « autre jeu » ; à égalité, le plus récent. */
+    fun mostPlayed(videos: List<FoundVideo>, profileOf: (Path) -> String): String? {
+        val byGame = videos.groupBy { profileOf(it.path) }
+        val known = byGame.filterKeys { it != ProfileRepository.DEFAULT_ID }.ifEmpty { byGame }
+        return known.entries.maxWithOrNull(compareBy<Map.Entry<String, List<FoundVideo>>> { it.value.size }.thenBy { e -> e.value.maxOf { it.modified } })?.key
+    }
+
+    /** [game] : jeu imposé (id de profil), sinon [mostPlayed]. */
+    fun pick(videos: List<FoundVideo>, profileOf: (Path) -> String, now: Instant, game: String? = null): List<Path> {
         val ready = videos.filter { it.modified.plus(SETTLE).isBefore(now) }.sortedByDescending { it.modified }
-        val known = ready.filter { profileOf(it.path) != ProfileRepository.DEFAULT_ID }
-        val pool = known.ifEmpty { ready }
-        val newest = pool.firstOrNull() ?: return emptyList()
-        val game = profileOf(newest.path)
-        val evening = mutableListOf(newest)
+        val target = game?.takeIf { g -> ready.any { profileOf(it.path) == g } } ?: mostPlayed(ready, profileOf) ?: return emptyList()
+        val pool = ready.filter { profileOf(it.path) == target }
+        val evening = mutableListOf(pool.first())
         for (v in pool.drop(1)) {
             if (evening.size >= MAX) break
-            if (profileOf(v.path) != game) continue
             if (Duration.between(v.modified, evening.last().modified) > GAP) break
             evening.add(v)
         }
@@ -165,19 +180,23 @@ internal class FirstRunController(
         val p = pipeline()
         val games = videos.groupingBy { p?.resolveProfile(it.path)?.id ?: ProfileRepository.DEFAULT_ID }.eachCount()
             .map { (id, count) -> SetupGame(id, runCatching { p!!.profiles.byId(id).name }.getOrDefault(id), count) }
-            // Jeux reconnus d'abord, le plus joué en tête ; « autre jeu » en dernier.
+            // Jeux reconnus d'abord, le plus joué en tête (celui du premier montage, comme FirstMontage.mostPlayed) ; « autre jeu » en dernier.
             .sortedWith(compareBy<SetupGame> { it.profileId == ProfileRepository.DEFAULT_ID }.thenByDescending { it.count })
         return SetupRecorder(kind, folder, videos, games, separateMic, fromSettings)
     }
 
-    private fun SetupUiState.choose(folder: Path?): SetupUiState {
-        val next = copy(folder = folder)
-        val videos = next.chosen?.videos.orEmpty()
+    /** Dossier choisi : le jeu du premier montage repart du plus joué de ce dossier. */
+    private fun SetupUiState.choose(folder: Path?): SetupUiState = copy(folder = folder, game = null).repick()
+
+    private fun SetupUiState.repick(): SetupUiState {
+        val videos = chosen?.videos.orEmpty()
         val p = pipeline()
-        return next.copy(firstPick = FirstMontage.pick(videos, { p?.resolveProfile(it)?.id ?: ProfileRepository.DEFAULT_ID }, clock()))
+        return copy(firstPick = FirstMontage.pick(videos, { p?.resolveProfile(it)?.id ?: ProfileRepository.DEFAULT_ID }, clock(), game))
     }
 
     fun chooseFolder(folder: Path) = edit { it.choose(folder) }
+
+    fun chooseGame(profileId: String) = edit { it.copy(game = profileId).repick() }
 
     fun chooseOtherFolder() {
         val dir = platform.chooseDirectory(state.value.setup?.folder, dev.highlights.core.i18n.tr("ui.dialog.watchFolder")) ?: return
@@ -195,7 +214,7 @@ internal class FirstRunController(
 
     fun setWatch(watch: Boolean) = edit { it.copy(watch = watch) }
 
-    fun setPage(page: SetupPage) = edit { it.copy(page = page) }
+    fun setStep(step: SetupStep) = edit { it.copy(step = step) }
 
     /** Ferme l'écran ; le dossier choisi est surveillé si la case est cochée. */
     fun finish() {

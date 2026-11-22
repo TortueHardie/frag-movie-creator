@@ -201,7 +201,7 @@ class RecorderDetector(private val env: RecorderEnvironment = RecorderEnvironmen
 
     /**
      * FTHR Clips (libre) : `~/.fthr/settings.json` (FTHR_UI/core/settings_manager.py), clés `clips_directory`
-     * (`~/FTHR_Clips` par défaut) et `recording_directory` (`<clips>/Recordings`) ; `audio_capture_mode` vaut
+     * (`~/FTHR_Clips` par défaut) et `recording_directory` (`<clips>/Recordings`, le dossier proposé) ; `audio_capture_mode` vaut
      * `separated` quand le micro est sur sa propre piste (`combined` par défaut).
      */
     internal fun fthr(): DetectedRecorder? {
@@ -214,8 +214,10 @@ class RecorderDetector(private val env: RecorderEnvironment = RecorderEnvironmen
         val clips = text("clips_directory")?.let(Path::of) ?: env.home.resolve("FTHR_Clips")
         val recordings = text("recording_directory")?.let(Path::of) ?: clips.resolve("Recordings")
         val separate = settings?.let { text("audio_capture_mode") == "separated" }
-        // Les enregistrements longs (parties entières) d'abord : c'est d'eux qu'on tire les meilleurs moments.
-        val folders = if (recordings.startsWith(clips)) listOf(clips) else listOf(recordings, clips)
+        // Les enregistrements longs (parties entières) d'abord : c'est d'eux qu'on tire les meilleurs moments. FTHR les
+        // écrit dans `Recordings` (`FTHR_recording_<yyyy-MM-dd_HH-mm-ss>.mp4`, vu chez le joueur le 22/11) : le dossier
+        // proposé et compté est celui-là, même s'il est dans le dossier des clips.
+        val folders = listOf(recordings, clips).distinct()
         return DetectedRecorder(RecorderKind.FTHR, folders, separate, fromSettings = settings != null)
     }
 

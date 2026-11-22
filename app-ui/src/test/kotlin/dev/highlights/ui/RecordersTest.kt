@@ -119,7 +119,8 @@ class RecordersTest : FunSpec({
         val env = RecorderEnvironment.fake(root)
         val settings = env.home.resolve(".fthr/settings.json").write("""{"clips_directory": "H:\\Clips", "audio_capture_mode": "separated"}""")
         RecorderDetector(env).fthr()!!.let {
-            it.folders shouldBe listOf(Path.of("H:\\Clips"))
+            // Le dossier des enregistrements (FTHR_recording_*.mp4), même dans celui des clips.
+            it.folders shouldBe listOf(Path.of("H:\\Clips\\Recordings"), Path.of("H:\\Clips"))
             it.separateMic shouldBe true
         }
         settings.writeText("""{"clips_directory": "H:\\Clips", "recording_directory": "I:\\Rec"}""")
@@ -129,7 +130,7 @@ class RecordersTest : FunSpec({
         }
         settings.writeText("illisible")
         RecorderDetector(env).fthr()!!.let {
-            it.folder shouldBe env.home.resolve("FTHR_Clips")
+            it.folder shouldBe env.home.resolve("FTHR_Clips/Recordings")
             it.separateMic.shouldBeNull()
         }
     }
@@ -161,7 +162,7 @@ class RecordersTest : FunSpec({
         RecordingScan.videos(root.resolve("absent")).shouldBeEmpty()
     }
 
-    test("premier montage : dernière soirée d'un jeu reconnu, 5 parties au plus, dans l'ordre joué") {
+    test("premier montage : dernière soirée du jeu reconnu le plus joué, 5 parties au plus, dans l'ordre joué") {
         val now = Instant.parse("2026-11-21T12:00:00Z")
         fun v(name: String, at: String) = FoundVideo(Path.of(name), Instant.parse(at))
         val profileOf = { p: Path -> if (p.toString().startsWith("VAL")) "valorant" else ProfileRepository.DEFAULT_ID }
@@ -181,6 +182,18 @@ class RecordersTest : FunSpec({
         // Aucun jeu reconnu : les vidéos telles quelles ; une capture qui s'écrit encore est laissée.
         FirstMontage.pick(listOf(v("x.mp4", "2026-11-21T11:59:50Z"), v("y.mp4", "2026-11-21T11:00:00Z")), profileOf, now).map { it.toString() } shouldBe listOf("y.mp4")
         FirstMontage.pick(emptyList(), profileOf, now).shouldBeEmpty()
+        // Le jeu le plus joué, pas la vidéo la plus récente ; un jeu choisi à la main passe devant.
+        val games = { p: Path -> p.toString().substringBefore('-') }
+        val mixed = listOf(
+            v("fortnite-1.mp4", "2026-11-21T10:00:00Z"),
+            v("valorant-3.mp4", "2026-11-20T22:00:00Z"),
+            v("valorant-2.mp4", "2026-11-20T21:30:00Z"),
+            v("valorant-1.mp4", "2026-11-19T21:00:00Z"),
+        )
+        FirstMontage.mostPlayed(mixed, games) shouldBe "valorant"
+        FirstMontage.pick(mixed, games, now).map { it.toString() } shouldBe listOf("valorant-2.mp4", "valorant-3.mp4")
+        FirstMontage.pick(mixed, games, now, game = "fortnite").map { it.toString() } shouldBe listOf("fortnite-1.mp4")
+        FirstMontage.pick(mixed, games, now, game = "absent").map { it.toString() } shouldBe listOf("valorant-2.mp4", "valorant-3.mp4")
     }
 
     test("contrôleur : écran rouvert depuis le menu, dossier proposé = vidéo la plus récente, Plus tard surveille et retient") {
@@ -216,9 +229,9 @@ class RecordersTest : FunSpec({
             shown.chosen!!.videos.size shouldBe 1
             shown.watch shouldBe true
 
-            controller.setSetupPage(SetupPage.TIPS)
-            controller.state.value.setup!!.page shouldBe SetupPage.TIPS
-            controller.setSetupPage(SetupPage.WELCOME)
+            controller.setSetupStep(SetupStep.LANGUAGE)
+            controller.state.value.setup!!.step shouldBe SetupStep.LANGUAGE
+            controller.setSetupStep(SetupStep.RECORDER)
             controller.openRecorderSite(RecorderKind.OBS)
 
             // Un autre dossier, choisi à la main.
