@@ -875,7 +875,7 @@ Highlights les traite comme une soirée de jeu :
   Outplayed) en est un morceau : la partie seule compte.
 - **Montage et récap de soirée** : ils prennent les clips comme les parties. Le récap montre une séance de clips sous un
   seul carton (« CLIPS – 18 KILLS », le jeu et les heures de début et de fin), sans repasser un moment déjà montré par
-  le clip précédent.
+  le clip précédent. Si la meilleure de la soirée est une séance de clips, l'écran de fin dit « meilleure séance ».
 
 ## Statistiques par soirée
 

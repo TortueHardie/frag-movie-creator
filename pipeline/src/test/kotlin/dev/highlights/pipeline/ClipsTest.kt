@@ -126,4 +126,23 @@ class ClipsTest : FunSpec({
         PlaySessions.of(listOf(g("2026-11-22T21:05:00Z", true), g("2026-11-22T21:30:00Z", true))) shouldHaveSize 1
         PlaySessions.of(listOf(g("2026-11-22T21:05:00Z", true), g("2026-11-22T22:30:00Z", true))) shouldHaveSize 2
     }
+
+    test("récap : « meilleure séance » quand la meilleure est une séance de clips, « meilleure partie » sinon") {
+        fun g(at: String, clip: Boolean, kills: Int) = GameStats(
+            Path("${at.replace(':', '-')}.json"), Path("${at.replace(':', '-')}.mp4"), "valorant", "VALORANT", Instant.parse(at), if (clip) 1.minutes else 40.minutes,
+            kills, null, null, emptyMap(), 0, 0, null, null, clip = clip,
+        )
+        fun evening(games: List<GameStats>) = Evening(
+            java.time.LocalDate.of(2026, 11, 22), "VALORANT", "valorant", games.map { it.sessionFile }, games.map { it.source }, games.sumOf { it.kills }, Instant.parse("2026-11-22T23:00:00Z"), games,
+        )
+        val game = g("2026-11-22T19:00:00Z", false, 5)
+        val clips = listOf(g("2026-11-22T21:00:00Z", true, 4), g("2026-11-22T21:05:00Z", true, 3))
+        dev.highlights.core.i18n.I18n.withLanguage("fr") {
+            RecapText.endSubtitle(evening(listOf(game) + clips)) shouldBe "12 kills · meilleure séance : n°2 (7)"
+            RecapText.endSubtitle(evening(listOf(game.copy(kills = 9)) + clips)) shouldBe "16 kills · meilleure partie : n°1 (9)"
+        }
+        dev.highlights.core.i18n.I18n.withLanguage("en") {
+            RecapText.endSubtitle(evening(listOf(game) + clips)) shouldBe "12 kills · best session: #2 (7)"
+        }
+    }
 })

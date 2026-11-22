@@ -71,12 +71,14 @@ object RecapText {
 
     /**
      * « 47 kills · meilleure partie : n°3 (14 kills) » ; la meilleure : le plus de kills, la première à égalité. Les
-     * numéros sont ceux des séances ([Evening.parts]) ; une soirée d'une seule séance de clips dit ses kills seuls.
+     * numéros sont ceux des séances ([Evening.parts]) ; une soirée d'une seule séance de clips dit ses kills seuls, une
+     * séance de clips la meilleure dit « meilleure séance » (choix du joueur, 22/11).
      */
     fun endSubtitle(evening: Evening): String {
         val parts = evening.parts
         val best = parts.indices.maxByOrNull { parts[it].kills }
         if (best == null || (parts.size == 1 && parts[0].clips)) return tr("video.recap.endKills", "count" to evening.kills)
-        return tr("video.recap.endStats", "count" to evening.kills, "number" to best + 1, "best" to parts[best].kills)
+        val key = if (parts[best].clips) "video.recap.endStatsSession" else "video.recap.endStats"
+        return tr(key, "count" to evening.kills, "number" to best + 1, "best" to parts[best].kills)
     }
 }
