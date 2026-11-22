@@ -33,6 +33,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.testTag
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -120,7 +123,7 @@ data class LaidKill(val key: String, val at: Duration)
  * Ce qu'on fait glisser dans l'éditeur : un kill placé ([KILL]), un kill de la liste ([NEW]), la drop ([DROP]), un
  * repère de l'étape 1 ([MARK], clé : son numéro), un bord de la vitrine ([SHOWCASE_START], [SHOWCASE_END]).
  */
-enum class EditorDragKind { KILL, NEW, DROP, MARK, SHOWCASE_START, SHOWCASE_END }
+enum class EditorDragKind { KILL, NEW, DROP, MARK, SHOWCASE_START, SHOWCASE_END, SHOWCASE_MOVE }
 
 /** Ce qu'un double-clic pose à l'étape 1 : un repère d'une sorte ([IntentKind]) ou la vitrine. */
 enum class EditorTool(val kind: IntentKind?) { KILL(IntentKind.KILL), MULTI(IntentKind.MULTI), CUT(IntentKind.CUT), SLOW(IntentKind.SLOW), TRANSITION(IntentKind.TRANSITION), SHOWCASE(null) }
@@ -408,10 +411,10 @@ internal class MusicEditorController(
     fun drag(kind: EditorDragKind, key: String?, seconds: Double, free: Boolean, over: Boolean = true) {
         val e = editor ?: return
         // Étape 1 : repères et vitrine ; étape 2 : un kill sur un repère (échanger, déplacer) ; la drop aux deux.
-        if (e.step == EditorStep.CLIPS && kind in setOf(EditorDragKind.MARK, EditorDragKind.SHOWCASE_START, EditorDragKind.SHOWCASE_END)) return
+        if (e.step == EditorStep.CLIPS && kind in setOf(EditorDragKind.MARK, EditorDragKind.SHOWCASE_START, EditorDragKind.SHOWCASE_END, EditorDragKind.SHOWCASE_MOVE)) return
         if (e.step == EditorStep.KILLS && (kind == EditorDragKind.KILL || kind == EditorDragKind.NEW)) return
         val raw = (seconds * 1000).toLong().milliseconds.coerceIn(Duration.ZERO, e.duration.takeIf { it.isPositive() } ?: Duration.INFINITE)
-        val (at, snap) = if (kind == EditorDragKind.DROP || kind == EditorDragKind.SHOWCASE_START || kind == EditorDragKind.SHOWCASE_END) snapBeat(e, raw, free) else snap(e, raw, free)
+        val (at, snap) = if (kind == EditorDragKind.DROP || kind == EditorDragKind.SHOWCASE_START || kind == EditorDragKind.SHOWCASE_END || kind == EditorDragKind.SHOWCASE_MOVE) snapBeat(e, raw, free) else snap(e, raw, free)
         update { it.copy(drag = EditorDrag(kind, key, at, snap, over)) }
     }
 
@@ -440,6 +443,14 @@ internal class MusicEditorController(
                 val next = if (d.kind == EditorDragKind.SHOWCASE_START) r.copy(start = minOf(d.at, r.end - MIN_SHOWCASE), byHand = true)
                 else r.copy(end = maxOf(d.at, r.start + MIN_SHOWCASE), byHand = true)
                 i.copy(showcase = next)
+            }
+            // Toute la vitrine déplacée : même longueur, début à l'instant visé, sans sortir du morceau.
+            EditorDragKind.SHOWCASE_MOVE -> updateIntents { i ->
+                val r = i.showcase ?: return@updateIntents i
+                val length = r.end - r.start
+                val last = (e.duration.takeIf { it.isPositive() } ?: (d.at + length)) - length
+                val start = d.at.coerceIn(Duration.ZERO, last.coerceAtLeast(Duration.ZERO))
+                i.copy(showcase = r.copy(start = start, end = start + length, byHand = true))
             }
             EditorDragKind.KILL, EditorDragKind.NEW -> {
                 if (!d.over) return
@@ -1339,7 +1350,10 @@ private fun IntentsTrack(e: MusicEditorUi, from: Duration, to: Duration, actions
         val shown = { m: IntentMark -> e.drag?.takeIf { it.kind == EditorDragKind.MARK && it.key == m.id.toString() }?.at ?: m.at }
         val sc = intents.showcase?.let { r ->
             val d = e.drag
-            IntentRange(if (d?.kind == EditorDragKind.SHOWCASE_START) d.at else r.start, if (d?.kind == EditorDragKind.SHOWCASE_END) d.at else r.end, r.byHand)
+            when (d?.kind) {
+                EditorDragKind.SHOWCASE_MOVE -> IntentRange(d.at, d.at + (r.end - r.start), r.byHand)
+                else -> IntentRange(if (d?.kind == EditorDragKind.SHOWCASE_START) d.at else r.start, if (d?.kind == EditorDragKind.SHOWCASE_END) d.at else r.end, r.byHand)
+            }
         }
         Canvas(
             Modifier.fillMaxSize().pointerInput(fromS, spanS) {
@@ -1436,19 +1450,38 @@ private fun IntentsTrack(e: MusicEditorUi, from: Duration, to: Duration, actions
                     },
             )
         }
-        // Vitrine : libellé (clic : choisir) et bords à glisser.
+        // Vitrine : libellé (clic : choisir ; glisser : déplacer toute la plage) et bords à glisser. Les gestes ne sont
+        // liés qu'à leur poignée, jamais à la position affichée : celle-ci suit la souris, et un geste lié à elle
+        // repartait de zéro à chaque mouvement (22/11 : bords et repères qui lâchaient en route).
+        val storedShowcase by rememberUpdatedState(intents.showcase)
         sc?.let { r ->
+            var moved by remember { mutableStateOf(0.0) }
             Text(
                 tr("ui.musicEditor.showcaseLabel"), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SHOWCASE_COLOR, maxLines = 1,
-                modifier = Modifier.offset(x = xDp(r.start) + 4.dp, y = with(density) { (waveTop + 4).toDp() }).clickable { actions.selectEditorKill(MusicEditorController.SHOWCASE_KEY) },
+                // Sous la forme d'onde, hors des bords à glisser : sur une vitrine courte, le bord de fin le couvrait.
+                modifier = Modifier.offset(x = xDp(r.start) + 6.dp, y = with(density) { (waveTop + waveH + 1).toDp() })
+                    .background(SHOWCASE_COLOR.copy(alpha = 0.18f), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp)
+                    .testTag("showcase-move")
+                    .pointerInput(Unit) {
+                        dragLoop(
+                            onStart = { moved = (storedShowcase?.start ?: Duration.ZERO).inWholeMicroseconds / 1e6 },
+                            onMove = { dx, alt -> moved += dx / pxPerSecond; actions.dragEditor(EditorDragKind.SHOWCASE_MOVE.name, null, moved, alt, true) },
+                            onEnd = actions::dropEditor,
+                            onClick = { actions.selectEditorKill(MusicEditorController.SHOWCASE_KEY) },
+                        )
+                    },
             )
             for ((kind, at) in listOf(EditorDragKind.SHOWCASE_START to r.start, EditorDragKind.SHOWCASE_END to r.end)) {
                 var acc by remember(kind) { mutableStateOf(0.0) }
                 Box(
                     Modifier.offset(x = xDp(at) - 5.dp, y = with(density) { waveTop.toDp() }).width(10.dp).height(with(density) { waveH.toDp() })
-                        .pointerInput(kind, at) {
+                        .testTag(if (kind == EditorDragKind.SHOWCASE_START) "showcase-start" else "showcase-end")
+                        .pointerInput(kind) {
                             dragLoop(
-                                onStart = { acc = at.inWholeMicroseconds / 1e6 },
+                                onStart = {
+                                    val s = storedShowcase
+                                    acc = ((if (kind == EditorDragKind.SHOWCASE_START) s?.start else s?.end) ?: Duration.ZERO).inWholeMicroseconds / 1e6
+                                },
                                 onMove = { dx, alt -> acc += dx / pxPerSecond; actions.dragEditor(kind.name, null, acc, alt, true) },
                                 onEnd = actions::dropEditor,
                                 onClick = { actions.selectEditorKill(MusicEditorController.SHOWCASE_KEY) },
@@ -1458,9 +1491,10 @@ private fun IntentsTrack(e: MusicEditorUi, from: Duration, to: Duration, actions
             }
         }
         // Les repères : une poignée (numéro ou symbole) qu'on glisse ; clic : choisir.
+        val storedMarks by rememberUpdatedState(intents.marks.associate { it.id to it.at })
         val rows = MutableList(4) { (-1000).dp }
         var number = 0
-        intents.marks.sortedBy { it.at }.forEach { m ->
+        intents.marks.sortedBy { it.at }.forEach { m -> key(m.id) {
             val at = shown(m)
             val key = MusicEditorController.markKey(m.id)
             val (label, y, color) = when (m.kind) {
@@ -1480,19 +1514,20 @@ private fun IntentsTrack(e: MusicEditorUi, from: Duration, to: Duration, actions
                 label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1,
                 modifier = Modifier.offset(x = xDp(at) - (if (m.kind.takesKill) 4.dp else 6.dp), y = y)
                     .background(if (e.selected == key) Palette.surfaceHigh else Color.Transparent, RoundedCornerShape(3.dp))
-                    .pointerInput(m.id, at) {
+                    .testTag("mark-${m.id}")
+                    .pointerInput(m.id) {
                         dragLoop(
-                            onStart = { acc = at.inWholeMicroseconds / 1e6 },
+                            onStart = { acc = (storedMarks[m.id] ?: at).inWholeMicroseconds / 1e6 },
                             onMove = { dx, alt -> acc += dx / pxPerSecond; actions.dragEditor(EditorDragKind.MARK.name, m.id.toString(), acc, alt, true) },
                             onEnd = actions::dropEditor,
                             onClick = { actions.selectEditorKill(key) },
                         )
                     },
             )
-        }
+        } }
         // Les losanges aussi se glissent (zone sous chaque repère « kill »).
         val hitRows = FloatArray(4) { Float.NEGATIVE_INFINITY }
-        killMarks.forEach { m ->
+        killMarks.forEach { m -> key(m.id) {
             val at = shown(m)
             val cxPx = ((at.inWholeMicroseconds / 1e6 - fromS) / spanS * widthPx).toFloat()
             val row = hitRows.indexOfFirst { cxPx - it > 22f }.takeIf { it >= 0 } ?: 0
@@ -1500,16 +1535,16 @@ private fun IntentsTrack(e: MusicEditorUi, from: Duration, to: Duration, actions
             var acc by remember(m.id) { mutableStateOf(0.0) }
             Box(
                 Modifier.offset(x = xDp(at) - 11.dp, y = with(density) { (laneTop + 22f + row * 30f).toDp() } - 11.dp).size(22.dp)
-                    .pointerInput(m.id, at) {
+                    .pointerInput(m.id) {
                         dragLoop(
-                            onStart = { acc = at.inWholeMicroseconds / 1e6 },
+                            onStart = { acc = (storedMarks[m.id] ?: at).inWholeMicroseconds / 1e6 },
                             onMove = { dx, alt -> acc += dx / pxPerSecond; actions.dragEditor(EditorDragKind.MARK.name, m.id.toString(), acc, alt, true) },
                             onEnd = actions::dropEditor,
                             onClick = { actions.selectEditorKill(MusicEditorController.markKey(m.id)) },
                         )
                     },
             )
-        }
+        } }
         // Glisser en cours : l'instant visé et l'aimant.
         e.drag?.takeIf { it.kind == EditorDragKind.MARK }?.let { d ->
             val label = when (d.snap) {

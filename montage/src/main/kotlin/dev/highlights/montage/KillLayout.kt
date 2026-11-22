@@ -37,7 +37,10 @@ object KillLayout {
         val period = music.beatPeriod
         val placed = merged(laid, period)
         // Repères de l'étape 1 : coupes et bords des plages de vitrine (sans kill dedans) deviennent des temps de coupe.
-        val fillerRanges = intents?.fillers.orEmpty().filter { (a, b) -> b > a && placed.none { (_, at) -> at > a && at < b } }
+        // Une plage de vitrine qui recouvre des kills n'est pas abandonnée (22/11 : vitrine tirée sur tout le début du
+        // morceau, un kill posé dedans, montage de 4,8 s au lieu de 31) : elle garde ses morceaux sans kill, chaque kill
+        // gardant devant lui son approche et derrière lui sa fin.
+        val fillerRanges = intents?.fillers.orEmpty().flatMap { (a, b) -> fillerPieces(a, b, placed.map { it.second }, period) }
         val forced = (intents?.cuts.orEmpty() + fillerRanges.flatMap { listOf(it.first, it.second) }).filter { it >= Duration.ZERO }
             .map { c -> music.beats.firstOrNull { (it - c).absoluteValue <= SNAP_TO_BEAT } ?: c }
         val cuts = settings.cuts
@@ -116,7 +119,7 @@ object KillLayout {
         if (after.isNotEmpty()) bounds += after else bounds += anchors.last() + TAIL_BEATS
         // Chaque segment entre deux coupes : le plan d'un kill (celui qui y tombe) ou de la vitrine.
         val slows = intents?.slows.orEmpty()
-        val used = mutableSetOf<String>()
+        val used = mutableMapOf<String, Int>()
         val clips = mutableListOf<MontageClip>()
         var k = 0
         for (s in 0 until bounds.size - 1) {
@@ -172,27 +175,51 @@ object KillLayout {
     )
 
     /**
-     * Plan de vitrine pour [slot] : un passage calme d'une partie ([KillGroup.calm]), avant un kill, d'un groupe pas
-     * encore pris ([used]) ; sinon le passage juste avant le premier kill d'un groupe. Null : aucune source.
+     * Plan de vitrine pour [slot] : un passage d'une partie avant un kill d'un groupe, chaque plan un passage différent.
+     * D'abord un passage calme ([KillGroup.calm]) d'un groupe pas encore pris, puis n'importe quel groupe pas encore
+     * pris ; ensuite chaque groupe redonne un passage plus tôt dans sa partie, une longueur de plan avant le précédent
+     * ([used] : passages déjà pris par groupe). Avant le 22/11, une fois les groupes épuisés, le premier redonnait le
+     * même passage à chaque plan : 19 s de la même image sur une vitrine de 27 s. Null : aucune source.
      */
-    private fun fillerClip(pool: List<KillGroup>, slot: CutSlot, music: MusicAnalysis, settings: MontageSettings, used: MutableSet<String>): MontageClip? {
+    private fun fillerClip(pool: List<KillGroup>, slot: CutSlot, music: MusicAnalysis, settings: MontageSettings, used: MutableMap<String, Int>): MontageClip? {
         val s = settings.showcase
         val length = music.beatTime(slot.endBeat) - music.beatTime(slot.startBeat)
         fun keyOf(g: KillGroup) = "${g.media.path}|${g.kills.first()}"
         fun window(g: KillGroup, calmOnly: Boolean): Pair<Duration, Duration>? {
-            val end = g.kills.first() - s.beforeClip
+            val taken = used[keyOf(g)] ?: 0
+            val end = g.kills.first() - s.beforeClip - (length + s.beforeClip) * taken
             val low = if (calmOnly) maxOf((g.calm ?: return null).start + s.afterEvent, g.media.bounds.start) else g.media.bounds.start
             return (end - length to end).takeIf { it.first >= low }
         }
         val g = pool.firstOrNull { keyOf(it) !in used && window(it, true) != null }
             ?: pool.firstOrNull { keyOf(it) !in used && window(it, false) != null }
-            ?: pool.firstOrNull { window(it, false) != null }
+            // Tous pris : le groupe qui en a donné le moins redonne un passage plus tôt.
+            ?: pool.filter { window(it, false) != null }.minByOrNull { used[keyOf(it)] ?: 0 }
             ?: return null
-        used += keyOf(g)
         val (start, end) = window(g, true) ?: window(g, false)!!
+        used[keyOf(g)] = (used[keyOf(g)] ?: 0) + 1
         return MontageClip(
             g, slot, slot.startBeat, g.kills.last(), start, end, Duration.ZERO, Duration.ZERO, emptyList(), length, showcase = true,
         )
+    }
+
+    /**
+     * Morceaux de la plage de vitrine [a]..[b] sans kill : coupée à chaque kill ([kills], instants du morceau), en
+     * laissant [LEAD_BEATS] temps d'approche avant et [TAIL_BEATS] de fin après ; un morceau de moins de deux temps est
+     * laissé au kill voisin.
+     */
+    internal fun fillerPieces(a: Duration, b: Duration, kills: List<Duration>, period: Duration): List<Pair<Duration, Duration>> {
+        if (b <= a) return emptyList()
+        val inside = kills.filter { it > a - period * LEAD_BEATS && it < b + period * TAIL_BEATS }.sorted()
+        val pieces = mutableListOf<Pair<Duration, Duration>>()
+        var from = a
+        for (k in inside) {
+            val to = minOf(b, k - period * LEAD_BEATS)
+            if (to - from >= period * 2) pieces += from to to
+            from = maxOf(from, k + period * TAIL_BEATS)
+        }
+        if (b - from >= period * 2) pieces += from to b
+        return pieces
     }
 
     /** Le plan [c] prolongé jusqu'au temps [end] (pas de source pour la vitrine qui devait suivre). */

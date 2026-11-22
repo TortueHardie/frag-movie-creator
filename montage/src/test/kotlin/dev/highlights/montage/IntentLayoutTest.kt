@@ -105,6 +105,34 @@ class IntentLayoutTest : FunSpec({
         check(p, IntentLayout.assign(groups, music, intents))
     }
 
+    test("vitrine sur tout le début, qui recouvre les premiers kills : gardée jusqu'à l'approche du premier (22/11 : 4,8 s au lieu de 31)") {
+        // Comme le montage de « life kinda sucks » : vitrine tirée du début jusqu'après la drop (32 s), kills un temps
+        // sur deux à partir de la drop ; la vitrine en recouvrait deux, elle était abandonnée en entier.
+        val intents = MusicIntents(
+            (0 until 6).map { kill(it + 1, 32.0 + it) },
+            showcase = IntentRange(0.seconds, 33.5.seconds, true),
+        )
+        val p = IntentLayout.plan(groups, music, settings, intents)
+        s(p.musicStart) shouldBe 0.0
+        val shots = p.clips.takeWhile { it.showcase }
+        (shots.size > 5) shouldBe true
+        // Plus de plans de vitrine que de groupes : chaque plan reste un passage différent, jamais deux fois le même.
+        (shots.size > groups.size) shouldBe true
+        shots.map { it.group.media.path to it.start }.toSet().size shouldBe shots.size
+        shots.zipWithNext().none { (a, b) -> a.group.media.path == b.group.media.path && a.start < b.end && b.start < a.end } shouldBe true
+        // La vitrine s'arrête à l'approche du premier kill (deux temps avant lui).
+        s(p.music.beatTime(shots.last().slot.endBeat)) shouldBe 31.0
+        check(p, IntentLayout.assign(groups, music, intents))
+    }
+
+    test("morceaux de vitrine : coupés autour des kills, approche et fin laissées, morceaux trop courts écartés") {
+        val period = 0.5.seconds
+        KillLayout.fillerPieces(0.seconds, 20.seconds, listOf(10.seconds), period) shouldBe listOf(0.seconds to 9.seconds, 11.seconds to 20.seconds)
+        KillLayout.fillerPieces(0.seconds, 20.seconds, emptyList(), period) shouldBe listOf(0.seconds to 20.seconds)
+        // Un kill tout au début : le morceau d'avant (moins de deux temps) disparaît.
+        KillLayout.fillerPieces(0.seconds, 5.seconds, listOf(0.5.seconds), period) shouldBe listOf(1.5.seconds to 5.seconds)
+    }
+
     test("ralenti et transition seulement là où les repères les posent") {
         val intents = MusicIntents(
             listOf(kill(1, 26.0), kill(2, 32.0), IntentMark(3, IntentKind.SLOW, 32.0.seconds, true), kill(4, 38.0), IntentMark(5, IntentKind.TRANSITION, 35.2.seconds, true)),
