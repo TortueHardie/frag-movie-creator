@@ -21,9 +21,16 @@ enum class Recorder(
     SHADOWPLAY_REPLAY(clips = true, nameMarksEnd = true),
     /**
      * FTHRClips : « VALORANT_clip_from_22Nov2026_21-05-33.mp4 » (`datetime.now().strftime('%d%b%Y_%H-%M-%S')` à l'appui
-     * sur la touche, `FTHR_UI/main.py`), « _2 », « _3 » si le nom existe déjà.
+     * sur la touche, `FTHR_UI/main.py`), « _2 », « _3 » si le nom existe déjà. Clip ou partie selon la durée, comme
+     * [FTHR_RECORDING].
      */
-    FTHR(clips = true, nameMarksEnd = true),
+    FTHR(clips = false, nameMarksEnd = true),
+    /**
+     * FTHR, enregistrement : « FTHR_recording_2026-11-22_22-28-00.mp4 », sans le jeu. L'heure est celle du DÉBUT (relevé sur
+     * de vrais fichiers : 18 033 s nommé 21:15:46, modifié à 02:16 le lendemain). Le même logiciel fait des clips de 24 s et
+     * des parties de 5 h : clip ou partie se lit à la durée ([MediaInfo.CLIP_MAX]), pas au nom.
+     */
+    FTHR_RECORDING(clips = false, nameMarksEnd = false),
     /** Medal : « MedalTVVALORANT20261122210533.mp4 » (forme relevée sur des clips publiés, pas dans une documentation). */
     MEDAL(clips = true, nameMarksEnd = true),
 }
@@ -49,6 +56,9 @@ object RecordingNames {
 
     /** FTHRClips : « _clip_from_22Nov2026_21-05-33 ». */
     private val FTHR = Regex("""_clip_from_(\d{1,2})(\p{L}{3,5}\.?)(\d{4})_(\d{1,2})-(\d{2})-(\d{2})""", RegexOption.IGNORE_CASE)
+
+    /** FTHR, enregistrement : « FTHR_recording_2026-11-22_22-28-00 » (année-mois-jour, heure du début). */
+    private val FTHR_RECORDING = Regex("""^FTHR_recording_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})""", RegexOption.IGNORE_CASE)
 
     /** Medal : « MedalTV » + jeu + « yyyyMMddHHmmss ». */
     private val MEDAL = Regex("""^MedalTV.*?(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?!\d)""", RegexOption.IGNORE_CASE)
@@ -79,6 +89,9 @@ object RecordingNames {
         }
         FTHR.find(fileName)?.destructured?.let { (d, mo, y, h, mi, s) ->
             at(y.toInt(), month(mo), d.toInt(), h.toInt(), mi.toInt(), s.toInt(), Recorder.FTHR)?.let { return it }
+        }
+        FTHR_RECORDING.find(fileName)?.destructured?.let { (y, mo, d, h, mi, s) ->
+            at(y.toInt(), mo.toInt(), d.toInt(), h.toInt(), mi.toInt(), s.toInt(), Recorder.FTHR_RECORDING)?.let { return it }
         }
         MEDAL.find(fileName)?.destructured?.let { (y, mo, d, h, mi, s) ->
             at(y.toInt(), mo.toInt(), d.toInt(), h.toInt(), mi.toInt(), s.toInt(), Recorder.MEDAL)?.let { return it }

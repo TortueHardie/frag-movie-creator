@@ -860,8 +860,11 @@ Highlights les traite comme une soirée de jeu :
   source, `FTHR_UI/main.py`), Medal (`MedalTVVALORANT20261122210533.mp4`, forme relevée sur des clips publiés, pas
   documentée) et Instant Replay de ShadowPlay / NVIDIA App (`… 2026.11.22 - 21.05.33.02.DVR.mp4`). Ces logiciels datent
   le clip de sa **sauvegarde**, c'est-à-dire de sa fin : le clip commence cette heure moins sa durée. Les clips se
-  rangent et se regroupent donc dans l'ordre où ils ont été joués.
-- **Clip ou partie** : un nom de ces logiciels, ou une capture de moins de 5 minutes, est un clip.
+  rangent et se regroupent donc dans l'ordre où ils ont été joués. FTHR nomme aussi `FTHR_recording_2026-11-22_22-28-00.mp4`,
+  sans le jeu : l'heure est alors celle du **début** (vérifié sur de vrais fichiers, d'un clip de 24 s à une partie de 5 h).
+- **Clip ou partie** : un nom de Medal ou d'Instant Replay, ou une capture de moins de 5 minutes, est un clip. FTHR fait
+  les deux : la durée seule décide. Son nom ne dit pas le jeu : choisir le profil (ou ranger les captures dans un dossier
+  au nom du jeu), sinon c'est le profil par défaut.
 - **Séance** : des clips d'un même jeu sauvegardés à moins de 45 min d'intervalle forment une séance. La liste des
   analyses les range en une ligne (« 12 clips · VALORANT », de 21:04 à 22:10, leurs kills), à cocher ou ouvrir d'un coup
   pour un seul montage, et à déplier pour voir chaque clip ; les statistiques montrent une ligne par séance et la

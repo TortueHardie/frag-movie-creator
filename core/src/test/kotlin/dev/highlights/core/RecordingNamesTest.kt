@@ -37,6 +37,14 @@ class RecordingNamesTest : FunSpec({
         RecordingNames.parse("VALORANT 2026.11.17 - 21.08.40.02.mp4", utc)!!.recorder shouldBe Recorder.SHADOWPLAY
     }
 
+    test("FTHR, enregistrement sans le jeu dans le nom : heure du début (relevée sur de vrais fichiers)") {
+        // 18 033 s nommé 21:15:46, modifié à 02:16 le lendemain ; 24 s nommé 22:28:00, modifié à 22:28:28.
+        val long = RecordingNames.parse("FTHR_recording_2026-11-20_21-15-46.mp4", utc)!!
+        long.recorder shouldBe Recorder.FTHR_RECORDING
+        long.start(18033.seconds) shouldBe Instant.parse("2026-11-20T21:15:46Z")
+        RecordingNames.parse("FTHR_recording_2026-11-22_22-28-00.mp4", utc)!!.start(24.seconds) shouldBe Instant.parse("2026-11-22T22:28:00Z")
+    }
+
     test("parties entières : Outplayed, OBS, ShadowPlay gardent l'heure de leur début") {
         RecordingNames.parse("WARDOGS_09-22-2026_22-55-31-983.mp4", utc)!!.recorder shouldBe Recorder.OUTPLAYED
         RecordingNames.parse("2026-11-17 21-08-40.mkv", utc)!!.recorder shouldBe Recorder.OBS
@@ -45,7 +53,11 @@ class RecordingNamesTest : FunSpec({
     }
 
     test("clip ou partie : nom d'un logiciel de clips, ou moins de 5 minutes") {
-        MediaInfo.isClip("VALORANT_clip_from_22Nov2026_21-05-33.mp4", 8.minutes) shouldBe true
+        MediaInfo.isClip("MedalTVVALORANT20261122210533.mp4", 8.minutes) shouldBe true
+        // FTHR fait des clips et des parties de plusieurs heures : la durée seule décide.
+        MediaInfo.isClip("VALORANT_clip_from_22Nov2026_21-05-33.mp4", 8.minutes) shouldBe false
+        MediaInfo.isClip("FTHR_recording_2026-11-22_22-28-00.mp4", 24.seconds) shouldBe true
+        MediaInfo.isClip("FTHR_recording_2026-11-20_21-15-46.mp4", 18033.seconds) shouldBe false
         MediaInfo.isClip("2026-11-17 21-08-40.mkv", 90.seconds) shouldBe true
         MediaInfo.isClip("2026-11-17 21-08-40.mkv", 38.minutes) shouldBe false
         // Un clip FTHRClips commence sa durée avant l'heure de son nom, quelles que soient ses métadonnées.
