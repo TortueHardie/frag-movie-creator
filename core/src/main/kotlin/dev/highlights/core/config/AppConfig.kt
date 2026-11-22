@@ -37,6 +37,22 @@ data class AppConfig(
     val montageStyles: String = "montage-styles.yaml",
     /** Préréglages d'export (`--preset`, puces en haut de la barre d'export et de la fenêtre de montage) ; fichier absent : aucun. */
     val exportPresets: String = "export-presets.yaml",
+    /** Transcription des sous-titres par `whisper-cli` (whisper.cpp), commune à tous les jeux. */
+    val whisper: WhisperSettings = WhisperSettings(),
+)
+
+@Serializable
+data class WhisperSettings(
+    /**
+     * Programme `whisper-cli.exe` ; chemin relatif au dossier de configuration. null = recherche automatique :
+     * `whisper/whisper-cli.exe` du dossier de configuration, puis le PATH. Introuvable : filtre `whisper` de FFmpeg.
+     */
+    val cli: String? = null,
+    /**
+     * Pseudos des amis avec qui on joue, ajoutés au vocabulaire de chaque jeu : whisper les écrit alors comme il faut
+     * au lieu d'inventer un mot qui sonne pareil.
+     */
+    val names: List<String> = emptyList(),
 )
 
 @Serializable

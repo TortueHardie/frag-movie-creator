@@ -350,13 +350,28 @@ meilleurs moments ne sont plus posés bout à bout : chacun est remonté comme l
   qui prolonge une série (kills à moins de 5 s).
 - **Musique de fond** facultative (`story.music.file` ou `--music`) : baissée sous la voix, coupée net sur le pic de
   chaque moment puis relancée en fondu.
-- **Sous-titres de la voix** : le micro est transcrit en local par whisper.cpp (filtre `whisper` de FFmpeg), deux à
+- **Sous-titres de la voix** : le micro est transcrit en local par whisper.cpp (`whisper-cli` ou filtre `whisper` de FFmpeg), deux à
   quatre mots à la fois, en gros, qui apparaissent d'un coup de zoom. Les mots forts (« GG », « ACE », jurons…,
   `story.captions.emphasis`) passent en jaune, une phrase criée en rouge et plus grosse. Seul ce qui recouvre une prise de parole détectée
   est gardé (whisper invente du texte sur le silence). La transcription est mise en cache : un nouvel export des mêmes
   moments ne la refait pas. Il faut le modèle, trop lourd pour le dépôt et l'installeur :
   [`ggml-large-v3-turbo-q5_0.bin`](https://huggingface.co/ggerganov/whisper.cpp) (~574 Mo) dans `config/models/`
   (`story.captions.model`). Sans lui, le montage sort sans sous-titres.
+  **Transcription plus juste avec `whisper-cli`** (facultatif, téléchargement à part comme le modèle) : le programme de
+  whisper.cpp ([releases](https://github.com/ggml-org/whisper.cpp/releases), `whisper-blas-bin-x64.zip`, contenu du
+  dossier `Release`) déposé dans `config/whisper/` (ou `whisper.cli` d'`app.yaml`, ou le PATH) remplace le filtre de
+  FFmpeg. Il prend le vocabulaire du jeu en amorce (`story.captions.vocabulary` : agents, cartes, armes de VALORANT ;
+  `whisper.names` d'`app.yaml` pour les pseudos de tes amis), cherche en faisceau (`beamSize`, 5) et ne lit que la voix
+  avec le modèle Silero ([`ggml-silero-v5.1.2.bin`](https://huggingface.co/ggml-org/whisper-vad), ~1 Mo, dans
+  `config/models/`, `story.captions.vadModel`). Le profil VALORANT prend
+  [`ggml-large-v3-q5_0.bin`](https://huggingface.co/ggerganov/whisper.cpp) (~1,1 Go) s'il est là, sinon turbo
+  (`fallbackModels`). Les moments proches d'une capture sont lus d'un bloc, avec 8 s de contexte de chaque côté
+  (`story.captions.context`). Mesuré sur une capture de 37 s (micro + Discord) : « Il y a Cypher » au lieu de
+  « Il y a Sefer » (large-v3 avec l'amorce), 0,5 à 0,9 × la durée de l'audio sur le processeur
+  (le filtre de FFmpeg passe par le GPU : 0,04 ×). Ce programme tourne sur le processeur : plus lent, d'où le cache.
+  Programme absent ou en échec : filtre de FFmpeg ; `story.captions.engine: ffmpeg` l'impose. Les formes que whisper
+  écrit encore de travers se corrigent dans le texte, quel que soit le moteur (`story.captions.spelling`,
+  `Cypher: [Seyfer, Sefer]`).
   Les **coéquipiers** sont sous-titrés aussi quand la capture a leur voix sur une piste à elle (rôle `chat` : Discord,
   chat de SteelSeries Sonar, enregistrés à part par FTHRClips ou OBS), en bleu clair (`story.captions.friendColor`) ;
   une phrase dite pendant une phrase du joueur s'affiche au-dessus d'elle. Cette piste ne porte que des voix : la

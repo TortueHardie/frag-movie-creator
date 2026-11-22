@@ -12,6 +12,8 @@ music sample/
 
 # Modèles de transcription whisper.cpp (plusieurs centaines de Mo), téléchargés à part
 config/models/ggml-*.bin
+# Programme whisper-cli de whisper.cpp (facultatif, téléchargé à part)
+config/whisper/
 
 # Identifiant OAuth YouTube personnel (console Google Cloud)
 config/client_secret*.json

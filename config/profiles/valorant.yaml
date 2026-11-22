@@ -211,11 +211,25 @@ edit:
     # withoutMic) : relevées par whisper sur « Valorant- 44 kills » et « Valorant_game » (« Enemies spotted », « Spike
     # down, attacker spawned », « One enemy remains », « Ultimates ready ») ; « Bravo! », « Attention ! », « Vous pensiez
     # que... » ajoutés au choix du joueur (voix de personnages). Sur la piste micro, rien n'est écarté.
+    # large-v3 (~1,1 Go) entend les noms que turbo déforme (« Il y a Cypher » au lieu de « Il y a Sefer ») ; sans lui, turbo.
+    # Avec whisper-cli (app.yaml, whisper:) : recherche en faisceau et détection de la voix (models/ggml-silero-v5.1.2.bin).
     captions:
-      model: models/ggml-large-v3-turbo-q5_0.bin
+      model: models/ggml-large-v3-q5_0.bin
+      fallbackModels: [models/ggml-large-v3-turbo-q5_0.bin]
       language: fr
       maxChars: 18
       ignore: [enemy, enemies, ennemi, ennemis, spotted, spike, attacker, attackers, defender, defenders, remaining, remains, ultimate, ultimates, bravo, attention, vous pensiez]
+      # Vocabulaire donné à whisper-cli en amorce (agents, cartes, armes, annonces) : sans lui, « Cypher » sort « Sefer »
+      # ou « Seyfer ». Les pseudos des amis s'ajoutent dans app.yaml (whisper.names). Sans effet avec le filtre de FFmpeg.
+      vocabulary: [VALORANT, Cypher, Sova, Jett, Reyna, Sage, Omen, Killjoy, Raze, Phoenix, Brimstone, Viper, Breach, Skye,
+        Yoru, Astra, KAY/O, Chamber, Neon, Fade, Harbor, Gekko, Deadlock, Iso, Clove, Vyse, Tejo, Waylay, Veto, Ascent, Bind,
+        Haven, Split, Icebox, Breeze, Fracture, Pearl, Lotus, Sunset, Abyss, Corrode, spike, plant, defuse, rotate, flank,
+        lurk, push, heal, ult, eco, full buy, Vandal, Phantom, Operator, Sheriff, Ghost, Spectre, Odin, one tap, ace, clutch,
+        mid, A main, B main, site, drone, trap]
+      # Formes que whisper écrit encore malgré l'amorce (capture de test du 22/11 : micro et Discord), corrigées dans le texte.
+      spelling:
+        Cypher: [Seyfer, Sefer, Seifer, Saifer, Cyphère, Cyphers]
+        Sunset: [Sunsex, sun sex]
     # Musique de fond facultative (chemin relatif au dossier de configuration), baissée sous la voix et coupée sur
     # le pic de chaque moment : music: { file: musique/fond.mp3, volume: 0.25 }
   order: chronological

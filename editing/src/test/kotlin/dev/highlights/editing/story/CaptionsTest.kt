@@ -298,4 +298,19 @@ class CaptionsTest : FunSpec({
         Captions.readable(listOf(Caption(ms(1000, 1000), "Vous pensiez"), Caption(ms(1000, 2200), "que...")), listOf(ms(900, 2000))) shouldContainExactly
             listOf(Caption(ms(1000, 2200), "Vous pensiez que..."))
     }
+
+    test("orthographe : formes entendues remplacées par la bonne, mots entiers, sans casse ni accents") {
+        val spelling = mapOf("Cypher" to listOf("Seyfer", "Sefer", "Cyphère", "Cyphers"), "Sunset" to listOf("Sunsex", "sun sex"))
+        val heard = listOf(
+            Caption(ms(0, 1000), "Y'a Sefer, y'a SEFER."),
+            Caption(ms(1000, 2000), "Il est passé, Cyphère, à droite"),
+            Caption(ms(2000, 3000), "On est sur sun sex."),
+            // « Seferovic » n'est pas « Sefer » : mot entier seulement.
+            Caption(ms(3000, 4000), "Seferovic est là"),
+        )
+        Captions.respell(heard, spelling).map { it.text } shouldContainExactly listOf(
+            "Y'a Cypher, y'a Cypher.", "Il est passé, Cypher, à droite", "On est sur Sunset.", "Seferovic est là",
+        )
+        Captions.respell(heard, emptyMap()) shouldBe heard
+    }
 })

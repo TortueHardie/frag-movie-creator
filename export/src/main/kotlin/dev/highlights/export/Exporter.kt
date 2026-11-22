@@ -237,15 +237,16 @@ class Exporter(
         val timelines = sessions.associate { it.media.path to it.timeline }
         val settings = plan.settings.story.captions
         val result = mutableMapOf<Path, MutableList<Caption>>()
-        plan.clips.forEachIndexed { i, clip ->
-            progress.update(i.toDouble() / plan.clips.size, tr("progress.moment", "done" to i + 1, "total" to plan.clips.size))
-            result.getOrPut(clip.media.path) { mutableListOf() } += transcriber.transcribe(
-                clip.media, clip.range, timelines[clip.media.path], settings, model, request.audioLayout,
+        val passages = passages(plan, settings.context)
+        passages.forEachIndexed { i, (media, range) ->
+            progress.update(i.toDouble() / passages.size, tr("progress.moment", "done" to i + 1, "total" to passages.size))
+            result.getOrPut(media.path) { mutableListOf() } += transcriber.transcribe(
+                media, range, timelines[media.path], settings, model, request.audioLayout,
                 request.workDir.resolve("captions"), request.captionCache,
             )
         }
         progress.complete()
-        log.info { "Sous-titres : ${result.values.sumOf { it.size }} sur ${plan.clips.size} moments" }
+        log.info { "Sous-titres : ${result.values.sumOf { it.size }} sur ${plan.clips.size} moments (${passages.size} passages transcrits)" }
         // Sur le son complet, un texte redit d'un moment à l'autre est une réplique du jeu, pas le joueur.
         val medias = plan.clips.associate { it.media.path to it.media }
         return result.mapValues { (path, list) ->
@@ -360,7 +361,25 @@ class Exporter(
         }
     }
 
-    private companion object {
+    internal companion object {
+        /**
+         * Passages transcrits : les moments d'une même capture dont les contextes ([context] de chaque côté) se touchent
+         * sont lus d'un bloc. Whisper devine mieux les mots avec plus de contexte (mesuré : ±2 s autour de chaque moment
+         * donnait le texte le moins juste, la capture entière le plus juste), et deux moments proches transcrits chacun de
+         * leur côté doublaient les phrases dites entre eux.
+         */
+        internal fun passages(plan: EditPlan, context: kotlin.time.Duration): List<Pair<MediaInfo, TimeRange>> =
+            plan.clips.groupBy { it.media.path }.values.flatMap { clips ->
+                val media = clips.first().media
+                val merged = mutableListOf<TimeRange>()
+                for (r in clips.map { it.range }.sortedBy { it.start }) {
+                    val last = merged.lastOrNull()
+                    if (last != null && r.start - last.end < context * 2) merged[merged.size - 1] = TimeRange(last.start, maxOf(last.end, r.end))
+                    else merged += r
+                }
+                merged.map { media to it }
+            }
+
         /** Part de la progression rendue par la pré-découpe : rapide (copie de flux) face au rendu lui-même. */
         const val CUT_WEIGHT = 0.08
         const val CAPTION_WEIGHT = 0.15

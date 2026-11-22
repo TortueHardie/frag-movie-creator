@@ -146,6 +146,7 @@ import kotlin.io.path.deleteRecursively
 import kotlin.io.path.extension
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isReadable
+import kotlin.io.path.exists
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.nameWithoutExtension
 import kotlin.time.Duration
@@ -734,13 +735,24 @@ class HighlightPipeline(
      * Réglages d'édition du profil, table d'étalonnage résolue depuis le dossier de configuration (comme les modèles
      * d'images du HUD) : le rendu ne connaît que des chemins absolus.
      */
+    /** `whisper-cli` des sous-titres, cherché à chaque export : un programme déposé en cours de route est pris. */
+    private val whisperCli: Path?
+        get() = WhisperLocator.locate(config.app.whisper.cli?.let { config.resolve(it) }, config.baseDir)
+
     private fun GameProfile.gradedEdit(): EditSettings {
         val story = edit.story
         return edit.copy(
             grade = edit.grade.copy(lut = edit.grade.lut?.let { config.resolve(it).toString() }),
             story = story.copy(
                 music = story.music.copy(file = story.music.file?.let { config.resolve(it).toString() }),
-                captions = story.captions.copy(model = story.captions.model?.let { config.resolve(it).toString() }),
+                captions = story.captions.copy(
+                    // Premier modèle téléchargé ; aucun : le modèle demandé, que l'export signale absent.
+                    model = (listOfNotNull(story.captions.model) + story.captions.fallbackModels).map { config.resolve(it) }
+                        .let { models -> models.firstOrNull { it.exists() } ?: models.firstOrNull() }?.toString(),
+                    vadModel = story.captions.vadModel?.let { config.resolve(it).toString() },
+                    vocabulary = config.app.whisper.names + story.captions.vocabulary,
+                    cli = whisperCli?.toString(),
+                ),
                 sfx = story.sfx.copy(
                     whooshFile = story.sfx.whooshFile?.let { config.resolve(it).toString() },
                     impactFile = story.sfx.impactFile?.let { config.resolve(it).toString() },

@@ -5,6 +5,7 @@ import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.model.AudioLayout
 import dev.highlights.core.model.AudioRole
 import dev.highlights.core.model.AudioTracks
+import dev.highlights.core.model.CaptionEngine
 import dev.highlights.core.model.CaptionSettings
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.ScoredTimeline
@@ -26,12 +27,12 @@ import kotlin.io.path.name
 import kotlin.io.path.readLines
 import kotlin.io.path.writeText
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
 
 private val log = KotlinLogging.logger {}
 
 /**
- * Transcrit la voix des moments montés avec le filtre `whisper` de FFmpeg (whisper.cpp, en local). Seuls les extraits
+ * Transcrit la voix des moments montés avec whisper.cpp, en local : le programme `whisper-cli` s'il est là ([WhisperCli],
+ * vocabulaire du jeu, recherche en faisceau, détection de la voix), sinon le filtre `whisper` de FFmpeg. Seuls les extraits
  * montés sont lus, pas toute la capture ; la transcription brute est gardée en cache, si bien qu'un nouvel export des
  * mêmes moments ne la refait pas. Une transcription en échec n'empêche jamais le montage : il sort sans sous-titres.
  */
@@ -39,8 +40,7 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
     /** Types de segments qui signalent une voix : ce qui n'en recouvre aucun est une hallucination. */
     private val voiceKinds = setOf("speech", "laughter", "shout")
 
-    /** Audio lu en plus de chaque côté du moment : une phrase commencée juste avant n'est pas coupée, et whisper a du contexte. */
-    private val context = 2.seconds
+    private val cli = WhisperCli(ffmpeg)
 
     suspend fun transcribe(
         media: MediaInfo,
@@ -73,6 +73,7 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         workDir: Path,
         cacheDir: Path?,
     ): List<Caption> {
+        val context = settings.context
         val padded = TimeRange((range.start - context).coerceAtLeast(Duration.ZERO), (range.end + context).coerceAtMost(media.duration))
         val player = playerCaptions(media, range, padded, voice, shouts, settings, model, layout, workDir, cacheDir)
         val friends = friendCaptions(media, padded, settings, model, layout, workDir, cacheDir)
@@ -99,7 +100,7 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         val ignore = if (withoutMic(media, settings, layout)) settings.ignore else emptyList()
         val raw = safely(media, range) { rawTranscript(media, padded, audio, settings, model, workDir, cacheDir) } ?: return emptyList()
         // Une phrase criée (elle recouvre un cri détecté) s'affiche plus grosse, en couleur.
-        return Captions.readable(Captions.clean(Captions.parse(raw, padded.start), segments, ignore), segments).map { c ->
+        return Captions.readable(Captions.clean(Captions.respell(Captions.parse(raw, padded.start), settings.spelling), segments, ignore), segments).map { c ->
             if (shouts.any { it.isWithin(c.range) }) c.copy(loud = true) else c
         }
     }
@@ -123,7 +124,7 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         val speech = safely(media, padded) { ChatVoice(ffmpeg).spans(media, padded, chat) } ?: return emptyList()
         if (speech.isEmpty()) return emptyList()
         val raw = safely(media, padded) { rawTranscript(media, padded, chat, settings, model, workDir, cacheDir) } ?: return emptyList()
-        return Captions.readable(Captions.clean(Captions.parse(raw, padded.start), speech, emptyList()), speech)
+        return Captions.readable(Captions.clean(Captions.respell(Captions.parse(raw, padded.start), settings.spelling), speech, emptyList()), speech)
             .map { it.copy(speaker = Speaker.FRIEND) }
     }
 
@@ -171,11 +172,29 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         workDir: Path,
         cacheDir: Path?,
     ): List<String> {
-        val key = cacheKey(media, range, audio, settings, model)
+        val program = program(settings)
+        val vad = if (program != null) settings.vadModel?.let { Path.of(it) }?.takeIf { it.exists() } else null
+        val key = cacheKey(media, range, audio, settings, model, program, vad)
         val cached = cacheDir?.resolve("$key.jsonl")
         if (cached != null && cached.exists()) return cached.readLines()
 
         workDir.createDirectories()
+        if (program != null) {
+            val lines = try {
+                cli.transcribe(program, media, range, audio, settings, model, vad, workDir, key)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // whisper-cli en échec (programme abîmé, chemin qu'il ne sait pas lire) : le filtre de FFmpeg prend le relais.
+                log.warn(e) { "whisper-cli en échec sur ${media.path.name} $range, filtre whisper de FFmpeg à la place : ${e.message}" }
+                null
+            }
+            if (lines != null) {
+                cached?.let { it.parent.createDirectories(); it.writeText(lines.joinToString("") { line -> line + "\n" }) }
+                return lines
+            }
+            return rawTranscript(media, range, audio, settings.copy(engine = CaptionEngine.FFMPEG), model, workDir, cacheDir)
+        }
         val out = workDir.resolve("whisper_$key.jsonl")
         out.deleteIfExists()
         ffmpeg.run(
@@ -202,13 +221,31 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         return lines
     }
 
-    /** Même capture, même extrait, même piste, mêmes réglages de transcription : même texte. */
-    private fun cacheKey(media: MediaInfo, range: TimeRange, audio: Int, settings: CaptionSettings, model: Path): String {
+    /** `whisper-cli` à utiliser, ou null pour le filtre de FFmpeg (réglé ainsi, ou programme absent). */
+    private fun program(settings: CaptionSettings): Path? =
+        if (settings.engine == CaptionEngine.FFMPEG) null else settings.cli?.let { Path.of(it) }?.takeIf { it.exists() }
+
+    /**
+     * Même capture, même extrait, même piste, même moteur, mêmes réglages de transcription : même texte. Le filtre de
+     * FFmpeg garde ses clés d'avant (caches déjà faits) ; `whisper-cli` ajoute tout ce qui change son texte.
+     */
+    private fun cacheKey(media: MediaInfo, range: TimeRange, audio: Int, settings: CaptionSettings, model: Path, program: Path?, vad: Path?): String {
         val modelSize = runCatching { model.fileSize() }.getOrDefault(0L)
-        val text = listOf(
+        val common = listOf(
             media.path.toAbsolutePath(), media.sizeBytes, range.start.inWholeMilliseconds, range.end.inWholeMilliseconds,
-            audio, model.name, modelSize, settings.language, settings.maxChars, settings.queue.inWholeMilliseconds,
-        ).joinToString("|")
+            audio, model.name, modelSize, settings.language, settings.maxChars,
+        )
+        val engine = if (program == null) listOf(settings.queue.inWholeMilliseconds)
+        else listOf(
+            "cli", CLI_VERSION, settings.beamSize, WhisperCli.prompt(settings.vocabulary).orEmpty(), settings.useGpu,
+            vad?.name.orEmpty(), vad?.let { runCatching { it.fileSize() }.getOrDefault(0L) } ?: 0L,
+        )
+        val text = (common + engine).joinToString("|")
         return MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).take(12).joinToString("") { "%02x".format(it) }
+    }
+
+    companion object {
+        /** À incrémenter si les arguments de `whisper-cli` changent : les transcriptions en cache sont alors refaites. */
+        const val CLI_VERSION = 1
     }
 }

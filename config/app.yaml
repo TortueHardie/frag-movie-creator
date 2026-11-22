@@ -13,6 +13,14 @@ outputDir: ../output
 profilesDir: profiles
 # workDir: D:/tmp/highlights
 
+# Sous-titres : le programme whisper-cli de whisper.cpp (https://github.com/ggml-org/whisper.cpp/releases,
+# whisper-blas-bin-x64.zip) transcrit plus juste que le filtre de FFmpeg (vocabulaire du jeu, recherche en faisceau).
+# Déposer le contenu du dossier Release dans whisper/ à côté de ce fichier suffit ; sinon chemin ici. Absent : filtre de FFmpeg.
+whisper:
+  # cli: C:/whisper/whisper-cli.exe
+  # Pseudos de tes amis, pour que whisper les écrive comme il faut dans leurs sous-titres :
+  names: []
+
 analysis:
   parallelism: 2
   continueOnDetectorError: true

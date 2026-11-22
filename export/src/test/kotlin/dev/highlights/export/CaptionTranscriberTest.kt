@@ -6,6 +6,7 @@ import dev.highlights.core.ffmpeg.FfmpegService
 import dev.highlights.core.ffmpeg.StdoutHandler
 import dev.highlights.core.model.AudioLayout
 import dev.highlights.core.model.AudioStream
+import dev.highlights.core.model.CaptionEngine
 import dev.highlights.core.model.CaptionSettings
 import dev.highlights.core.model.MediaInfo
 import dev.highlights.core.model.TimeRange
@@ -25,6 +26,8 @@ class CaptionTranscriberTest : FunSpec({
         var runs = 0
         override suspend fun probe(file: Path): MediaInfo = error("non utilisé")
         override suspend fun run(command: FfmpegCommand, stdout: StdoutHandler, onStderrLine: ((String) -> Unit)?): FfmpegResult {
+            // Extraction de l'audio pour whisper-cli : rien à transcrire ici.
+            if ("-af" !in command.args) return FfmpegResult(0, kotlin.time.Duration.ZERO, emptyList())
             runs++
             val af = command.args[command.args.indexOf("-af") + 1]
             Path(af.substringAfter("destination='").substringBefore("'").replace("\\:", ":")).writeText("""{"start":500,"end":1500,"text":"un ennemi"}""" + "\n")
@@ -69,7 +72,8 @@ class CaptionTranscriberTest : FunSpec({
         val dir = tempdir().toPath()
         val voice = listOf(TimeRange(58.seconds, 61.seconds))
         val transcriber = CaptionTranscriber(ffmpeg)
-        transcriber.transcribe(media("ISO Media file"), range, voice, emptyList(), CaptionSettings(), model, AudioLayout(), dir, null)
+        // Contexte de 2 s : le sous-titre factice (0,5 s après le début de l'audio lu) tombe dans la voix, à 58,5 s.
+        transcriber.transcribe(media("ISO Media file"), range, voice, emptyList(), CaptionSettings(context = 2.seconds), model, AudioLayout(), dir, null)
             .map { it.text } shouldBe listOf("un ennemi")
         // Voix ailleurs dans la capture : pas ici.
         transcriber.transcribe(media("ISO Media file"), range, listOf(TimeRange(5.minutes, 6.minutes)), emptyList(), CaptionSettings(), model, AudioLayout(), dir, null)
@@ -85,5 +89,24 @@ class CaptionTranscriberTest : FunSpec({
         val dir = tempdir().toPath()
         CaptionTranscriber(FakeFfmpeg()).transcribe(media("ISO Media file"), range, null, settings, model, AudioLayout(), dir, null).shouldBeEmpty()
         CaptionTranscriber(FakeFfmpeg()).transcribe(media("Game", "Mic"), range, null, settings, model, AudioLayout(), dir, null).size shouldBe 1
+    }
+
+    test("whisper-cli en échec (programme illisible) : le filtre de FFmpeg prend le relais, mots corrigés") {
+        val ffmpeg = FakeFfmpeg()
+        val dir = tempdir().toPath()
+        val cli = dir.resolve("whisper-cli.exe").also { it.writeText("pas un programme") }
+        val settings = CaptionSettings(cli = cli.toString(), spelling = mapOf("Cypher" to listOf("un ennemi")))
+        val captions = CaptionTranscriber(ffmpeg).transcribe(media("Game", "Mic"), range, null, settings, model, AudioLayout(), dir, null)
+        ffmpeg.runs shouldBe 1
+        captions.map { it.text } shouldBe listOf("Cypher")
+    }
+
+    test("moteur ffmpeg imposé : whisper-cli n'est pas lancé même s'il est là") {
+        val ffmpeg = FakeFfmpeg()
+        val dir = tempdir().toPath()
+        val cli = dir.resolve("whisper-cli.exe").also { it.writeText("pas un programme") }
+        val settings = CaptionSettings(cli = cli.toString(), engine = CaptionEngine.FFMPEG)
+        CaptionTranscriber(ffmpeg).transcribe(media("Game", "Mic"), range, null, settings, model, AudioLayout(), dir, null).size shouldBe 1
+        ffmpeg.runs shouldBe 1
     }
 })
