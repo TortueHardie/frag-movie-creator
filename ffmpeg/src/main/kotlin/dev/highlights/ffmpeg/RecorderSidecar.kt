@@ -58,6 +58,24 @@ internal object RecorderSidecar {
         }.toMap()
     }
 
+    /**
+     * Piste décrite dans son handler_name par FTHRClips (mesuré le 22/11 sur de vrais enregistrements) :
+     * `FTHR3|<uuid>|<type>|<volume>|<muet>|<…>|<nom complété d'espaces>`. Le type y vaut « system » pour toutes les
+     * pistes d'appareil, le micro compris : c'est le nom (« SteelSeries Sonar - Microphone (SteelSer… », « Chat »,
+     * « Gaming ») qui dit le rôle, le type ne sert qu'à départager. Null pour tout autre handler_name.
+     */
+    fun fromHandler(handler: String): Declared? {
+        val parts = handler.split('|')
+        if (parts.size < 3 || !parts[0].trim().startsWith("FTHR", ignoreCase = true)) return null
+        val kind = when (parts[2].trim().lowercase()) {
+            "microphone" -> AudioSourceKind.MICROPHONE
+            "application" -> AudioSourceKind.APPLICATION
+            // « system » : une piste d'appareil, ou la « Default Mix » ; le nom décide (AudioTracks).
+            else -> null
+        }
+        return Declared(kind, parts.last().trim().takeIf { it.isNotEmpty() })
+    }
+
     private fun JsonObject.str(key: String): String? = this[key]?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }
     private fun JsonObject.int(key: String): Int? = this[key]?.let { runCatching { it.jsonPrimitive.intOrNull }.getOrNull() }
 }
