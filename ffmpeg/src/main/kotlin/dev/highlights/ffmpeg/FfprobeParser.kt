@@ -43,15 +43,20 @@ object FfprobeParser {
                 )
             }
 
+        val declared = RecorderSidecar.read(file)
         val audio = streams.filter { it.str("codec_type") == "audio" }.mapIndexed { i, s ->
+            val index = s.int("index") ?: i
+            val known = declared[index]
             AudioStream(
-                index = s.int("index") ?: i,
+                index = index,
                 audioIndex = i,
                 codec = s.str("codec_name") ?: "unknown",
                 channels = s.int("channels") ?: 0,
                 sampleRate = s.str("sample_rate")?.toIntOrNull() ?: 0,
                 // MKV : "title" ; MP4 : "name" / "handler_name" (sauf les valeurs génériques du muxer).
-                title = s.obj("tags")?.let { it.str("title") ?: it.str("name") ?: it.str("handler_name")?.takeUnless(::isGenericHandler) },
+                title = s.obj("tags")?.let { it.str("title") ?: it.str("name") ?: it.str("handler_name")?.takeUnless(::isGenericHandler) }
+                    ?: known?.name,
+                source = known?.kind,
             )
         }
 

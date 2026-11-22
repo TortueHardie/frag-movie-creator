@@ -768,7 +768,8 @@ class HighlightPipeline(
             library.find(file, profileForFile.id, fingerprint)?.let { entry -> reuse(entry, profileForFile, options, progress)?.let { return it } }
         }
         val probeStep = progress.child(tr("progress.probe"), 0.02)
-        val media = ffmpeg.probe(file)
+        // Plusieurs pistes audio : on les écoute pour savoir laquelle est le jeu, le micro, le chat (AudioTracks).
+        val media = TrackListener(ffmpeg).listen(ffmpeg.probe(file))
         probeStep.complete()
         if (media.video == null) throw InputException(Message("error.input.noVideo", "file" to file))
         if (!media.duration.isPositive()) throw InputException(Message("error.input.zeroDuration", "file" to file))

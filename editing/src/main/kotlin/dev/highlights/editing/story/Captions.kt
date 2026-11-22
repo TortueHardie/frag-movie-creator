@@ -23,7 +23,14 @@ data class Caption(
     val text: String,
     /** Phrase criée : affichée plus grosse, en couleur. */
     val loud: Boolean = false,
+    /** Qui parle : le joueur (micro) ou un coéquipier (piste du chat vocal), dessiné dans une autre couleur. */
+    val speaker: Speaker = Speaker.PLAYER,
+    /** Dit en même temps qu'une phrase du joueur : dessiné au-dessus d'elle plutôt que par-dessus ([Captions.stack]). */
+    val raised: Boolean = false,
 )
+
+/** Qui parle dans un sous-titre. */
+enum class Speaker { PLAYER, FRIEND }
 
 /**
  * Sous-titres de la voix : lecture de la transcription de whisper.cpp, nettoyage, et texte « pop » dans le rendu.
@@ -305,14 +312,17 @@ object Captions {
         val lines = lines(words) { fit(font, nominal, it, room) / nominal }
         val base = lines.minOf { fit(font, nominal, it.joinToString(" "), room) }
         val lineHeight = LINE_HEIGHT * base / height
-        val center = safe.centerY(y, lineHeight * lines.size)
+        // Coéquipier qui parle en même temps que le joueur : deux lignes plus haut, la phrase du joueur garde sa place.
+        val shownY = if (caption.raised) y - 2 * LINE_HEIGHT * settings.size else y
+        val center = safe.centerY(shownY, lineHeight * lines.size)
+        val color = if (caption.speaker == Speaker.FRIEND) settings.friendColor else "white"
         val marked = if (caption.loud) List(words.size) { false } else emphasized(words, settings.emphasis)
         var first = 0
         return lines.flatMapIndexed { i, line ->
             val style = TextStyle(font, base, height, center + (i - (lines.size - 1) / 2.0) * lineHeight, caption.range.start, caption.range.end, settings.pop, safe = safe)
             val lineMarks = marked.subList(first, first + line.size)
             first += line.size
-            drawLine(line, lineMarks, style, settings, caption.loud)
+            drawLine(line, lineMarks, style, settings, caption.loud, color)
         }
     }
 
@@ -332,9 +342,9 @@ object Captions {
     }
 
     /** Une ligne de sous-titre : d'un bloc (criée, ou sans mot fort), sinon mot par mot pour colorer les mots forts. */
-    private fun drawLine(words: List<String>, marked: List<Boolean>, style: TextStyle, settings: CaptionSettings, loud: Boolean): List<String> {
+    private fun drawLine(words: List<String>, marked: List<Boolean>, style: TextStyle, settings: CaptionSettings, loud: Boolean, color: String): List<String> {
         if (loud) return listOf(style.draw(words.joinToString(" "), settings.shoutColor))
-        if (marked.none { it }) return listOf(style.draw(words.joinToString(" "), "white"))
+        if (marked.none { it }) return listOf(style.draw(words.joinToString(" "), color))
 
         // Mots placés un à un : largeur de chaque mot et de l'espace, mesurées dans la police, à la taille finale.
         val widths = words.map { TextMeasure.width(style.font, style.size, it) }
@@ -348,8 +358,17 @@ object Captions {
         return words.mapIndexed { i, word ->
             val x = style.centered("${num(total)}*${style.scale}") + "+${num(offset)}*${style.scale}"
             offset += widths[i]!! + space
-            style.draw(word, if (marked[i]) settings.emphasisColor else "white", x)
+            style.draw(word, if (marked[i]) settings.emphasisColor else color, x)
         }
+    }
+
+    /**
+     * Sous-titres du joueur et des coéquipiers réunis dans l'ordre : une phrase d'un coéquipier dite pendant une phrase
+     * du joueur est relevée ([Caption.raised]) pour que les deux restent lisibles.
+     */
+    fun stack(player: List<Caption>, friends: List<Caption>): List<Caption> {
+        val raised = friends.map { f -> if (player.any { it.range.start < f.range.end && f.range.start < it.range.end }) f.copy(raised = true) else f }
+        return (player + raised).sortedBy { it.range.start }
     }
 
     /** Libellé d'événement (« DOUBLÉ »…) : même apparition « pop », qui s'efface sur sa fin. */

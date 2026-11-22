@@ -205,10 +205,17 @@ Rien à régler avant d'analyser une première capture : l'application s'adapte 
 - **Outplayed ou pas** : les événements du jeu (kills, morts) viennent d'Outplayed quand il est là. Sinon, pour
   VALORANT, ils sont lus dans le killfeed de la capture (voir plus bas) ; pour les autres jeux ce signal est simplement
   absent, les autres (volume, voix, rires, icônes du HUD) continuent et leur poids est redistribué.
-- **Pistes audio** : elles sont désignées par leur rôle (`game`, `mic`, `mix`), pas par leur numéro. Outplayed en écrit
-  trois (mix, jeu, micro), OBS une ou deux (jeu puis micro) : la bonne piste est trouvée dans les deux cas, d'après les
-  titres des pistes puis leur nombre. Le montage garde tout le son sans le doubler : la piste de mix si elle existe,
-  sinon toutes mélangées. Pour imposer des index : `audio: { game: 1, mic: 2 }` dans le profil.
+- **Pistes audio** : elles sont désignées par leur rôle (`game`, `mic`, `mix`, `chat` = voix des coéquipiers), pas par
+  leur numéro, et le joueur n'a rien à régler. Outplayed en écrit trois (mix, jeu, micro), OBS une ou deux (jeu puis
+  micro), FTHRClips une piste « Default Mix », le micro et, au choix, une piste par application ou par appareil
+  (« Gaming », « Chat » de SteelSeries Sonar). Ordre de décision : la description que l'enregistreur écrit à côté de la
+  vidéo (FTHRClips : `<clip>.mp4.fthr-audio.json`), puis les titres des pistes (mots de toutes les langues de
+  l'application, en début de mot : « Call of Duty » n'est pas un mix), puis l'écoute (quatre passages de 15 s, toutes
+  les pistes ensemble, énergie par tranche de 20 ms : une copie d'une autre piste est écartée, une piste muette aussi,
+  une piste dont l'énergie est la somme des autres est le mix, celle qui sonne presque tout le temps est le jeu), enfin
+  leur nombre. Le montage garde tout le son sans le doubler : la piste de mix si elle existe, sinon les pistes
+  qu'aucune autre ne contient déjà (les pistes d'application de FTHRClips sont dans sa « Default Mix »). Pour imposer
+  des index : `audio: { game: 1, mic: 2, chat: 3 }` dans le profil.
 - **Format d'écran** : les zones du HUD mesurées sur un écran ultrawide sont converties pour une capture 16:9 (et
   l'inverse). Une zone garde sa taille et sa distance au bord auquel elle est accrochée, comme le fait l'interface du
   jeu ; il suffit de déclarer la capture de référence (`referenceWidth`/`referenceHeight`, ou `vertical.reference`).
@@ -347,6 +354,11 @@ meilleurs moments ne sont plus posés bout à bout : chacun est remonté comme l
   moments ne la refait pas. Il faut le modèle, trop lourd pour le dépôt et l'installeur :
   [`ggml-large-v3-turbo-q5_0.bin`](https://huggingface.co/ggerganov/whisper.cpp) (~574 Mo) dans `config/models/`
   (`story.captions.model`). Sans lui, le montage sort sans sous-titres.
+  Les **coéquipiers** sont sous-titrés aussi quand la capture a leur voix sur une piste à elle (rôle `chat` : Discord,
+  chat de SteelSeries Sonar, enregistrés à part par FTHRClips ou OBS), en bleu clair (`story.captions.friendColor`) ;
+  une phrase dite pendant une phrase du joueur s'affiche au-dessus d'elle. Cette piste ne porte que des voix : la
+  parole y est lue à son niveau (au-dessus de −45 dBFS, trous de moins de 400 ms comblés), ce qui écarte ce que whisper
+  inventerait sur le silence. `story.captions.friends: false` les coupe.
   Une capture **sans piste micro séparée** (une seule piste « tout le son », comme les vidéos VALORANT téléchargées)
   n'est sous-titrée que là où l'analyse a trouvé la voix du joueur : whisper y transcrit sinon l'annonceur et les
   personnages du jeu (« Enemies spotted », « Spike down », « One enemy remains »). Sans détecteur qui isole cette voix
