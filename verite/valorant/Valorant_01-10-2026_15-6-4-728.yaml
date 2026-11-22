@@ -1,0 +1,45 @@
+# Vérité terrain relevée à l'image (22/11/2026) : clip Outplayed de janvier 2026, 2580x1080 en 21:9, joueur « Moi ».
+# Killfeed lu à 10 img/s à pleine définition (planches : output/revue/valorant-hd/). Instants : apparition de la ligne
+# (premier aplat sarcelle de l'animation), à 0,1 s près. headshot = icône de la cible entre l'arme et la victime.
+# ally-death : victime sarcelle (équipe du joueur), deux lignes déjà là à la première image (relevées à 0 s) puis LicorneAPtitZizi et Spleen
+# enemy-death : victime rouge (ici, toutes tuées par le joueur).
+capture: { name: Valorant_01-10-2026_15-6-4-728.mp4, sizeBytes: 38924020, duration: 25.024s }
+profile: valorant
+tolerance: 1s
+validated: null
+# Ce clip a ses événements dans la base d'Outplayed de ce PC : killfeed, teams et headshot-icon n'y tournent qu'avec
+# game-events coupé (copie de la configuration, voir output/revue/valorant-hd/LOG.md) ; kill-confirm et score toujours.
+note: "Clip court (Outplayed), le joueur ne meurt pas. Score des rounds : celui affiché à la première image (2-3, émis par round-score comme autant de rounds gagnés et perdus à 0 s), puis chaque changement."
+kinds: [kill, feed-kill, death, headshot, ally-death, enemy-death, round-won, round-lost]
+# Seuils : état mesuré le 22/11 (kill-confirm manque le kill 2 sur fond sombre, contour trop pâle).
+thresholds:
+  kill-confirm: { feed-kill: { precision: 1.0, recall: 0.8 } }
+  score: { round-won: { precision: 1.0, recall: 1.0 }, round-lost: { precision: 1.0, recall: 1.0 } }
+events:
+  - { at: "0s", kind: round-won, note: "score de départ 2-3" }
+  - { at: "0s", kind: round-won }
+  - { at: "0s", kind: round-lost }
+  - { at: "0s", kind: round-lost }
+  - { at: "0s", kind: round-lost }
+  - { at: "0s", kind: ally-death, note: "Fairy Fingers, ligne déjà là à la première image" }
+  - { at: "0s", kind: ally-death, note: "Flashdawn, ligne déjà là" }
+  - { at: "0.8s", kind: ally-death, note: "LicorneAPtitZizi" }
+  - { at: "2.7s", kind: enemy-death }
+  - { at: "2.7s", kind: feed-kill }
+  - { at: "2.7s", kind: kill, note: "Padmée, à travers un mur (icône >>)" }
+  - { at: "6.7s", kind: enemy-death }
+  - { at: "6.7s", kind: feed-kill }
+  - { at: "6.7s", kind: headshot }
+  - { at: "6.7s", kind: kill, note: "MF DOOMMM" }
+  - { at: "9.3s", kind: ally-death, note: "Spleen" }
+  - { at: "15.5s", kind: enemy-death }
+  - { at: "15.5s", kind: feed-kill }
+  - { at: "15.5s", kind: kill, note: "Zaytau (III)" }
+  - { at: "15.8s", kind: enemy-death }
+  - { at: "15.8s", kind: feed-kill }
+  - { at: "15.8s", kind: kill, note: "Tejo (IV)" }
+  - { at: "21.1s", kind: round-won, note: "3-3 : l'ACE gagne le round, chiffre changé à 21,1 s" }
+  - { at: "21.1s", kind: enemy-death }
+  - { at: "21.1s", kind: feed-kill }
+  - { at: "21.1s", kind: headshot }
+  - { at: "21.1s", kind: kill, note: "Jett (V) : ACE" }
