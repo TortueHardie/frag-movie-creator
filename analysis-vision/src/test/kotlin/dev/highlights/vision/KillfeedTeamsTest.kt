@@ -70,6 +70,18 @@ class KillfeedTeamsTest : FunSpec({
         tracker.deaths() shouldBe listOf(TeamDeath(FeedTeam.ALLY, 0.seconds), TeamDeath(FeedTeam.ALLY, 1.seconds))
     }
 
+    test("une mort affichée à la place d'une ligne effacée est une autre mort (durée de vie des lignes)") {
+        // Clip 2580x1080 du 10/01 : Tejo tué à 15,8 s, ligne effacée vers 20,6 s ; Jett tué à 21,3 s, même place.
+        fun deaths(expiry: LineExpiry?): Int {
+            val tracker = TeamTracker(tolerance = 6, minSeen = 800.milliseconds, maxGap = 3.seconds, pendingGap = 500.milliseconds, expiry = expiry)
+            for (i in 0..24) tracker.add(15.8.seconds + (200 * i).milliseconds, listOf(TeamRow(FeedTeam.ENEMY, 20.0)))
+            for (i in 0..15) tracker.add(21.3.seconds + (200 * i).milliseconds, listOf(TeamRow(FeedTeam.ENEMY, 20.0)))
+            return tracker.deaths().size
+        }
+        deaths(null) shouldBe 1
+        deaths(LineExpiry(5300.milliseconds)) shouldBe 2
+    }
+
     test("le nom de la victime qui traverse la colonne ne coupe pas sa ligne") {
         val f = frame(Triple(24, enemy, ally))
         val light: Byte = 63.toByte()

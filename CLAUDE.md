@@ -1,6 +1,6 @@
 # CODEMAP — Highlights (carte pour l'IA, pas pour un humain)
 
-État cartographié : v1.5.1 + branche `montage-references` (2026-10-02). Les symboles sont plus stables que les numéros de ligne :
+État cartographié : v1.5.1 + branche `montage-references` (2026-10-02) ; VALORANT HD revérifié le 2026-11-22. Les symboles sont plus stables que les numéros de ligne :
 chercher par nom (Grep). Si un symbole cité ici n'existe plus, la carte est périmée sur ce point → relire le code et
 mettre cette carte à jour.
 
@@ -172,6 +172,9 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   Basse définition (hauteur < `fillBelow` 720) : `FrameShape.solid`, aplat jaune pur du portrait (`fillColor`, `fill*`), vu `fillMinSeen` 2 s,
   suivi en attente oublié après `fillPendingGap` (`FeedTracker.pendingGap`), toute la vidéo décodée (pas de `keyframeScan`). Mesuré sur 2 parties 854x480.
   Utilisé par valorant.yaml en `fallbackFor: game-events`.
+  Durée de vie des lignes (`lineLife` 5,3 s, `LineExpiry`, aussi dans `TeamTracker`) : un suivi apparu il y a plus longtemps n'est plus repris
+  (nouvelle ligne à la place d'une effacée) ; `planReview(lineLife)` propage l'instant d'apparition sur les images clés (`Review.origins`, `FeedTracker.known(firsts)`).
+  HD revérifiée le 22/11 sur 3 clips Outplayed réels 21:9 (`verite/valorant/Valorant_01-*.yaml`, `output/revue/valorant-hd/`) : `minHeight` 30, `minFill` 0,12.
 - `KillfeedOutline.kt` — mode **`outline`** du `killfeed` (CS2, profil cs2.yaml) : `OutlineParams`, `OutlineReader` (ligne entière
   encadrée de la couleur du joueur = kill, fond plein = mort ; paires de traits finissant au même bord droit, `bridge` 16),
   `RowReader` (interface commune avec `FeedReader`). `FeedTracker(newLineGrowth)` : rapprochement par hauteur et ligne qui
@@ -186,7 +189,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   → `ally-run-it-back`/`enemy-run-it-back` au lieu d'une mort), `TeamTracker`. `TeamRounds.withoutRevived` (`killStyle.revivedEvent`) retire la mort du joueur
   correspondante, appelé en tête de `MontagePlanner.groups` et de `Statistics.game`. `round-start` (`RoundBarParams` : barres de vie alliées pleines, `roundStarts`),
   `clutch-banner` (`BannerParams` : mot « CLUTCH » du bandeau de fin de round, gabarit `templates/valorant/banner_clutch.png`, `bannerAppearances`) →
-  `KillStyle.roundStartEvent/clutchBannerEvent`, utilisés par `TeamRounds.clutchTimes` (bandeau = clutch annoncé de plus). valorant.yaml : `teams`, `fallbackFor: game-events`, 5 img/s. Mesuré en 480p seulement.
+  `KillStyle.roundStartEvent/clutchBannerEvent`, utilisés par `TeamRounds.clutchTimes` (bandeau = clutch annoncé de plus). valorant.yaml : `teams`, `fallbackFor: game-events`, 5 img/s. Mesuré en 480p et sur 3 clips HD réels (22/11 ; `matchTolerance` 20, `lineLife`).
 - `KillfeedHeadshot.kt` — type **`killfeed-headshot`** : icône du tir à la tête des lignes du joueur (sans Outplayed ; `dependsOn` kills), relit 2 s par kill,
   ligne trouvée par `feedSetup` (zone + lecteur partagés avec `KillfeedDetector`), début de la victime rouge, gabarit `templates/valorant/killfeed_headshot.png` ;
   `HeadshotIcon.score/victimStart/pick`. Profil valorant : `headshot-icon` (le son `headshot-sound` est éteint).

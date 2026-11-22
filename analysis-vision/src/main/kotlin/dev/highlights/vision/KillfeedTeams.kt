@@ -74,14 +74,27 @@ data class KillfeedTeamsParams(
      * alliées sur 111 sans cette règle (menu d'achat, résumé de combat), aucune vraie perdue avec 0,08.
      */
     val minKillerShare: Double = 0.08,
-    /** Écart vertical toléré pour reconnaître la même ligne d'une image à l'autre (elle ne fait que monter). */
-    val matchTolerance: Int = 12,
+    /**
+     * Écart vertical toléré pour reconnaître la même ligne d'une image à l'autre (elle ne fait que monter). 20 px de
+     * référence (une ligne en occupe ~52) : pendant un flash, le centre lu d'une ligne remonte de 6 px puis revient
+     * (clip 2580x1080 du 10/01) ; avec 12, la ligne revenue paraissait plus bas que son suivi et comptait deux fois.
+     * Mesuré en 480p (« Valorant- 44 kills ») : mêmes 6 fausses morts alliées qu'avec 12.
+     */
+    val matchTolerance: Int = 20,
     /** Durée pendant laquelle une ligne doit être vue : le décor qui en prend la couleur passe plus vite. */
     val minSeen: SerialDuration = 800.milliseconds,
     /** Une ligne confirmée invisible plus longtemps est oubliée (masquée par une fumée, un flash). */
     val maxGap: SerialDuration = 3.seconds,
     /** Une ligne pas encore confirmée qu'on ne revoit pas pendant ce temps est oubliée. */
     val pendingGap: SerialDuration = 500.milliseconds,
+    /**
+     * Durée d'affichage maximale d'une ligne du killfeed : environ 4,9 s mesurés (4 lignes d'un clip 2580x1080, de
+     * l'apparition à l'effacement ; « 5 s » en 480p). Une ligne suivie apparue il y a plus longtemps ne peut plus être
+     * celle qu'on voit : ce qui est là est une nouvelle ligne. Sans cela, le kill suivant, affiché à l'endroit exact d'une
+     * ligne effacée 0,7 s plus tôt, passait pour elle (revue après une fumée, [maxGap]) et n'était pas compté (ACE du
+     * 10/01, cinquième kill). null = aucune limite (comportement d'avant).
+     */
+    val lineLife: SerialDuration? = 5300.milliseconds,
     /** Couleur de l'équipe du joueur (sarcelle dans VALORANT) et de l'adversaire (rouge), en expressions `geq`. */
     val allyColor: String = TEAL,
     val enemyColor: String = RED,
@@ -397,6 +410,8 @@ internal class TeamTracker(
     /** Images où le cercle de Phoenix doit être vu, et leur part parmi celles de la ligne. */
     private val ringSightings: Int = 4,
     private val ringShare: Double = 0.12,
+    /** Ligne expirée jamais reprise (voir [KillfeedTeamsParams.lineLife]). */
+    private val expiry: LineExpiry? = null,
 ) {
     private class Track(val team: FeedTeam, var center: Double, val first: Duration, var last: Duration, var sightings: Int, var rings: Int)
 
@@ -410,7 +425,8 @@ internal class TeamTracker(
             // La plus ancienne ligne suivie qui peut être celle-ci : même équipe, pas plus haut qu'elle (à la tolérance près).
             val match = tracks.firstOrNull {
                 it !in used && it.team == row.team && row.center <= it.center + tolerance &&
-                    at - it.last <= (if (it.confirmed()) maxGap else pendingGap)
+                    at - it.last <= (if (it.confirmed()) maxGap else pendingGap) &&
+                    (expiry == null || !expiry.expired(it.first, at))
             }
             if (match == null) {
                 tracks += Track(row.team, row.center, at, at, 1, if (row.ring) 1 else 0).also { used += it }
@@ -543,6 +559,7 @@ class KillfeedTeamsDetector(override val id: String, private val params: Killfee
         val tracker = TeamTracker(
             state.tolerance, params.minSeen, params.maxGap, params.pendingGap,
             ringSightings = ceil(params.ringSeen.toDouble(DurationUnit.SECONDS) * params.fps).toInt().coerceAtLeast(1), ringShare = params.ringShare,
+            expiry = params.lineLife?.let(::LineExpiry),
         )
         for (i in 0 until count) tracker.add(times[i], state.rows[i])
         val end = ctx.media.duration

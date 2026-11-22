@@ -186,6 +186,36 @@ class KillfeedTest : FunSpec({
         t.appearances() shouldBe listOf(KillfeedRole.KILL to 9.seconds)
     }
 
+    test("une ligne effacée puis remplacée à la même place par un nouveau kill compte deux fois (durée de vie des lignes)") {
+        // Mesuré sur l'ACE du 10/01 (2580x1080) : la ligne de Tejo apparaît à 15,8 s et s'efface vers 20,6 s ; le kill
+        // de Jett s'affiche à 21,3 s exactement à sa place. Sans durée de vie, il passait pour Tejo revue après une fumée.
+        val row = FeedRow(KillfeedRole.KILL, 10, 32, 100, 138)
+        fun count(tracker: FeedTracker): Int {
+            for (i in 0..24) tracker.add(15.8.seconds + (200 * i).milliseconds, listOf(row))
+            for (i in 0..15) tracker.add(21.3.seconds + (200 * i).milliseconds, listOf(row))
+            return tracker.appearances().size
+        }
+        count(FeedTracker(tolerance = 6, minSightings = 3, maxGap = 3.seconds, deathSpacing = 10.seconds)) shouldBe 1
+        count(FeedTracker(tolerance = 6, minSightings = 3, maxGap = 3.seconds, deathSpacing = 10.seconds, expiry = LineExpiry(5300.milliseconds))) shouldBe 2
+        // Une ligne masquée par une fumée puis revue pendant sa durée de vie reste un seul kill.
+        val t = FeedTracker(tolerance = 6, minSightings = 3, maxGap = 3.seconds, deathSpacing = 10.seconds, expiry = LineExpiry(5300.milliseconds))
+        for (i in 0..5) t.add((200 * i).milliseconds, listOf(row))
+        for (i in 0..5) t.add(3.seconds + (200 * i).milliseconds, listOf(row))
+        t.appearances().size shouldBe 1
+    }
+
+    test("passages relus : une ligne d'image clé plus vieille que la durée de vie n'explique plus celle qui la remplace") {
+        val times = (0..24).map { it.seconds }
+        val row = FeedRow(KillfeedRole.KILL, 10, 32, 100, 138)
+        // Vue de 16 à 20 s, rien à 21 s, la même place à 22 s : sans durée de vie, l'image clé de 22 s n'est pas relue.
+        val rows = times.indices.map { if (it in 16..20 || it >= 22) listOf(row) else emptyList() }
+        planReview(times, rows, end = 25.seconds, tolerance = 6, lookback = 4.seconds, tail = 1.seconds).map { it.start } shouldBe listOf(15.seconds)
+        val plan = planReview(times, rows, end = 25.seconds, tolerance = 6, lookback = 4.seconds, tail = 1.seconds, lineLife = 5300.milliseconds)
+        plan.map { it.start } shouldBe listOf(15.seconds, 21.seconds)
+        // Les lignes connues du second passage gardent leur instant d'apparition (16 s), pas celui de l'image clé.
+        plan[1].origins.flatten().toSet() shouldBe setOf(16.seconds)
+    }
+
     test("une image sans pixel du joueur ne donne rien") {
         reader.rows(ZoneFrame(300, 120, ByteArray(300 * 120))).shouldBeEmpty()
     }
