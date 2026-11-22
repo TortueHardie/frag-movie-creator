@@ -6,7 +6,7 @@
 capture: { name: Valorant_01-10-2026_1-9-16-312.mp4, sizeBytes: 11898816, duration: 15.018667s }
 profile: valorant
 tolerance: 1s
-validated: null
+validated: utilisateur, 2026-11-22
 note: "Clip court (Outplayed), le joueur ne meurt pas. Score des rounds : celui affiché à la première image (1-3, émis par round-score comme autant de rounds gagnés et perdus à 0 s), puis chaque changement."
 kinds: [kill, feed-kill, death, headshot, ally-death, enemy-death, round-won, round-lost]
 # Seuils : état mesuré le 22/11 (le quatrième kill s'affiche 0,4 s avant la fin du clip : jamais vu assez longtemps).

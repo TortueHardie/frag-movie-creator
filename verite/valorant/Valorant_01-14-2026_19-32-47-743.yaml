@@ -6,7 +6,7 @@
 capture: { name: Valorant_01-14-2026_19-32-47-743.mp4, sizeBytes: 18835337, duration: 12.016683s }
 profile: valorant
 tolerance: 1s
-validated: null
+validated: utilisateur, 2026-11-22
 # Ce clip a ses événements dans la base d'Outplayed de ce PC : killfeed, teams et headshot-icon n'y tournent qu'avec
 # game-events coupé (copie de la configuration, voir output/revue/valorant-hd/LOG.md) ; kill-confirm et score toujours.
 note: "Clip court (Outplayed), le joueur ne meurt pas. Score des rounds : celui affiché à la première image (3-3, émis par round-score comme autant de rounds gagnés et perdus à 0 s), puis chaque changement."
