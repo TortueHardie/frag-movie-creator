@@ -109,8 +109,11 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `ffmpeg/Ffmpeg.kt` : `FfmpegCommand`, `StdoutHandler{Discard, Lines, Binary}`, `FfmpegResult`, `FfmpegException`,
   interface `FfmpegService{probe, run, runProbe, filterScriptOption}`, `EncoderProfile`, `EncoderSelector{select()}`, `FfmpegProgressParser`.
 - `ffmpeg/Hwaccel.kt` : `Hwaccel.resolve("auto"|"none"|nom)`.
-- `model/AudioTracks.kt` : `AudioRole{MIX,GAME,MIC}`, `AudioLayout(mix,game,mic)` (imposé par profil), `AudioTracks.of(streams, layout)`
-  (ordre : layout > titres > nombre de pistes), `indexOf(role)`, `mixIndices()`, `describe()` et `explanation` en `Message` (finissent dans « aucun moment retenu »), `roleName(role)`.
+- `model/AudioTracks.kt` : `AudioRole{MIX,GAME,MIC,CHAT}` (CHAT = voix des coéquipiers), `AudioLayout(mix,game,mic,chat)` (imposé par profil), `AudioTracks.of(streams, layout)`
+  (ordre : layout > déclaré par l'enregistreur `AudioStream.source` > titres `roleOfTitle` (mots en début de mot, toutes langues) > écoute `AudioStream.content` > nombre de pistes ; copies et pistes muettes sans rôle),
+  `indexOf(role)`, `mixIndices()` (mix complet, sinon pistes qu'aucune autre ne contient : « Default Mix » de FTHRClips contient ses pistes d'application), `describe()` et `explanation` en `Message` (finissent dans « aucun moment retenu »), `roleName(role)`.
+  `MediaInfo.kt` : `AudioStream.source: AudioSourceKind{SYSTEM,MICROPHONE,APPLICATION}`, `AudioStream.content: TrackContent(active, contains, duplicateOf)`.
+  Remplis par `ffmpeg/RecorderSidecar.kt` (`<clip>.mp4.fthr-audio.json` de FTHRClips, lu par `FfprobeParser`) et `pipeline/TrackListener.kt` (écoute à l'analyse : 4 × 15 s, énergies 20 ms, copie/contenance par moindres carrés positifs).
 - `model/Highlight.kt` : `Highlight(id, source, range, peak, score, contributions, enabled, events, origin: MomentOrigin{DETECTED,ADJUSTED,ADDED}, order: Int?)` (`manual` = retouché/ajouté, ids « m001 »), `ScoredTimeline(grid, total, contributions, events, excluded, segments)`, `TimelineEvent`, `TimelineSegment`.
 - `model/MediaInfo.kt` : `MediaInfo(path, sizeBytes, duration, creationTime, container, video, audio ; recordedAt calculé : creationTime > nom daté > date du fichier)`, `reliableTime` (métadonnées ou nom daté),
   `nameTime(nom)` (Outplayed MM-dd-yyyy_H-m-s, OBS yyyy-MM-dd HH-mm-ss, ShadowPlay yyyy.MM.dd - HH.mm.ss), `RECORDING_ORDER`, `VideoStream`, `AudioStream(audioIndex, title…)`.
@@ -242,6 +245,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 
 ### export
 - `Exporter.kt` : `ExportRequest`, `ExportResult(videos, report, duration, encoder)`, `export`, `preview` (PNG par format), `thumbnail`, `clipPreview`.
+- `ChatVoice.kt` : prises de parole de la piste `chat` (niveau seul). `CaptionTranscriber` sous-titre aussi les coéquipiers (`captions.friends`, `friendColor`, `Caption.speaker: Speaker{PLAYER,FRIEND}`, `Captions.stack` relève une phrase dite pendant celle du joueur).
 - `CaptionTranscriber.kt` : filtre FFmpeg `whisper` (whisper.cpp), cache par clé (media, range, piste, réglages, modèle). Sans piste du rôle `captions.role` (MIC) : `captions.withoutMic` null (auto) = seulement si la timeline a de la voix dans l'extrait, true = toujours, false = jamais ; sur le son complet, `captions.ignore` (répliques du jeu, phrase entière) et `Captions.withoutRecurring` (dans `Exporter`). `Captions.clean` : sons entre astérisques, textes sans lettre, `withoutRepeats` (10 s), segment > 8 s ramené à la parole ; `readable(captions, speech)` : fin ≤ fin de parole + 250 ms, 3 s au plus (`MAX_SHOWN`) ; morceau trop court pour être lu fusionné avec le précédent (`MERGE_MAX_CHARS` 36).
 - `OutputNamer.kt` : `reserve(dir, game, date, formats, kind="highlights"|"killmontage")` → `<game>_<date>_<kind><suffix>.mp4` + `.json`, `tempFor`, `slug`,
   `thumbnailFor(video)` (`<nom>_miniature[_N].png`, jamais d'écrasement), `thumbnailOf(video)` (la plus récente).

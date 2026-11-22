@@ -3,6 +3,7 @@ package dev.highlights.core.model
 import dev.highlights.core.serialization.SerialDuration
 import dev.highlights.core.serialization.SerialInstant
 import dev.highlights.core.serialization.SerialPath
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.Instant
 import kotlin.io.path.getLastModifiedTime
@@ -87,6 +88,42 @@ data class AudioStream(
     val channels: Int,
     val sampleRate: Int,
     val title: String? = null,
+    /** Nature de la piste déclarée par l'enregistreur à côté du fichier (FTHRClips : `.fthr-audio.json`), null s'il ne dit rien. */
+    val source: AudioSourceKind? = null,
+    /** Ce que l'écoute de la piste a montré ([TrackContent]), null tant qu'elle n'a pas été écoutée. */
+    val content: TrackContent? = null,
 ) {
     val label: String get() = "a:$audioIndex" + (title?.let { " \"$it\"" } ?: "")
+}
+
+/** Nature d'une piste telle que l'enregistreur la déclare (vocabulaire de FTHRClips, le seul qui la déclare aujourd'hui). */
+@Serializable
+enum class AudioSourceKind {
+    /** Tout ce que le PC joue (« Default Mix » de FTHRClips) : jeu, chat vocal, musique ; jamais le micro. */
+    @SerialName("system") SYSTEM,
+    @SerialName("microphone") MICROPHONE,
+    /** Une seule application (le jeu, Discord…), déjà comprise dans la piste [SYSTEM] quand elle existe. */
+    @SerialName("application") APPLICATION,
+}
+
+/**
+ * Écoute rapide d'une piste : quelques passages répartis dans la capture, énergie par tranche de 20 ms, comparée à celle
+ * des autres pistes au même instant (voir `TrackListener` du pipeline). Sert à décider quand les titres ne suffisent pas.
+ */
+@Serializable
+data class TrackContent(
+    /** Part des tranches où la piste sonne (au-dessus du seuil de silence) : ~1 pour le jeu, bien moins pour une voix. */
+    val active: Double,
+    /** Pistes (0:a:N) que celle-ci contient déjà : son énergie s'explique par leur somme (une piste « mix »). */
+    val contains: List<Int> = emptyList(),
+    /** Piste (0:a:N) dont celle-ci est une copie (même son à l'énergie près), null sinon. */
+    val duplicateOf: Int? = null,
+) {
+    /** Piste muette sur tous les passages écoutés : un micro débranché, un appareil où rien ne passe. */
+    val silent: Boolean get() = active < SILENT_SHARE
+
+    companion object {
+        /** En dessous, la piste est tenue pour muette (moins d'une tranche sur 200 sonne). */
+        const val SILENT_SHARE = 0.005
+    }
 }

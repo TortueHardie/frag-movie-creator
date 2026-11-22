@@ -235,6 +235,12 @@ data class CaptionSettings(
     /** Phrase criée (recouvre un segment « shout ») : toute en [shoutColor], plus grosse de [shoutScale]. */
     val shoutColor: String = "0xFF4538",
     val shoutScale: Double = 1.25,
+    /**
+     * Sous-titrer aussi les coéquipiers quand la capture a leur voix sur une piste à elle (rôle `chat` : Discord,
+     * chat de SteelSeries Sonar…), dans la couleur [friendColor].
+     */
+    val friends: Boolean = true,
+    val friendColor: String = "0x7FD8FF",
 ) {
     init {
         require(maxChars in 4..80) { "story.captions.maxChars doit être entre 4 et 80" }

@@ -12,6 +12,7 @@ import dev.highlights.core.model.TimeRange
 import dev.highlights.core.serialization.Durations
 import dev.highlights.editing.story.Caption
 import dev.highlights.editing.story.Captions
+import dev.highlights.editing.story.Speaker
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CancellationException
 import java.nio.file.Path
@@ -72,26 +73,68 @@ class CaptionTranscriber(private val ffmpeg: FfmpegService) {
         workDir: Path,
         cacheDir: Path?,
     ): List<Caption> {
+        val padded = TimeRange((range.start - context).coerceAtLeast(Duration.ZERO), (range.end + context).coerceAtMost(media.duration))
+        val player = playerCaptions(media, range, padded, voice, shouts, settings, model, layout, workDir, cacheDir)
+        val friends = friendCaptions(media, padded, settings, model, layout, workDir, cacheDir)
+        return Captions.stack(player, friends)
+    }
+
+    private suspend fun playerCaptions(
+        media: MediaInfo,
+        range: TimeRange,
+        padded: TimeRange,
+        voice: List<TimeRange>,
+        shouts: List<TimeRange>,
+        settings: CaptionSettings,
+        model: Path,
+        layout: AudioLayout,
+        workDir: Path,
+        cacheDir: Path?,
+    ): List<Caption> {
         val audio = trackFor(media, settings, layout, voice, range) ?: return emptyList()
         val segments = voice
         // L'analyse a cherché la voix et n'en a pas trouvé ici : rien à transcrire (et rien à inventer pour whisper).
         if (segments.isNotEmpty() && segments.none { it.isWithin(range) }) return emptyList()
         // Sur le son complet passent aussi les répliques du jeu ; sur le micro, le joueur a le droit de dire « spike ».
         val ignore = if (withoutMic(media, settings, layout)) settings.ignore else emptyList()
-
-        val padded = TimeRange((range.start - context).coerceAtLeast(Duration.ZERO), (range.end + context).coerceAtMost(media.duration))
-        val raw = try {
-            rawTranscript(media, padded, audio, settings, model, workDir, cacheDir)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.warn(e) { "Transcription impossible de ${media.path.name} $range, montage sans sous-titres : ${e.message}" }
-            return emptyList()
-        }
+        val raw = safely(media, range) { rawTranscript(media, padded, audio, settings, model, workDir, cacheDir) } ?: return emptyList()
         // Une phrase criée (elle recouvre un cri détecté) s'affiche plus grosse, en couleur.
         return Captions.readable(Captions.clean(Captions.parse(raw, padded.start), segments, ignore), segments).map { c ->
             if (shouts.any { it.isWithin(c.range) }) c.copy(loud = true) else c
         }
+    }
+
+    /**
+     * Voix des coéquipiers, quand la capture les a sur leur propre piste (rôle [AudioRole.CHAT]) et que le joueur est
+     * sous-titré depuis son micro. Cette piste ne porte que des voix : la parole s'y lit au niveau du son ([ChatVoice]),
+     * ce qui écarte ce que whisper inventerait sur le silence.
+     */
+    private suspend fun friendCaptions(
+        media: MediaInfo,
+        padded: TimeRange,
+        settings: CaptionSettings,
+        model: Path,
+        layout: AudioLayout,
+        workDir: Path,
+        cacheDir: Path?,
+    ): List<Caption> {
+        if (!settings.friends || settings.role != AudioRole.MIC) return emptyList()
+        val chat = AudioTracks.of(media.audio, layout).indexOf(AudioRole.CHAT) ?: return emptyList()
+        val speech = safely(media, padded) { ChatVoice(ffmpeg).spans(media, padded, chat) } ?: return emptyList()
+        if (speech.isEmpty()) return emptyList()
+        val raw = safely(media, padded) { rawTranscript(media, padded, chat, settings, model, workDir, cacheDir) } ?: return emptyList()
+        return Captions.readable(Captions.clean(Captions.parse(raw, padded.start), speech, emptyList()), speech)
+            .map { it.copy(speaker = Speaker.FRIEND) }
+    }
+
+    /** Une transcription en échec n'empêche jamais le montage : il sort sans ces sous-titres. */
+    private suspend fun <T> safely(media: MediaInfo, range: TimeRange, block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.warn(e) { "Transcription impossible de ${media.path.name} $range, montage sans ces sous-titres : ${e.message}" }
+        null
     }
 
     /** Vrai si la capture n'a pas de piste du rôle transcrit ([CaptionSettings.role]) : seul le son complet est là. */
