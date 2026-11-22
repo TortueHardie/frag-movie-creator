@@ -96,7 +96,7 @@ class MusicMontageTest : FunSpec({
         c.snap(editor.copy(magnet = false), beat + 30.milliseconds, free = false) shouldBe ((beat + 30.milliseconds) to null)
     }
 
-    test("étape 1 : déplacer un repère change seulement son instant, il devient « à vous » ; proches permis, aucune contrainte") {
+    test("étape 1 : déplacer un repère change seulement son instant, il devient « à toi » ; proches permis, aucune contrainte") {
         val (c, state) = controller()
         val m = ed(state).intents!!.killMarks[2]
         c.drag(EditorDragKind.MARK, m.id.toString(), (beats[20] + 25.milliseconds).inWholeMicroseconds / 1e6, free = false)
