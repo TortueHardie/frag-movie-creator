@@ -82,7 +82,7 @@ class OneTapsTest : FunSpec({
 
     test("sans aucun tir entendu : on demande de réanalyser") {
         val s = session(listOf(Triple(100.0, null, true), Triple(200.0, null, true)))
-        shouldThrow<InputException> { select(s) }.localizedMessage shouldContain "Réanalysez"
+        shouldThrow<InputException> { select(s) }.localizedMessage shouldContain "Réanalyse-les"
     }
 
     test("profil sans source de balles : on dit que le jeu ne le permet pas, pas de réanalyser") {
@@ -90,7 +90,7 @@ class OneTapsTest : FunSpec({
         val groups = MontagePlanner.groups(listOf(s), settings)
         val message = shouldThrow<InputException> { OneTaps.select(groups, listOf(s), settings, countsShots = false) }.localizedMessage
         message shouldContain "ne permet pas encore de compter les balles"
-        (message.contains("Réanalysez")) shouldBe false
+        (message.contains("Réanalyse-les")) shouldBe false
     }
 
     test("aucun one tap : on le dit, avec le nombre de kills trouvés") {

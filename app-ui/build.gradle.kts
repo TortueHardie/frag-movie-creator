@@ -221,6 +221,9 @@ tasks.withType<JavaExec>().configureEach {
         // Préférences isolées (-PuserHome=<dossier>) : ni le dossier surveillé ni les musiques de l'utilisateur ne sont
         // repris, une session pilotée ne lance pas d'analyse en fond. Le fichier du pont est alors dans <dossier>/.highlights.
         findProperty("userHome")?.let { systemProperty("user.home", it.toString()) }
+        // Fausse machine pour l'écran de premier lancement (-PrecordersRoot=<dossier>, voir RecorderEnvironment.fake) :
+        // enregistreurs lus dans ce dossier, pas ceux installés.
+        findProperty("recordersRoot")?.let { systemProperty("highlights.recorders.root", it.toString()) }
     }
 }
 

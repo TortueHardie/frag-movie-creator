@@ -57,7 +57,7 @@ class AppControllerIT : FunSpec({
         )
         val platform = RecordingPlatform()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val controller = AppController(scope, platform, WatchPrefsStore(root.resolve("watch.json"))) {
+        val controller = AppController(scope, platform, WatchPrefsStore(root.resolve("watch.json")), firstRunPrefs = FirstRunPrefsStore(root.resolve("first-run.json")), recorders = { RecorderDetector(RecorderEnvironment.fake(root)) }) {
             Backend(Pipelines.create(config, TestMedia.requireFfmpeg()), Path("app.yaml"))
         }
         suspend fun await(what: String, predicate: (UiState) -> Boolean): UiState =
@@ -149,7 +149,10 @@ class AppControllerIT : FunSpec({
         val ffmpeg = TestMedia.requireFfmpeg()
 
         fun start(scope: CoroutineScope, platform: Platform) =
-            AppController(scope, platform, prefs, watchInterval = 200.milliseconds, watchSettle = 1.seconds) {
+            AppController(
+                scope, platform, prefs, watchInterval = 200.milliseconds, watchSettle = 1.seconds,
+                firstRunPrefs = FirstRunPrefsStore(root.resolve("first-run.json")), recorders = { RecorderDetector(RecorderEnvironment.fake(root)) },
+            ) {
                 Backend(Pipelines.create(config, ffmpeg), Path("app.yaml"))
             }
 

@@ -250,6 +250,22 @@ Pour voir ce que ça donne sur une machine donnée :
 
 Via « Recharger », ou « Régénérer » dans l'aperçu 9:16.
 
+**Premier lancement.** Un nouveau joueur (ni dossier surveillé, ni analyse) voit d'abord un assistant en quatre étapes
+(enregistreur → jeux → langue → premier montage, « Passer » à chaque étape), rouvrable depuis le menu « ? » →
+« Premiers pas ». Il cherche les enregistreurs installés et lit leurs réglages, sans jamais rien y
+changer : Outplayed (dossier des captures d'Overwolf, `Settings/SettingsPageGeneral.xml`, + `Outplayed`), OBS Studio
+(profil de `user.ini`/`global.ini`, dossier d'enregistrement du mode Simple ou Avancé, pistes de `RecTracks`), NVIDIA
+ShadowPlay (registre `NVSPCAPS\DefaultPathW`), FTHR Clips (`~/.fthr/settings.json` : `clips_directory`,
+`recording_directory` (`<clips>\Recordings`, où FTHR écrit `FTHR_recording_<date>.mp4` : le dossier proposé),
+`audio_capture_mode`), Medal (fichiers de `%APPDATA%\Medal\store`, sinon `C:\Medal`). Il montre
+pour chacun le dossier, le nombre de vidéos, les jeux reconnus et si le micro est sur sa propre piste ; propose le
+dossier dont la dernière vidéo est la plus récente, avec les réglages conseillés pour cet enregistreur. L'étape des jeux
+liste les jeux du dossier et choisit celui du premier montage : le plus joué (un jeu reconnu d'abord), ou un autre d'un
+clic. « Faire mon premier montage » surveille ce dossier (case cochée), analyse la dernière soirée de ce jeu (5 parties
+au plus, à moins de 3 h l'une de l'autre) et ouvre le parcours du montage. Rien trouvé : comment enregistrer et quel
+enregistreur installer. Vu une fois : `~/.highlights/first-run.json`. Pour le piloter sur une fausse machine :
+`-PrecordersRoot=<dossier>` (`home`, `AppData/Roaming`, `AppData/Local`, `Program Files` dedans).
+
 Dans l'application :
 1. choisir ou glisser une ou plusieurs captures (« Ajouter des vidéos » pour compléter la liste) ;
 2. régler le profil, les formats, la durée et le seuil ;
