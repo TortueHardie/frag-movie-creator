@@ -302,16 +302,26 @@ object RecordingScan {
      */
     fun videos(folder: Path, limit: Int = 300, maxDepth: Int = 4): List<FoundVideo> {
         if (!folder.isDirectory()) return emptyList()
-        return runCatching {
-            Files.walk(folder, maxDepth).use { stream ->
-                stream.asSequence()
-                    .filter { p -> p.extension.lowercase() in HighlightPipeline.SUPPORTED_EXTENSIONS && folder.relativize(p).none { it.toString().lowercase() in SKIPPED } && p.isRegularFile() }
-                    .map { FoundVideo(it.toAbsolutePath().normalize(), it.getLastModifiedTime().toInstant()) }
-                    .sortedByDescending { it.modified }
-                    .take(limit)
-                    .toList()
-            }
-        }.onFailure { log.warn { "Lecture de $folder impossible : ${it.message}" } }.getOrDefault(emptyList())
+        // walkFileTree et pas Files.walk : un seul sous-dossier illisible (jonctions « Ma musique » de Vidéos, dossier
+        // d'un autre compte) arrêtait tout le parcours ; vu sur une vraie machine, OBS dans Vidéos montrait « pas de vidéo ».
+        val found = mutableListOf<FoundVideo>()
+        runCatching {
+            Files.walkFileTree(folder, emptySet(), maxDepth, object : java.nio.file.SimpleFileVisitor<Path>() {
+                override fun preVisitDirectory(dir: Path, attrs: java.nio.file.attribute.BasicFileAttributes) =
+                    if (dir != folder && dir.fileName.toString().lowercase() in SKIPPED) java.nio.file.FileVisitResult.SKIP_SUBTREE
+                    else java.nio.file.FileVisitResult.CONTINUE
+
+                override fun visitFile(file: Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
+                    if (attrs.isRegularFile && file.extension.lowercase() in HighlightPipeline.SUPPORTED_EXTENSIONS) {
+                        found.add(FoundVideo(file.toAbsolutePath().normalize(), attrs.lastModifiedTime().toInstant()))
+                    }
+                    return java.nio.file.FileVisitResult.CONTINUE
+                }
+
+                override fun visitFileFailed(file: Path, exc: java.io.IOException) = java.nio.file.FileVisitResult.CONTINUE
+            })
+        }.onFailure { log.warn { "Lecture de $folder impossible : ${it.message}" } }
+        return found.sortedByDescending { it.modified }.take(limit)
     }
 
     private val SKIPPED = setOf("temp-capture", "temp", "cache")

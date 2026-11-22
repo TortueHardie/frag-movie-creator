@@ -121,6 +121,8 @@ private fun RecorderCard(recorder: SetupRecorder, selected: Boolean, actions: Ui
         shape = RoundedCornerShape(10.dp),
         color = if (selected) Palette.surfaceHigh else Palette.surface,
         border = BorderStroke(1.dp, if (selected) Palette.accent else Palette.outline),
+        // surfaceHigh n'est pas une couleur du thème : sans contentColor, le texte de la carte choisie passait en gris.
+        contentColor = Palette.text,
         modifier = Modifier.fillMaxWidth().clickable { actions.chooseSetupFolder(recorder.folder) },
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
@@ -135,7 +137,7 @@ private fun RecorderCard(recorder: SetupRecorder, selected: Boolean, actions: Ui
                     )
                 }
                 Text(
-                    recorder.folder.toString() + if (recorder.fromSettings) "" else "  " + tr("ui.setup.defaultFolder"),
+                    recorder.folder.toString() + if (recorder.fromSettings || recorder.kind == null) "" else "  " + tr("ui.setup.defaultFolder"),
                     style = MaterialTheme.typography.bodySmall, color = Palette.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 if (recorder.games.isNotEmpty()) {
