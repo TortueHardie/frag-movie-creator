@@ -40,7 +40,7 @@ class ClipsDemoLibrary : FunSpec({
             val highlights = kills.mapIndexed { i, k ->
                 Highlight("h${i + 1}", media.path, TimeRange((k - 4).coerceAtLeast(0.0).seconds, (k + 2).coerceAtMost(media.duration.inWholeMilliseconds / 1000.0).seconds), k.seconds, 0.7 + i * 0.01)
             }
-            val session = Session(createdAt = Instant.now(), media = media, profileId = profileId, timeline = ScoredTimeline(grid, List(grid.count) { 0.4 }, emptyMap(), events = events.sortedBy { it.at }), highlights = highlights)
+            val session = Session(createdAt = Instant.now(), media = media, profileId = profileId, timeline = ScoredTimeline(grid, List(grid.count) { w -> if (kills.any { k -> kotlin.math.abs(k - w) <= 2 }) 0.9 else 0.3 }, emptyMap(), events = events.sortedBy { it.at }), highlights = highlights)
             val out = root.resolve("out").resolve("sessions").resolve("${file.fileName.toString().substringBeforeLast('.')}.session.json")
             SessionStore.save(session, out)
             library.record(

@@ -30,7 +30,7 @@ class ClipsTest : FunSpec({
     fun clip(saved: String, length: Duration, vararg kills: Int, game: String = "VALORANT"): Session {
         val at = LocalDateTime.parse(saved)
         val name = "${game}_clip_from_${at.format(DateTimeFormatter.ofPattern("ddMMMyyyy_HH-mm-ss", Locale.ENGLISH))}.mp4"
-        val media = MediaInfo(Path("D:/Clips/$game/$name"), 1000L + saved.hashCode(), length, video = VideoStream(0, "h264", 1920, 1080, 60.0))
+        val media = MediaInfo(Path("D:/Clips/$game/$name"), 1000L + kotlin.math.abs(saved.hashCode().toLong()), length, video = VideoStream(0, "h264", 1920, 1080, 60.0))
         val grid = WindowGrid(1.seconds, 1.seconds, length)
         val events = kills.map { TimelineEvent(it.seconds, "kill", 1.0, "game-events") }
         val highlights = kills.mapIndexed { i, k ->
@@ -81,12 +81,19 @@ class ClipsTest : FunSpec({
         val games = ClipRepeats.remove(clips).map(::stats)
         games.all { it.clip } shouldBe true
         Statistics.distinctGames(games) shouldHaveSize 4
+        // Même poids, même durée (deux clips de 45 s au même débit) : deux clips, pas une copie ; la copie garde son nom.
+        Statistics.distinctGames(games.map { it.copy(sizeBytes = 5_000_000) }) shouldHaveSize 4
+        Statistics.distinctGames(listOf(games[0], games[0].copy(sessionFile = Path("copie.json"), source = Path("E:/Copie/${games[0].source.fileName}")))) shouldHaveSize 1
         val evening = Statistics.evenings(games).single()
         evening.kills shouldBe 6
         evening.clips shouldBe 4
         // Trois clips en 20 min font une séance ; 70 min plus tard, une autre.
         evening.parts.map { it.games.size } shouldBe listOf(3, 1)
         evening.killsPerGame shouldBe 3.0
+        // Morts d'un clip inconnues (il ne montre pas celles d'entre deux clips) : pas de K/D de 6 sur la soirée.
+        val withDeath = clips[0].let { s -> s.copy(timeline = s.timeline.copy(events = s.timeline.events + TimelineEvent(55.seconds, "death", 1.0, "game-events"))) }
+        Statistics.game(withDeath, settings, Path("d.json"), "VALORANT", setOf("game-events")).deaths shouldBe null
+        evening.kd shouldBe null
     }
 
     test("un clip pris pendant une partie entière enregistrée en est un morceau : la partie reste") {

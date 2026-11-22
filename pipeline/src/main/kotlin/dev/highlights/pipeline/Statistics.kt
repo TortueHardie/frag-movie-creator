@@ -115,7 +115,11 @@ object Statistics {
         val killSources = killEvents.map { it.detectorId }.toSet()
         // Sans kill, la partie ne dit rien de son détecteur : on se fie à ce que le profil sait voir.
         fun known(sources: Set<String>?) = sources == null || (sources.isNotEmpty() && (killSources.isEmpty() || killSources.any { it in sources }))
-        val deaths = if (style.deathEvent.isEmpty() || !known(deathSources)) null else events.filter { it.kind in style.deathKinds }.map { it.at }.sorted()
+        val seenDeaths = if (style.deathEvent.isEmpty() || !known(deathSources)) null else events.filter { it.kind in style.deathKinds }.map { it.at }.sorted()
+        // Un clip garde les kills qu'on a voulu garder, pas les morts d'entre deux : ses morts sont inconnues (sinon une
+        // soirée de clips affichait un K/D de 21). Ses morts vues servent encore à couper les rounds.
+        val clip = session.media.isClip
+        val deaths = seenDeaths.takeUnless { clip }
         val groups = MontagePlanner.groups(listOf(session), settings)
         // Les tirs à la tête peuvent venir d'un autre détecteur que les kills (le son du jeu, avec le killfeed) : il
         // suffit qu'il ait entendu quelque chose dans cette partie. On compte les kills à la tête, pas les événements :
@@ -123,7 +127,7 @@ object Statistics {
         val heard = headshotSources != null && events.any { it.kind == style.headshotEvent && it.detectorId in headshotSources }
         val headshots = if (style.headshotEvent.isEmpty() || !(known(headshotSources) || heard)) null
         else groups.sumOf { g -> g.kills.count { g.traitsOf(it).headshot } }
-        val rounds = MontagePlanner.rounds(kills, deaths.orEmpty(), style.roundGap)
+        val rounds = MontagePlanner.rounds(kills, seenDeaths.orEmpty(), style.roundGap)
         return GameStats(
             sessionFile = sessionFile,
             source = session.media.path,
@@ -144,12 +148,12 @@ object Statistics {
             } else {
                 null
             },
-            bestRound = if (deaths != null) rounds.maxOfOrNull { it.kills.size } ?: 0 else null,
+            bestRound = if (seenDeaths != null) rounds.maxOfOrNull { it.kills.size } ?: 0 else null,
             rounds = if (deaths != null) rounds.size else null,
             outdated = outdated,
             reliableTime = session.media.reliableTime,
             sizeBytes = session.media.sizeBytes,
-            clip = session.media.isClip,
+            clip = clip,
         )
     }
 
@@ -214,7 +218,11 @@ object Statistics {
     /** La même capture : même fichier, ou une copie (même taille à l'octet près, même durée à la seconde). */
     internal fun sameCapture(a: GameStats, b: GameStats): Boolean =
         a.source.toAbsolutePath().normalize() == b.source.toAbsolutePath().normalize() ||
-            (a.sizeBytes > 0 && a.sizeBytes == b.sizeBytes && (a.duration - b.duration).absoluteValue < kotlin.time.Duration.parse("1s"))
+            (
+                a.sizeBytes > 0 && a.sizeBytes == b.sizeBytes && (a.duration - b.duration).absoluteValue < kotlin.time.Duration.parse("1s") &&
+                    // Deux clips de 30 s au même débit peuvent peser le même poids : une copie garde aussi son nom.
+                    (!(a.clip && b.clip) || a.source.fileName == b.source.fileName)
+                )
 
     fun eveningOf(at: Instant, zone: ZoneId = ZoneId.systemDefault()): LocalDate =
         at.atZone(zone).minusHours(EVENING_END.inWholeHours).toLocalDate()

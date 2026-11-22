@@ -65,7 +65,9 @@ object LibraryRows {
             if (run.size >= 2) rows += LibraryRow.Clips(run) else run.forEach { rows += LibraryRow.Single(it) }
             run = mutableListOf()
         }
-        for (item in items) {
+        // Par heure de jeu, la plus récente d'abord : une capture réanalysée (remontée en tête par sa date d'analyse) ne
+        // coupe pas la séance de ses voisines.
+        for (item in items.sortedByDescending { it.recordedAt ?: it.analyzedAt }) {
             val previous = run.lastOrNull()
             val joins = previous != null && item.clip && item.profileId == previous.profileId && item.recordedAt != null &&
                 run.mapNotNull { it.recordedAt }.minOrNull()?.let { earliest -> !item.recordedAt.plus(item.duration.toJavaDuration()).plus(gap.toJavaDuration()).isBefore(earliest) } == true

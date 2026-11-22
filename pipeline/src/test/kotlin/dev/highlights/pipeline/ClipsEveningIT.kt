@@ -72,7 +72,7 @@ class ClipsEveningIT : FunSpec({
                 createdAt = Instant.EPOCH,
                 media = media,
                 profileId = "wardogs",
-                timeline = ScoredTimeline(grid, List(grid.count) { 0.5 }, emptyMap(), events = kills.map { TimelineEvent(it.seconds, "kill", 1.0, "notifications") }),
+                timeline = ScoredTimeline(grid, List(grid.count) { w -> if (kills.any { k -> kotlin.math.abs(k - w) <= 2 }) 0.9 else 0.3 }, emptyMap(), events = kills.map { TimelineEvent(it.seconds, "kill", 1.0, "notifications") }),
                 highlights = emptyList(),
             )
             val file = root.resolve("out").resolve("sessions").resolve("clip$i.session.json")
