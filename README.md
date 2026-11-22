@@ -44,6 +44,9 @@ Deux interfaces sur le même moteur : une **application de bureau** (Compose) et
   depuis 15 s), puis apparaît dans la liste marquée « nouveau » ; l'export reste à lancer soi-même. Les captures déjà
   présentes quand le dossier est choisi ne sont pas analysées d'office, celles arrivées pendant que l'application était
   fermée le sont à la relance. Le dossier est retenu d'un lancement à l'autre (`~/.highlights/watch.json`).
+  Une rafale de clips (douze sauvegardés à la chaîne) passe en entier dans la file, dans l'ordre d'arrivée, et le
+  montage de la soirée attend qu'ils soient tous analysés ; les fichiers en cours d'écriture de FTHRClips
+  (`….partial.<jeton>.mp4`, dossiers `.fthr-…`) ne sont jamais pris.
 - **Montage de la soirée, sans clic** (case « Monter chaque soirée finie » de la carte du dossier surveillé, désactivée
   par défaut) : quand la soirée est finie (aucune nouvelle partie depuis 1 h, réglable, et rien en cours
   d'enregistrement ni d'analyse), un montage kills de toutes ses parties se fait seul : soirée découpée comme les
@@ -848,6 +851,29 @@ le son du jeu et la voix. Bouton **Clip 9:16** sur le moment sélectionné, ou :
 - `--platform` (ou la plateforme choisie dans l'application) : zone sûre, volume, débit, et sa durée maximale plafonne
   le clip. Fichier `<jeu>_<date>_clip_<moment>[_plateforme]_9x16.mp4`.
 
+## Clips courts (FTHRClips, Medal, Instant Replay)
+
+Beaucoup de joueurs ne gardent que des clips de 30 s à 2 min, sauvegardés d'une touche, au lieu de parties entières.
+Highlights les traite comme une soirée de jeu :
+
+- **Heure du clip lue dans son nom** : FTHRClips (`VALORANT_clip_from_22Nov2026_21-05-33.mp4`, format lu dans son code
+  source, `FTHR_UI/main.py`), Medal (`MedalTVVALORANT20261122210533.mp4`, forme relevée sur des clips publiés, pas
+  documentée) et Instant Replay de ShadowPlay / NVIDIA App (`… 2026.11.22 - 21.05.33.02.DVR.mp4`). Ces logiciels datent
+  le clip de sa **sauvegarde**, c'est-à-dire de sa fin : le clip commence cette heure moins sa durée. Les clips se
+  rangent et se regroupent donc dans l'ordre où ils ont été joués.
+- **Clip ou partie** : un nom de ces logiciels, ou une capture de moins de 5 minutes, est un clip.
+- **Séance** : des clips d'un même jeu sauvegardés à moins de 45 min d'intervalle forment une séance. La liste des
+  analyses les range en une ligne (« 12 clips · VALORANT », de 21:04 à 22:10, leurs kills), à cocher ou ouvrir d'un coup
+  pour un seul montage, et à déplier pour voir chaque clip ; les statistiques montrent une ligne par séance et la
+  comptent comme une partie dans les kills par partie.
+- **Clips sauvegardés deux fois** : appuyer deux fois sur la touche à 20 s d'écart donne deux clips qui partagent 40 s
+  de jeu. Les kills vus par les deux (même sorte, à 1,5 s près en heure réelle) ne comptent et ne se montent qu'une
+  fois ; le second clip garde ce qu'il a de nouveau. Un clip pris pendant une partie entière enregistrée à côté (OBS,
+  Outplayed) en est un morceau : la partie seule compte.
+- **Montage et récap de soirée** : ils prennent les clips comme les parties. Le récap montre une séance de clips sous un
+  seul carton (« CLIPS – 18 KILLS », le jeu et les heures de début et de fin), sans repasser un moment déjà montré par
+  le clip précédent.
+
 ## Statistiques par soirée
 
 Bouton **Statistiques** au-dessus des analyses enregistrées (ou `app stats`) : les parties analysées, un jeu à la
@@ -856,7 +882,7 @@ clutchs, et un graphique des kills par partie d'une soirée à l'autre. Chaque p
 
 Une même partie enregistrée deux fois (Outplayed et OBS en même temps, ou la même capture analysée deux fois) ne
 compte qu'une fois. Deux captures qui se chevauchent ne sont fusionnées que si leurs horaires viennent de
-l'enregistrement (date dans les métadonnées, ou nom daté par Outplayed, OBS ou ShadowPlay) : des captures copiées ou
+l'enregistrement (date dans les métadonnées, ou nom daté par Outplayed, OBS, ShadowPlay, FTHRClips ou Medal) : des captures copiées ou
 téléchargées n'ont que la date du fichier, et deux parties copiées à une minute d'écart restent deux parties.
 
 ```powershell
@@ -871,8 +897,9 @@ téléchargées n'ont que la date du fichier, et deux parties copiées à une mi
   `app stats --refresh`) la réanalyse, en quelques secondes. Une capture OBS, lue dans le killfeed, a ses clutchs réels,
   comptés sur les morts des deux équipes (voir « Kills dans leur round ») ; analysée avant, elle les a inconnus.
 - Une **soirée** va jusqu'à 6 h du matin : la partie de 1 h compte pour la veille. Deux jeux ne se mélangent pas.
-- Une **partie** dure au moins 5 minutes : les clips d'Outplayed (1 min 30) n'en sont pas. La même partie enregistrée
-  deux fois (deux captures qui se chevauchent de plus de moitié) ne compte qu'une, la plus riche en kills.
+- Une capture de moins de 5 minutes est un **clip** (voir « Clips courts ») : ses kills comptent, dans la séance de
+  ses voisins. La même partie enregistrée deux fois (deux captures entières qui se chevauchent de plus de moitié) ne
+  compte qu'une, la plus riche en kills ; un clip pris pendant une partie enregistrée compte avec elle.
 - Morts et tirs à la tête ne comptent que là où ils sont vus : un profil qui ne détecte pas les morts (Wardogs) n'a ni
   K/D ni rounds, et une partie dont les kills viennent du killfeed de secours (qui ne voit pas les tirs à la tête) est
   laissée hors du taux de headshots au lieu d'y compter pour 0 %.

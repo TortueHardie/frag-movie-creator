@@ -19,8 +19,18 @@ data class RecapReport(
     val cards: List<Double> = emptyList(),
 ) {
     @kotlinx.serialization.Serializable
-    data class Game(val number: Int, val source: String, val kills: Int, val moments: Int)
+    data class Game(
+        val number: Int,
+        val source: String,
+        val kills: Int,
+        val moments: Int,
+        /** Séance de clips : leur nombre ([source] est alors le premier) ; null pour une partie entière. */
+        val clips: Int? = null,
+    )
 }
+
+/** Une séance montrée par le récap : son numéro dans la soirée, ses parties ou clips, leurs sessions aux moments choisis. */
+internal data class RecapPiece(val number: Int, val part: PlaySession, val sessions: List<dev.highlights.core.session.Session>)
 
 /** Récap d'une soirée : formats, style (simple ou story) et plateforme des exports de chaque partie. */
 data class RecapOptions(
@@ -42,11 +52,31 @@ object RecapText {
     fun gameSubtitle(game: GameStats, zone: ZoneId = ZoneId.systemDefault()): String =
         game.playedAt?.let { tr("video.recap.when", "game" to game.game, "time" to I18n.date(it.atZone(zone), "format.time")) } ?: game.game
 
+    /** « Clips – 18 kills » : une séance de clips sauvegardés à la suite ([PlaySession]). */
+    fun clipsTitle(kills: Int): String = tr("video.recap.clips", "count" to kills)
+
+    /** « VALORANT · 21:04 – 22:10 » ; le jeu seul si les clips n'ont pas d'heure. */
+    fun clipsSubtitle(part: PlaySession, zone: ZoneId = ZoneId.systemDefault()): String {
+        val start = part.start ?: return part.game
+        val end = part.end ?: start
+        return tr(
+            "video.recap.clipsWhen",
+            "game" to part.game,
+            "start" to I18n.date(start.atZone(zone), "format.time"),
+            "end" to I18n.date(end.atZone(zone), "format.time"),
+        )
+    }
+
     fun endTitle(evening: Evening): String = tr("video.recap.endTitle", "date" to I18n.date(evening.date, "format.date.dayMonth"))
 
-    /** « 47 kills · meilleure partie : n°3 (14 kills) » ; la meilleure : le plus de kills, la première à égalité. */
+    /**
+     * « 47 kills · meilleure partie : n°3 (14 kills) » ; la meilleure : le plus de kills, la première à égalité. Les
+     * numéros sont ceux des séances ([Evening.parts]) ; une soirée d'une seule séance de clips dit ses kills seuls.
+     */
     fun endSubtitle(evening: Evening): String {
-        val best = evening.games.indices.maxByOrNull { evening.games[it].kills } ?: return tr("video.recap.endKills", "count" to evening.kills)
-        return tr("video.recap.endStats", "count" to evening.kills, "number" to best + 1, "best" to evening.games[best].kills)
+        val parts = evening.parts
+        val best = parts.indices.maxByOrNull { parts[it].kills }
+        if (best == null || (parts.size == 1 && parts[0].clips)) return tr("video.recap.endKills", "count" to evening.kills)
+        return tr("video.recap.endStats", "count" to evening.kills, "number" to best + 1, "best" to parts[best].kills)
     }
 }

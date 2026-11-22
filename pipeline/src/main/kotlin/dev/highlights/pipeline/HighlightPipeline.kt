@@ -575,8 +575,8 @@ class HighlightPipeline(
 
     /**
      * Bilan de chaque partie analysée, pour les statistiques par soirée ([Statistics.evenings]). Une partie par capture
-     * (la plus récente analyse ; la même capture analysée sous deux chemins aussi : même instant, même durée), les clips
-     * plus courts que [Statistics.MIN_GAME] écartés, et les jeux dont le profil ne voit aucun kill aussi. Les sessions
+     * (la plus récente analyse ; la même capture analysée sous deux chemins aussi : même instant, même durée), les kills
+     * d'un clip déjà vus dans un clip plus ancien retirés ([ClipRepeats.remove]), et les jeux dont le profil ne voit aucun kill aussi. Les sessions
      * illisibles sont ignorées.
      */
     fun statistics(): List<GameStats> = analyzedGames().flatMap { g -> g.sessions.map { (file, session) -> g.stats(file, session) } }
@@ -676,7 +676,6 @@ class HighlightPipeline(
         val entries = library.entries()
         val fingerprints = entries.associate { it.sessionFile to it.fingerprint }
         val loaded = entries
-            .filter { it.duration >= Statistics.MIN_GAME }
             .distinctBy { it.source }
             .distinctBy { (it.recordedAt ?: it.analyzedAt) to it.duration }
             .mapNotNull { e ->
@@ -684,7 +683,9 @@ class HighlightPipeline(
                     .onFailure { log.warn { "Session illisible pour les statistiques (${e.sessionFile}) : ${it.message}" } }
                     .getOrNull()
             }
-        return loaded.groupBy { it.second.profileId }.mapNotNull { (profileId, list) ->
+        return loaded.groupBy { it.second.profileId }.mapNotNull { (profileId, found) ->
+            // Clips sauvegardés deux fois de suite (tampon de rejeu) : leurs kills communs ne comptent qu'une fois.
+            val list = found.map { it.first }.zip(ClipRepeats.remove(found.map { it.second }))
             val profile = runCatching { profiles.byId(profileId) }.getOrNull()
             val settings = profile?.montage ?: dev.highlights.core.model.MontageSettings()
             if (Statistics.sources(list.map { it.second }, settings.killEvent).isEmpty()) return@mapNotNull null
@@ -936,7 +937,8 @@ class HighlightPipeline(
      * kills » puis ses meilleurs moments, rendus par l'export habituel ; un écran de fin avec le bilan. Les moments de
      * chaque partie sont recalculés avec une cible de durée partagée sur la soirée ([reselectAll] : réglages du profil,
      * moments retouchés à la main gardés) ; une partie avec des kills garde au moins son meilleur moment. Une partie sans
-     * moment n'a pas d'intercalaire mais garde son numéro.
+     * moment n'a pas d'intercalaire mais garde son numéro. Des clips sauvegardés à la suite forment une séance
+     * ([PlaySession]) : un intercalaire « 12 clips – 18 kills », puis les moments de tous ces clips.
      */
     suspend fun eveningRecap(evening: Evening, options: RecapOptions, progress: ProgressReporter): ExportResult {
         val loaded = evening.sessionFiles.mapIndexed { i, f -> i to SessionStore.load(f) }.filter { (_, s) -> s.media.path.isRegularFile() }
@@ -947,36 +949,44 @@ class HighlightPipeline(
             val kills = evening.games.getOrNull(loaded[k].first)?.kills ?: 0
             if (kills > 0 && s.highlights.none { it.enabled }) reselect(s, null, dev.highlights.core.model.SelectionTarget(topN = 1)) else s
         }
-        val games = loaded.map { it.first }.zip(selected).filter { (_, s) -> s.highlights.any { it.enabled } }
+        // Un clip sauvegardé juste après un autre repasse les mêmes secondes : ses moments déjà montrés sont retirés.
+        val shown = loaded.map { it.first }.zip(ClipRepeats.withoutRepeatedMoments(selected)).toMap()
+        // Séances ([Evening.parts]) : chaque partie seule, des clips sauvegardés à la suite ensemble sous un même carton.
+        // Le numéro suit l'ordre de la soirée ; une séance sans moment n'a pas de carton mais garde son numéro.
+        val games = evening.parts.mapIndexedNotNull { n, part ->
+            val sessions = part.games.mapNotNull { g -> shown[evening.games.indexOf(g)] }.filter { s -> s.highlights.any { it.enabled } }
+            if (sessions.isEmpty()) null else RecapPiece(n + 1, part, sessions)
+        }
         if (games.isEmpty()) throw InputException(Message("error.recap.noMoments"))
-        val profile = profiles.byId(games.first().second.profileId)
+        val profile = profiles.byId(games.first().sessions.first().profileId)
         val platform = platform(options.platform)
         val edit = profile.gradedEdit().let { platform?.applyTo(it) ?: it }
         val formats = platform?.let { listOf(it.format) } ?: options.formats ?: edit.formats
         val outputDir = options.outputDir ?: config.outputDir
         return withJobDir { workDir ->
             // Les moments de chaque partie, rendus comme un export ordinaire (mêmes transitions, même style).
-            val exports = games.mapIndexed { k, (_, session) ->
-                export(listOf(session), ExportOptions(formats, workDir.resolve("part$k"), options.style, platform = options.platform), progress.child(session.media.path.fileName.toString(), 0.7 / games.size))
+            val exports = games.mapIndexed { k, piece ->
+                export(piece.sessions, ExportOptions(formats, workDir.resolve("part$k"), options.style, platform = options.platform), progress.child(piece.sessions.first().media.path.fileName.toString(), 0.7 / games.size))
             }
-            fun best(session: Session) = session.highlights.filter { it.enabled }.maxBy { it.score }.peak
+            // Le meilleur moment d'une séance : sa capture et son pic (fond du carton).
+            fun best(sessions: List<Session>) = sessions.flatMap { s -> s.highlights.filter { it.enabled }.map { s to it } }.maxBy { it.second.score }
             // Bruitages des cartons : ceux du style story (désactivés là, silence ici aussi).
             val sfx = edit.story.sfx.takeIf { it.enabled }
             val parts = { format: OutputFormat ->
-                games.mapIndexed { k, (index, session) ->
-                    val stats = evening.games.getOrNull(index)
-                    val title = RecapText.gameTitle(index + 1, stats?.kills ?: 0)
-                    val subtitle = stats?.let(RecapText::gameSubtitle) ?: profile.name
+                games.mapIndexed { k, piece ->
+                    val title = if (piece.part.clips) RecapText.clipsTitle(piece.part.kills) else RecapText.gameTitle(piece.number, piece.part.kills)
+                    val subtitle = if (piece.part.clips) RecapText.clipsSubtitle(piece.part) else RecapText.gameSubtitle(piece.part.games.first())
                     // Un impact court à l'apparition du titre, comme ceux du style story, à leur volume ; un son différent
                     // à chaque partie (variantes à tour de rôle).
                     val sound = sfx?.let { RecapSound(StoryRenderBuilder.IMPACTS[k % StoryRenderBuilder.IMPACTS.size], it.impactVolume * RecapRenderer.IMPACT_GAIN, RecapRenderer.SOUND_AT) }
-                    RecapPart(RecapCard(title, subtitle, session.media.path, best(session), RecapRenderer.CARD, sound), exports[k].videos.getValue(format))
+                    val (still, moment) = best(piece.sessions)
+                    RecapPart(RecapCard(title, subtitle, still.media.path, moment.peak, RecapRenderer.CARD, sound), exports[k].videos.getValue(format))
                 }
             }
-            val last = games.maxBy { (_, s) -> s.highlights.filter { it.enabled }.maxOf { it.score } }.second
+            val (last, lastMoment) = best(games.flatMap { it.sessions })
             // Le bilan s'ouvre sur un souffle, plus doux qu'un impact : la soirée se referme.
             val endSound = sfx?.let { RecapSound(StoryRenderBuilder.WHOOSHES.first(), it.whooshVolume * RecapRenderer.WHOOSH_GAIN) }
-            val end = RecapCard(RecapText.endTitle(evening), RecapText.endSubtitle(evening), last.media.path, best(last), RecapRenderer.END_CARD, endSound)
+            val end = RecapCard(RecapText.endTitle(evening), RecapText.endSubtitle(evening), last.media.path, lastMoment.peak, RecapRenderer.END_CARD, endSound)
             val names = OutputNamer.reserve(outputDir, profile.id, evening.date, formats, kind = "recap")
             val renderer = RecapRenderer(ffmpeg, exporter.encoders)
             var timeline = dev.highlights.export.RecapTimeline(kotlin.time.Duration.ZERO, emptyList())
@@ -986,8 +996,8 @@ class HighlightPipeline(
                     config.app.encoder.audioBitrate, progress.child(tr("progress.render"), 0.3 / formats.size),
                 )
             }
-            val report = RecapReport(evening.date.toString(), profile.id, evening.kills, games.map { (index, s) ->
-                RecapReport.Game(index + 1, s.media.path.toString(), evening.games.getOrNull(index)?.kills ?: 0, s.highlights.count { it.enabled })
+            val report = RecapReport(evening.date.toString(), profile.id, evening.kills, games.map { piece ->
+                RecapReport.Game(piece.number, piece.sessions.first().media.path.toString(), piece.part.kills, piece.sessions.sumOf { s -> s.highlights.count { it.enabled } }, piece.part.games.size.takeIf { piece.part.clips })
             }, names.videos.values.map { it.toString() }, timeline.cards.map { it.inWholeMilliseconds / 1000.0 })
             java.nio.file.Files.writeString(names.report, SessionStore.json.encodeToString(RecapReport.serializer(), report))
             ExportResult(names.videos, names.report, timeline.duration, exporter.encoders.select().name)
@@ -1405,7 +1415,9 @@ class HighlightPipeline(
      * [planKillMontage] ; [count] : nombre de variantes à proposer ([MontageVariants.distinct]) au lieu du seul plan de
      * [MontagePlanner.best]. Avec [MontageOptions.pick], [PlannedMontage.plan] est la variante choisie.
      */
-    private suspend fun planMontage(sessions: List<Session>, music: Path, requested: MontageOptions, progress: ProgressReporter, count: Int?): PlannedMontage {
+    private suspend fun planMontage(given: List<Session>, music: Path, requested: MontageOptions, progress: ProgressReporter, count: Int?): PlannedMontage {
+        // Deux clips qui partagent un passage (touche pressée deux fois) : un kill vu par les deux n'est monté qu'une fois.
+        val sessions = ClipRepeats.remove(given)
         // Style déjà appliqué par [killMontage] : le rejouer ne change rien (il ne remplit que les réglages restés à null).
         val options = styled(requested)
         if (sessions.isEmpty()) throw InputException(Message("error.montage.noSession"))

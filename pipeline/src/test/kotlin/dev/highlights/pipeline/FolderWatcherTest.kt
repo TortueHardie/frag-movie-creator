@@ -74,6 +74,31 @@ class FolderWatcherTest : FunSpec({
         watcher.poll { it == analyzed.toAbsolutePath().normalize() } shouldBe listOf(fresh.toAbsolutePath().normalize())
     }
 
+    test("rafale de clips : tous proposés une fois prêts, dans l'ordre où ils sont arrivés ; fichiers temporaires de FTHRClips ignorés") {
+        val root = tempdir().toPath()
+        var now = start
+        val watcher = FolderWatcher(root, since = start, settle = 15.seconds, clock = { now })
+        val game = Files.createDirectories(root.resolve("VALORANT"))
+        // Douze clips sauvegardés à 3 s d'écart (touche pressée à la chaîne), chacun écrit d'un coup sous son nom final.
+        val clips = (0 until 12).map { i ->
+            game.resolve("VALORANT_clip_from_22Nov2026_21-05-${(10 + i * 3).toString().padStart(2, '0')}.mp4")
+                .also { it.writeText("clip $i") }.modifiedAt(start.plusSeconds(1L + i * 3))
+        }
+        // Export en cours de FTHRClips, et son dossier de travail : jamais proposés, même stables.
+        game.resolve("VALORANT_clip_from_22Nov2026_21-05-10.partial.ab12.mp4").also { it.writeText("x") }.modifiedAt(start.plusSeconds(2))
+        Files.createDirectories(root.resolve(".fthr-export")).resolve("tmp.mp4").also { it.writeText("x") }.modifiedAt(start.plusSeconds(2))
+        game.resolve("VALORANT_clip_from_22Nov2026_21-05-40.mp4.partial").also { it.writeText("x") }.modifiedAt(start.plusSeconds(2))
+
+        now = start.plusSeconds(36)
+        watcher.poll { false }.shouldBeEmpty()
+        watcher.writing() shouldBe true
+        now = start.plusSeconds(60)
+        watcher.poll { false } shouldBe clips.map { it.toAbsolutePath().normalize() }
+        watcher.writing() shouldBe false
+        now = start.plusSeconds(120)
+        watcher.poll { false }.shouldBeEmpty()
+    }
+
     test("dossier absent : rien, sans erreur") {
         FolderWatcher(tempdir().toPath().resolve("absent"), since = start).poll { false }.shouldBeEmpty()
     }

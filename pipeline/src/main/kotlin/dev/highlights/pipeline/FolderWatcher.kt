@@ -54,7 +54,7 @@ class FolderWatcher(
         val files = try {
             Files.walk(folder, maxDepth).use { stream ->
                 stream.asSequence()
-                    .filter { it.extension.lowercase() in HighlightPipeline.SUPPORTED_EXTENSIONS && it.isRegularFile() }
+                    .filter { it.extension.lowercase() in HighlightPipeline.SUPPORTED_EXTENSIONS && !temporary(it) && it.isRegularFile() }
                     .map { it.toAbsolutePath().normalize() }
                     .toList()
             }
@@ -79,5 +79,16 @@ class FolderWatcher(
             }
         }
         return ready.sortedBy { proposed[it]?.second }
+    }
+
+    /**
+     * Fichier en cours d'écriture par un enregistreur de clips, à ne jamais analyser : FTHRClips écrit
+     * « ….partial.<jeton>.mp4 » pendant un export et travaille dans des dossiers « .fthr-… »
+     * (`FTHR_UI/core/clip_files.py`) ; le clip terminé arrive d'un coup sous son nom final.
+     */
+    private fun temporary(file: Path): Boolean {
+        if (".partial." in file.fileName.toString().lowercase()) return true
+        val inside = runCatching { folder.toAbsolutePath().normalize().relativize(file) }.getOrNull() ?: file
+        return inside.any { it.toString().lowercase().startsWith(".fthr-") }
     }
 }

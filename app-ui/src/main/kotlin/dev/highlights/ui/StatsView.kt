@@ -106,7 +106,8 @@ private fun Summary(evenings: List<EveningStats>) {
     val games = evenings.flatMap { it.games }
     val all = EveningStats(evenings.first().date, evenings.first().game, games)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        StatTile(tr("ui.stats.games"), "${games.size}", tr("ui.stats.evenings", "count" to evenings.size), Modifier.weight(1f))
+        // Une séance de clips compte pour une partie (voir EveningStats.parts).
+        StatTile(tr("ui.stats.games"), "${evenings.sumOf { it.parts.size }}", tr("ui.stats.evenings", "count" to evenings.size), Modifier.weight(1f))
         StatTile(tr("ui.stats.killsPerGame"), decimal(all.killsPerGame), tr("ui.stats.totalKills", "count" to all.kills), Modifier.weight(1f))
         StatTile(tr("ui.stats.kd"), all.kd?.let(::decimal) ?: "—", all.deaths?.let { tr("ui.count.deaths", "count" to it) } ?: tr("ui.stats.deathsUnknown"), Modifier.weight(1f))
         StatTile(tr("ui.stats.headshots"), all.headshotRate?.let { I18n.percent(it) } ?: "—", all.headshots?.let { tr("ui.count.headshots", "count" to it) } ?: tr("ui.stats.headshotsUnknown"), Modifier.weight(1f))
@@ -159,7 +160,11 @@ private fun EveningCard(e: EveningStats, actions: UiActions) {
         Column(Modifier.padding(12.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(date, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                Text(tr("ui.stats.eveningGames", "count" to e.games.size, "duration" to e.playTime), style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
+                Text(
+                    if (e.clips == 0) tr("ui.stats.eveningGames", "count" to e.games.size, "duration" to e.playTime) else tr("ui.stats.eveningClips", "count" to e.clips, "duration" to e.playTime),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Palette.textMuted,
+                )
                 // Récap de la soirée : passe par la file des traitements, comme un export.
                 androidx.compose.material3.TextButton(onClick = { actions.recapEvening(e.date.toString(), e.games.first().profileId) }) { Text(tr("ui.stats.recap")) }
             }
@@ -174,7 +179,12 @@ private fun EveningCard(e: EveningStats, actions: UiActions) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = Palette.text,
             )
-            e.games.forEach { GameRow(it, e.bestGame == it && e.games.size > 1, actions) }
+            // Clips sauvegardés à la suite : une ligne pour la séance ; parties entières : une ligne chacune.
+            val parts = e.parts
+            val best = parts.maxByOrNull { it.kills }.takeIf { parts.size > 1 }
+            parts.forEach { p ->
+                if (p.clips && p.games.size > 1) ClipSessionRow(p, p == best, actions) else p.games.forEach { GameRow(it, p == best, actions) }
+            }
         }
     }
 }
@@ -199,6 +209,34 @@ private fun GameRow(g: GameStats, best: Boolean, actions: UiActions) {
             overflow = TextOverflow.Ellipsis,
         )
         TextButton(onClick = { actions.openLibraryItem(g.sessionFile) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.common.open")) }
+    }
+}
+
+/** Une séance de clips : heures de début et de fin, nombre de clips, kills ; « Ouvrir » les ouvre tous ensemble. */
+@Composable
+private fun ClipSessionRow(p: dev.highlights.pipeline.PlaySession, best: Boolean, actions: UiActions) {
+    val zone = ZoneId.systemDefault()
+    val time = p.start?.atZone(zone)?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "--:--"
+    val deaths = p.games.mapNotNull { it.deaths }.takeIf { it.size == p.games.size }?.sum()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(time, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted, modifier = Modifier.width(44.dp))
+        Text(
+            listOfNotNull(
+                tr("ui.stats.clipSession", "count" to p.games.size, "end" to (p.end?.atZone(zone)?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "--:--")),
+                deaths?.let { tr("ui.stats.killsDeaths", "kills" to p.kills, "deaths" to it) } ?: tr("ui.count.kills", "count" to p.kills),
+                multiKillsLabel(
+                    p.games.flatMap { it.multiKills.entries }.groupBy({ it.key }, { it.value }).mapValues { it.value.sum() },
+                    p.games.sumOf { it.aces },
+                    p.games.mapNotNull { it.clutches }.takeIf { it.isNotEmpty() }?.sum(),
+                ).takeIf { it.isNotEmpty() },
+            ).joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (best) Palette.accent else Palette.text,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        TextButton(onClick = { actions.openLibraryItems(p.games.map { it.sessionFile }) }, modifier = Modifier.height(30.dp), contentPadding = PaddingValues(horizontal = 10.dp)) { Text(tr("ui.common.open")) }
     }
 }
 

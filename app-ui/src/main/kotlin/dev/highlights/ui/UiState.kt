@@ -77,6 +77,8 @@ data class UiState(
     val library: List<LibraryItem> = emptyList(),
     /** Analyses cochées dans la liste, à ouvrir ensemble pour un seul montage (fichiers de session). */
     val librarySelection: Set<Path> = emptySet(),
+    /** Séances de clips dépliées dans la liste (fichier de session de leur premier clip, voir [LibraryRows]). */
+    val openClipGroups: Set<Path> = emptySet(),
     /** Analyse à oublier, en attente de confirmation (null = pas de question). */
     val forget: LibraryItem? = null,
     val watch: WatchState = WatchState(),
@@ -157,6 +159,8 @@ data class LibraryItem(
     val events: Map<String, Int>,
     /** La vidéo est encore là (sinon l'analyse se rouvre, mais sans export ni aperçu). */
     val sourceExists: Boolean,
+    /** Un clip plutôt qu'une partie ([dev.highlights.core.model.MediaInfo.isClip]) : rangé avec ceux de sa séance. */
+    val clip: Boolean = false,
 )
 
 /** Dossier où l'enregistreur dépose les parties : chaque nouvelle capture y est analysée en fond. */
