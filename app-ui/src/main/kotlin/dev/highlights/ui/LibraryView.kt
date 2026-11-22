@@ -83,15 +83,28 @@ fun LibraryView(state: UiState, actions: UiActions, modifier: Modifier = Modifie
         } else {
             LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val profiles = (state.config as? ConfigStatus.Ready)?.profiles.orEmpty()
-                items(state.library, key = { it.sessionFile.toString() }) { item ->
-                    LibraryRow(
-                        item,
-                        profileName = profiles.firstOrNull { it.id == item.profileId }?.name ?: GameProfile.localizedName(item.profileId),
-                        checked = item.sessionFile in state.librarySelection,
-                        fresh = item.sessionFile in state.watch.fresh,
-                        enabled = state.job == null,
-                        actions = actions,
-                    )
+                fun nameOf(id: String) = profiles.firstOrNull { it.id == id }?.name ?: GameProfile.localizedName(id)
+                // Clips d'une même séance rangés ensemble (LibraryRows) : une soirée de 30 clips tient en une ligne.
+                items(LibraryRows.of(state.library), key = { it.key.toString() }) { row ->
+                    when (row) {
+                        is LibraryRow.Single -> LibraryItemRow(
+                            row.item,
+                            profileName = nameOf(row.item.profileId),
+                            checked = row.item.sessionFile in state.librarySelection,
+                            fresh = row.item.sessionFile in state.watch.fresh,
+                            enabled = state.job == null,
+                            actions = actions,
+                        )
+                        is LibraryRow.Clips -> ClipsRow(
+                            row,
+                            profileName = nameOf(row.profileId),
+                            selection = state.librarySelection,
+                            fresh = state.watch.fresh,
+                            open = row.key in state.openClipGroups,
+                            enabled = state.job == null,
+                            actions = actions,
+                        )
+                    }
                 }
             }
         }
@@ -183,7 +196,7 @@ fun ForgetDialog(item: LibraryItem, actions: UiActions) {
 }
 
 @Composable
-private fun LibraryRow(item: LibraryItem, profileName: String, checked: Boolean, fresh: Boolean, enabled: Boolean, actions: UiActions) {
+internal fun LibraryItemRow(item: LibraryItem, profileName: String, checked: Boolean, fresh: Boolean, enabled: Boolean, actions: UiActions) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = if (checked) Palette.surfaceHigh else Palette.surface,

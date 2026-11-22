@@ -319,6 +319,12 @@ interface UiActions {
     fun openLibraryItem(sessionFile: Path)
     fun toggleLibraryItem(sessionFile: Path)
     fun openLibrarySelection()
+    /** Ouvre ensemble les analyses [sessionFiles] (une séance de clips : un seul montage). */
+    fun openLibraryItems(sessionFiles: List<Path>) {}
+    /** Coche toutes les analyses [sessionFiles], ou les décoche si elles l'étaient toutes. */
+    fun toggleLibraryItems(sessionFiles: List<Path>) {}
+    /** Déplie ou replie la séance de clips [key] (fichier de session de son premier clip). */
+    fun toggleClipGroup(key: Path) {}
     /** Oublier une analyse : demande d'abord confirmation (la vidéo n'est jamais touchée). */
     fun askForget(sessionFile: Path)
     fun confirmForget()
@@ -1545,6 +1551,20 @@ class AppController(
         s.copy(librarySelection = if (sessionFile in s.librarySelection) s.librarySelection - setOf(sessionFile) else s.librarySelection + setOf(sessionFile))
     }
 
+    override fun openLibraryItems(sessionFiles: List<Path>) {
+        _state.update { it.copy(stats = null, search = null, taste = null) }
+        openSessions(sessionFiles)
+    }
+
+    override fun toggleLibraryItems(sessionFiles: List<Path>) = _state.update { s ->
+        val all = sessionFiles.toSet()
+        s.copy(librarySelection = if (s.librarySelection.containsAll(all)) s.librarySelection - all else s.librarySelection + all)
+    }
+
+    override fun toggleClipGroup(key: Path) = _state.update { s ->
+        s.copy(openClipGroups = if (key in s.openClipGroups) s.openClipGroups - setOf(key) else s.openClipGroups + setOf(key))
+    }
+
     override fun openLibrarySelection() {
         val s = state.value
         openSessions(s.library.map { it.sessionFile }.filter { it in s.librarySelection })
@@ -1569,7 +1589,12 @@ class AppController(
         val p = backend?.pipeline ?: return
         scope.launch(Dispatchers.IO) {
             val items = p.library.entries().map { e ->
-                LibraryItem(e.source, e.sessionFile, e.profileId, e.analyzedAt, e.recordedAt, e.duration, e.events, e.source.exists())
+                // Heure de début recalculée d'après le nom : un clip FTHRClips analysé avant la lecture de ses noms
+                // gardait l'heure de sa sauvegarde, sa fin.
+                val name = e.source.fileName?.toString().orEmpty()
+                val named = dev.highlights.core.model.RecordingNames.parse(name)
+                val start = if (named != null && named.recorder.nameMarksEnd) named.start(e.duration) else e.recordedAt
+                LibraryItem(e.source, e.sessionFile, e.profileId, e.analyzedAt, start, e.duration, e.events, e.source.exists(), dev.highlights.core.model.MediaInfo.isClip(name, e.duration))
             }
             _state.update { s ->
                 s.copy(library = items, librarySelection = s.librarySelection.filterTo(mutableSetOf()) { f -> items.any { it.sessionFile == f } })

@@ -22,18 +22,33 @@ data class MediaInfo(
     val bounds: TimeRange get() = TimeRange(Duration.ZERO, duration)
 
     /**
-     * Moment de l'enregistrement : date de création inscrite dans la capture, sinon celle du nom de fichier (Outplayed,
-     * OBS, ShadowPlay : [nameTime]), sinon date de modification du fichier.
+     * Moment de l'enregistrement (début de la capture). Un clip dont le nom porte l'heure de sa sauvegarde (FTHRClips,
+     * Medal, Instant Replay : [Recorder.nameMarksEnd]) commence à cette heure moins sa durée ; ce nom passe alors avant
+     * les métadonnées, qui disent l'heure d'écriture du fichier. Sinon : date de création inscrite dans la capture, puis
+     * heure du nom (Outplayed, OBS, ShadowPlay : [nameTime]), puis date de modification du fichier.
      */
     val recordedAt: Instant?
-        get() = creationTime ?: nameTime(path.fileName?.toString() ?: "") ?: runCatching { path.getLastModifiedTime().toInstant() }.getOrNull()
+        get() {
+            val named = named
+            if (named != null && named.recorder.nameMarksEnd) return named.start(duration)
+            return creationTime ?: named?.at ?: runCatching { path.getLastModifiedTime().toInstant() }.getOrNull()
+        }
+
+    /**
+     * Un clip (quelques dizaines de secondes gardées d'une touche) plutôt qu'une partie entière : nom d'un logiciel de
+     * clips ([Recorder.clips]), ou capture plus courte que [CLIP_MAX]. Les clips d'une soirée se regroupent en séances
+     * de jeu au lieu de compter chacun comme une partie.
+     */
+    val isClip: Boolean get() = isClip(path.fileName?.toString() ?: "", duration)
+
+    private val named: NamedTime? get() = RecordingNames.parse(path.fileName?.toString() ?: "")
 
     /**
      * L'heure de [recordedAt] vient-elle de l'enregistrement (métadonnées ou nom daté par l'enregistreur) ? Sinon c'est
      * la date du fichier, celle d'une copie ou d'un téléchargement : deux parties copiées à une minute d'écart
      * sembleraient jouées en même temps.
      */
-    val reliableTime: Boolean get() = creationTime != null || nameTime(path.fileName?.toString() ?: "") != null
+    val reliableTime: Boolean get() = creationTime != null || named != null
 
     companion object {
         /**
@@ -43,28 +58,22 @@ data class MediaInfo(
         val RECORDING_ORDER: Comparator<MediaInfo> =
             compareBy<MediaInfo, Instant?>(nullsLast()) { it.recordedAt }.thenBy { it.path.toString() }
 
-        /** Outplayed : « WARDOGS_09-22-2026_22-55-31-983 », « REMATCH 09-27-2026 0-47-38-983_1 » (mois-jour-année). */
-        private val OUTPLAYED = Regex("""(?<![\d-])(\d{1,2})-(\d{1,2})-(\d{4})[ _](\d{1,2})-(\d{1,2})-(\d{1,2})""")
+        /**
+         * Capture plus courte : un clip, pas une partie (30 à 45 min en VALORANT). Outplayed garde ses clips de 1 min 30,
+         * les tampons de rejeu (FTHRClips, ShadowPlay, Medal) de 30 s à 2 min.
+         */
+        val CLIP_MAX: Duration = kotlin.time.Duration.parse("5m")
 
-        /** OBS : « 2026-11-17 21-08-40 » (année-mois-jour). */
-        private val OBS = Regex("""(?<![\d-])(\d{4})-(\d{2})-(\d{2})[ _](\d{2})-(\d{2})-(\d{2})""")
-
-        /** ShadowPlay : « VALORANT 2026.11.17 - 21.08.40.02 ». */
-        private val SHADOWPLAY = Regex("""(\d{4})\.(\d{2})\.(\d{2}) - (\d{2})\.(\d{2})\.(\d{2})""")
+        /** Voir [isClip] : d'après le nom de fichier [fileName] et la durée. */
+        fun isClip(fileName: String, duration: Duration): Boolean =
+            RecordingNames.parse(fileName)?.recorder?.clips == true || duration < CLIP_MAX
 
         /**
-         * Heure d'enregistrement écrite dans le nom par l'enregistreur (heure locale de [zone]) ; null si le nom n'en
-         * porte pas, ou si la date est impossible.
+         * Heure écrite dans le nom par l'enregistreur (heure locale de [zone]) ; null si le nom n'en porte pas, ou si la
+         * date est impossible. Pour un clip, c'est souvent l'heure de sa fin (voir [RecordingNames.parse]).
          */
-        fun nameTime(fileName: String, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): Instant? {
-            fun at(y: String, mo: String, d: String, h: String, mi: String, s: String) = runCatching {
-                java.time.LocalDateTime.of(y.toInt(), mo.toInt(), d.toInt(), h.toInt(), mi.toInt(), s.toInt()).atZone(zone).toInstant()
-            }.getOrNull()
-            OBS.find(fileName)?.destructured?.let { (y, mo, d, h, mi, s) -> at(y, mo, d, h, mi, s)?.let { return it } }
-            SHADOWPLAY.find(fileName)?.destructured?.let { (y, mo, d, h, mi, s) -> at(y, mo, d, h, mi, s)?.let { return it } }
-            OUTPLAYED.find(fileName)?.destructured?.let { (mo, d, y, h, mi, s) -> at(y, mo, d, h, mi, s)?.let { return it } }
-            return null
-        }
+        fun nameTime(fileName: String, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): Instant? =
+            RecordingNames.parse(fileName, zone)?.at
     }
 }
 

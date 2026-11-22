@@ -46,6 +46,8 @@ data class GameStats(
     val reliableTime: Boolean = true,
     /** Taille de la capture (octets) : deux copies d'une même capture ont la même taille et la même durée. */
     val sizeBytes: Long = 0,
+    /** Un clip (voir [dev.highlights.core.model.MediaInfo.isClip]) : compte dans une séance ([PlaySession]), pas seul. */
+    val clip: Boolean = false,
 ) {
     /** Kills par mort (les kills seuls sans mort). */
     val kd: Double? get() = deaths?.let { kills.toDouble() / it.coerceAtLeast(1) }
@@ -70,7 +72,11 @@ data class EveningStats(val date: LocalDate, val game: String, val games: List<G
         get() = games.filter { it.headshots != null }.takeIf { k -> k.sumOf { it.kills } > 0 }?.let { known ->
             known.sumOf { it.headshots!! }.toDouble() / known.sumOf { it.kills }
         }
-    val killsPerGame: Double get() = if (games.isEmpty()) 0.0 else kills.toDouble() / games.size
+    /** Séances de jeu ([PlaySessions.of]) : chaque partie seule, les clips sauvegardés à la suite ensemble. */
+    val parts: List<PlaySession> get() = PlaySessions.of(games)
+    val clips: Int get() = games.count { it.clip }
+    /** Kills par séance : par partie quand il n'y a que des parties, une séance de clips comptant pour une. */
+    val killsPerGame: Double get() = parts.size.let { n -> if (n == 0) 0.0 else kills.toDouble() / n }
     val bestRound: Int? get() = games.mapNotNull { it.bestRound }.maxOrNull()
     val multiKills: Map<Int, Int> get() = games.flatMap { it.multiKills.entries }.groupBy({ it.key }, { it.value }).mapValues { it.value.sum() }
     val aces: Int get() = games.sumOf { it.aces }
@@ -84,9 +90,6 @@ data class EveningStats(val date: LocalDate, val game: String, val games: List<G
 object Statistics {
     /** Une soirée finit à 6 h du matin : la partie de 1 h appartient à celle de la veille. */
     val EVENING_END = 6.hours
-
-    /** Capture plus courte : un clip (Outplayed en garde de 1 min 30), pas une partie (30 à 45 min en VALORANT). */
-    val MIN_GAME: Duration = 5.minutes
 
     /**
      * Bilan d'une partie selon les réglages de montage de son profil ([settings] : kills, morts, tirs à la tête, rounds).
@@ -112,7 +115,11 @@ object Statistics {
         val killSources = killEvents.map { it.detectorId }.toSet()
         // Sans kill, la partie ne dit rien de son détecteur : on se fie à ce que le profil sait voir.
         fun known(sources: Set<String>?) = sources == null || (sources.isNotEmpty() && (killSources.isEmpty() || killSources.any { it in sources }))
-        val deaths = if (style.deathEvent.isEmpty() || !known(deathSources)) null else events.filter { it.kind in style.deathKinds }.map { it.at }.sorted()
+        val seenDeaths = if (style.deathEvent.isEmpty() || !known(deathSources)) null else events.filter { it.kind in style.deathKinds }.map { it.at }.sorted()
+        // Un clip garde les kills qu'on a voulu garder, pas les morts d'entre deux : ses morts sont inconnues (sinon une
+        // soirée de clips affichait un K/D de 21). Ses morts vues servent encore à couper les rounds.
+        val clip = session.media.isClip
+        val deaths = seenDeaths.takeUnless { clip }
         val groups = MontagePlanner.groups(listOf(session), settings)
         // Les tirs à la tête peuvent venir d'un autre détecteur que les kills (le son du jeu, avec le killfeed) : il
         // suffit qu'il ait entendu quelque chose dans cette partie. On compte les kills à la tête, pas les événements :
@@ -120,7 +127,7 @@ object Statistics {
         val heard = headshotSources != null && events.any { it.kind == style.headshotEvent && it.detectorId in headshotSources }
         val headshots = if (style.headshotEvent.isEmpty() || !(known(headshotSources) || heard)) null
         else groups.sumOf { g -> g.kills.count { g.traitsOf(it).headshot } }
-        val rounds = MontagePlanner.rounds(kills, deaths.orEmpty(), style.roundGap)
+        val rounds = MontagePlanner.rounds(kills, seenDeaths.orEmpty(), style.roundGap)
         return GameStats(
             sessionFile = sessionFile,
             source = session.media.path,
@@ -141,11 +148,12 @@ object Statistics {
             } else {
                 null
             },
-            bestRound = if (deaths != null) rounds.maxOfOrNull { it.kills.size } ?: 0 else null,
+            bestRound = if (seenDeaths != null) rounds.maxOfOrNull { it.kills.size } ?: 0 else null,
             rounds = if (deaths != null) rounds.size else null,
             outdated = outdated,
             reliableTime = session.media.reliableTime,
             sizeBytes = session.media.sizeBytes,
+            clip = clip,
         )
     }
 
@@ -179,23 +187,42 @@ object Statistics {
      */
     fun distinctGames(games: List<GameStats>): List<GameStats> {
         val kept = mutableListOf<GameStats>()
-        for (g in games.sortedByDescending { it.kills }) {
+        // Parties entières d'abord : un clip qui tombe dans une partie gardée en est un morceau (Outplayed garde la partie
+        // et ses clips), la partie reste même si le clip a plus de kills qu'elle n'en a lu.
+        for (g in games.sortedWith(compareBy<GameStats> { it.clip }.thenByDescending { it.kills })) {
             val start = g.playedAt ?: continue
             val same = kept.any { k ->
                 val kStart = k.playedAt!!
-                val overlap = minOf(start + g.duration.toJavaDuration(), kStart + k.duration.toJavaDuration()).epochSecond -
-                    maxOf(start, kStart).epochSecond
-                k.game == g.game && (sameCapture(k, g) || (k.reliableTime && g.reliableTime && overlap > minOf(g.duration, k.duration).inWholeSeconds / 2))
+                val margin = if (g.clip != k.clip) CLIP_MARGIN.toJavaDuration() else java.time.Duration.ZERO
+                val overlap = minOf(start + g.duration.toJavaDuration(), kStart + k.duration.toJavaDuration() + margin).epochSecond -
+                    maxOf(start, kStart - margin).epochSecond
+                val timed = k.reliableTime && g.reliableTime
+                k.game == g.game && (
+                    sameCapture(k, g) ||
+                        // Deux clips qui se chevauchent sont deux appuis sur la touche, pas une partie vue deux fois : leurs
+                        // kills en double sont retirés avant ([ClipRepeats.remove]).
+                        (timed && !(g.clip && k.clip) && overlap > minOf(g.duration, k.duration).inWholeSeconds / 2)
+                    )
             }
             if (!same) kept += g
         }
         return kept.sortedBy { it.playedAt }
     }
 
+    /**
+     * Marge autour d'une partie entière où un clip du même jeu en est un morceau : l'heure d'un clip Outplayed est celle de
+     * l'événement ou de la sauvegarde selon les versions, et une capture OBS commence après le lancement de la partie.
+     */
+    val CLIP_MARGIN: Duration = 2.minutes
+
     /** La même capture : même fichier, ou une copie (même taille à l'octet près, même durée à la seconde). */
     internal fun sameCapture(a: GameStats, b: GameStats): Boolean =
         a.source.toAbsolutePath().normalize() == b.source.toAbsolutePath().normalize() ||
-            (a.sizeBytes > 0 && a.sizeBytes == b.sizeBytes && (a.duration - b.duration).absoluteValue < kotlin.time.Duration.parse("1s"))
+            (
+                a.sizeBytes > 0 && a.sizeBytes == b.sizeBytes && (a.duration - b.duration).absoluteValue < kotlin.time.Duration.parse("1s") &&
+                    // Deux clips de 30 s au même débit peuvent peser le même poids : une copie garde aussi son nom.
+                    (!(a.clip && b.clip) || a.source.fileName == b.source.fileName)
+                )
 
     fun eveningOf(at: Instant, zone: ZoneId = ZoneId.systemDefault()): LocalDate =
         at.atZone(zone).minusHours(EVENING_END.inWholeHours).toLocalDate()

@@ -35,7 +35,10 @@ data class Evening(
     val end: Instant,
     /** Bilan de chaque partie, même ordre que [sessionFiles] (kills, heure : intercalaires du récap). */
     val games: List<GameStats> = emptyList(),
-)
+) {
+    /** Séances de la soirée ([PlaySessions.of]) : chaque partie seule, les clips sauvegardés à la suite ensemble. */
+    val parts: List<PlaySession> get() = PlaySessions.of(games)
+}
 
 /** Soirée déjà montée (ou dont le montage a échoué : elle n'est pas retentée d'office). */
 @Serializable

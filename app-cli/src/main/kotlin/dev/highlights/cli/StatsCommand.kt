@@ -66,7 +66,7 @@ class StatsCommand : PipelineCommand("stats") {
         trends.forEach { (name, list) ->
             val latest = list.first()
             val before = list.drop(1)
-            val avgKills = before.sumOf { it.kills }.toDouble() / before.sumOf { it.games.size }.coerceAtLeast(1)
+            val avgKills = before.sumOf { it.kills }.toDouble() / before.sumOf { it.parts.size }.coerceAtLeast(1)
             echo("Tendance $name : ${fmt(latest.killsPerGame)} kills par partie à la dernière soirée, contre ${fmt(avgKills)} sur les ${before.size} d'avant.")
         }
     }
@@ -74,7 +74,7 @@ class StatsCommand : PipelineCommand("stats") {
     private fun printEvening(e: EveningStats) {
         val date = e.date.format(DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.FRENCH))
         echo("")
-        echo("$date — ${e.game}, ${e.games.size} partie(s), ${e.playTime.toShortText()}")
+        echo("$date — ${e.game}, ${e.parts.size} partie(s)${if (e.clips > 0) " (dont ${e.clips} clip(s) en séances)" else ""}, ${e.playTime.toShortText()}")
         val parts = listOfNotNull(
             "${e.kills} kills (${fmt(e.killsPerGame)} par partie)",
             e.deaths?.let { "${it} morts, K/D ${fmt(e.kd!!)}" },
