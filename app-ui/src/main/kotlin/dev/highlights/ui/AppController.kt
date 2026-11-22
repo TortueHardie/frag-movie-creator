@@ -289,6 +289,17 @@ interface UiActions {
     /** Statistiques des parties analysées, par soirée. */
     fun showStats()
 
+    // Écran de premier lancement (FirstRunView) : défauts vides pour les faux contrôleurs des tests.
+    fun showSetup() {}
+    fun closeSetup() {}
+    fun chooseSetupFolder(folder: Path) {}
+    fun chooseOtherSetupFolder() {}
+    fun setSetupWatch(watch: Boolean) {}
+    fun setSetupPage(page: SetupPage) {}
+    fun startFirstMontage() {}
+    fun openRecorderSite(kind: RecorderKind) {}
+    fun chooseSetupVideo() {}
+
     // Assistant « nouveau jeu » (NewGameView) : défauts vides pour les faux contrôleurs des tests.
     fun showNewGame() {}
     fun closeNewGame() {}
@@ -442,6 +453,9 @@ class AppController(
     private val musicPrefs: MusicPrefsStore = MusicPrefsStore(MusicPrefsStore.DEFAULT_FILE),
     private val languagePrefs: LanguagePrefsStore = LanguagePrefsStore(LanguagePrefsStore.DEFAULT_FILE),
     private val introPrefs: IntroPrefsStore = IntroPrefsStore(IntroPrefsStore.DEFAULT_FILE),
+    private val firstRunPrefs: FirstRunPrefsStore = FirstRunPrefsStore(FirstRunPrefsStore.DEFAULT_FILE),
+    /** Enregistreurs de la machine (lecture seule de leurs réglages) ; remplacé en test par une fausse machine. */
+    private val recorders: () -> RecorderDetector = { RecorderDetector() },
     /** Intervalle entre deux passages sur le dossier surveillé, et temps sans écriture avant qu'une capture soit prise. */
     private val watchInterval: Duration = 5.seconds,
     private val watchSettle: Duration = 15.seconds,
@@ -462,6 +476,11 @@ class AppController(
     @Volatile
     private var backend: Backend? = null
     private val intro = IntroController(scope, platform, introPrefs, _state) { backend?.pipeline }
+    private val firstRun = FirstRunController(
+        _state, scope, platform, firstRunPrefs, recorders, { backend?.pipeline }, clock,
+        watchFolder = { folder -> watchFrom(folder) },
+        firstMontage = { files -> firstMontage(files) },
+    )
     private var mainJob: Job? = null
 
     // ---------------------------------------------------------------- file des traitements lourds
@@ -593,7 +612,9 @@ class AppController(
                 }
                 refreshLibrary()
                 intro.load()
-                if (watchJob == null) watchPrefs.load()?.let { startWatching(it) }
+                val watched = watchPrefs.load()
+                if (watchJob == null) watched?.let { startWatching(it) }
+                firstRun.showIfNew(hasWatchFolder = watched != null)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1736,10 +1757,64 @@ class AppController(
     override fun chooseWatchFolder() {
         val initial = state.value.watch.folder ?: state.value.source?.path?.parent
         val folder = platform.chooseDirectory(initial, tr("ui.dialog.watchFolder")) ?: return
-        // Les captures déjà présentes ne sont pas analysées d'office : seulement celles qui arrivent à partir de maintenant.
-        val prefs = WatchPrefs(folder.toAbsolutePath().normalize(), Instant.now())
+        watchFrom(folder)
+    }
+
+    /** Surveille [folder] ; les captures déjà présentes ne sont pas analysées d'office, seulement celles qui arrivent. */
+    private fun watchFrom(folder: Path) {
+        val normalized = folder.toAbsolutePath().normalize()
+        // Même dossier déjà surveillé : rien à changer (garde le montage des soirées et son historique).
+        if (watchSettings?.folder == normalized) return
+        val prefs = WatchPrefs(normalized, Instant.now())
         watchPrefs.save(prefs)
         startWatching(prefs)
+    }
+
+    // ---------------------------------------------------------------- premier lancement
+
+    override fun showSetup() = firstRun.show()
+    override fun closeSetup() = firstRun.finish()
+    override fun chooseSetupFolder(folder: Path) = firstRun.chooseFolder(folder)
+    override fun chooseOtherSetupFolder() = firstRun.chooseOtherFolder()
+    override fun setSetupWatch(watch: Boolean) = firstRun.setWatch(watch)
+    override fun setSetupPage(page: SetupPage) = firstRun.setPage(page)
+    override fun startFirstMontage() = firstRun.startFirstMontage()
+    override fun openRecorderSite(kind: RecorderKind) = firstRun.openSite(kind)
+    override fun chooseSetupVideo() = firstRun.chooseVideo(::chooseSource)
+
+    /**
+     * « Faire mon premier montage » : analyse des parties choisies (comme Analyser, réglages du profil), puis le parcours
+     * du montage s'ouvre sur elles. Aucun moment : la même explication qu'après une analyse.
+     */
+    private fun firstMontage(files: List<Path>) {
+        val p = backend?.pipeline ?: return
+        if (files.isEmpty() || state.value.job != null) return
+        val title = tr("ui.setup.job", "count" to files.size)
+        withMemory(title, MEMORY_ANALYSIS) {
+            enqueue(title, blocking = true) { progress ->
+                val outcomes = p.analyzeAll(files, AnalyzeOptions(outputDir = state.value.settings.outputDir), progress)
+                refreshLibrary()
+                val analyzed = SessionState(outcomes.map { SessionEntry(it.session, it.sessionFile) })
+                val first = outcomes.first().session
+                val profile = p.profiles.byId(first.profileId)
+                _state.update { s ->
+                    s.copy(
+                        sources = outcomes.map { SourceInfo(it.session.media.path, it.session.media, it.session.profileId, alreadyAnalyzed = true) },
+                        session = analyzed.copy(selectedId = analyzed.segments.firstOrNull()?.key),
+                        lastExport = null,
+                        settings = s.settings.withProfileDefaults(profile).copy(profileId = profile.id).choosePreset(s.settings.preset, s.presets),
+                    )
+                }
+                loadThumbnails()
+                if (analyzed.highlights.isEmpty()) {
+                    val warnings = outcomes.flatMap { o -> o.session.shownWarnings.map { w -> tr("ui.error.inFile", "file" to o.session.media.path.name, "detail" to w) } }
+                    showError(tr("ui.error.noMomentTitle"), (warnings + tr("ui.setup.noMomentHint")).joinToString("\n"))
+                } else {
+                    openMontage()
+                }
+                null
+            }
+        }
     }
 
     override fun stopWatching() {

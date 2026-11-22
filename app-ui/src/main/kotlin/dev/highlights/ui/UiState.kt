@@ -96,6 +96,8 @@ data class UiState(
     val variants: VariantsUiState? = null,
     /** Lecteur intégré ouvert (null = fermé). */
     val player: dev.highlights.ui.player.PlayerUiState? = null,
+    /** Écran de premier lancement (FirstRunView), à la place de tout l'écran ; null : fermé. */
+    val setup: SetupUiState? = null,
 ) {
     /** Première capture : celle qui décide du profil détecté et du ratio d'origine. */
     val source: SourceInfo? get() = sources.firstOrNull()

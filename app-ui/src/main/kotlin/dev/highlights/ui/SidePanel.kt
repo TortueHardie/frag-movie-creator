@@ -90,7 +90,7 @@ fun AppHeader(config: ConfigStatus, language: String, actions: UiActions) {
 }
 
 /**
- * Menu d'aide « ? » de l'en-tête : signaler un problème, ouvrir le dossier des journaux. Un menu plutôt que des boutons
+ * Menu d'aide « ? » de l'en-tête : premiers pas (écran de premier lancement), signaler un problème, ouvrir le dossier des journaux. Un menu plutôt que des boutons
  * dans l'en-tête : en russe ou en allemand, deux boutons de plus y rognaient le chemin de la configuration.
  */
 @Composable
@@ -102,6 +102,7 @@ private fun HelpMenu(actions: UiActions) {
             Text("?", fontWeight = FontWeight.SemiBold)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text(tr("ui.header.setup")) }, onClick = { expanded = false; actions.showSetup() })
             DropdownMenuItem(text = { Text(tr("ui.header.report")) }, onClick = { expanded = false; actions.openReport() })
             DropdownMenuItem(text = { Text(tr("ui.header.logs")) }, onClick = { expanded = false; actions.openLogsFolder() })
         }

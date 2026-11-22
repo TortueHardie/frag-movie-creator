@@ -77,6 +77,11 @@ class HardcodedTextTest : FunSpec({
             "Microsoft YaHei UI",
             "Yu Gothic UI",
             "Malgun Gothic",
+            // Noms d'enregistreurs et dossiers où ils s'installent (Recorders), jamais traduits.
+            "OBS Studio",
+            "NVIDIA",
+            "FTHR Clips",
+            "Program Files",
         )
 
         /** Arguments de message qui portent un texte technique, jamais traduit. */

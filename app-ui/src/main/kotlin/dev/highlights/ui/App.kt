@@ -68,6 +68,8 @@ fun App(state: UiState, actions: UiActions) {
             color = Palette.background,
             contentColor = Palette.text,
         ) {
+        // Premier lancement : l'écran d'accueil prend toute la fenêtre jusqu'à ce qu'on le termine ou le passe.
+        if (state.setup != null) FirstRunView(state.setup, state, actions) else
         Row(Modifier.fillMaxSize()) {
             Column(
                 Modifier.width(380.dp).fillMaxHeight().background(Palette.surface).verticalScroll(rememberScrollState()).padding(20.dp),

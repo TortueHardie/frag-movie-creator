@@ -392,6 +392,27 @@ class UiSnapshotTest : FunSpec({
         )
         render("05_erreur", state).fileSize() shouldBeGreaterThan 0L
     }
+
+    test("premier lancement : enregistreurs trouvés, conseils, rien trouvé") {
+        val at = Instant.parse("2026-11-20T21:40:00Z")
+        fun videos(folder: String, count: Int) = List(count) { i -> FoundVideo(Path("$folder/VALORANT/VALORANT 11-20-2026_21-${10 + i}-00.mp4"), at.minusSeconds(1800L * i)) }
+        val outplayed = SetupRecorder(
+            RecorderKind.OUTPLAYED, Path("C:/Users/Colin/Videos/Overwolf/Outplayed"), videos("C:/Users/Colin/Videos/Overwolf/Outplayed", 42),
+            listOf(SetupGame("valorant", "VALORANT", 31), SetupGame("wardogs", "WARDOGS", 9), SetupGame("default", "Générique", 2)), null, true,
+        )
+        val obs = SetupRecorder(RecorderKind.OBS, Path("D:/Captures"), videos("D:/Captures", 6), listOf(SetupGame("default", "Générique", 6)), false, true)
+        val nvidia = SetupRecorder(RecorderKind.SHADOWPLAY, Path("C:/Users/Colin/Videos"), emptyList(), emptyList(), null, false)
+        val setup = SetupUiState(
+            loading = false, recorders = listOf(outplayed, obs, nvidia), folder = outplayed.folder,
+            firstPick = outplayed.videos.take(4).reversed().map { it.path },
+        )
+        val state = UiState(config = ready, setup = setup)
+        render("30_premier_lancement", state).fileSize() shouldBeGreaterThan 0L
+        render("31_premier_lancement_conseils", state.copy(setup = setup.copy(page = SetupPage.TIPS))).fileSize() shouldBeGreaterThan 0L
+        render("32_premier_lancement_vide", state.copy(setup = SetupUiState(loading = false))).fileSize() shouldBeGreaterThan 0L
+        render("33_premier_lancement_sans_video", state.copy(setup = setup.copy(folder = nvidia.folder, firstPick = emptyList(), watch = false))).fileSize() shouldBeGreaterThan 0L
+        render("34_premier_lancement_recherche", state.copy(setup = SetupUiState())).fileSize() shouldBeGreaterThan 0L
+    }
 })
 
 private object NoopActions : UiActions {
