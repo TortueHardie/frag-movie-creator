@@ -47,7 +47,8 @@ detectors:
   # Sous 720 px de haut (vidéos 480p de YouTube), le contour est délavé : l'aplat jaune du portrait est lu à la place
   # (fillBelow, voir le README) ; mesuré sur deux parties 854x480 en 16:9. Revérifié le 22/11 sur trois clips Outplayed
   # réels en 21:9 (2580x1080 et 1720x720, contour jaune pâle) : 9 kills sur 11, aucun faux, après avoir baissé les
-  # bornes du cadre et limité la durée de vie d'une ligne (minHeight, minFill, lineLife : voir le README).
+  # bornes du cadre et limité la durée de vie d'une ligne (minHeight, minFill, lineLife : voir le README). Partie entière
+  # 3440x1440 du 22/11 : morts 8 sur 8, kill 1 sur 1 ; lampes et enseigne jaunes du décor écartées (maxInside).
   - id: killfeed
     type: killfeed
     fallbackFor: game-events
@@ -143,7 +144,8 @@ detectors:
   # qui annonce ses clutchs. Lit aussi les débuts de round (barres de vie alliées) et le bandeau « CLUTCH » de fin de
   # round (clutchs gagnés au spike). Lu seulement en secours, à 5 img/s, en décodage logiciel (le matériel ternit le cercle de
   # « Run it Back » de Phoenix, dont les morts sont écartées). Mesuré sur deux parties 854x480 (voir le README) et
-  # sur trois clips réels 2580x1080 et 1720x720 (22/11) : 15 morts sur 16, aucune fausse ; pas de partie entière en HD.
+  # sur trois clips réels 2580x1080 et 1720x720 (22/11) : 15 morts sur 16, aucune fausse. Partie entière 3440x1440
+  # (22/11) : 71 morts sur 77, 14 fausses dues au décor ; les murs orange relus au rouge franc (enemyStrict).
   - id: teams
     type: killfeed-teams
     fallbackFor: game-events
@@ -158,7 +160,8 @@ detectors:
   # « round-won » ou « round-lost » par round, pour le bandeau de score du montage (montage.text.roundScore). Avec ou
   # sans Outplayed, qui ne transmet pas le score. 2 img/s en décodage logiciel (images clés si chaque seconde). Mesuré sur deux parties 854x480 :
   # 48 changements de score sur 48, aucun faux (voir le README) ; en 2580x1080 et 1720x720 (trois clips réels, 22/11) :
-  # scores de départ et changement de score justes, aucun faux ; pas de partie entière en HD.
+  # scores de départ et changement de score justes, aucun faux. Partie entière 3440x1440 (22/11, 9-4 à 13-10) :
+  # 23 sur 23, aucun faux, une fois l'écart entre deux chiffres essayé à ±1 px (gapSlack).
   - id: score
     type: round-score
     weight: 0

@@ -1,6 +1,6 @@
 # CODEMAP — Highlights (carte pour l'IA, pas pour un humain)
 
-État cartographié : v1.5.1 + branche `montage-references` (2026-10-02) ; VALORANT HD revérifié le 2026-11-22. Les symboles sont plus stables que les numéros de ligne :
+État cartographié : v1.5.1 + branche `montage-references` (2026-10-02) ; VALORANT HD revérifié le 2026-11-23 (partie entière 3440x1440). Les symboles sont plus stables que les numéros de ligne :
 chercher par nom (Grep). Si un symbole cité ici n'existe plus, la carte est périmée sur ce point → relire le code et
 mettre cette carte à jour.
 
@@ -175,6 +175,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   Durée de vie des lignes (`lineLife` 5,3 s, `LineExpiry`, aussi dans `TeamTracker`) : un suivi apparu il y a plus longtemps n'est plus repris
   (nouvelle ligne à la place d'une effacée) ; `planReview(lineLife)` propage l'instant d'apparition sur les images clés (`Review.origins`, `FeedTracker.known(firsts)`).
   HD revérifiée le 22/11 sur 3 clips Outplayed réels 21:9 (`verite/valorant/Valorant_01-*.yaml`, `output/revue/valorant-hd/`) : `minHeight` 30, `minFill` 0,12.
+  Partie entière 3440x1440 (23/11, `verite/valorant/FTHR_*.yaml`) : `maxInside` 0,42 (intérieur du cadre à `insideMargin` du bord : lampes et néons jaunes écartés, `FeedReader.inside`).
 - `KillfeedOutline.kt` — mode **`outline`** du `killfeed` (CS2, profil cs2.yaml) : `OutlineParams`, `OutlineReader` (ligne entière
   encadrée de la couleur du joueur = kill, fond plein = mort ; paires de traits finissant au même bord droit, `bridge` 16),
   `RowReader` (interface commune avec `FeedReader`). `FeedTracker(newLineGrowth)` : rapprochement par hauteur et ligne qui
@@ -186,7 +187,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
 - `KillfeedTeams.kt` — type **`killfeed-teams`** : morts des alliés (`ally-death`, le joueur compris) et des adversaires (`enemy-death`) à la couleur de la victime
   (colonne juste avant son portrait : sarcelle = équipe du joueur, rouge = adversaire ; classes en un octet par `geq`) ; `TeamRowReader` (bandes coupées au pas des lignes,
   côté tueur de l'autre couleur exigé : écarte menu d'achat et résumé de combat ; nom de la victime neutre ; cercle de Phoenix « Run it Back »
-  → `ally-run-it-back`/`enemy-run-it-back` au lieu d'une mort), `TeamTracker`. `TeamRounds.withoutRevived` (`killStyle.revivedEvent`) retire la mort du joueur
+  → `ally-run-it-back`/`enemy-run-it-back` au lieu d'une mort), `TeamTracker`. Rouge large (`RED`) puis, pour une bande de hauteur impossible, relue au rouge franc (`enemyStrict` = `RED_STRICT`, classe `PixelClass.DULL` = rouge pas franc : murs orange). `TeamRounds.withoutRevived` (`killStyle.revivedEvent`) retire la mort du joueur
   correspondante, appelé en tête de `MontagePlanner.groups` et de `Statistics.game`. `round-start` (`RoundBarParams` : barres de vie alliées pleines, `roundStarts`),
   `clutch-banner` (`BannerParams` : mot « CLUTCH » du bandeau de fin de round, gabarit `templates/valorant/banner_clutch.png`, `bannerAppearances`) →
   `KillStyle.roundStartEvent/clutchBannerEvent`, utilisés par `TeamRounds.clutchTimes` (bandeau = clutch annoncé de plus). valorant.yaml : `teams`, `fallbackFor: game-events`, 5 img/s. Mesuré en 480p et sur 3 clips HD réels (22/11 ; `matchTolerance` 20, `lineLife`).
@@ -205,7 +206,7 @@ Traitements lourds (analyse, export, montage, aperçus, dossier surveillé, soir
   (30 s avant) → `kind` à l'instant de la mise à terre, +k d'un coup = k au compteur (mises à terre absorbées), mises à terre libres = kills ; `eliminationKind` au compteur.
   `CounterReader.readPair` (clés brutes, pour l'assistant), `load` tolère des chiffres absents (jamais vus par l'assistant).
 - `RoundScoreDetector.kt` — type **`round-score`** : score des rounds dans la barre du haut (VALORANT, zones 16:9 854x480 centrées) ; `ScoreReader` (nombre composé des chiffres `templates/valorant/score/digit_N.png`, toute la largeur de la zone),
-  `ScoreDecoder` (Viterbi sur les couples, un round à la fois) → events `round-won`, `round-lost`, `score-reset` (score de départ émis à la première image).
+  `gapSlack` (écart entre deux chiffres essayé à ±1 px : deux chiffres en 1440p), `ScoreDecoder` (Viterbi sur les couples, un round à la fois) → events `round-won`, `round-lost`, `score-reset` (score de départ émis à la première image).
 - `FrameSampling.kt` : `chooseSampling` (images clés vs fps selon intervalle mesuré).
 
 ### analysis-ml

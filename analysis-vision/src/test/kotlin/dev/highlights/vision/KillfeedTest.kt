@@ -67,6 +67,25 @@ class KillfeedTest : FunSpec({
         reader.rows(frame(100 to 20, width = 24, side = 1)).shouldBeEmpty()
     }
 
+    test("partie 3440x1440 : lampe et enseigne du décor écartées par l'intérieur du cadre, vrai kill et vraie mort gardés") {
+        // Zones lues telles quelles (500x175, jaune du joueur) : réglages VALORANT de la capture.
+        val dir = java.nio.file.Path.of("src/test/resources/killfeed-hd")
+        val params = KillfeedParams(
+            region = dev.highlights.core.model.CropRegion(0.709302, 0.076389, 0.290698, 0.243056),
+            referenceWidth = 3440, referenceHeight = 1440, anchor = dev.highlights.core.model.RegionAnchor.RIGHT,
+        )
+        fun read(name: String, p: KillfeedParams) = GrayImage.load(dir.resolve(name)).let {
+            feedSetup("t", p, 3440, 1440).reader.rows(ZoneFrame(it.width, it.height, it.pixels)).map { r -> r.role }
+        }
+        val before = params.copy(maxInside = null)
+        read("lampe_11m07s8.png", before) shouldBe listOf(KillfeedRole.KILL)
+        read("enseigne_2m49s4.png", before) shouldBe listOf(KillfeedRole.KILL)
+        read("lampe_11m07s8.png", params).shouldBeEmpty()
+        read("enseigne_2m49s4.png", params).shouldBeEmpty()
+        read("kill_4m38s2.png", params) shouldBe listOf(KillfeedRole.KILL)
+        read("mort_5m50s6.png", params) shouldBe listOf(KillfeedRole.DEATH)
+    }
+
     test("une mort est collée au bord droit ; une ligne jaune des deux côtés n'est pas un kill") {
         // Centrée dans la colonne de la victime mais finie 37 px avant le bord : une icône qui passe.
         reader.rows(frame(225 to 20)).shouldBeEmpty()

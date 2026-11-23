@@ -61,9 +61,24 @@ class RoundScoreTest : FunSpec({
         val crops = Path.of("src/test/resources/round-score")
         if (dir.exists() && crops.exists()) {
             val p = RoundScoreParams()
-            val reader = ScoreReader.load(dir, 26, p.threshold, p.gap, p.slack, p.maxValue)
+            val reader = ScoreReader.load(dir, 26, p.threshold, p.gap, p.slack, p.maxValue, p.gapSlack)
             val files = crops.listDirectoryEntries("*.png")
             files.size shouldBe 24
+            for (f in files) {
+                val expected = f.name.substringAfterLast('_').removeSuffix(".png").toInt()
+                (f.name to reader.read(GrayImage.load(f))?.value) shouldBe (f.name to expected)
+            }
+        }
+    }
+
+    test("lecture : vraies zones de score VALORANT 3440x1440, réduites au tiers (un et deux chiffres)") {
+        val dir = Path.of("../config/templates/valorant/score")
+        val crops = Path.of("src/test/resources/round-score-hd")
+        if (dir.exists() && crops.exists()) {
+            val p = RoundScoreParams()
+            val reader = ScoreReader.load(dir, 26, p.threshold, p.gap, p.slack, p.maxValue, p.gapSlack)
+            val files = crops.listDirectoryEntries("*.png")
+            files.size shouldBe 17
             for (f in files) {
                 val expected = f.name.substringAfterLast('_').removeSuffix(".png").toInt()
                 (f.name to reader.read(GrayImage.load(f))?.value) shouldBe (f.name to expected)

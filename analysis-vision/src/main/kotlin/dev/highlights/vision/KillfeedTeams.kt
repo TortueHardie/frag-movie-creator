@@ -98,6 +98,14 @@ data class KillfeedTeamsParams(
     /** Couleur de l'équipe du joueur (sarcelle dans VALORANT) et de l'adversaire (rouge), en expressions `geq`. */
     val allyColor: String = TEAL,
     val enemyColor: String = RED,
+    /**
+     * Condition ajoutée à [enemyColor] pour un rouge « franc » ; null = aucune. Une bande dont la hauteur n'est pas un
+     * nombre entier de lignes est relue avec ce rouge seul (voir [TeamRowReader]) : derrière une ligne adverse, un mur
+     * orange ou brun pris pour du rouge la prolongeait. La lecture habituelle ne change pas : en 480p, l'écran vert de
+     * la mort du joueur teinte les bandes rouges, qui perdaient sinon leurs bords (mesuré : 3 morts adverses sur 97
+     * datées 2 s trop tard avec le rouge franc partout).
+     */
+    val enemyStrict: String? = RED_STRICT,
     /** Événements émis : mort d'un allié (le joueur compris : le montage le retire), mort d'un adversaire. */
     val allyKind: String = "ally-death",
     val enemyKind: String = "enemy-death",
@@ -152,15 +160,32 @@ data class KillfeedTeamsParams(
          */
         const val TEAL = "gt(g(X,Y)-r(X,Y),20)*gt(b(X,Y)-r(X,Y),5)*gt(g(X,Y),60)"
 
-        /** Rouge des adversaires (245/90/85 clair, 107/37/28 sombre). */
+        /**
+         * Rouge des adversaires (245/90/85 clair, 107/37/28 sombre). Les murs orange et bruns du décor (Sunset,
+         * 126/76/38) en sont aussi : voir [RED_STRICT].
+         */
         const val RED = "gt(r(X,Y)-g(X,Y),40)*gt(r(X,Y)-b(X,Y),30)*gt(r(X,Y),80)"
+
+        /**
+         * Rouge franc ([enemyStrict]) : bleu à peu près égal au vert, ou rouge vif. Partie 3440x1440 du 22/11 : derrière
+         * une ligne adverse, la bande rouge se fondait dans le mur et n'avait plus la hauteur d'une ligne (5 morts
+         * adverses manquées). Mesuré : bleu − vert de −8 à −20 au milieu des bandes rouges, de −25 à −41 sur les murs,
+         * dont le rouge reste sous 140 ; une bande plus sombre sur un mur orange (162/73/54) passe par son rouge.
+         */
+        const val RED_STRICT = "gt(gt(b(X,Y)-g(X,Y),-22)+gt(r(X,Y),150),0)"
 
         /** Blanc (cercle de Phoenix, texte) ; clair : le nom de la victime fondu dans son fond (125/145/144). */
         const val WHITE = "gt(min(min(r(X,Y),g(X,Y)),b(X,Y)),150)"
         const val LIGHT = "gt(min(min(r(X,Y),g(X,Y)),b(X,Y)),110)"
 
-        /** Un octet par pixel : 255 allié, 191 adversaire, 127 blanc, 63 clair, 0 sinon (voir [PixelClass]). */
-        fun classes(ally: String, enemy: String) = "if($ally,255,if($enemy,191,if($WHITE,127,if($LIGHT,63,0))))"
+        /**
+         * Un octet par pixel : 255 allié, 191 adversaire (rouge franc si [strict] est donné), 175 rouge seulement sans
+         * [strict], 127 blanc, 63 clair, 0 sinon (voir [PixelClass]).
+         */
+        fun classes(ally: String, enemy: String, strict: String? = null): String {
+            val red = if (strict == null) "191" else "if($strict,191,175)"
+            return "if($ally,255,if($enemy,$red,if($WHITE,127,if($LIGHT,63,0))))"
+        }
     }
 }
 
@@ -273,12 +298,14 @@ internal data class TeamRow(val team: FeedTeam, val center: Double, val ring: Bo
 
 /** Classe d'un pixel de la zone lue (octet de [KillfeedTeamsParams.classes]). */
 internal enum class PixelClass {
-    ALLY, ENEMY, WHITE, LIGHT, OTHER;
+    /** [DULL] : rouge, mais pas franc ([KillfeedTeamsParams.enemyStrict]) ; compte comme [ENEMY] sauf en relecture. */
+    ALLY, ENEMY, DULL, WHITE, LIGHT, OTHER;
 
     companion object {
         fun of(v: Int) = when {
             v >= 223 -> ALLY
-            v >= 159 -> ENEMY
+            v >= 183 -> ENEMY
+            v >= 159 -> DULL
             v >= 95 -> WHITE
             v >= 32 -> LIGHT
             else -> OTHER
@@ -317,47 +344,69 @@ internal class TeamRowReader(
         val x1 = (w - to).coerceIn(x0, w)
         if (x1 - x0 == 0) return emptyList()
         val cls = Array(h) { y -> Array(w) { x -> PixelClass.of(frame.pixels[y * w + x].toInt() and 0xFF) } }
-        val label = arrayOfNulls<FeedTeam>(h)
-        for (y in 0 until h) {
+        val out = mutableListOf<TeamRow>()
+        for ((t, band) in bands(labels(cls, 0 until h, x0, x1, strict = false), 0)) {
+            if (emit(cls, t, band, x0, out)) continue
+            // Bande impossible : relue au rouge franc, elle se coupe en vraies lignes quand un mur la prolongeait.
+            for ((t2, sub) in bands(labels(cls, band, x0, x1, strict = true), band.first)) emit(cls, t2, sub, x0, out)
+        }
+        return out.sortedBy { it.center }
+    }
+
+    /** Équipe de chaque ligne de pixels [ys] d'après la colonne de la victime ; [strict] : rouge franc seulement. */
+    private fun labels(cls: Array<Array<PixelClass>>, ys: IntRange, x0: Int, x1: Int, strict: Boolean): Array<FeedTeam?> =
+        Array(ys.count()) { i ->
+            val y = ys.first + i
             var ally = 0
             var enemy = 0
             var text = 0
             for (x in x0 until x1) when (cls[y][x]) {
                 PixelClass.ALLY -> ally++
                 PixelClass.ENEMY -> enemy++
+                PixelClass.DULL -> if (!strict) enemy++
                 PixelClass.WHITE, PixelClass.LIGHT -> text++
                 PixelClass.OTHER -> {}
             }
             // Le nom de la victime passe dans la colonne : ses lettres ne comptent ni pour ni contre.
             val need = minShare * (x1 - x0 - text)
             val colored = MIN_COLORED * (x1 - x0)
-            label[y] = when {
+            when {
                 ally >= need && ally >= colored -> FeedTeam.ALLY
                 enemy >= need && enemy >= colored -> FeedTeam.ENEMY
                 else -> null
             }
         }
-        val out = mutableListOf<TeamRow>()
+
+    /** Suites de lignes de pixels de la même équipe : (équipe, lignes de la zone), [offset] = ligne de label[0]. */
+    private fun bands(label: Array<FeedTeam?>, offset: Int): List<Pair<FeedTeam, IntRange>> {
+        val out = mutableListOf<Pair<FeedTeam, IntRange>>()
         var y = 0
-        while (y < h) {
+        while (y < label.size) {
             val t = label[y]
             if (t == null) {
                 y++
                 continue
             }
             val start = y
-            while (y < h && label[y] == t) y++
-            val height = y - start
-            val n = (height / pitch).roundToInt()
-            if (n !in 1..maxRows || abs(height - n * pitch) > tolerance * pitch) continue
-            val killer = if (t == FeedTeam.ALLY) PixelClass.ENEMY else PixelClass.ALLY
-            for (k in 0 until n) {
-                val a = start + height * k / n
-                val b = start + height * (k + 1) / n
-                if (killerShare(cls, a, b, x0, killer) >= minKillerShare) out += TeamRow(t, (a + b) / 2.0, ring(cls, a, b, x0))
-            }
+            while (y < label.size && label[y] == t) y++
+            out += t to (offset + start until offset + y)
         }
         return out
+    }
+
+    /** Lignes du killfeed d'une bande [band] de l'équipe [t] ajoutées à [out] ; false si sa hauteur n'en fait aucune. */
+    private fun emit(cls: Array<Array<PixelClass>>, t: FeedTeam, band: IntRange, x0: Int, out: MutableList<TeamRow>): Boolean {
+        val start = band.first
+        val height = band.count()
+        val n = (height / pitch).roundToInt()
+        if (n !in 1..maxRows || abs(height - n * pitch) > tolerance * pitch) return false
+        val killer = if (t == FeedTeam.ALLY) PixelClass.ENEMY else PixelClass.ALLY
+        for (k in 0 until n) {
+            val a = start + height * k / n
+            val b = start + height * (k + 1) / n
+            if (killerShare(cls, a, b, x0, killer) >= minKillerShare) out += TeamRow(t, (a + b) / 2.0, ring(cls, a, b, x0))
+        }
+        return true
     }
 
     /** Part des colonnes à gauche de [x0] dont la moitié au moins des lignes [a, b[ est de la classe [other]. */
@@ -366,7 +415,7 @@ internal class TeamRowReader(
         var columns = 0
         for (x in 0 until x0) {
             var n = 0
-            for (y in a until b) if (cls[y][x] == other) n++
+            for (y in a until b) if (cls[y][x] == other || (other == PixelClass.ENEMY && cls[y][x] == PixelClass.DULL)) n++
             if (n * 2 >= b - a) columns++
         }
         return columns.toDouble() / x0
@@ -486,7 +535,7 @@ class KillfeedTeamsDetector(override val id: String, private val params: Killfee
         val reduction = (params.scale * params.referenceHeight / video.height).coerceAtMost(1.0)
         val zone = FrameZone(
             cx, cy, cw, ch, (cw * reduction).roundToInt().coerceAtLeast(1), (ch * reduction).roundToInt().coerceAtLeast(1),
-            KillfeedTeamsParams.classes(params.allyColor, params.enemyColor),
+            KillfeedTeamsParams.classes(params.allyColor, params.enemyColor, params.enemyStrict),
         )
         // Pixels de référence → pixels de la zone lue.
         val k = zone.height.toDouble() / ch * video.height / params.referenceHeight

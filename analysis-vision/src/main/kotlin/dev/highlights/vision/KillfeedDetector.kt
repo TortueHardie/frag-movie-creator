@@ -101,6 +101,15 @@ data class KillfeedParams(
     val minTopEdge: Double = 0.4,
     val topRows: Int = 2,
     /**
+     * Part maximale de pixels colorés à l'intérieur du cadre, à [insideMargin] px de son bord : un cadre est un contour,
+     * le portrait du joueur n'est pas jaune. Les lampes et les enseignes au néon du décor (Sunset), une fois leurs barres
+     * pleines réunies par le comblement ([bridge]), avaient la forme d'un cadre étroit. Mesuré le 23/11 sur une partie
+     * entière 3440x1440 : vrais cadres à 0,07-0,23 (kills, ici et dans les clips 2580x1080 et 1720x720) et 0,33-0,35
+     * (morts, visage du joueur compris), décor à 0,48-0,71 (14 faux kills, aucun vrai écarté). null = pas de limite.
+     */
+    val maxInside: Double? = 0.42,
+    val insideMargin: Int = 4,
+    /**
      * Pixels lus de part et d'autre d'un trou comblés en largeur avant de chercher les cadres : le contour fait à peine
      * un pixel et se coupe par endroits (trous de 4 px mesurés en 1080p).
      */
@@ -254,6 +263,10 @@ internal data class FrameShape(
      * décor : les lignes s'arrêtent avant (6 px en 480p).
      */
     val solid: Boolean = false,
+    /** Part maximale de l'intérieur du cadre colorée ([KillfeedParams.maxInside]) ; null = pas de limite. */
+    val maxInside: Double? = null,
+    /** Marge entre le bord du cadre et son intérieur, en pixels de la zone lue. */
+    val insideMargin: Int = 2,
 )
 
 /**
@@ -268,6 +281,10 @@ internal class FeedReader(
     private val bridge: Int,
     private val shape: FrameShape,
 ) : RowReader {
+    init {
+        require(shape.maxInside == null || shape.maxInside in 0.0..1.0) { "maxInside hors de 0..1" }
+    }
+
     private companion object {
         /** Tache collée au bord gauche : du décor coupé par la zone, les lignes y tiennent en entier. */
         const val EDGE = 4
@@ -330,7 +347,21 @@ internal class FeedReader(
             }
             frameOf(lit, label, next, w, top, bottom + 1, left, right)?.let { found += it }
         }
-        return merge(found)
+        val rows = merge(found)
+        val limit = shape.maxInside ?: return rows
+        return rows.filter { inside(lit, w, it) <= limit }
+    }
+
+    /** Part des pixels colorés dans le cadre, à [FrameShape.insideMargin] de son bord (toutes taches comprises). */
+    private fun inside(lit: BooleanArray, w: Int, row: FeedRow): Double {
+        val m = shape.insideMargin
+        var on = 0
+        var all = 0
+        for (y in row.top + m until row.bottom - m) for (x in row.left + m..row.right - m) {
+            all++
+            if (lit[y * w + x]) on++
+        }
+        return if (all == 0) 0.0 else on.toDouble() / all
     }
 
     /** Pixel allumé s'il y en a un à [bridge] pixels au plus sur sa ligne : fenêtre glissante, un passage par ligne. */
@@ -872,6 +903,7 @@ internal fun feedSetup(id: String, params: KillfeedParams, width: Int, height: I
             px(params.minHeight), px(params.maxHeight), px(params.minWidth), px(params.maxWidth),
             params.minFill, params.maxFill, px(params.narrowWidth), params.narrowFill,
             params.minTopEdge, params.topRows, px(params.deathEdge), params.selfShare,
+            maxInside = params.maxInside, insideMargin = px(params.insideMargin),
         )
     }
     // Un aplat est plein : rien à combler entre deux pixels.

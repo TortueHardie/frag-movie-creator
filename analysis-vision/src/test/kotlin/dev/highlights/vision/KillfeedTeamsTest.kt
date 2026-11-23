@@ -49,6 +49,18 @@ class KillfeedTeamsTest : FunSpec({
         reader.rows(ZoneFrame(w, h, pixels)).shouldBeEmpty()
     }
 
+    test("une ligne adverse prolongée par un mur orange (rouge pas franc) est relue au rouge franc") {
+        val dull: Byte = 175.toByte()
+        // Ligne adverse en haut, puis le mur derrière le killfeed, rouge mais pas franc, jusqu'en bas de la zone.
+        val f = frame(Triple(6, ally, enemy))
+        for (y in 22 until h) for (x in 0 until w) f.pixels[y * w + x] = dull
+        reader.rows(f).map { it.team to it.center } shouldBe listOf(FeedTeam.ENEMY to 14.0)
+        // Sans rouge franc lu (classes d'avant), la bande fait toute la zone : rien.
+        val old = frame(Triple(6, ally, enemy))
+        for (y in 22 until h) for (x in 0 until w) old.pixels[y * w + x] = enemy
+        reader.rows(old).shouldBeEmpty()
+    }
+
     test("une ligne qui monte n'est comptée qu'une fois, le décor bref pas du tout") {
         val tracker = TeamTracker(tolerance = 4, minSeen = 800.milliseconds, maxGap = 3.seconds, pendingGap = 500.milliseconds)
         // Une mort alliée en bas, qui monte d'une ligne au bout de 2 s ; une tache rouge vue 0,4 s.
