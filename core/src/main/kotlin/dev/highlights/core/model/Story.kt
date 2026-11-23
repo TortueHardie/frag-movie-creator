@@ -4,6 +4,7 @@ import dev.highlights.core.i18n.tr
 import dev.highlights.core.serialization.SerialDuration
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -180,14 +181,18 @@ data class MusicBed(
 }
 
 /**
- * Sous-titres de la voix, transcrite en local par whisper.cpp (filtre `whisper` de FFmpeg) : quelques mots à la fois,
- * qui apparaissent d'un coup de zoom, en gros, comme dans les vidéos YouTube. Sans modèle, pas de sous-titres.
+ * Sous-titres de la voix, transcrite en local par whisper.cpp : quelques mots à la fois, qui apparaissent d'un coup de
+ * zoom, en gros, comme dans les vidéos YouTube. Sans modèle, pas de sous-titres. Le programme `whisper-cli` de
+ * whisper.cpp est pris quand il est là (vocabulaire du jeu, recherche en faisceau, détection de la voix) ; sinon le
+ * filtre `whisper` de FFmpeg, plus rapide (GPU) mais sans aucun de ces réglages.
  */
 @Serializable
 data class CaptionSettings(
     val enabled: Boolean = true,
     /** Modèle whisper.cpp (ggml) ; chemin relatif au dossier de configuration. */
     val model: String? = null,
+    /** Modèles pris dans l'ordre quand [model] n'a pas été téléchargé (large-v3, plus juste, sinon large-v3-turbo). */
+    val fallbackModels: List<String> = emptyList(),
     /** Langue parlée ("auto" pour la détecter, au prix d'erreurs sur des extraits courts). */
     val language: String = "fr",
     /** Longueur maximale d'un sous-titre, en caractères : deux à quatre mots, lisibles d'un coup d'œil. */
@@ -241,8 +246,38 @@ data class CaptionSettings(
      */
     val friends: Boolean = true,
     val friendColor: String = "0x7FD8FF",
+    /**
+     * Mots que whisper doit s'attendre à entendre : agents, cartes, armes, annonces du jeu (« Cypher » et pas
+     * « Seyfer »). Donnés à `whisper-cli` en amorce (`--prompt`), avec les pseudos des amis (`whisper.names` d'app.yaml).
+     * Sans effet avec le filtre de FFmpeg, qui n'a pas d'amorce.
+     */
+    val vocabulary: List<String> = emptyList(),
+    /**
+     * Bonne orthographe → formes que whisper écrit à la place (`Cypher: [Seyfer, Sefer]`), corrigées dans le texte quel
+     * que soit le moteur : l'amorce ne suffit pas pour les noms qu'il ne connaît pas.
+     */
+    val spelling: Map<String, List<String>> = emptyMap(),
+    /** Largeur de la recherche en faisceau de `whisper-cli` (1 = glouton, comme le filtre de FFmpeg). */
+    val beamSize: Int = 5,
+    /**
+     * Modèle de détection de la voix (Silero, ggml) ; chemin relatif au dossier de configuration. Absent : `whisper-cli`
+     * transcrit tout l'extrait. Avec lui, whisper ne lit que la parole : il ne colle plus une phrase entière sur 14 s
+     * de silence et rate moins les mots courts dits entre deux tirs.
+     */
+    val vadModel: String? = "models/ggml-silero-v5.1.2.bin",
+    /**
+     * Audio lu en plus de chaque côté du moment : une phrase commencée juste avant n'est pas coupée, et whisper a du
+     * contexte pour deviner les mots. Mesuré sur une capture VALORANT de 37 s : ±2 s (l'ancien réglage) donnait le texte
+     * le moins juste, ±6 s mieux, la capture entière le mieux ; les moments proches d'une capture sont lus d'un bloc.
+     */
+    val context: SerialDuration = 8.seconds,
+    /** Moteur : `auto` = `whisper-cli` s'il est là, sinon le filtre de FFmpeg ; `ffmpeg` = toujours le filtre. */
+    val engine: CaptionEngine = CaptionEngine.AUTO,
+    /** Programme `whisper-cli` trouvé par le pipeline (`whisper.cli` d'app.yaml, installation, PATH) ; null = absent. */
+    @Transient val cli: String? = null,
 ) {
     init {
+        require(beamSize in 1..16) { "story.captions.beamSize doit être entre 1 et 16" }
         require(maxChars in 4..80) { "story.captions.maxChars doit être entre 4 et 80" }
         require(size in 0.02..0.2) { "story.captions.size doit être entre 0,02 et 0,2" }
         require(y in 0.0..1.0 && verticalY in 0.0..1.0) { "story.captions.y doit être entre 0 et 1" }
@@ -255,6 +290,16 @@ data class CaptionSettings(
             "putain", "merde", "bordel", "mort", "tué", "kill", "double", "triple", "spike", "ult", "ulti", "ez", "nice",
         )
     }
+}
+
+/** Moteur de transcription des sous-titres. */
+@Serializable
+enum class CaptionEngine {
+    /** `whisper-cli` de whisper.cpp quand il est là (plus juste), sinon le filtre `whisper` de FFmpeg. */
+    @SerialName("auto") AUTO,
+
+    /** Toujours le filtre de FFmpeg : plus rapide (GPU), sans vocabulaire ni recherche en faisceau. */
+    @SerialName("ffmpeg") FFMPEG,
 }
 
 /**

@@ -170,6 +170,39 @@ object Captions {
     }
 
     /**
+     * Corrige l'orthographe des mots que whisper entend de travers : [spelling] associe la bonne écriture (« Cypher »)
+     * aux formes entendues (« Seyfer », « Sefer », « Cyphère »). Mots entiers, comparés sans casse ni accents ; une
+     * forme de plusieurs mots (« sun sex ») remplace tous ses mots. Même avec le vocabulaire en amorce, whisper écrit
+     * « Sefer » quatre fois sur le micro de la capture VALORANT de test : seule une liste de formes connues le rattrape.
+     */
+    fun respell(captions: List<Caption>, spelling: Map<String, List<String>>): List<Caption> {
+        if (spelling.isEmpty()) return captions
+        val rules = spelling.flatMap { (right, heard) -> heard.map { h -> WORD.findAll(h).map { normalize(it.value) }.toList() to right } }
+            .filter { it.first.isNotEmpty() }
+            .sortedByDescending { it.first.size }
+        return captions.map { c -> c.copy(text = respell(c.text, rules)) }
+    }
+
+    private val WORD = Regex("[\\p{L}\\p{N}]+")
+
+    private fun respell(text: String, rules: List<Pair<List<String>, String>>): String {
+        val tokens = WORD.findAll(text).toList()
+        val keys = tokens.map { normalize(it.value) }
+        val out = StringBuilder()
+        var pos = 0
+        var i = 0
+        while (i < tokens.size) {
+            val rule = rules.firstOrNull { (seq, _) -> i + seq.size <= tokens.size && seq.indices.all { keys[i + it] == seq[it] } }
+            if (rule == null) { i++; continue }
+            val last = tokens[i + rule.first.size - 1]
+            out.append(text, pos, tokens[i].range.first).append(rule.second)
+            pos = last.range.last + 1
+            i += rule.first.size
+        }
+        return out.append(text.substring(pos)).toString()
+    }
+
+    /**
      * Écarte les textes dits à plusieurs endroits de l'export (plus de [REPEAT_WINDOW] d'écart) : sur le son complet,
      * ce sont les répliques du jeu (« Enemies spotted » à chaque round), pas le joueur. À n'appliquer qu'à une
      * transcription du son complet : sur le micro, le joueur a le droit de redire « ouais ».
