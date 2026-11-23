@@ -227,9 +227,9 @@ edit:
         lurk, push, heal, ult, eco, full buy, Vandal, Phantom, Operator, Sheriff, Ghost, Spectre, Odin, one tap, ace, clutch,
         mid, A main, B main, site, drone, trap]
       # Formes que whisper écrit encore malgré l'amorce (capture de test du 22/11 : micro et Discord), corrigées dans le texte.
+      # Pas « Sunsex » : c'est le surnom que les joueurs donnent à Sunset, le sous-titre l'écrit comme ils le disent.
       spelling:
         Cypher: [Seyfer, Sefer, Seifer, Saifer, Cyphère, Cyphers]
-        Sunset: [Sunsex, sun sex]
     # Musique de fond facultative (chemin relatif au dossier de configuration), baissée sous la voix et coupée sur
     # le pic de chaque moment : music: { file: musique/fond.mp3, volume: 0.25 }
   order: chronological
