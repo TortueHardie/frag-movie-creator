@@ -61,6 +61,22 @@ class KillfeedTeamsTest : FunSpec({
         reader.rows(old).shouldBeEmpty()
     }
 
+    test("un trait blanc qui traverse la colonne de la victime (incrustation « Erreur de tir ») ne coupe pas la ligne") {
+        val white: Byte = 127.toByte()
+        fun crossed(): ZoneFrame {
+            val f = frame(Triple(6, ally, enemy))
+            for (x in 240 until w) f.pixels[13 * w + x] = white
+            return f
+        }
+        // Sans comblement : deux bandes de 7 et 8 px, trop courtes, la mort est perdue.
+        reader.rows(crossed()).shouldBeEmpty()
+        TeamRowReader(from = 63, to = 37, pitch = 17.6, textRows = 1).rows(crossed()).map { it.team } shouldBe listOf(FeedTeam.ENEMY)
+        // Entre deux équipes différentes, rien n'est comblé.
+        val two = frame(Triple(6, ally, enemy), Triple(24, enemy, ally))
+        for (x in 240 until w) two.pixels[22 * w + x] = white
+        TeamRowReader(from = 63, to = 37, pitch = 17.6, textRows = 1).rows(two).map { it.team } shouldBe listOf(FeedTeam.ENEMY, FeedTeam.ALLY)
+    }
+
     test("une ligne qui monte n'est comptée qu'une fois, le décor bref pas du tout") {
         val tracker = TeamTracker(tolerance = 4, minSeen = 800.milliseconds, maxGap = 3.seconds, pendingGap = 500.milliseconds)
         // Une mort alliée en bas, qui monte d'une ligne au bout de 2 s ; une tache rouge vue 0,4 s.

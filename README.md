@@ -578,12 +578,15 @@ En ligne de commande :
   toutes de vraies lignes vérifiées à l'image. Partie entière 3440x1440 du 22/11 (Sunset, vérité relevée à l'image,
   `verite/valorant/FTHR_*.yaml`, `output/revue/valorant-hd/partie-1440p/`) : les murs orange et bruns du décor passaient
   pour du rouge adverse, la bande d'une ligne adverse s'y fondait et n'avait plus la hauteur d'une ligne. Une bande de
-  hauteur impossible est désormais relue au rouge « franc » (`enemyStrict` : bleu proche du vert, ou rouge vif ; les murs
-  ont 15 à 20 de bleu de moins que les bandes) ; la lecture habituelle ne change pas (l'écran vert de la mort du joueur
-  teinte les bandes rouges : appliqué partout, ce rouge franc datait 3 morts adverses 2 s trop tard en 480p). Morts
-  adverses 28 → 32 sur 35, morts alliées 39 sur 42 ; restent 14 fausses (décor rose, orange, rayon laser, dôme d'une
-  capacité, déjà là avant) et les lignes qui passent sur l'incrustation « Erreur de tir » (option d'affichage du
-  joueur). En 480p et sur les clips HD, mêmes événements qu'avant, à l'image près. Une mort sépare toujours deux kills rapprochés en
+  hauteur impossible est désormais relue au rouge « franc » (`enemyStrict` : bleu proche du vert ; les murs, même
+  éclairés, ont 25 à 40 de bleu de moins que les bandes) ; la lecture habituelle ne change pas (l'écran vert de la mort
+  du joueur teinte les bandes rouges : appliqué partout, ce rouge franc datait 3 morts adverses 2 s trop tard en 480p).
+  L'incrustation « Erreur de tir » (option d'affichage du jeu, que des joueurs gardent) passe sous la quatrième ligne :
+  son trait blanc et son libellé coupaient la bande de la victime en deux ; une ligne de pixels presque toute blanche
+  prise entre deux lignes de la même équipe compte avec elles (`textRows`, 4 px de référence). Sans incrustation, rien
+  ne change. Partie 1440p : morts adverses 28 → 34 sur 35, morts alliées 39 sur 42 ; fausses 14 → 10 (décor : dôme d'une
+  capacité, mur rose). En 480p, deux morts adverses datées 0,2 et 0,8 s plus tôt, au moment exact où leur ligne
+  apparaît (vérifié à l'image) ; sur les clips HD, mêmes événements. Une mort sépare toujours deux kills rapprochés en
   deux clips. Sans aucune mort annoncée (`deathEvent` vide, ou jeu sans Outplayed ni killfeed lu), rien de tout ça ne
   s'applique.
   Désactivable par une case de la fenêtre de montage ou `--no-rounds`.

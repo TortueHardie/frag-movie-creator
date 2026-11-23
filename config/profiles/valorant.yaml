@@ -145,7 +145,8 @@ detectors:
   # round (clutchs gagnés au spike). Lu seulement en secours, à 5 img/s, en décodage logiciel (le matériel ternit le cercle de
   # « Run it Back » de Phoenix, dont les morts sont écartées). Mesuré sur deux parties 854x480 (voir le README) et
   # sur trois clips réels 2580x1080 et 1720x720 (22/11) : 15 morts sur 16, aucune fausse. Partie entière 3440x1440
-  # (22/11) : 71 morts sur 77, 14 fausses dues au décor ; les murs orange relus au rouge franc (enemyStrict).
+  # (22/11) : 73 morts sur 77, 10 fausses dues au décor ; murs orange relus au rouge franc (enemyStrict), quatrième
+  # ligne sous l'incrustation « Erreur de tir » gardée (textRows).
   - id: teams
     type: killfeed-teams
     fallbackFor: game-events
