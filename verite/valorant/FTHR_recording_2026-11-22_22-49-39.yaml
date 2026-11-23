@@ -9,7 +9,7 @@
 capture: { name: FTHR_recording_2026-11-22_22-49-39.mp4, sizeBytes: 7918885367, duration: 1074.842438s }
 profile: valorant
 tolerance: 1s
-validated: null
+validated: utilisateur, 2026-11-23
 note: "Partie entière en 3440x1440, nom de fichier sans le nom du jeu (profil imposé). Score : celui de la première image (9-4) émis à 0 s, puis chaque changement."
 kinds: [kill, feed-kill, death, headshot, ally-death, enemy-death, round-won, round-lost]
 events:
