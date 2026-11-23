@@ -135,7 +135,7 @@ class AnalysisLibrary(val file: Path) {
         file.parent?.createDirectories()
         val tmp = file.resolveSibling(file.fileName.toString() + ".tmp")
         tmp.writeText(json.encodeToString(LibraryIndex.serializer(), LibraryIndex(entries = entries)))
-        tmp.moveTo(file, overwrite = true)
+        dev.highlights.core.io.AtomicFiles.replace(tmp, file)
     }
 
     companion object {

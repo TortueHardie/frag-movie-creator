@@ -51,7 +51,7 @@ object SessionStore {
         file.parent?.createDirectories()
         val tmp = file.resolveSibling(file.fileName.toString() + ".tmp")
         tmp.writeText(json.encodeToString(Session.serializer(), session))
-        tmp.moveTo(file, overwrite = true)
+        dev.highlights.core.io.AtomicFiles.replace(tmp, file)
     }
 
     fun load(file: Path): Session {
