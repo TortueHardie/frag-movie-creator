@@ -61,6 +61,18 @@ class JobQueueTest : FunSpec({
         scope.cancel()
     }
 
+    test("annuler à l'instant même où le traitement démarre : jamais perdu (CI de la 1.8.0)") {
+        val scope = scope()
+        val queue = JobQueue(scope, onChange = {})
+        repeat(300) {
+            val a = queue.submit("A") { awaitCancellation() }
+            while (queue.status(a) != JobStatus.RUNNING) Thread.onSpinWait()
+            queue.cancel(a)
+            waitFor { queue.status(a) == JobStatus.CANCELLED }
+        }
+        scope.cancel()
+    }
+
     test("un échec reste affiché, lisible, sans bloquer les suivants") {
         val scope = scope()
         val queue = JobQueue(scope, onChange = {}, describe = { "lisible : ${it.message}" to listOf("détail") })

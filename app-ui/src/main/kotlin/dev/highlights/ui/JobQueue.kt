@@ -147,15 +147,25 @@ class JobQueue(
 
     /** Lance le premier traitement en attente si rien ne tourne. */
     private fun pump() {
-        val (job, entry) = synchronized(lock) {
+        // Tout sous un seul verrou : la poignée d'arrêt (`running`) est posée en même temps que le statut « en cours ».
+        // Posée après, une annulation lue entre les deux trouvait `running` nul et se perdait : le traitement tournait
+        // sans fin et bloquait la file (CI de la 1.8.0). Le lancement est paresseux : rien ne tourne sous le verrou.
+        val launched = synchronized(lock) {
             if (running != null) return
             val next = jobs.firstOrNull { it.status == JobStatus.WAITING } ?: return
             val entry = entries.remove(next.id) ?: return
+            val launched = launch(next, entry)
+            running = launched
             runningId = next.id
             update(next.id) { it.copy(status = JobStatus.RUNNING) }
-            next to entry
+            launched
         }
         publish()
+        launched.start()
+    }
+
+    /** Traitement [job] prêt à partir (paresseux) : à la fin, son statut final puis le suivant de la file. */
+    private fun launch(job: QueuedJob, entry: Entry): Job {
         val lastUpdate = AtomicLong(0)
         val tracker = ProgressTracker { snap ->
             entry.onProgress?.invoke(snap)
@@ -165,7 +175,9 @@ class JobQueue(
                 publish()
             }
         }
+        val began = java.util.concurrent.atomic.AtomicBoolean(false)
         val launched = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            began.set(true)
             val outcome: QueuedJob = try {
                 val result = withContext(context) { entry.block(tracker.root) }
                 job.copy(status = JobStatus.DONE, fraction = 1.0, result = result)
@@ -178,18 +190,25 @@ class JobQueue(
                 val (message, details) = describe(e)
                 job.copy(status = JobStatus.FAILED, error = message, details = details)
             }
-            synchronized(lock) {
-                // L'avancement affiché reste celui du dernier instant, le statut change.
-                update(job.id) { current -> current.copy(status = outcome.status, result = outcome.result, error = outcome.error, details = outcome.details, fraction = if (outcome.status == JobStatus.DONE) 1.0 else current.fraction) }
-                running = null
-                runningId = null
-                trimFinished()
-            }
-            publish()
-            pump()
+            finish(job.id, outcome)
         }
-        synchronized(lock) { running = launched }
-        launched.start()
+        // Annulé entre sa création et son départ, un traitement paresseux ne passe jamais par son corps : sans ceci, il
+        // restait « en cours » et la file ne repartait plus (JobQueueTest, annulation à l'instant du départ).
+        launched.invokeOnCompletion { if (!began.get()) finish(job.id, job.copy(status = JobStatus.CANCELLED)) }
+        return launched
+    }
+
+    /** Statut final de [id], puis le traitement suivant. */
+    private fun finish(id: Long, outcome: QueuedJob) {
+        synchronized(lock) {
+            // L'avancement affiché reste celui du dernier instant, le statut change.
+            update(id) { current -> current.copy(status = outcome.status, result = outcome.result, error = outcome.error, details = outcome.details, fraction = if (outcome.status == JobStatus.DONE) 1.0 else current.fraction) }
+            running = null
+            runningId = null
+            trimFinished()
+        }
+        publish()
+        pump()
     }
 
     /** Place d'un nouveau traitement manuel dans [jobs] (voir [submit]). */
