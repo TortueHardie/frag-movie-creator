@@ -1,0 +1,125 @@
+# Vérité terrain relevée à l'image (23/11/2026) : partie entière VALORANT enregistrée par FTHRClips, 3440x1440 à 60 img/s,
+# 21:9, joueur « Moi » (Sunset). La capture commence en cours de partie à 9-4 et finit sur VICTOIRE à 13-10 : 10 rounds.
+# Killfeed lu seconde par seconde à pleine définition (planches : output/revue/valorant-hd/). Instant d'une ligne : une
+# demi-seconde avant la première image où elle est vue (à 0,5 s près) ; quand un round finit sur une mort, la ligne est
+# calée juste avant le changement du score (lu à 2 img/s). Contrôle : chaque round compte 5 morts du camp perdant, en
+# comptant les deux résurrections (lignes « Asa ⊛ Asa », pas des morts) ; le dernier round est un 1 contre 1 gagné par Spleen.
+# Le joueur ne fait qu'un kill (4:38, sans icône de tête) et meurt 8 fois. Incrustation du jeu « Erreur de tir » (option
+# d'affichage du joueur) sous le killfeed : la 4e ligne passe dessus, et ses barres jaunes ont la couleur du joueur.
+capture: { name: FTHR_recording_2026-11-22_22-49-39.mp4, sizeBytes: 7918885367, duration: 1074.842438s }
+profile: valorant
+tolerance: 1s
+validated: utilisateur, 2026-11-23
+note: "Partie entière en 3440x1440, nom de fichier sans le nom du jeu (profil imposé). Score : celui de la première image (9-4) émis à 0 s, puis chaque changement."
+kinds: [kill, feed-kill, death, headshot, ally-death, enemy-death, round-won, round-lost]
+events:
+  - { at: "0s", kind: enemy-death, note: "KamyonPoubelle > Ben91, déjà là à la première image" }
+  - { at: "0s", kind: enemy-death, note: "Spleen > Xotopex, déjà là à la première image" }
+  - { at: "0s", kind: round-lost, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-lost, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-lost, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-lost, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-won, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-won, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-won, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-won, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-won, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-won, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-won, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-won, note: "score affiché à la première image : 9-4" }
+  - { at: "0s", kind: round-won, note: "score affiché à la première image : 9-4" }
+  - { at: "1m2.6s", kind: enemy-death, note: "Asa > Scarift" }
+  - { at: "1m9.6s", kind: enemy-death, note: "KamyonPoubelle > Xotopex" }
+  - { at: "1m13.6s", kind: enemy-death, note: "Hon > GangRobstari" }
+  - { at: "1m19.6s", kind: enemy-death, note: "Hon > Ben91" }
+  - { at: "1m25.1s", kind: enemy-death, note: "Asa > LordWizem" }
+  - { at: "1m25.3s", kind: round-won }
+  - { at: "2m7.6s", kind: ally-death, note: "Scarift > Moi, joueur" }
+  - { at: "2m7.6s", kind: death, note: "par Scarift" }
+  - { at: "2m10.8s", kind: enemy-death, note: "Spleen > Scarift" }
+  - { at: "2m19.6s", kind: enemy-death, note: "Hon > GangRobstari" }
+  - { at: "2m25.6s", kind: ally-death, note: "Xotopex > KamyonPoubelle" }
+  - { at: "2m30.8s", kind: ally-death, note: "LordWizem > Asa" }
+  - { at: "2m31.6s", kind: enemy-death, note: "Spleen > LordWizem" }
+  - { at: "2m45.6s", kind: enemy-death, note: "Spleen > Ben91" }
+  - { at: "2m51.6s", kind: ally-death, note: "Xotopex > Spleen" }
+  - { at: "3m5.6s", kind: enemy-death, note: "Hon > Xotopex" }
+  - { at: "3m5.8s", kind: round-won }
+  - { at: "4m6.6s", kind: enemy-death, note: "KamyonPoubelle > Xotopex" }
+  - { at: "4m13.6s", kind: enemy-death, note: "Spleen > Scarift" }
+  - { at: "4m15.6s", kind: enemy-death, note: "Spleen > Ben91" }
+  - { at: "4m29.6s", kind: ally-death, note: "GangRobstari > Hon" }
+  - { at: "4m30.6s", kind: ally-death, note: "LordWizem > Asa" }
+  - { at: "4m34.6s", kind: enemy-death, note: "KamyonPoubelle > LordWizem" }
+  - { at: "4m38.1s", kind: enemy-death, note: "Moi > GangRobstari" }
+  - { at: "4m38.1s", kind: feed-kill }
+  - { at: "4m38.1s", kind: kill, note: "GangRobstari" }
+  - { at: "4m38.3s", kind: round-won }
+  - { at: "5m19.6s", kind: enemy-death, note: "Spleen > Xotopex, couteau" }
+  - { at: "5m26.6s", kind: ally-death, note: "Scarift > Hon" }
+  - { at: "5m30.6s", kind: enemy-death, note: "Spleen > Scarift" }
+  - { at: "5m41.6s", kind: ally-death, note: "LordWizem > Asa" }
+  - { at: "5m43.6s", kind: ally-death, note: "GangRobstari > Spleen" }
+  - { at: "5m47.6s", kind: ally-death, note: "GangRobstari > KamyonPoubelle" }
+  - { at: "5m50.2s", kind: ally-death, note: "GangRobstari > Moi" }
+  - { at: "5m50.2s", kind: death, note: "par GangRobstari" }
+  - { at: "5m50.3s", kind: round-lost }
+  - { at: "6m47.6s", kind: ally-death, note: "Scarift > Moi" }
+  - { at: "6m47.6s", kind: death, note: "par Scarift" }
+  - { at: "6m55.8s", kind: ally-death, note: "Xotopex > Asa" }
+  - { at: "6m56.4s", kind: enemy-death, note: "Spleen > Xotopex" }
+  - { at: "7m3.6s", kind: ally-death, note: "GangRobstari > Spleen" }
+  - { at: "7m4.6s", kind: ally-death, note: "Scarift > KamyonPoubelle" }
+  - { at: "7m5.6s", kind: enemy-death, note: "Asa > GangRobstari" }
+  - { at: "7m12.8s", kind: ally-death, note: "Scarift > Asa" }
+  - { at: "7m13.6s", kind: enemy-death, note: "Hon > Ben91" }
+  - { at: "7m15.2s", kind: ally-death, note: "Scarift > Hon" }
+  - { at: "7m15.3s", kind: round-lost }
+  - { at: "8m5.6s", kind: ally-death, note: "Ben91 > Hon" }
+  - { at: "8m7.8s", kind: ally-death, note: "LordWizem > Moi" }
+  - { at: "8m7.8s", kind: death, note: "par LordWizem" }
+  - { at: "8m12.6s", kind: enemy-death, note: "Spleen > Xotopex" }
+  - { at: "8m13.8s", kind: ally-death, note: "Ben91 > KamyonPoubelle" }
+  - { at: "8m14.6s", kind: enemy-death, note: "Asa > Ben91" }
+  - { at: "8m17.6s", kind: enemy-death, note: "Spleen > LordWizem" }
+  - { at: "8m24.6s", kind: ally-death, note: "Scarift > Spleen" }
+  - { at: "9m22.6s", kind: ally-death, note: "GangRobstari > Asa" }
+  - { at: "9m34.3s", kind: round-lost }
+  - { at: "11m7.6s", kind: ally-death, note: "Ben91 > Asa, faux kill du joueur lu ici" }
+  - { at: "11m11.6s", kind: enemy-death, note: "Hon > Scarift" }
+  - { at: "11m12.8s", kind: ally-death, note: "Ben91 > KamyonPoubelle" }
+  - { at: "11m13.6s", kind: ally-death, note: "Xotopex > Spleen" }
+  - { at: "11m13.6s", kind: enemy-death, note: "Hon > Xotopex, 4e ligne, sur l'incrustation Erreur de tir" }
+  - { at: "11m34.8s", kind: ally-death, note: "LordWizem > Hon" }
+  - { at: "11m41.2s", kind: ally-death, note: "LordWizem > Moi" }
+  - { at: "11m41.2s", kind: death, note: "par LordWizem" }
+  - { at: "11m41.3s", kind: round-lost }
+  - { at: "12m36.6s", kind: ally-death, note: "Xotopex > KamyonPoubelle" }
+  - { at: "12m58.6s", kind: ally-death, note: "GangRobstari > Spleen" }
+  - { at: "13m6.6s", kind: enemy-death, note: "Hon > LordWizem" }
+  - { at: "13m15.6s", kind: enemy-death, note: "Hon > Xotopex" }
+  - { at: "13m24.6s", kind: ally-death, note: "Ben91 > Asa" }
+  - { at: "13m25.6s", kind: ally-death, note: "GangRobstari > Hon" }
+  - { at: "13m29.6s", kind: ally-death, note: "GangRobstari > Moi" }
+  - { at: "13m29.6s", kind: death, note: "par GangRobstari" }
+  - { at: "13m42.3s", kind: round-lost }
+  - { at: "14m30.6s", kind: ally-death, note: "LordWizem > KamyonPoubelle" }
+  - { at: "14m49.6s", kind: ally-death, note: "Ben91 > Moi" }
+  - { at: "14m49.6s", kind: death, note: "par Ben91" }
+  - { at: "14m58.6s", kind: enemy-death, note: "Hon > GangRobstari" }
+  - { at: "14m59.6s", kind: ally-death, note: "Scarift > Spleen" }
+  - { at: "15m3.6s", kind: ally-death, note: "Ben91 > Hon" }
+  - { at: "15m4.6s", kind: ally-death, note: "Scarift > Asa" }
+  - { at: "15m5.3s", kind: round-lost }
+  - { at: "16m6.6s", kind: ally-death, note: "LordWizem > KamyonPoubelle" }
+  - { at: "17m1.6s", kind: enemy-death, note: "Asa > Scarift" }
+  - { at: "17m4.6s", kind: enemy-death, note: "Hon > Xotopex" }
+  - { at: "17m15.8s", kind: ally-death, note: "LordWizem > Hon" }
+  - { at: "17m16.6s", kind: ally-death, note: "Ben91 > Asa" }
+  - { at: "17m17.6s", kind: enemy-death, note: "Spleen > Ben91, 4e ligne, sur l'incrustation" }
+  - { at: "17m25.6s", kind: ally-death, note: "GangRobstari > Moi" }
+  - { at: "17m25.6s", kind: death, note: "par GangRobstari" }
+  - { at: "17m25.6s", kind: enemy-death, note: "Asa > LordWizem" }
+  - { at: "17m28.6s", kind: ally-death, note: "GangRobstari > Asa" }
+  - { at: "17m42.7s", kind: enemy-death, note: "Spleen > GangRobstari, dernier, VICTOIRE" }
+  - { at: "17m42.8s", kind: round-won }

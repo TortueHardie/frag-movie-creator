@@ -78,12 +78,15 @@ data class KillfeedParams(
      * un cadre de la bonne hauteur est sûr, sa largeur et son remplissage varient. Mesuré : 36 à 46 px de haut, 52 à 90
      * de large (jusqu'à 200 quand le contour suit la ligne), 19 à 49 % coloré. Le décor jaune (murs au soleil, flashs),
      * les icônes du jeu et le graphe « Erreur de tir » tombent hors de ces bornes.
+     * Clips Outplayed 2580x1080 (22/11) : contour jaune pâle, ses traits du haut et du bas à moitié perdus une fois la
+     * zone réduite : 30 à 32 px de haut et jusqu'à 13 % coloré quand il suit la ligne. Bornes baissées de 34 à 30 px et
+     * de 15 à 12 % : kills retrouvés 2 → 4 sur 5 dans le clip de l'ACE, sans faux.
      */
-    val minHeight: Int = 34,
+    val minHeight: Int = 30,
     val maxHeight: Int = 52,
     val minWidth: Int = 60,
     val maxWidth: Int = 400,
-    val minFill: Double = 0.15,
+    val minFill: Double = 0.12,
     val maxFill: Double = 0.6,
     /**
      * Cadre plus étroit que [minWidth] (le dégradé efface sa partie droite) : accepté jusqu'à cette largeur s'il est
@@ -97,6 +100,15 @@ data class KillfeedParams(
      */
     val minTopEdge: Double = 0.4,
     val topRows: Int = 2,
+    /**
+     * Part maximale de pixels colorés à l'intérieur du cadre, à [insideMargin] px de son bord : un cadre est un contour,
+     * le portrait du joueur n'est pas jaune. Les lampes et les enseignes au néon du décor (Sunset), une fois leurs barres
+     * pleines réunies par le comblement ([bridge]), avaient la forme d'un cadre étroit. Mesuré le 23/11 sur une partie
+     * entière 3440x1440 : vrais cadres à 0,07-0,23 (kills, ici et dans les clips 2580x1080 et 1720x720) et 0,33-0,35
+     * (morts, visage du joueur compris), décor à 0,48-0,71 (14 faux kills, aucun vrai écarté). null = pas de limite.
+     */
+    val maxInside: Double? = 0.42,
+    val insideMargin: Int = 4,
     /**
      * Pixels lus de part et d'autre d'un trou comblés en largeur avant de chercher les cadres : le contour fait à peine
      * un pixel et se coupe par endroits (trous de 4 px mesurés en 1080p).
@@ -131,6 +143,14 @@ data class KillfeedParams(
      * joueur au bord droit) ; masquée un instant par l'écran de mort, elle serait sinon comptée deux fois.
      */
     val deathSpacing: SerialDuration = 10.seconds,
+    /**
+     * Durée d'affichage maximale d'une ligne du killfeed : environ 4,9 s mesurés (4 lignes d'un clip 2580x1080, de
+     * l'apparition à l'effacement ; « 5 s » en 480p). Une ligne suivie apparue il y a plus longtemps ne peut plus être
+     * celle qu'on voit : ce qui est là est une nouvelle ligne. Sans cela, le kill suivant, affiché à l'endroit exact d'une
+     * ligne effacée 0,7 s plus tôt, passait pour elle (revue après une fumée, [maxGap]) et n'était pas compté (ACE du
+     * 10/01, cinquième kill). null = aucune limite (comportement d'avant).
+     */
+    val lineLife: SerialDuration? = 5300.milliseconds,
     /** Type d'événement émis par sorte de ligne ; une sorte absente n'émet rien. */
     val kinds: Map<KillfeedRole, String> = mapOf(KillfeedRole.KILL to "kill", KillfeedRole.DEATH to "death", KillfeedRole.ASSIST to "assist"),
     /** Décalage ajouté à l'instant où la ligne est vue pour la première fois. */
@@ -243,6 +263,10 @@ internal data class FrameShape(
      * décor : les lignes s'arrêtent avant (6 px en 480p).
      */
     val solid: Boolean = false,
+    /** Part maximale de l'intérieur du cadre colorée ([KillfeedParams.maxInside]) ; null = pas de limite. */
+    val maxInside: Double? = null,
+    /** Marge entre le bord du cadre et son intérieur, en pixels de la zone lue. */
+    val insideMargin: Int = 2,
 )
 
 /**
@@ -257,6 +281,10 @@ internal class FeedReader(
     private val bridge: Int,
     private val shape: FrameShape,
 ) : RowReader {
+    init {
+        require(shape.maxInside == null || shape.maxInside in 0.0..1.0) { "maxInside hors de 0..1" }
+    }
+
     private companion object {
         /** Tache collée au bord gauche : du décor coupé par la zone, les lignes y tiennent en entier. */
         const val EDGE = 4
@@ -319,7 +347,21 @@ internal class FeedReader(
             }
             frameOf(lit, label, next, w, top, bottom + 1, left, right)?.let { found += it }
         }
-        return merge(found)
+        val rows = merge(found)
+        val limit = shape.maxInside ?: return rows
+        return rows.filter { inside(lit, w, it) <= limit }
+    }
+
+    /** Part des pixels colorés dans le cadre, à [FrameShape.insideMargin] de son bord (toutes taches comprises). */
+    private fun inside(lit: BooleanArray, w: Int, row: FeedRow): Double {
+        val m = shape.insideMargin
+        var on = 0
+        var all = 0
+        for (y in row.top + m until row.bottom - m) for (x in row.left + m..row.right - m) {
+            all++
+            if (lit[y * w + x]) on++
+        }
+        return if (all == 0) 0.0 else on.toDouble() / all
     }
 
     /** Pixel allumé s'il y en a un à [bridge] pixels au plus sur sa ligne : fenêtre glissante, un passage par ligne. */
@@ -384,6 +426,15 @@ internal class FeedReader(
 }
 
 /**
+ * Ligne du killfeed forcément effacée : apparue il y a plus de [life] (sa durée d'affichage maximale). Ce qu'on voit à
+ * sa place est une autre ligne, pas elle revue après une fumée. Avec la première image lue (pas celle de l'apparition,
+ * parfois plus tardive), la règle ne peut que la garder plus longtemps.
+ */
+internal class LineExpiry(private val life: Duration) {
+    fun expired(first: Duration, at: Duration): Boolean = at - first > life
+}
+
+/**
  * Suivi des lignes d'une image à l'autre : une ligne garde sa place en largeur (le killfeed est aligné à droite) et
  * ne fait que monter quand les plus anciennes disparaissent. Une ligne qu'aucune ligne suivie n'explique est nouvelle :
  * un événement, daté de sa première apparition.
@@ -407,6 +458,8 @@ internal class FeedTracker(
      * [OutlineParams.newLineGrowth]). null = rapprochement par le bord gauche (VALORANT).
      */
     private val newLineGrowth: Int? = null,
+    /** Ligne expirée jamais reprise (voir [KillfeedParams.lineLife]) ; null = toujours reprise dans [maxGap]. */
+    private val expiry: LineExpiry? = null,
 ) {
     private class Track(
         val role: KillfeedRole,
@@ -426,8 +479,8 @@ internal class FeedTracker(
     private val tracks = mutableListOf<Track>()
 
     /** Lignes vues sur une image clé avant un passage relu : elles y seront reconnues, pas prises pour de nouvelles. */
-    fun known(at: Duration, rows: List<FeedRow>) {
-        rows.forEach { tracks += Track(it.role, it.left, it.right, it.center, at, at, minSightings, known = true) }
+    fun known(at: Duration, rows: List<FeedRow>, firsts: List<Duration>? = null) {
+        rows.forEachIndexed { i, it -> tracks += Track(it.role, it.left, it.right, it.center, firsts?.get(i) ?: at, at, minSightings, known = true) }
     }
 
     /** Ajoute les lignes d'une image ; renvoie, pour chacune (dans l'ordre de [rows]), le numéro de la ligne suivie. */
@@ -442,6 +495,7 @@ internal class FeedTracker(
             val match = tracks.asSequence()
                 .filter { it !in used && it.role == row.role && at - it.last <= (if (it.sightings >= minSightings) maxGap else pendingGap) }
                 .filter { minOf(it.right, row.right) >= maxOf(it.left, row.left) && row.center <= it.center + tolerance }
+                .filter { expiry == null || !expiry.expired(it.first, at) }
                 .filter { newLineGrowth == null || row.left >= it.minLeft - newLineGrowth }
                 .minByOrNull { if (newLineGrowth == null) abs(it.left - row.left).toDouble() else abs(it.center - row.center) }
             if (match == null) {
@@ -599,6 +653,8 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
         val tracker = FeedTracker(
             state.tolerance, state.sightings, params.maxGap, params.deathSpacing, if (state.solid) params.fillPendingGap else params.maxGap,
             newLineGrowth = state.newLineGrowth,
+            // Lignes encadrées (CS2) : durée d'affichage non mesurée, règle non appliquée.
+            expiry = if (params.outline == null) params.lineLife?.let(::LineExpiry) else null,
         )
         val end = ctx.media.duration
         val trackOf = HashMap<Pair<Int, Int>, Int>()
@@ -670,6 +726,7 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
             keyTimes, keyTimes.indices.map { state.rows[it] }, end, state.tolerance,
             lookback = params.maxGap + interval,
             tail = ((state.sightings + 2) / params.fps).seconds,
+            lineLife = params.lineLife.takeIf { params.outline == null },
         )
         val total = plan.fold(Duration.ZERO) { acc, r -> acc + (r.stop - r.start) }
         log.info { "$id : ${plan.size} passage(s) à relire, ${Durations.format(total)} sur ${Durations.format(end)}" }
@@ -698,7 +755,7 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
             }.awaitAll()
         }
         plan.forEachIndexed { i, r ->
-            r.known.forEach { (at, rows) -> tracker.known(at, rows) }
+            r.known.forEachIndexed { k, (at, rows) -> tracker.known(at, rows, r.origins.getOrNull(k)) }
             frames[i].forEach { (at, rows) -> tracker.add(at, rows) }
         }
         state.review.complete()
@@ -716,8 +773,16 @@ class KillfeedDetector(override val id: String, private val params: KillfeedPara
     }
 }
 
-/** Passage relu de près, avec les lignes déjà présentes sur les images clés qui le précèdent (instant, lignes). */
-internal data class Review(val start: Duration, val stop: Duration, val known: List<Pair<Duration, List<FeedRow>>>)
+/**
+ * Passage relu de près, avec les lignes déjà présentes sur les images clés qui le précèdent (instant, lignes) et, avec
+ * une durée de vie des lignes ([planReview] `lineLife`), l'instant où chacune est apparue sur les images clés.
+ */
+internal data class Review(
+    val start: Duration,
+    val stop: Duration,
+    val known: List<Pair<Duration, List<FeedRow>>>,
+    val origins: List<List<Duration>> = emptyList(),
+)
 
 /**
  * Passages à relire d'après les images clés ([times], lignes lues [rows]). Une ligne d'une image clé que n'explique
@@ -735,11 +800,22 @@ internal fun planReview(
     tolerance: Int,
     lookback: Duration,
     tail: Duration,
+    /**
+     * Durée d'affichage maximale d'une ligne ([KillfeedParams.lineLife]) : une ligne d'image clé apparue il y a plus
+     * longtemps n'explique plus rien, ce qui est à sa place est nouveau (ligne effacée puis remplacée entre deux images
+     * clés). Chaque ligne hérite de l'instant d'apparition de celle qui l'explique. null = aucune limite.
+     */
+    lineLife: Duration? = null,
 ): List<Review> {
     fun before(k: Int) = (k - 1 downTo 0).takeWhile { times[it] >= times[k] - lookback }
+    val origins = ArrayList<List<Duration>>(times.size)
     val out = mutableListOf<Review>()
     for (k in times.indices) {
-        if (rows[k].isEmpty() || explained(rows[k], before(k).flatMap { rows[it] }, tolerance)) continue
+        val candidates = before(k).flatMap { i -> rows[i].indices.map { i to it } }
+            .filter { (i, r) -> lineLife == null || times[k] - origins[i][r] <= lineLife }
+        val matches = matches(rows[k], candidates.map { (i, r) -> rows[i][r] }, tolerance)
+        origins += rows[k].indices.map { r -> matches[r]?.let { candidates[it] }?.let { (i, j) -> origins[i][j] } ?: times[k] }
+        if (rows[k].isEmpty() || matches.all { it != null }) continue
         val start = if (k > 0) times[k - 1] else Duration.ZERO
         val stop = minOf(times[k] + tail, end)
         val last = out.lastOrNull()
@@ -747,23 +823,30 @@ internal fun planReview(
             out[out.lastIndex] = last.copy(stop = maxOf(last.stop, stop))
         } else {
             val known = if (k == 0) emptyList() else (listOf(k - 1) + before(k - 1)).filter { rows[it].isNotEmpty() }
-            out += Review(start, stop, known.sorted().map { times[it] to rows[it] })
+            val sorted = known.sorted()
+            out += Review(start, stop, sorted.map { times[it] to rows[it] }, if (lineLife == null) emptyList() else sorted.map { origins[it] })
         }
     }
     return out
 }
 
-/** Chaque ligne de [rows] est-elle une de [previous], restée en place ou montée ? Une ligne ancienne n'en explique qu'une. */
-private fun explained(rows: List<FeedRow>, previous: List<FeedRow>, tolerance: Int): Boolean {
+/**
+ * Pour chaque ligne de [rows] (même ordre), la ligne de [previous] qui l'explique, restée en place ou montée, ou null :
+ * nouvelle. Une ligne ancienne n'en explique qu'une.
+ */
+private fun matches(rows: List<FeedRow>, previous: List<FeedRow>, tolerance: Int): List<Int?> {
     val used = BooleanArray(previous.size)
-    return rows.sortedBy { it.center }.all { row ->
+    val out = arrayOfNulls<Int>(rows.size)
+    for (r in rows.indices.sortedBy { rows[it].center }) {
+        val row = rows[r]
         val match = previous.indices
             .filter { !used[it] && previous[it].role == row.role && row.center <= previous[it].center + tolerance }
             .filter { abs(previous[it].left - row.left) <= tolerance }
             .minByOrNull { abs(previous[it].left - row.left) }
         if (match != null) used[match] = true
-        match != null
+        out[r] = match
     }
+    return out.toList()
 }
 
 class KillfeedDetectorFactory : SignalDetectorFactory {
@@ -820,6 +903,7 @@ internal fun feedSetup(id: String, params: KillfeedParams, width: Int, height: I
             px(params.minHeight), px(params.maxHeight), px(params.minWidth), px(params.maxWidth),
             params.minFill, params.maxFill, px(params.narrowWidth), params.narrowFill,
             params.minTopEdge, params.topRows, px(params.deathEdge), params.selfShare,
+            maxInside = params.maxInside, insideMargin = px(params.insideMargin),
         )
     }
     // Un aplat est plein : rien à combler entre deux pixels.

@@ -140,7 +140,7 @@ class AnalysisLibrary(val file: Path) {
 
     companion object {
         /** À augmenter quand un détecteur change de calcul : les analyses précédentes sont alors refaites. */
-        const val ANALYSIS_VERSION = 5
+        const val ANALYSIS_VERSION = 6
 
         /** Extension des fichiers de session : la seule chose que [forget] efface. */
         const val SESSION_SUFFIX = ".session.json"

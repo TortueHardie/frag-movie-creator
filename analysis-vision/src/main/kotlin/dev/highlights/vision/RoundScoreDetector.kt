@@ -48,6 +48,13 @@ data class RoundScoreParams(
      * 2, « 12 » passait pour « 22 » et « 11 » pour « 10 » ; avec 3, « 13 » pour « 10 » ; avec 4, tous justes).
      */
     val gap: Int = 4,
+    /**
+     * Écarts essayés autour de [gap] pour les nombres de deux chiffres. Mesuré le 23/11 sur une partie 3440x1440 (zone
+     * réduite au tiers) : avec 4 seul, « 10 » passait pour « 13 » et « 12 » restait fragile ; avec 3 seul, « 11 » pour
+     * « 17 » et « 13 » pour « 10 » (le « 1 » n'a pas la même chasse que dans la vidéo 480p). Avec 3 à 5, les 24 zones
+     * 480p et les 17 zones 1440p sont justes (`round-score`, `round-score-hd` des tests).
+     */
+    val gapSlack: Int = 1,
     /** Décalage horizontal toléré du nombre autour du centre de la zone, en pixels de référence. */
     val slack: Int = 2,
     /** Plus haut score cherché (prolongations comprises). */
@@ -88,7 +95,15 @@ data class RoundScoreParams(
  * chiffres, posé sur un fond uni de la largeur de la zone, et comparé à toute la zone par corrélation normalisée. Toute
  * la largeur compte : un modèle d'un seul chiffre comparé à une partie du nombre (« 1 » dans « 11 ») gagnait sinon.
  */
-class ScoreReader(digits: Map<Int, GrayImage>, val width: Int, private val threshold: Double, gap: Int, slack: Int, maxValue: Int) {
+class ScoreReader(
+    digits: Map<Int, GrayImage>,
+    val width: Int,
+    private val threshold: Double,
+    gap: Int,
+    slack: Int,
+    maxValue: Int,
+    gapSlack: Int = 0,
+) {
     init {
         require(digits.isNotEmpty()) { "aucun chiffre" }
         require(digits.values.map { it.height }.distinct().size == 1) { "les chiffres doivent avoir la même hauteur" }
@@ -102,9 +117,13 @@ class ScoreReader(digits: Map<Int, GrayImage>, val width: Int, private val thres
         for (n in 0..maxValue) {
             val parts = n.toString().map { digits[it.digitToInt()] ?: return@map null }
             if (parts.any { it == null }) continue
-            val number = compose(parts.filterNotNull(), gap)
-            val x0 = kotlin.math.round((width - 1) / 2.0 - number.second / 2.0).toInt()
-            for (o in -slack..slack) normalized(place(number, x0 + o))?.let { add(Candidate(n, it)) }
+            // Un seul chiffre : l'écart ne compte pas, une seule composition.
+            val gaps = if (parts.size > 1) (gap - gapSlack).coerceAtLeast(0)..gap + gapSlack else gap..gap
+            for (g in gaps) {
+                val number = compose(parts.filterNotNull(), g)
+                val x0 = kotlin.math.round((width - 1) / 2.0 - number.second / 2.0).toInt()
+                for (o in -slack..slack) normalized(place(number, x0 + o))?.let { add(Candidate(n, it)) }
+            }
         }
     }
 
@@ -168,10 +187,10 @@ class ScoreReader(digits: Map<Int, GrayImage>, val width: Int, private val thres
     }
 
     companion object {
-        fun load(dir: Path, width: Int, threshold: Double, gap: Int, slack: Int, maxValue: Int): ScoreReader {
+        fun load(dir: Path, width: Int, threshold: Double, gap: Int, slack: Int, maxValue: Int, gapSlack: Int = 0): ScoreReader {
             val files = (0..9).associateWith { dir.resolve("digit_$it.png") }.filterValues { it.toFile().isFile }
             if (files.isEmpty()) GrayImage.load(dir.resolve("digit_0.png"))
-            return ScoreReader(files.mapValues { GrayImage.load(it.value) }, width, threshold, gap, slack, maxValue)
+            return ScoreReader(files.mapValues { GrayImage.load(it.value) }, width, threshold, gap, slack, maxValue, gapSlack)
         }
     }
 }
@@ -295,7 +314,7 @@ class RoundScoreDetector(override val id: String, private val params: RoundScore
         }
         val allyZone = zone(params.ally)
         val enemyZone = zone(params.enemy)
-        val reader = ScoreReader.load(ctx.configDir.resolve(params.digits), allyZone.width, params.threshold, params.gap, params.slack, params.maxValue)
+        val reader = ScoreReader.load(ctx.configDir.resolve(params.digits), allyZone.width, params.threshold, params.gap, params.slack, params.maxValue, params.gapSlack)
         if (allyZone.height < reader.height || enemyZone.width != allyZone.width) {
             throw ConfigException(Message("error.detector.zoneSmallerThanTemplate", "id" to id, "name" to "digits", "zone" to "${allyZone.width}x${allyZone.height}", "template" to "?x${reader.height}"))
         }

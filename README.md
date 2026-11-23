@@ -614,7 +614,25 @@ En ligne de commande :
   de l'écran (`round-start`) : dans une vidéo montée, phases d'achat coupées, deux rounds se suivent à 10 s. Mesuré sur
   deux parties en 854x480 (`output/revue/clutch-reel/`, vérité `verite/valorant/`) : morts alliées précision 0,92,
   rappel 0,97 (67 sur 69, le joueur compris) ; clutchs : 2 trouvés pour 2 réels (deux 1 contre 1, aucun 1 contre 2
-  dans ces parties), aucun inventé, ni à partir des clutchs de coéquipiers. Pas vérifié en 1080p ni 1440p, faute de capture. Une mort sépare toujours deux kills rapprochés en
+  dans ces parties), aucun inventé, ni à partir des clutchs de coéquipiers. En haute définition (22/11, trois clips
+  Outplayed réels 2580x1080 et 1720x720, plus leurs copies agrandies en 3440x1440) : 5 morts alliées sur 5 et 10 morts
+  adverses sur 11, aucune fausse ; pas de partie entière en 1080p ou 1440p sur le disque, clutchs et débuts de round
+  non vérifiés à ces définitions (`output/revue/valorant-hd/`). Deux réglages en viennent, mesurés aussi en 480p : la
+  durée de vie des lignes (`lineLife`, voir le killfeed plus bas) et une tolérance verticale de 20 px de référence au
+  lieu de 12 (`matchTolerance` : pendant un flash, le centre lu d'une ligne remonte de 6 px puis revient). Sur
+  « Valorant- 44 kills » : morts alliées 69 sur 69 au lieu de 67, toujours 6 fausses ; 9 morts adverses de plus,
+  toutes de vraies lignes vérifiées à l'image. Partie entière 3440x1440 du 22/11 (Sunset, vérité relevée à l'image,
+  `verite/valorant/FTHR_*.yaml`, `output/revue/valorant-hd/partie-1440p/`) : les murs orange et bruns du décor passaient
+  pour du rouge adverse, la bande d'une ligne adverse s'y fondait et n'avait plus la hauteur d'une ligne. Une bande de
+  hauteur impossible est désormais relue au rouge « franc » (`enemyStrict` : bleu proche du vert ; les murs, même
+  éclairés, ont 25 à 40 de bleu de moins que les bandes) ; la lecture habituelle ne change pas (l'écran vert de la mort
+  du joueur teinte les bandes rouges : appliqué partout, ce rouge franc datait 3 morts adverses 2 s trop tard en 480p).
+  L'incrustation « Erreur de tir » (option d'affichage du jeu, que des joueurs gardent) passe sous la quatrième ligne :
+  son trait blanc et son libellé coupaient la bande de la victime en deux ; une ligne de pixels presque toute blanche
+  prise entre deux lignes de la même équipe compte avec elles (`textRows`, 4 px de référence). Sans incrustation, rien
+  ne change. Partie 1440p : morts adverses 28 → 34 sur 35, morts alliées 39 sur 42 ; fausses 14 → 10 (décor : dôme d'une
+  capacité, mur rose). En 480p, deux morts adverses datées 0,2 et 0,8 s plus tôt, au moment exact où leur ligne
+  apparaît (vérifié à l'image) ; sur les clips HD, mêmes événements. Une mort sépare toujours deux kills rapprochés en
   deux clips. Sans aucune mort annoncée (`deathEvent` vide, ou jeu sans Outplayed ni killfeed lu), rien de tout ça ne
   s'applique.
   Désactivable par une case de la fenêtre de montage ou `--no-rounds`.
@@ -654,7 +672,12 @@ En ligne de commande :
   round. Mesuré sur deux parties 854x480 (`output/revue/bandeau-score/`) : 98 à 99 % des images lues d'un côté disent le
   score décodé, 48 changements de score sur 48 justes (vérifiés à l'œil avant et après chacun), aucun faux, fins 13-10
   et 12-13 comme les tableaux de fin ; mêmes résultats avec une image toutes les 2 s. 2 img/s en décodage logiciel (images clés si elles tombent chaque seconde).
-  Non vérifié en 1080p ni 1440p. En 9:16, centré en haut sous la barre du HUD recollée, à 10 % du haut au moins et dans
+  En haute définition (22/11, trois clips Outplayed réels 2580x1080 et 1720x720 en 21:9, et leurs copies agrandies en
+  3440x1440) : score de départ (3-3, 1-3, 2-3) et changement de score après l'ACE justes partout, aucun faux. Sur une
+  partie entière 3440x1440 (22/11, de 9-4 à 13-10), les nombres de deux chiffres étaient mal lus (« 10 » pris pour
+  « 13 », « 11 » pour « 17 ») et le décodage enchaînait les rounds fantômes : 21 faux changements. L'écart entre les
+  deux chiffres varie d'un pixel selon le « 1 » et la réduction : 3, 4 et 5 px sont essayés (`gapSlack`). Après : 23
+  changements sur 23 (score de départ compris), aucun faux ; zones réelles 480p et 1440p dans les tests (`RoundScoreTest`). En 9:16, centré en haut sous la barre du HUD recollée, à 10 % du haut au moins et dans
   la zone sûre, entre le compteur de kills (coin) et les libellés DOUBLÉ/TRIPLÉ (25 %) ; dans les autres formats, posé
   sur le chrono du jeu. Rien pour une capture sans score lu ni pour l'ouverture vitrine.
 - **Effets** (désactivables : `--no-zoom`, `--no-flash`, `--no-slowmo`, `--no-text`) : zoom punch, ralenti ×0,5 sur le
@@ -1269,6 +1292,23 @@ ligne est un événement.
   expire) compte comme une mort, pas un kill. Pas d'assistances ni de headshots, que le killfeed ne distingue pas.
 - Toutes les captures sont lues à la même finesse (`scale`, en pixels lus par pixel de référence) : réduite davantage,
   une capture 1080p perdait le contour d'un pixel du cadre.
+- Haute définition revérifiée le 22/11 sur trois clips Outplayed réels en 21:9 (2580x1080 ×2, 1720x720 ; vérité
+  `verite/valorant/Valorant_01-*.yaml`, journal `output/revue/valorant-hd/`). Le contour y est jaune pâle et ses traits
+  du haut et du bas se perdent à moitié à la réduction : cadres de 30 à 32 px de référence, jusqu'à 13 % colorés quand
+  le contour suit la ligne. Bornes baissées de 34 à 30 px (`minHeight`) et de 15 à 12 % (`minFill`). Une ligne du
+  killfeed reste affichée environ 4,9 s : une ligne suivie apparue il y a plus de 5,3 s (`lineLife`) ne peut plus être
+  celle qu'on voit, ce qui est à sa place est un nouveau kill (le cinquième kill d'un ACE, affiché à la place exacte
+  d'une ligne effacée 0,7 s plus tôt, passait pour elle revue après une fumée) ; la lecture des images clés propage
+  l'instant d'apparition de chaque ligne pour la même raison. Kills : 7 sur 11 avant, 9 sur 11 après, aucun faux
+  (le dixième, sur fond sombre, a un contour trop pâle pour le seuil ; le onzième s'affiche 0,4 s avant la fin du clip).
+  En 480p, rien ne change (46 kills, 18 morts, 46 confirmations, mêmes instants).
+- Partie entière 3440x1440 du 22/11 (FTHRClips, Sunset, 10 rounds ; vérité `verite/valorant/FTHR_*.yaml`, planches
+  `output/revue/valorant-hd/partie-1440p/`) : les 8 morts du joueur et son seul kill lus, mais 5 faux kills (et 13
+  fausses confirmations à 30 img/s) : des lampes murales et une enseigne au néon jaunes dans la zone du killfeed. Leurs
+  barres pleines, réunies par le comblement des trous, avaient la forme d'un cadre étroit. Un cadre est un contour : la
+  part de pixels jaunes à l'intérieur (à 4 px de référence du bord) ne dépasse plus 42 % (`maxInside`). Mesuré : vrais
+  cadres à 7-23 % (kills, ici et dans les clips 2580x1080 et 1720x720) et 33-35 % (morts : visage du joueur), décor à
+  48-71 %. Après : aucun faux kill ni fausse confirmation, rien de perdu ailleurs (vraies zones dans `KillfeedTest`).
 - Il ne tourne que si Outplayed n'a rien donné (`fallbackFor: game-events` dans le profil) : les kills ne sont jamais
   comptés deux fois, et une capture Outplayed ne coûte pas un décodage vidéo de plus. Il tourne alors en même temps
   que l'analyse audio, pas après.
@@ -1452,7 +1492,9 @@ donne déjà les tirs à la tête, il ne relit rien.
   `output\revue\onetaps-finition\LOG.md`. Gabarit moyen de 9 icônes nettes de la première partie.
 - La ligne se pose en glissant (0,4 s) : la note retenue est la meilleure image de la ligne apparue le plus près du
   kill ; deux kills à 0,4 s d'écart ont chacun la leur. Une ligne déjà là avant le kill ne compte pas.
-- Non vérifié en 1080p ni en 1440p (gabarit pris en 480p, agrandi à la taille de la ligne).
+- Haute définition (22/11, gabarit pris en 480p, agrandi) : sur trois clips réels 2580x1080 et 1720x720, chaque kill
+  lu par le killfeed a son icône bien jugée (4 headshots sur 4, aucun faux) ; le headshot d'un kill que le killfeed
+  manque est manqué aussi. Pas de partie entière en 1080p ou 1440p sur le disque.
 
 ## Monter sur la musique : les notes qui ressortent
 

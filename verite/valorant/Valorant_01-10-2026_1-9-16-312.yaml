@@ -1,0 +1,38 @@
+# Vérité terrain relevée à l'image (22/11/2026) : clip Outplayed de janvier 2026, 1720x720 en 21:9, joueur « Moi ».
+# Killfeed lu à 10 img/s à pleine définition (planches : output/revue/valorant-hd/). Instants : apparition de la ligne
+# (premier aplat sarcelle de l'animation), à 0,1 s près. headshot = icône de la cible entre l'arme et la victime.
+# ally-death : victime sarcelle (équipe du joueur), aucune
+# enemy-death : victime rouge (ici, toutes tuées par le joueur).
+capture: { name: Valorant_01-10-2026_1-9-16-312.mp4, sizeBytes: 11898816, duration: 15.018667s }
+profile: valorant
+tolerance: 1s
+validated: utilisateur, 2026-11-22
+note: "Clip court (Outplayed), le joueur ne meurt pas. Score des rounds : celui affiché à la première image (1-3, émis par round-score comme autant de rounds gagnés et perdus à 0 s), puis chaque changement."
+kinds: [kill, feed-kill, death, headshot, ally-death, enemy-death, round-won, round-lost]
+# Seuils : état mesuré le 22/11 (le quatrième kill s'affiche 0,4 s avant la fin du clip : jamais vu assez longtemps).
+thresholds:
+  killfeed: { kill: { precision: 1.0, recall: 0.75 } }
+  kill-confirm: { feed-kill: { precision: 1.0, recall: 0.75 } }
+  headshot-icon: { headshot: { precision: 1.0, recall: 1.0 } }
+  teams: { enemy-death: { precision: 1.0, recall: 0.75 } }
+  score: { round-won: { precision: 1.0, recall: 1.0 }, round-lost: { precision: 1.0, recall: 1.0 } }
+events:
+  - { at: "0s", kind: round-won, note: "score de départ 1-3" }
+  - { at: "0s", kind: round-lost }
+  - { at: "0s", kind: round-lost }
+  - { at: "0s", kind: round-lost }
+  - { at: "4.2s", kind: enemy-death }
+  - { at: "4.2s", kind: feed-kill }
+  - { at: "4.2s", kind: headshot }
+  - { at: "4.2s", kind: kill, note: "Me ツ, Sheriff" }
+  - { at: "6.3s", kind: enemy-death }
+  - { at: "6.3s", kind: feed-kill }
+  - { at: "6.3s", kind: headshot }
+  - { at: "6.3s", kind: kill, note: "Raze, Sheriff" }
+  - { at: "9.6s", kind: enemy-death }
+  - { at: "9.6s", kind: feed-kill }
+  - { at: "9.6s", kind: headshot }
+  - { at: "9.6s", kind: kill, note: "scarsbysissy, Sheriff (III)" }
+  - { at: "14.6s", kind: enemy-death }
+  - { at: "14.6s", kind: feed-kill }
+  - { at: "14.6s", kind: kill, note: "yezzy (IV), sans icône de tête" }
